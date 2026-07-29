@@ -1,0 +1,25 @@
+{
+  "lenses_we_sell": [
+    {"type": "Complimentary Single Vision", "url": "/lenses", "description": "Standard single-vision included free with every frame"},
+    {"type": "Anti-Glare", "url": "/lenses/anti-glare-lenses", "description": "Reduces reflections and glare"},
+    {"type": "Blue Cut", "url": "/lenses/blue-cut-lenses", "description": "Filters harmful blue light from screens"},
+    {"type": "Multi Anti-Glare", "url": "/lenses/multi-anti-glare-lenses", "description": "Premium multi-coated anti-reflective"},
+    {"type": "Thin", "url": "/lenses/thin-lenses", "description": "1.61 index for powers up to -6/+4"},
+    {"type": "Ultra-Thin (Extra Thin)", "url": "/lenses/ultra-thin-lenses", "description": "1.67/1.74 index for high powers -6 to -12"},
+    {"type": "Photochromic Grey", "url": "/lenses/photogrey-lenses", "description": "Auto-darkening grey tint outdoors"},
+    {"type": "Photochromic Brown", "url": "/lenses/photobrown-lenses", "description": "Auto-darkening brown tint outdoors"},
+    {"type": "Polarized", "url": "/lenses/polarized-lenses", "description": "Eliminates glare from reflective surfaces"},
+    {"type": "Bifocal Round", "url": "/lenses/bifocal-round-lenses", "description": "Near and distance vision with round segment"},
+    {"type": "Bifocal Flat-Top D", "url": "/lenses/bifocal-flat-top-d-lenses", "description": "Near and distance vision with D-segment"},
+    {"type": "Progressive", "url": "/lenses/progressive-lenses", "description": "Seamless near-to-far vision, no visible line"}
+  ],
+  "lenses_we_dont_sell": ["polycarbonate", "trivex", "CR-39", "glass", "high-index glass"],
+  "lens_material": "All our lenses are high-index resin (1.56/1.61/1.67/1.74 depending on power). We do NOT use polycarbonate, trivex, or glass.",
+  "power_recommendations": {
+    "0 to -2 (or +2)": "Standard complimentary (1.56 index) is fine",
+    "-2 to -4 (or +2 to +4)": "Standard (1.56) or Thin (1.61) for slimmer look",
+    "-4 to -6": "Thin (1.61) recommended for comfort and aesthetics",
+    "-6 to -8": "Ultra-Thin (1.67) strongly recommended",
+    "-8 and above": "Ultra-Thin (1.74) required for acceptable thickness"
+  }
+}

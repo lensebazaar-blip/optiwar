@@ -1,0 +1,280 @@
+{% extends 'base.html' %}
+{% block title %}Prescription Lenses - All Lens Types at Factory Outlet Prices | Optiwar{% endblock %}
+{% block meta_description %}{% if is_india %}Explore all prescription lens types at Optiwar: Anti-Glare, Blue Cut, Photochromic, Thin, Ultra-Thin, Bifocal, Progressive lenses. Complimentary with every spectacle frame. Free shipping across India.{% else %}Explore all prescription lens types at Optiwar: Anti-Glare, Blue Cut, Photochromic, Thin, Ultra-Thin, Bifocal, Progressive lenses. Complimentary with every spectacle frame. Free worldwide shipping.{% endif %}{% endblock %}
+{% block meta_keywords %}{% if is_india %}prescription lenses India, anti-glare lenses, blue cut lenses, photochromic lenses, bifocal lenses, progressive lenses, thin lenses, ultra-thin lenses, polarized lenses, optiwar lenses{% else %}prescription lenses online, anti-glare lenses, blue cut lenses, photochromic lenses, bifocal lenses, progressive lenses, thin lenses, ultra-thin lenses, polarized lenses, optiwar lenses{% endif %}{% endblock %}
+{% block og_title %}All Prescription Lens Types | Optiwar Factory Outlet{% endblock %}
+{% block og_description %}Every spectacle frame at Optiwar includes complimentary prescription lenses. Upgrade to Anti-Glare, Blue Cut, Photochromic, Bifocal or Progressive lenses at factory outlet prices.{% endblock %}
+{% block og_url %}{{ site_url }}/lenses{% endblock %}
+{% block canonical_url %}{{ site_url }}/lenses{% endblock %}
+{% block hreflang_in %}https://optiwar.in/lenses{% endblock %}
+{% block hreflang_default %}https://optiwar.com/lenses{% endblock %}
+
+{% block jsonld_extra %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "ItemList",
+  "name": "Optiwar Prescription Lens Types",
+  "description": "All prescription lens types available at Optiwar Factory Outlet. Lenses are complimentary with every spectacle frame purchase.",
+  "url": "{{ site_url }}/lenses",
+  "numberOfItems": {{ lenses|length }},
+  "itemListElement": [
+    {% for lens in lenses %}
+    {
+      "@type": "ListItem",
+      "position": {{ loop.index }},
+      "name": "{{ lens.name }}",
+      "url": "{{ site_url }}/lenses/{{ lens.slug }}"
+    }{% if not loop.last %},{% endif %}
+    {% endfor %}
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {"@type": "ListItem", "position": 1, "name": "Home", "item": "{{ site_url }}/"},
+    {"@type": "ListItem", "position": 2, "name": "Lenses", "item": "{{ site_url }}/lenses"}
+  ]
+}
+</script>
+{% endblock %}
+
+{% block content %}
+<style>
+.lenses-hero {
+  text-align: center;
+  padding: 40px 20px 20px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+.lenses-hero h1 {
+  font-size: 2rem;
+  color: #1a1a2e;
+  margin-bottom: 12px;
+}
+.lenses-hero .subtitle {
+  font-size: 1.1rem;
+  color: #555;
+  line-height: 1.6;
+  max-width: 700px;
+  margin: 0 auto 30px;
+}
+.lens-widget-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  justify-content: center;
+  font-family: Inter, Arial, sans-serif;
+  max-width: 1100px;
+  margin: 0 auto 40px;
+  padding: 0 20px;
+}
+.lens-widget-link {
+  text-decoration: none;
+  color: inherit;
+}
+.lens-widget {
+  width: 96px;
+  height: 96px;
+  border-radius: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #fff;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.18);
+  box-shadow: 0 10px 24px rgba(0,0,0,.14);
+  transition: .22s ease;
+}
+.lens-widget:hover {
+  transform: translateY(-4px) scale(1.03);
+}
+.lens-widget::before {
+  content: "";
+  position: absolute;
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.12);
+  top: -18px;
+  right: -18px;
+}
+.lens-widget .w-icon {
+  font-size: 26px;
+  z-index: 1;
+}
+.lens-widget .w-label {
+  z-index: 1;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+  line-height: 1.2;
+  padding: 0 6px;
+}
+.w-anti-glare { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
+.w-blue-cut { background: linear-gradient(135deg, #2563eb, #06b6d4); }
+.w-multi-glare { background: linear-gradient(135deg, #7c3aed, #ec4899); }
+.w-thin { background: linear-gradient(135deg, #10b981, #14b8a6); }
+.w-ultra-thin { background: linear-gradient(135deg, #0ea5e9, #6366f1); }
+.w-grey { background: linear-gradient(135deg, #4b5563, #9ca3af); }
+.w-brown { background: linear-gradient(135deg, #92400e, #d97706); }
+.w-polarized { background: linear-gradient(135deg, #111827, #374151); }
+.w-bifocal-round { background: linear-gradient(135deg, #db2777, #8b5cf6); }
+.w-bifocal-flat { background: linear-gradient(135deg, #f97316, #ef4444); }
+.w-progressive { background: linear-gradient(135deg, #0891b2, #4f46e5); }
+
+.lenses-info {
+  background: #f0f4ff;
+  border-radius: 16px;
+  padding: 30px;
+  max-width: 900px;
+  margin: 0 auto 40px;
+  text-align: center;
+}
+.lenses-info h2 {
+  color: #1a1a2e;
+  margin-bottom: 12px;
+}
+.lenses-info p {
+  color: #555;
+  line-height: 1.7;
+  max-width: 700px;
+  margin: 0 auto;
+}
+.lens-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 24px;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 20px 60px;
+}
+.lens-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 28px 24px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  transition: transform 0.2s, box-shadow 0.2s;
+  text-decoration: none;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+}
+.lens-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+}
+.lens-card-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.lens-card-badge {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  color: #fff;
+  flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+}
+.lens-card-badge::before {
+  content: "";
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.15);
+  top: -10px;
+  right: -10px;
+}
+.lens-card h2 {
+  font-size: 1.15rem;
+  color: #1a1a2e;
+  margin: 0;
+  line-height: 1.3;
+}
+.lens-card .lens-price {
+  font-size: 0.9rem;
+  color: #4f46e5;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.lens-card p {
+  font-size: 0.9rem;
+  color: #666;
+  line-height: 1.5;
+  flex: 1;
+}
+.lens-card .read-more {
+  color: #4f46e5;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-top: 12px;
+}
+@media (max-width: 420px) {
+  .lens-widget { width: 84px; height: 84px; border-radius: 20px; }
+  .lens-widget .w-icon { font-size: 22px; }
+  .lens-widget .w-label { font-size: 10px; }
+  .lens-cards-grid { grid-template-columns: 1fr; }
+  .lenses-hero h1 { font-size: 1.5rem; }
+}
+</style>
+
+<div class="lenses-hero">
+  <h1>Prescription Lenses at Factory Outlet Prices</h1>
+  <p class="subtitle">
+    Every spectacle frame at Optiwar comes with <strong>complimentary prescription lenses</strong>.
+    Our AI platform automatically selects the optimal lens for your prescription.
+    Want an upgrade? Choose from our range of premium lens types below. {% if is_india %}Free shipping across India.{% else %}Free worldwide shipping.{% endif %}
+  </p>
+</div>
+
+<div class="lens-widget-grid">
+  {% for lens in lenses %}
+  <a href="/lenses/{{ lens.slug }}" class="lens-widget-link">
+    <div class="lens-widget w-{{ lens.widget_class }}">
+      <div class="w-icon">{{ lens.widget_icon }}</div>
+      <span class="w-label">{{ lens.widget_label }}</span>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+
+<div class="lenses-info">
+  <h2>How Optiwar Lenses Work</h2>
+  <p>
+    When you purchase any spectacle frame from Optiwar, single-vision prescription lenses are included at no extra cost.
+    Enter your prescription (Power, Cylinder, Axis) and our system recommends the right lens automatically.
+    For special needs like bifocals, progressives, photochromic tints, or premium coatings, simply select your preferred add-on.
+    Powers above &plusmn;8.00 incur a high-power surcharge of {% if is_india %}Rs 400{% else %}&euro;7{% endif %}. Cylinder above 4.00 incurs {% if is_india %}Rs 1000{% else %}&euro;13{% endif %} adjustment.
+  </p>
+</div>
+
+<div class="lens-cards-grid">
+  {% for lens in lenses %}
+  <a href="/lenses/{{ lens.slug }}" class="lens-card">
+    <div class="lens-card-header">
+      <div class="lens-card-badge w-{{ lens.widget_class }}">{{ lens.widget_icon }}</div>
+      <h2>{{ lens.name }}</h2>
+    </div>
+    <div class="lens-price">{{ lens.price_label }}</div>
+    <p>{{ lens.short_desc }}</p>
+    <span class="read-more">Learn more &rarr;</span>
+  </a>
+  {% endfor %}
+</div>
+
+{% endblock %}

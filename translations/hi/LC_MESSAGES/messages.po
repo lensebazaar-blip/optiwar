@@ -1,0 +1,404 @@
+# Hindi translations for PROJECT.
+# Copyright (C) 2026 ORGANIZATION
+# This file is distributed under the same license as the PROJECT project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: PROJECT VERSION\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2026-06-30 12:05+0530\n"
+"PO-Revision-Date: 2026-06-30 12:05+0530\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: hi\n"
+"Language-Team: hi <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: templates/all_frames.html:121
+msgid "All Spectacle Frames"
+msgstr "सभी चश्मे के फ्रेम"
+
+#: templates/base.html:277
+msgid "Single Vision Lenses"
+msgstr "सिंगल विज़न लेंस"
+
+#: templates/base.html:279
+msgid "Browse Frames"
+msgstr "फ्रेम ब्राउज़ करें"
+
+#: templates/base.html:285
+msgid "Progressive Lenses"
+msgstr "प्रोग्रेसिव लेंस"
+
+#: templates/base.html:287
+msgid "Measure My Face"
+msgstr "मेरा चेहरा मापें"
+
+#: templates/base.html:294
+msgid "Bifocal Lenses"
+msgstr "बाइफोकल लेंस"
+
+#: templates/base.html:302
+msgid "Blue Cut Lenses"
+msgstr "ब्लू कट लेंस"
+
+#: templates/base.html:310
+msgid "Multi-Glare Protection"
+msgstr "मल्टी-ग्लेयर प्रोटेक्शन"
+
+#: templates/base.html:318
+msgid "Photochromic Lenses"
+msgstr "फोटोक्रोमिक लेंस"
+
+#: templates/base.html:326
+msgid "Polarized Lenses"
+msgstr "पोलराइज्ड लेंस"
+
+#: templates/base.html:334 templates/base.html:572
+msgid "UV Protection"
+msgstr "यूवी प्रोटेक्शन"
+
+#: templates/base.html:342
+msgid "Anti-Glare Lenses"
+msgstr "एंटी-ग्लेयर लेंस"
+
+#: templates/base.html:353
+msgid "Factory Outlet Opticals"
+msgstr "फैक्ट्री आउटलेट ऑप्टिकल्स"
+
+#: templates/base.html:358
+msgid "Faces"
+msgstr "चेहरे"
+
+#: templates/base.html:368
+msgid "Search"
+msgstr "खोजें"
+
+#: templates/base.html:374
+msgid "Favorites"
+msgstr "पसंदीदा"
+
+#: templates/base.html:379
+msgid "Cart"
+msgstr "कार्ट"
+
+#: templates/base.html:384
+msgid "Account"
+msgstr "खाता"
+
+#: templates/base.html:388 templates/base.html:444
+msgid "Logout"
+msgstr "लॉग आउट"
+
+#: templates/base.html:393 templates/base.html:449 templates/login.html:38
+msgid "Login"
+msgstr "लॉग इन"
+
+#: templates/base.html:399
+msgid "Select Language"
+msgstr "भाषा चुनें"
+
+#: templates/base.html:440
+msgid "My Profile"
+msgstr "मेरी प्रोफ़ाइल"
+
+#: templates/base.html:459
+msgid "Lens Types"
+msgstr "लेंस के प्रकार"
+
+#: templates/base.html:487
+msgid "Anti-Glare"
+msgstr "एंटी-ग्लेयर"
+
+#: templates/base.html:488
+msgid "Reduces reflections"
+msgstr "प्रतिबिंब कम करता है"
+
+#: templates/base.html:509
+msgid "Blue Cut"
+msgstr "ब्लू कट"
+
+#: templates/base.html:510
+msgid "Screen protection"
+msgstr "स्क्रीन सुरक्षा"
+
+#: templates/base.html:530
+msgid "Photochromic"
+msgstr "फोटोक्रोमिक"
+
+#: templates/base.html:531
+msgid "Auto-tinting"
+msgstr "ऑटो-टिंटिंग"
+
+#: templates/base.html:552
+msgid "Polarized"
+msgstr "पोलराइज्ड"
+
+#: templates/base.html:553
+msgid "Glare elimination"
+msgstr "चमक हटाना"
+
+#: templates/base.html:573
+msgid "UV400 shield"
+msgstr "यूवी400 शील्ड"
+
+#: templates/base.html:588
+msgid "Filters"
+msgstr "फ़िल्टर"
+
+#: templates/base.html:611
+msgid "Select Frame Shape"
+msgstr "फ्रेम का आकार चुनें"
+
+#: templates/base.html:668
+msgid "Select Color"
+msgstr "रंग चुनें"
+
+#: templates/base.html:700
+msgid "Categories"
+msgstr "श्रेणियाँ"
+
+#: templates/base.html:702
+msgid "Half Frames Specs"
+msgstr "हाफ फ्रेम स्पेक्स"
+
+#: templates/base.html:703
+msgid "Club Master Specs"
+msgstr "क्लब मास्टर स्पेक्स"
+
+#: templates/base.html:704
+msgid "Rounded-Glass Specs"
+msgstr "गोल ग्लास स्पेक्स"
+
+#: templates/base.html:705
+msgid "Rectangle Specs"
+msgstr "आयताकार स्पेक्स"
+
+#: templates/base.html:706
+msgid "Rimless Specs"
+msgstr "रिमलेस स्पेक्स"
+
+#: templates/base.html:707
+msgid "Square Specs"
+msgstr "स्क्वायर स्पेक्स"
+
+#: templates/base.html:734
+msgid "About Optiwar"
+msgstr "ऑप्टिवार के बारे में"
+
+#: templates/base.html:746
+msgid "Our Lenses"
+msgstr "हमारे लेंस"
+
+#: templates/base.html:764
+msgid "Shop Categories"
+msgstr "दुकान श्रेणियाँ"
+
+#: templates/base.html:777
+msgid "Quick Links"
+msgstr "त्वरित लिंक"
+
+#: templates/base.html:779
+msgid "All Lenses"
+msgstr "सभी लेंस"
+
+#: templates/base.html:780
+msgid "AI Face Measurement"
+msgstr "एआई चेहरा माप"
+
+#: templates/base.html:781
+msgid "Search Products"
+msgstr "उत्पाद खोजें"
+
+#: templates/base.html:782
+msgid "Terms & Conditions"
+msgstr "नियम एवं शर्तें"
+
+#: templates/base.html:783
+msgid "Privacy Policy"
+msgstr "गोपनीयता नीति"
+
+#: templates/base.html:784 templates/base.html:857
+msgid "Contact Us"
+msgstr "हमसे संपर्क करें"
+
+#: templates/base.html:786
+msgid "Contact"
+msgstr "संपर्क"
+
+#: templates/base.html:799
+msgid "Visit Global Site"
+msgstr "ग्लोबल साइट पर जाएं"
+
+#: templates/base.html:807
+msgid "Visit India Site"
+msgstr "भारत साइट पर जाएं"
+
+#: templates/base.html:814
+msgid "All rights reserved."
+msgstr "सर्वाधिकार सुरक्षित।"
+
+#: templates/base.html:816
+msgid "Clear Cart"
+msgstr "कार्ट खाली करें"
+
+#: templates/base.html:857
+msgid "Raise a support ticket and our team will respond shortly."
+msgstr "सपोर्ट टिकट बनाएं, हमारी टीम जल्द ही जवाब देगी।"
+
+#: templates/base.html:857
+msgid "Name"
+msgstr "नाम"
+
+#: templates/base.html:857
+msgid "Your name"
+msgstr "आपका नाम"
+
+#: templates/base.html:857
+msgid "Subject"
+msgstr "विषय"
+
+#: templates/base.html:857
+msgid "Select a subject"
+msgstr "विषय चुनें"
+
+#: templates/base.html:857
+msgid "Description"
+msgstr "विवरण"
+
+#: templates/base.html:857
+msgid "Tell us how we can help..."
+msgstr "बताएं कि हम कैसे मदद कर सकते हैं..."
+
+#: templates/base.html:857
+msgid "Mobile"
+msgstr "मोबाइल"
+
+#: templates/base.html:857
+msgid "Email"
+msgstr "ईमेल"
+
+#: templates/base.html:857
+msgid "Enter the text shown below:"
+msgstr "नीचे दिखाया गया टेक्स्ट दर्ज करें:"
+
+#: templates/checkout.html:960
+msgid "Your Cart"
+msgstr "आपका कार्ट"
+
+#: templates/checkout.html:1065
+msgid "Qty"
+msgstr "मात्रा"
+
+#: templates/checkout.html:1237
+msgid "Delivery Address"
+msgstr "डिलीवरी पता"
+
+#: templates/checkout.html:2440
+msgid "Your cart is empty"
+msgstr "आपका कार्ट खाली है"
+
+#: templates/forgot_password.html:2
+msgid "Reset Password"
+msgstr "पासवर्ड रीसेट करें"
+
+#: templates/forgot_password.html:27
+msgid "Back to Login"
+msgstr "लॉगिन पर वापस जाएं"
+
+#: templates/login.html:6
+msgid "Login to Your Account"
+msgstr "अपने खाते में लॉगिन करें"
+
+#: templates/login.html:16
+msgid "Sign in with Google"
+msgstr "Google से साइन इन करें"
+
+#: templates/login.html:21 templates/register.html:21
+msgid "OR"
+msgstr "या"
+
+#: templates/login.html:26 templates/register.html:28
+msgid "Email Address"
+msgstr "ईमेल पता"
+
+#: templates/login.html:27
+msgid "your@email.com"
+msgstr "your@email.com"
+
+#: templates/login.html:29 templates/register.html:34
+msgid "Password"
+msgstr "पासवर्ड"
+
+#: templates/login.html:30
+msgid "Your password"
+msgstr "आपका पासवर्ड"
+
+#: templates/login.html:42
+msgid "Don't have an account?"
+msgstr "खाता नहीं है?"
+
+#: templates/login.html:42
+msgid "Register here"
+msgstr "यहां रजिस्टर करें"
+
+#: templates/login.html:43
+msgid "Forgot your password? Click here"
+msgstr "पासवर्ड भूल गए? यहां क्लिक करें"
+
+#: templates/my_orders.html:66
+msgid "No orders found"
+msgstr "कोई ऑर्डर नहीं मिला"
+
+#: templates/product_page.html:132
+msgid "Add to Cart"
+msgstr "कार्ट में जोड़ें"
+
+#: templates/product_page.html:373
+msgid "In Stock"
+msgstr "स्टॉक में है"
+
+#: templates/product_page.html:377
+msgid "Out of Stock"
+msgstr "स्टॉक खत्म"
+
+#: templates/register.html:6
+msgid "Create Your Account"
+msgstr "अपना खाता बनाएं"
+
+#: templates/register.html:16
+msgid "Sign up with Google"
+msgstr "Google से साइन अप करें"
+
+#: templates/register.html:25
+msgid "Full Name"
+msgstr "पूरा नाम"
+
+#: templates/register.html:26
+msgid "Your full name"
+msgstr "आपका पूरा नाम"
+
+#: templates/register.html:31
+msgid "Phone Number"
+msgstr "फोन नंबर"
+
+#: templates/register.html:37
+msgid "Confirm Password"
+msgstr "पासवर्ड की पुष्टि करें"
+
+#: templates/register.html:50
+msgid "Already have an account?"
+msgstr "पहले से खाता है?"
+
+#: templates/register.html:50
+msgid "Login here"
+msgstr "यहां लॉगिन करें"
+
+#: templates/terms-and-conditions.html:17
+msgid "Terms and Conditions"
+msgstr "नियम एवं शर्तें"
+

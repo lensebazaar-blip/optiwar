@@ -1,0 +1,55 @@
+<svg
+  viewBox="0 0 800 800"
+  xmlns="http://www.w3.org/2000/svg"
+  aria-labelledby="title desc"
+  role="img"
+  style="max-width:100%; height:auto; display:block;"
+>
+  <title id="title">OW Anti-Glare Lens</title>
+  <desc id="desc">A tilted lens with green anti-glare beams.</desc>
+
+  <!-- Company Text -->
+  <text x="50" y="80" font-family="Arial, sans-serif" font-size="72" font-weight="bold">
+    OW
+  </text>
+
+  <!-- Tilted Lens -->
+  <ellipse
+    cx="300" cy="500"
+    rx="260" ry="340"
+    fill="url(#lensGradient)"
+    stroke="#222"
+    stroke-width="8"
+    transform="rotate(-15 300 500)"
+  />
+
+  <!-- Lens Gradient -->
+  <defs>
+    <radialGradient id="lensGradient" fx="30%" fy="40%">
+      <stop offset="0%" stop-color="#f0f8ff" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#e0f0f8" stop-opacity="0.5"/>
+    </radialGradient>
+
+    <!-- Soft Glow Filter -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Green Anti-Glare Beams -->
+  <g filter="url(#glow)" stroke="#8cff00" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0.8">
+    <line x1="350" y1="380" x2="750" y2="100"/>
+    <line x1="350" y1="430" x2="750" y2="180"/>
+    <line x1="350" y1="480" x2="750" y2="260"/>
+  </g>
+
+  <!-- “Anti Glare” Label -->
+  <text x="380" y="580" font-family="Arial, sans-serif" font-size="48" fill="#000">
+    Anti Glare
+  </text>
+</svg>
+

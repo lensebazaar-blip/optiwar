@@ -1,0 +1,238 @@
+{
+  "@context": "https://schema.org",
+  "@type": "Product",
+  "name": "NORTH FACE NF 1003",
+  "description": "NORTH FACE NF 1003 Spectacles Frame, in Copper Brown & White, Medium size. Fits most face shapes comfortably; the most versatile size. Can be configured as prescription sunglasses. Made in India.",
+  "url": "https://optiwar.com/categories/spectacles-frame/north-face-nf-1003?pid=770",
+  "image": "https://optiwar.com/static/catalog/opticalbazaar/AL12/AL12_1.jpg",
+  "sku": "AL12",
+  "brand": {
+    "@type": "Brand",
+    "name": "Optiwar"
+  },
+  "color": "Copper Brown & White",
+  "material": "Combination of Metals, Plastics & Acetate",
+  "category": "Spectacles Frame",
+  "countryOfOrigin": {
+    "@type": "Country",
+    "name": "India"
+  },
+  "offers": {
+    "@type": "Offer",
+    "priceCurrency": "EUR",
+    "price": "35.99",
+    "availability": "https://schema.org/InStock",
+    "url": "https://optiwar.com/categories/spectacles-frame/north-face-nf-1003?pid=770",
+    "itemCondition": "https://schema.org/NewCondition",
+    "seller": {
+      "@type": "Organization",
+      "name": "Optiwar"
+    },
+    "shippingDetails": {
+      "@type": "OfferShippingDetails",
+      "shippingDestination": [
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "AU"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "AT"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "BH"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "BE"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "CA"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "CY"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "DK"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "FI"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "FR"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "DE"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "GR"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "HU"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "IE"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "IL"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "IT"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "JP"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "KW"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "MU"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "NL"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "NZ"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "NO"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "OM"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "PA"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "PL"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "PT"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "RO"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "SA"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "SG"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "ZA"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "ES"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "SE"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "CH"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "AE"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "GB"
+        },
+        {
+          "@type": "DefinedRegion",
+          "addressCountry": "QA"
+        }
+      ],
+      "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+          "@type": "QuantitativeValue",
+          "minValue": 1,
+          "maxValue": 2,
+          "unitCode": "DAY"
+        },
+        "transitTime": {
+          "@type": "QuantitativeValue",
+          "minValue": 5,
+          "maxValue": 10,
+          "unitCode": "DAY"
+        }
+      }
+    },
+    "hasMerchantReturnPolicy": {
+      "@type": "MerchantReturnPolicy",
+      "applicableCountry": [
+        "AU",
+        "AT",
+        "BH",
+        "BE",
+        "CA",
+        "CY",
+        "DK",
+        "FI",
+        "FR",
+        "DE",
+        "GR",
+        "HU",
+        "IE",
+        "IL",
+        "IT",
+        "JP",
+        "KW",
+        "MU",
+        "NL",
+        "NZ",
+        "NO",
+        "OM",
+        "PA",
+        "PL",
+        "PT",
+        "RO",
+        "SA",
+        "SG",
+        "ZA",
+        "ES",
+        "SE",
+        "CH",
+        "AE",
+        "GB",
+        "QA"
+      ],
+      "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
+      "merchantReturnDays": 7,
+      "returnMethod": "https://schema.org/ReturnByMail",
+      "returnFees": "https://schema.org/ReturnFeesCustomerResponsibility",
+      "description": "Dead-on-arrival items only. Proof of damage required. Refund within 1-7 business days after courier verification."
+    }
+  },
+  "size": "Medium"
+}

@@ -1,0 +1,404 @@
+# Gujarati translations for PROJECT.
+# Copyright (C) 2026 ORGANIZATION
+# This file is distributed under the same license as the PROJECT project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: PROJECT VERSION\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2026-06-30 12:05+0530\n"
+"PO-Revision-Date: 2026-06-30 12:05+0530\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: gu\n"
+"Language-Team: gu <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: templates/all_frames.html:121
+msgid "All Spectacle Frames"
+msgstr "બધા ચશ્માના ફ્રેમ્સ"
+
+#: templates/base.html:277
+msgid "Single Vision Lenses"
+msgstr "સિંગલ વિઝન લેન્સ"
+
+#: templates/base.html:279
+msgid "Browse Frames"
+msgstr "ફ્રેમ્સ બ્રાઉઝ કરો"
+
+#: templates/base.html:285
+msgid "Progressive Lenses"
+msgstr "પ્રોગ્રેસિવ લેન્સ"
+
+#: templates/base.html:287
+msgid "Measure My Face"
+msgstr "મારો ચહેરો માપો"
+
+#: templates/base.html:294
+msgid "Bifocal Lenses"
+msgstr "બાઇફોકલ લેન્સ"
+
+#: templates/base.html:302
+msgid "Blue Cut Lenses"
+msgstr "બ્લુ કટ લેન્સ"
+
+#: templates/base.html:310
+msgid "Multi-Glare Protection"
+msgstr "મલ્ટી-ગ્લેર પ્રોટેક્શન"
+
+#: templates/base.html:318
+msgid "Photochromic Lenses"
+msgstr "ફોટોક્રોમિક લેન્સ"
+
+#: templates/base.html:326
+msgid "Polarized Lenses"
+msgstr "પોલરાઇઝ્ડ લેન્સ"
+
+#: templates/base.html:334 templates/base.html:572
+msgid "UV Protection"
+msgstr "યુવી પ્રોટેક્શન"
+
+#: templates/base.html:342
+msgid "Anti-Glare Lenses"
+msgstr "એન્ટી-ગ્લેર લેન્સ"
+
+#: templates/base.html:353
+msgid "Factory Outlet Opticals"
+msgstr "ફેક્ટરી આઉટલેટ ઓપ્ટિકલ્સ"
+
+#: templates/base.html:358
+msgid "Faces"
+msgstr "ચહેરા"
+
+#: templates/base.html:368
+msgid "Search"
+msgstr "શોધો"
+
+#: templates/base.html:374
+msgid "Favorites"
+msgstr "પસંદગીઓ"
+
+#: templates/base.html:379
+msgid "Cart"
+msgstr "કાર્ટ"
+
+#: templates/base.html:384
+msgid "Account"
+msgstr "એકાઉન્ટ"
+
+#: templates/base.html:388 templates/base.html:444
+msgid "Logout"
+msgstr "લોગઆઉટ"
+
+#: templates/base.html:393 templates/base.html:449 templates/login.html:38
+msgid "Login"
+msgstr "લોગઇન"
+
+#: templates/base.html:399
+msgid "Select Language"
+msgstr "ભાષા પસંદ કરો"
+
+#: templates/base.html:440
+msgid "My Profile"
+msgstr "મારી પ્રોફાઇલ"
+
+#: templates/base.html:459
+msgid "Lens Types"
+msgstr "લેન્સના પ્રકારો"
+
+#: templates/base.html:487
+msgid "Anti-Glare"
+msgstr "એન્ટી-ગ્લેર"
+
+#: templates/base.html:488
+msgid "Reduces reflections"
+msgstr "પ્રતિબિંબ ઘટાડે છે"
+
+#: templates/base.html:509
+msgid "Blue Cut"
+msgstr "બ્લુ કટ"
+
+#: templates/base.html:510
+msgid "Screen protection"
+msgstr "સ્ક્રીન પ્રોટેક્શન"
+
+#: templates/base.html:530
+msgid "Photochromic"
+msgstr "ફોટોક્રોમિક"
+
+#: templates/base.html:531
+msgid "Auto-tinting"
+msgstr "ઓટો-ટિન્ટિંગ"
+
+#: templates/base.html:552
+msgid "Polarized"
+msgstr "પોલરાઇઝ્ડ"
+
+#: templates/base.html:553
+msgid "Glare elimination"
+msgstr "ગ્લેર દૂર કરે છે"
+
+#: templates/base.html:573
+msgid "UV400 shield"
+msgstr "યુવી400 શીલ્ડ"
+
+#: templates/base.html:588
+msgid "Filters"
+msgstr "ફિલ્ટર્સ"
+
+#: templates/base.html:611
+msgid "Select Frame Shape"
+msgstr "ફ્રેમનો આકાર પસંદ કરો"
+
+#: templates/base.html:668
+msgid "Select Color"
+msgstr "રંગ પસંદ કરો"
+
+#: templates/base.html:700
+msgid "Categories"
+msgstr "શ્રેણીઓ"
+
+#: templates/base.html:702
+msgid "Half Frames Specs"
+msgstr "હાફ ફ્રેમ્સ સ્પેક્સ"
+
+#: templates/base.html:703
+msgid "Club Master Specs"
+msgstr "ક્લબ માસ્ટર સ્પેક્સ"
+
+#: templates/base.html:704
+msgid "Rounded-Glass Specs"
+msgstr "ગોળ-ગ્લાસ સ્પેક્સ"
+
+#: templates/base.html:705
+msgid "Rectangle Specs"
+msgstr "રેક્ટેંગલ સ્પેક્સ"
+
+#: templates/base.html:706
+msgid "Rimless Specs"
+msgstr "રિમલેસ સ્પેક્સ"
+
+#: templates/base.html:707
+msgid "Square Specs"
+msgstr "સ્ક્વેર સ્પેક્સ"
+
+#: templates/base.html:734
+msgid "About Optiwar"
+msgstr "ઓપ્ટીવાર વિશે"
+
+#: templates/base.html:746
+msgid "Our Lenses"
+msgstr "અમારા લેન્સ"
+
+#: templates/base.html:764
+msgid "Shop Categories"
+msgstr "શોપ કેટેગરીઝ"
+
+#: templates/base.html:777
+msgid "Quick Links"
+msgstr "ઝડપી લિંક્સ"
+
+#: templates/base.html:779
+msgid "All Lenses"
+msgstr "બધા લેન્સ"
+
+#: templates/base.html:780
+msgid "AI Face Measurement"
+msgstr "એઆઈ ફેસ મેઝરમેન્ટ"
+
+#: templates/base.html:781
+msgid "Search Products"
+msgstr "ઉત્પાદનો શોધો"
+
+#: templates/base.html:782
+msgid "Terms & Conditions"
+msgstr "નિયમો અને શરતો"
+
+#: templates/base.html:783
+msgid "Privacy Policy"
+msgstr "ગોપનીયતા નીતિ"
+
+#: templates/base.html:784 templates/base.html:857
+msgid "Contact Us"
+msgstr "અમારો સંપર્ક કરો"
+
+#: templates/base.html:786
+msgid "Contact"
+msgstr "સંપર્ક"
+
+#: templates/base.html:799
+msgid "Visit Global Site"
+msgstr "વૈશ્વિક સાઇટ પર જાઓ"
+
+#: templates/base.html:807
+msgid "Visit India Site"
+msgstr "ભારત સાઇટ પર જાઓ"
+
+#: templates/base.html:814
+msgid "All rights reserved."
+msgstr "બધા હકો સુરક્ષિત."
+
+#: templates/base.html:816
+msgid "Clear Cart"
+msgstr "કાર્ટ સાફ કરો"
+
+#: templates/base.html:857
+msgid "Raise a support ticket and our team will respond shortly."
+msgstr "સપોર્ટ ટિકિટ ઉભી કરો અને અમારી ટીમ ટૂંક સમયમાં જવાબ આપશે."
+
+#: templates/base.html:857
+msgid "Name"
+msgstr "નામ"
+
+#: templates/base.html:857
+msgid "Your name"
+msgstr "તમારું નામ"
+
+#: templates/base.html:857
+msgid "Subject"
+msgstr "વિષય"
+
+#: templates/base.html:857
+msgid "Select a subject"
+msgstr "એક વિષય પસંદ કરો"
+
+#: templates/base.html:857
+msgid "Description"
+msgstr "વર્ણન"
+
+#: templates/base.html:857
+msgid "Tell us how we can help..."
+msgstr "અમને જણાવો કે અમે કેવી રીતે મદદ કરી શકીએ..."
+
+#: templates/base.html:857
+msgid "Mobile"
+msgstr "મોબાઇલ"
+
+#: templates/base.html:857
+msgid "Email"
+msgstr "ઇમેઇલ"
+
+#: templates/base.html:857
+msgid "Enter the text shown below:"
+msgstr "નીચે દર્શાવેલ ટેક્સ્ટ દાખલ કરો:"
+
+#: templates/checkout.html:960
+msgid "Your Cart"
+msgstr "તમારું કાર્ટ"
+
+#: templates/checkout.html:1065
+msgid "Qty"
+msgstr "જથ્થો"
+
+#: templates/checkout.html:1237
+msgid "Delivery Address"
+msgstr "ડિલિવરી સરનામું"
+
+#: templates/checkout.html:2440
+msgid "Your cart is empty"
+msgstr "તમારું કાર્ટ ખાલી છે"
+
+#: templates/forgot_password.html:2
+msgid "Reset Password"
+msgstr "પાસવર્ડ રીસેટ કરો"
+
+#: templates/forgot_password.html:27
+msgid "Back to Login"
+msgstr "લોગિન પર પાછા જાઓ"
+
+#: templates/login.html:6
+msgid "Login to Your Account"
+msgstr "તમારા ખાતામાં લોગિન કરો"
+
+#: templates/login.html:16
+msgid "Sign in with Google"
+msgstr "Google થી સાઇન ઇન કરો"
+
+#: templates/login.html:21 templates/register.html:21
+msgid "OR"
+msgstr "અથવા"
+
+#: templates/login.html:26 templates/register.html:28
+msgid "Email Address"
+msgstr "ઇમેઇલ સરનામું"
+
+#: templates/login.html:27
+msgid "your@email.com"
+msgstr "your@email.com"
+
+#: templates/login.html:29 templates/register.html:34
+msgid "Password"
+msgstr "પાસવર્ડ"
+
+#: templates/login.html:30
+msgid "Your password"
+msgstr "તમારો પાસવર્ડ"
+
+#: templates/login.html:42
+msgid "Don't have an account?"
+msgstr "ખાતું નથી?"
+
+#: templates/login.html:42
+msgid "Register here"
+msgstr "અહીં નોંધણી કરો"
+
+#: templates/login.html:43
+msgid "Forgot your password? Click here"
+msgstr "પાસવર્ડ ભૂલી ગયા? અહીં ક્લિક કરો"
+
+#: templates/my_orders.html:66
+msgid "No orders found"
+msgstr "કોઈ ઓર્ડર મળ્યા નથી"
+
+#: templates/product_page.html:132
+msgid "Add to Cart"
+msgstr "કાર્ટમાં ઉમેરો"
+
+#: templates/product_page.html:373
+msgid "In Stock"
+msgstr "સ્ટોકમાં છે"
+
+#: templates/product_page.html:377
+msgid "Out of Stock"
+msgstr "સ્ટોકમાં નથી"
+
+#: templates/register.html:6
+msgid "Create Your Account"
+msgstr "તમારું ખાતું બનાવો"
+
+#: templates/register.html:16
+msgid "Sign up with Google"
+msgstr "Google થી સાઇન અપ કરો"
+
+#: templates/register.html:25
+msgid "Full Name"
+msgstr "પૂરું નામ"
+
+#: templates/register.html:26
+msgid "Your full name"
+msgstr "તમારું પૂરું નામ"
+
+#: templates/register.html:31
+msgid "Phone Number"
+msgstr "ફોન નંબર"
+
+#: templates/register.html:37
+msgid "Confirm Password"
+msgstr "પાસવર્ડની પુષ્ટિ કરો"
+
+#: templates/register.html:50
+msgid "Already have an account?"
+msgstr "પહેલેથી ખાતું છે?"
+
+#: templates/register.html:50
+msgid "Login here"
+msgstr "અહીં લોગિન કરો"
+
+#: templates/terms-and-conditions.html:17
+msgid "Terms and Conditions"
+msgstr "નિયમો અને શરતો"
+

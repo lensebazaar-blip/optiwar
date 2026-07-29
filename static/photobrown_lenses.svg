@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="400" height="300" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <!-- Lens gradients -->
+        <radialGradient id="clearLens" cx="60%" cy="40%" r="65%">
+            <stop offset="0%" stop-color="#f8f8f8" stop-opacity="0.2"/>
+            <stop offset="100%" stop-color="#e6e6e6" stop-opacity="0.1"/>
+        </radialGradient>
+        
+        <radialGradient id="brownLens" cx="60%" cy="40%" r="65%">
+            <stop offset="0%" stop-color="#a05c2c" stop-opacity="0.9"/>
+            <stop offset="100%" stop-color="#5a2c0c" stop-opacity="0.7"/>
+        </radialGradient>
+        
+        <!-- Photobrown activation filter -->
+        <filter id="photobrownEffect" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="0.3" result="blur"/>
+            <feColorMatrix type="matrix" 
+                values="0.8 0.2 0 0 0
+                        0.4 0.6 0 0 0
+                        0.2 0.1 0.7 0 0
+                        0 0 0 1 0"/>
+        </filter>
+        
+        <!-- Sun rays (amber version) -->
+        <g id="sunRays">
+            <line x1="0" y1="0" x2="0" y2="15" stroke="#ffaa33" stroke-width="2" transform="rotate(0)">
+                <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="8s" repeatCount="indefinite"/>
+            </line>
+            <line x1="0" y1="0" x2="0" y2="15" stroke="#ffaa33" stroke-width="2" transform="rotate(45)">
+                <animateTransform attributeName="transform" type="rotate" from="45" to="405" dur="8s" repeatCount="indefinite"/>
+            </line>
+            <line x1="0" y1="0" x2="0" y2="15" stroke="#ffaa33" stroke-width="2" transform="rotate(90)">
+                <animateTransform attributeName="transform" type="rotate" from="90" to="450" dur="8s" repeatCount="indefinite"/>
+            </line>
+            <line x1="0" y1="0" x2="0" y2="15" stroke="#ffaa33" stroke-width="2" transform="rotate(135)">
+                <animateTransform attributeName="transform" type="rotate" from="135" to="495" dur="8s" repeatCount="indefinite"/>
+            </line>
+        </g>
+        
+        <!-- Brown particle -->
+        <circle id="brownParticle" r="1.5" fill="#8b4513"/>
+    </defs>
+    
+    <!-- Frame (tortoiseshell style) -->
+    <path d="M100,150 Q100,80 200,80 Q300,80 300,150 Q300,220 200,220 Q100,220 100,150 Z" 
+          fill="url(#tortoisePattern)" stroke="#5a2c0c" stroke-width="2">
+        <linearGradient id="tortoisePattern" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#5a2c0c"/>
+            <stop offset="50%" stop-color="#8b4513"/>
+            <stop offset="100%" stop-color="#5a2c0c"/>
+        </linearGradient>
+    </path>
+    
+    <!-- Photobrown lens (animated) -->
+    <g filter="url(#photobrownEffect)">
+        <path id="lens" d="M120,150 Q120,100 200,100 Q280,100 280,150 Q280,200 200,200 Q120,200 120,150 Z" 
+              fill="url(#clearLens)">
+            <animate attributeName="fill" values="url(#clearLens);url(#brownLens)" 
+                     begin="0s;mouseover" dur="2.5s" fill="freeze" restart="whenNotActive"/>
+            <animate attributeName="fill" values="url(#brownLens);url(#clearLens)" 
+                     begin="mouseout" dur="4s" fill="freeze" restart="whenNotActive"/>
+        </path>
+        
+        <!-- Animated brown particles -->
+        <use href="#brownParticle" x="150" y="120">
+            <animate attributeName="opacity" values="0;0.9;0" begin="0.5s" dur="3s" repeatCount="indefinite"/>
+        </use>
+        <use href="#brownParticle" x="180" y="140">
+            <animate attributeName="opacity" values="0;0.9;0" begin="1s" dur="3s" repeatCount="indefinite"/>
+        </use>
+        <use href="#brownParticle" x="220" y="160">
+            <animate attributeName="opacity" values="0;0.9;0" begin="1.5s" dur="3s" repeatCount="indefinite"/>
+        </use>
+    </g>
+    
+    <!-- UV light source (hover to activate) -->
+    <g transform="translate(200,40)" cursor="pointer">
+        <use href="#sunRays"/>
+        <circle cx="0" cy="0" r="20" fill="#ffaa33" opacity="0.7">
+            <animate attributeName="opacity" values="0.7;0.9;0.7" dur="3s" repeatCount="indefinite"/>
+        </circle>
+        <text x="0" y="50" text-anchor="middle" font-family="Arial" font-size="12" fill="#8b4513">Hover to activate</text>
+    </g>
+    
+    <!-- Label -->
+    <text x="200" y="270" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold" fill="#5a2c0c">
+        PHOTOBROWN LENS TECHNOLOGY
+    </text>
+    <text x="200" y="290" text-anchor="middle" font-family="Arial" font-size="12" fill="#8b4513">
+        (UV-activated warm brown transition)
+    </text>
+</svg>

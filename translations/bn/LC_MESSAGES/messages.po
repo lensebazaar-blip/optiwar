@@ -1,0 +1,404 @@
+# Bangla translations for PROJECT.
+# Copyright (C) 2026 ORGANIZATION
+# This file is distributed under the same license as the PROJECT project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: PROJECT VERSION\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2026-06-30 12:05+0530\n"
+"PO-Revision-Date: 2026-06-30 12:05+0530\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: bn\n"
+"Language-Team: bn <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: templates/all_frames.html:121
+msgid "All Spectacle Frames"
+msgstr "সব চশমার ফ্রেম"
+
+#: templates/base.html:277
+msgid "Single Vision Lenses"
+msgstr "সিঙ্গেল ভিশন লেন্স"
+
+#: templates/base.html:279
+msgid "Browse Frames"
+msgstr "ফ্রেম ব্রাউজ করুন"
+
+#: templates/base.html:285
+msgid "Progressive Lenses"
+msgstr "প্রগ্রেসিভ লেন্স"
+
+#: templates/base.html:287
+msgid "Measure My Face"
+msgstr "আমার মুখ মাপুন"
+
+#: templates/base.html:294
+msgid "Bifocal Lenses"
+msgstr "বাইফোকাল লেন্স"
+
+#: templates/base.html:302
+msgid "Blue Cut Lenses"
+msgstr "ব্লু কাট লেন্স"
+
+#: templates/base.html:310
+msgid "Multi-Glare Protection"
+msgstr "মাল্টি-গ্লেয়ার প্রটেকশন"
+
+#: templates/base.html:318
+msgid "Photochromic Lenses"
+msgstr "ফটোক্রোমিক লেন্স"
+
+#: templates/base.html:326
+msgid "Polarized Lenses"
+msgstr "পোলারাইজড লেন্স"
+
+#: templates/base.html:334 templates/base.html:572
+msgid "UV Protection"
+msgstr "ইউভি প্রটেকশন"
+
+#: templates/base.html:342
+msgid "Anti-Glare Lenses"
+msgstr "অ্যান্টি-গ্লেয়ার লেন্স"
+
+#: templates/base.html:353
+msgid "Factory Outlet Opticals"
+msgstr "ফ্যাক্টরি আউটলেট অপটিক্যালস"
+
+#: templates/base.html:358
+msgid "Faces"
+msgstr "মুখ"
+
+#: templates/base.html:368
+msgid "Search"
+msgstr "খুঁজুন"
+
+#: templates/base.html:374
+msgid "Favorites"
+msgstr "পছন্দের তালিকা"
+
+#: templates/base.html:379
+msgid "Cart"
+msgstr "কার্ট"
+
+#: templates/base.html:384
+msgid "Account"
+msgstr "অ্যাকাউন্ট"
+
+#: templates/base.html:388 templates/base.html:444
+msgid "Logout"
+msgstr "লগ আউট"
+
+#: templates/base.html:393 templates/base.html:449 templates/login.html:38
+msgid "Login"
+msgstr "লগ ইন"
+
+#: templates/base.html:399
+msgid "Select Language"
+msgstr "ভাষা নির্বাচন করুন"
+
+#: templates/base.html:440
+msgid "My Profile"
+msgstr "আমার প্রোফাইল"
+
+#: templates/base.html:459
+msgid "Lens Types"
+msgstr "লেন্সের ধরন"
+
+#: templates/base.html:487
+msgid "Anti-Glare"
+msgstr "অ্যান্টি-গ্লেয়ার"
+
+#: templates/base.html:488
+msgid "Reduces reflections"
+msgstr "প্রতিফলন কমায়"
+
+#: templates/base.html:509
+msgid "Blue Cut"
+msgstr "ব্লু কাট"
+
+#: templates/base.html:510
+msgid "Screen protection"
+msgstr "স্ক্রিন সুরক্ষা"
+
+#: templates/base.html:530
+msgid "Photochromic"
+msgstr "ফটোক্রোমিক"
+
+#: templates/base.html:531
+msgid "Auto-tinting"
+msgstr "অটো টিন্টিং"
+
+#: templates/base.html:552
+msgid "Polarized"
+msgstr "পোলারাইজড"
+
+#: templates/base.html:553
+msgid "Glare elimination"
+msgstr "গ্লেয়ার দূরীকরণ"
+
+#: templates/base.html:573
+msgid "UV400 shield"
+msgstr "ইউভি৪০০ শিল্ড"
+
+#: templates/base.html:588
+msgid "Filters"
+msgstr "ফিল্টার"
+
+#: templates/base.html:611
+msgid "Select Frame Shape"
+msgstr "ফ্রেমের আকৃতি নির্বাচন করুন"
+
+#: templates/base.html:668
+msgid "Select Color"
+msgstr "রং নির্বাচন করুন"
+
+#: templates/base.html:700
+msgid "Categories"
+msgstr "ক্যাটাগরি"
+
+#: templates/base.html:702
+msgid "Half Frames Specs"
+msgstr "হাফ ফ্রেম স্পেক্স"
+
+#: templates/base.html:703
+msgid "Club Master Specs"
+msgstr "ক্লাব মাস্টার স্পেক্স"
+
+#: templates/base.html:704
+msgid "Rounded-Glass Specs"
+msgstr "গোলাকার গ্লাস স্পেক্স"
+
+#: templates/base.html:705
+msgid "Rectangle Specs"
+msgstr "আয়তক্ষেত্র স্পেক্স"
+
+#: templates/base.html:706
+msgid "Rimless Specs"
+msgstr "রিমলেস স্পেক্স"
+
+#: templates/base.html:707
+msgid "Square Specs"
+msgstr "বর্গাকার স্পেক্স"
+
+#: templates/base.html:734
+msgid "About Optiwar"
+msgstr "অপ্টিওয়ার সম্পর্কে"
+
+#: templates/base.html:746
+msgid "Our Lenses"
+msgstr "আমাদের লেন্স"
+
+#: templates/base.html:764
+msgid "Shop Categories"
+msgstr "দোকানের ক্যাটাগরি"
+
+#: templates/base.html:777
+msgid "Quick Links"
+msgstr "দ্রুত লিংক"
+
+#: templates/base.html:779
+msgid "All Lenses"
+msgstr "সব লেন্স"
+
+#: templates/base.html:780
+msgid "AI Face Measurement"
+msgstr "এআই ফেস মেজারমেন্ট"
+
+#: templates/base.html:781
+msgid "Search Products"
+msgstr "পণ্য খুঁজুন"
+
+#: templates/base.html:782
+msgid "Terms & Conditions"
+msgstr "শর্তাবলী"
+
+#: templates/base.html:783
+msgid "Privacy Policy"
+msgstr "গোপনীয়তা নীতি"
+
+#: templates/base.html:784 templates/base.html:857
+msgid "Contact Us"
+msgstr "যোগাযোগ করুন"
+
+#: templates/base.html:786
+msgid "Contact"
+msgstr "যোগাযোগ"
+
+#: templates/base.html:799
+msgid "Visit Global Site"
+msgstr "গ্লোবাল সাইট দেখুন"
+
+#: templates/base.html:807
+msgid "Visit India Site"
+msgstr "ভারত সাইট দেখুন"
+
+#: templates/base.html:814
+msgid "All rights reserved."
+msgstr "সর্বস্বত্ব সংরক্ষিত।"
+
+#: templates/base.html:816
+msgid "Clear Cart"
+msgstr "কার্ট খালি করুন"
+
+#: templates/base.html:857
+msgid "Raise a support ticket and our team will respond shortly."
+msgstr "একটি সাপোর্ট টিকিট তৈরি করুন, আমাদের টিম শীঘ্রই উত্তর দেবে।"
+
+#: templates/base.html:857
+msgid "Name"
+msgstr "নাম"
+
+#: templates/base.html:857
+msgid "Your name"
+msgstr "আপনার নাম"
+
+#: templates/base.html:857
+msgid "Subject"
+msgstr "বিষয়"
+
+#: templates/base.html:857
+msgid "Select a subject"
+msgstr "একটি বিষয় নির্বাচন করুন"
+
+#: templates/base.html:857
+msgid "Description"
+msgstr "বিবরণ"
+
+#: templates/base.html:857
+msgid "Tell us how we can help..."
+msgstr "আমাদের জানান কীভাবে সাহায্য করতে পারি..."
+
+#: templates/base.html:857
+msgid "Mobile"
+msgstr "মোবাইল"
+
+#: templates/base.html:857
+msgid "Email"
+msgstr "ইমেইল"
+
+#: templates/base.html:857
+msgid "Enter the text shown below:"
+msgstr "নিচে দেখানো লেখাটি লিখুন:"
+
+#: templates/checkout.html:960
+msgid "Your Cart"
+msgstr "আপনার কার্ট"
+
+#: templates/checkout.html:1065
+msgid "Qty"
+msgstr "পরিমাণ"
+
+#: templates/checkout.html:1237
+msgid "Delivery Address"
+msgstr "ডেলিভারি ঠিকানা"
+
+#: templates/checkout.html:2440
+msgid "Your cart is empty"
+msgstr "আপনার কার্ট খালি"
+
+#: templates/forgot_password.html:2
+msgid "Reset Password"
+msgstr "পাসওয়ার্ড রিসেট করুন"
+
+#: templates/forgot_password.html:27
+msgid "Back to Login"
+msgstr "লগইনে ফিরে যান"
+
+#: templates/login.html:6
+msgid "Login to Your Account"
+msgstr "আপনার অ্যাকাউন্টে লগইন করুন"
+
+#: templates/login.html:16
+msgid "Sign in with Google"
+msgstr "গুগল দিয়ে সাইন ইন করুন"
+
+#: templates/login.html:21 templates/register.html:21
+msgid "OR"
+msgstr "অথবা"
+
+#: templates/login.html:26 templates/register.html:28
+msgid "Email Address"
+msgstr "ইমেইল ঠিকানা"
+
+#: templates/login.html:27
+msgid "your@email.com"
+msgstr "your@email.com"
+
+#: templates/login.html:29 templates/register.html:34
+msgid "Password"
+msgstr "পাসওয়ার্ড"
+
+#: templates/login.html:30
+msgid "Your password"
+msgstr "আপনার পাসওয়ার্ড"
+
+#: templates/login.html:42
+msgid "Don't have an account?"
+msgstr "অ্যাকাউন্ট নেই?"
+
+#: templates/login.html:42
+msgid "Register here"
+msgstr "এখানে রেজিস্টার করুন"
+
+#: templates/login.html:43
+msgid "Forgot your password? Click here"
+msgstr "পাসওয়ার্ড ভুলে গেছেন? এখানে ক্লিক করুন"
+
+#: templates/my_orders.html:66
+msgid "No orders found"
+msgstr "কোন অর্ডার পাওয়া যায়নি"
+
+#: templates/product_page.html:132
+msgid "Add to Cart"
+msgstr "কার্টে যোগ করুন"
+
+#: templates/product_page.html:373
+msgid "In Stock"
+msgstr "স্টকে আছে"
+
+#: templates/product_page.html:377
+msgid "Out of Stock"
+msgstr "স্টক শেষ"
+
+#: templates/register.html:6
+msgid "Create Your Account"
+msgstr "আপনার অ্যাকাউন্ট তৈরি করুন"
+
+#: templates/register.html:16
+msgid "Sign up with Google"
+msgstr "গুগল দিয়ে সাইন আপ করুন"
+
+#: templates/register.html:25
+msgid "Full Name"
+msgstr "পুরো নাম"
+
+#: templates/register.html:26
+msgid "Your full name"
+msgstr "আপনার পুরো নাম"
+
+#: templates/register.html:31
+msgid "Phone Number"
+msgstr "ফোন নম্বর"
+
+#: templates/register.html:37
+msgid "Confirm Password"
+msgstr "পাসওয়ার্ড নিশ্চিত করুন"
+
+#: templates/register.html:50
+msgid "Already have an account?"
+msgstr "ইতিমধ্যে অ্যাকাউন্ট আছে?"
+
+#: templates/register.html:50
+msgid "Login here"
+msgstr "এখানে লগইন করুন"
+
+#: templates/terms-and-conditions.html:17
+msgid "Terms and Conditions"
+msgstr "শর্তাবলী"
+

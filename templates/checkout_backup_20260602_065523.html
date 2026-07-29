@@ -1,0 +1,704 @@
+{% extends 'base.html' %}
+{% block title %} Checkout Page - Optiwar {% endblock %}
+{% block content %}
+
+{% if cart %}
+
+<div class="ow-checkout-page">
+
+  <!-- Step Indicator -->
+  <div class="ow-steps-bar">
+    <div class="ow-step-indicator ow-step-done" id="owStep1">
+      <span class="ow-step-num">1</span> Cart
+    </div>
+    <span class="ow-step-divider"></span>
+    <div class="ow-step-indicator" id="owStep2">
+      <span class="ow-step-num">2</span> Delivery
+    </div>
+  </div>
+
+  <!-- ═══════════ STEP 1: CART ═══════════ -->
+  <div class="ow-step-panel" id="owCartPanel">
+    <div class="ow-section-card">
+      <h2 class="ow-section-heading">Order Summary <span class="ow-item-count">({{ cart|length }} item{{ 's' if cart|length > 1 else '' }})</span></h2>
+
+      <div class="ow-cart-items">
+        {% for item in cart %}
+        <div class="ow-cart-item">
+          <div class="ow-cart-item-img">
+            {% set thumb_path = product_image_map.get(item.product_id|string) %}
+            {% if thumb_path %}
+            <a href="/categories/{{ item.product_category | lower | replace(' ', '-') }}/{{ item.product_name | lower | replace(' ', '-') }}?pid={{ item.product_id }}">
+              <img src="{{ url_for('static', filename=thumb_path) }}" alt="Product Image">
+            </a>
+            {% else %}
+            <img src="{{ url_for('static', filename='new_logo.png') }}" alt="Product Image">
+            {% endif %}
+          </div>
+          <div class="ow-cart-item-details">
+            <div class="ow-cart-item-top">
+              <a class="ow-cart-item-name" href="/categories/{{ item.product_category | lower | replace(' ', '-') }}/{{ item.product_name | lower | replace(' ', '-') }}?pid={{ item.product_id }}">
+                {{ item.product_category }} {% if item.product_category != 'Contact Lenses' %}{{ item.product_code }}{% endif %}
+              </a>
+              <form action="{{ url_for('main.remove_from_cart', product_id=item.product_id) }}" method="post" class="ow-trash-form">
+                <input type="hidden" name="rx_id" value="{{ item.rx_id }}">
+                <button type="submit" class="ow-trash-btn" title="Remove item">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                </button>
+              </form>
+            </div>
+            <div class="ow-cart-item-brand">{{ item.product_name }}</div>
+
+            {% if item.spectacle_frame_with_complimentary_price %}
+            <div class="ow-cart-item-rx">with Prescription lenses</div>
+            <div class="prescription-summary">
+              <details>
+                <summary>See prescription details</summary>
+                <div class="eye-prescription">
+                  <div class="eye-box">
+                    <div class="eye-label">Right Eye (OD)</div>
+                    {% set right_vals = item.right_eye.split('/') %}
+                    <div class="eye-data">
+                      <div>SPH: {{ right_vals[0] }}</div>
+                      <div>CYL: {{ right_vals[1] }}</div>
+                      <div>AXIS: {{ right_vals[2] }}&#176;</div>
+                      <div>ADD: {{ right_vals[3] }}</div>
+                    </div>
+                  </div>
+                  <div class="eye-box">
+                    <div class="eye-label">Left Eye (OS)</div>
+                    {% set left_vals = item.left_eye.split('/') %}
+                    <div class="eye-data">
+                      <div>SPH: {{ left_vals[0] }}</div>
+                      <div>CYL: {{ left_vals[1] }}</div>
+                      <div>AXIS: {{ left_vals[2] }}&#176;</div>
+                      <div>ADD: {{ left_vals[3] }}</div>
+                    </div>
+                  </div>
+                </div>
+              </details>
+            </div>
+            {% elif item.product_category != 'Hearing Aids' and item.product_category != 'Contact Lenses' %}
+            <div class="ow-cart-item-rx">Complimentary Anti-Glare Plano Lenses <span style="color: red; text-decoration: line-through; font-size: 0.8em;">Rs 399</span>
+              <svg class="addon-lenses-svg" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="45" fill="green"/>
+                <text x="50" y="55" font-family="Arial" font-size="9" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" style="text-shadow: 0 0 3px rgba(0,0,0,0.5)">ANTI-GLARE</text>
+              </svg>
+            </div>
+            {% endif %}
+
+            {% if item.product_category == 'Spectacles Frame' %}
+              {% if item.server_cyl_price_increase %}<div class="ow-addon-line">High Cylinder Power +Rs {{ item.server_cyl_price_increase }}</div>{% endif %}
+              {% if item.recommendations == 'Biofocal or Progressive Selection)' %}<div class="ow-addon-line">{{ item.addon_3_name }} +Rs {{ item.addon_3_price }}</div>{% endif %}
+              {% if item.addon_1 %}<div class="ow-addon-line">{{ item.addon_1_name }} +Rs {{ item.addon_1_price }}
+                {% if item.addon_1 == 'arcmat03' %}<svg class="addon-lenses-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="rainbow" gradientTransform="rotate(45)"><stop offset="0%" stop-color="#FF5252"/><stop offset="20%" stop-color="#FFD740"/><stop offset="40%" stop-color="#69F0AE"/><stop offset="60%" stop-color="#40C4FF"/><stop offset="80%" stop-color="#B388FF"/><stop offset="100%" stop-color="#FF80AB"/></linearGradient></defs><circle cx="50" cy="50" r="45" fill="url(#rainbow)"/><text x="50" y="55" font-family="Arial" font-size="10" font-weight="bold" fill="#333" text-anchor="middle" dominant-baseline="middle" style="text-shadow: 0 0 3px rgba(255,255,255,0.7)">ANTI-GLARE</text></svg>
+                {% elif item.addon_1 == 'bcm02' %}<svg class="addon-lenses-svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="blue"/><text x="50" y="55" font-family="Arial" font-size="9" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" style="text-shadow: 0 0 3px rgba(0,0,0,0.5)">ANTI-GLARE</text></svg>
+                {% elif item.addon_1 == 'arc01' %}<svg class="addon-lenses-svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="green"/><text x="50" y="55" font-family="Arial" font-size="9" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" style="text-shadow: 0 0 3px rgba(0,0,0,0.5)">ANTI-GLARE</text></svg>
+                {% endif %}
+              </div>{% endif %}
+              {% if item.addon_2 %}<div class="ow-addon-line">{{ item.addon_2_name }} +Rs {{ item.addon_2_price }}
+                {% if item.addon_2 == 'opsix1' %}<svg class="addon-lenses-svg" viewBox="0 0 300 80"><text x="150" y="50" font-family="Arial" font-size="120" font-weight="600" fill="#1565C0" text-anchor="middle">THIN</text></svg>
+                {% elif item.addon_2 == 'ops672' %}<svg class="addon-lenses-svg" viewBox="0 0 300 80"><text x="150" y="50" font-family="Arial" font-size="60" font-weight="600" fill="#1565C0" text-anchor="middle">Ultra-THIN</text></svg>
+                {% elif item.addon_2 == 'pcgreystyle' %}<svg class="addon-lenses-svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="grey"/><text x="50" y="55" font-family="Arial" font-size="9" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" style="text-shadow: 0 0 3px rgba(0,0,0,0.5)">Grey</text></svg>
+                {% elif item.addon_2 == 'pcbostyle' %}<svg class="addon-lenses-svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="brown"/><text x="50" y="55" font-family="Arial" font-size="9" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" style="text-shadow: 0 0 3px rgba(0,0,0,0.5)">Brown</text></svg>
+                {% endif %}
+              </div>{% endif %}
+            {% endif %}
+
+            <div class="ow-cart-item-bottom">
+              <div class="ow-cart-item-price-row">
+                {% if item.product_category == 'Spectacles Frame' %}
+                  {% if item.server_total_price %}
+                  <span class="ow-price-current">Rs {{ item.server_total_price }}</span>
+                  <span class="ow-price-old">Rs {{ item.spectacle_frame_with_complimentary_price }}</span>
+                  {% elif item.recommendations == 'Complimentary Plano Anti-Glare Lenses' %}
+                  <span class="ow-price-current">Rs {{ item.product_special_price }}</span>
+                  <span class="ow-price-old">Rs {{ item.product_price }}</span>
+                  {% endif %}
+                {% elif item.product_category == 'Contact Lenses' %}
+                  <span class="ow-price-current">Rs {{ item.product_special_price }}</span>
+                  <span class="ow-price-old">Rs {{ item.product_price }}</span>
+                {% else %}
+                  <span class="ow-price-current">Rs {{ item.product_special_price }}</span>
+                  <span class="ow-price-old">Rs {{ item.product_price }}</span>
+                {% endif %}
+              </div>
+              <div class="ow-qty-controls">
+                <form action="{{ url_for('main.update_quantity') }}" method="post" class="ow-qty-form">
+                  <input type="hidden" name="product_id" value="{{ item.product_id }}">
+                  <input type="hidden" name="rx_id" value="{{ item.rx_id }}">
+                  <input type="hidden" name="quantity" value="{{ [1, (item.order_quantity|default(1)|int) - 1]|max }}">
+                  <button type="submit" class="ow-qty-btn ow-qty-minus" {% if (item.order_quantity|default(1)|int) <= 1 %}disabled{% endif %}>&#8722;</button>
+                </form>
+                <span class="ow-qty-value">{{ item.order_quantity|default(1) }}</span>
+                <form action="{{ url_for('main.update_quantity') }}" method="post" class="ow-qty-form">
+                  <input type="hidden" name="product_id" value="{{ item.product_id }}">
+                  <input type="hidden" name="rx_id" value="{{ item.rx_id }}">
+                  <input type="hidden" name="quantity" value="{{ (item.order_quantity|default(1)|int) + 1 }}">
+                  <button type="submit" class="ow-qty-btn ow-qty-plus">+</button>
+                </form>
+              </div>
+            </div>
+
+            <div class="ow-cart-item-ship">
+              <span class="ow-ship-badge">Ship: {{ ship_days }}</span>
+            </div>
+
+            {% if item.product_category == 'Contact Lenses' %}
+            <div class="cl_rx_prescription">
+              <details class="cl_rx_details">
+                <summary class="cl_rx_summary">View Contact Lens Details</summary>
+                <div class="cl_rx_eyes_container">
+                  <div class="cl_rx_eye_section cl_rx_right_eye">
+                    <h4 class="cl_rx_eye_heading">Right Eye</h4>
+                    <p class="cl_rx_eye_pwr">Power: {{ item.right_pwr }}</p>
+                    <p class="cl_rx_eye_color">Color: {{ item.right_lens_color }}</p>
+                    <p class="cl_rx_eye_qty">Quantity: {{ item.right_qty }} box{% if item.right_qty > 1 %}es{% endif %}</p>
+                  </div>
+                  <div class="cl_rx_eye_section cl_rx_left_eye">
+                    <h4 class="cl_rx_eye_heading">Left Eye</h4>
+                    <p class="cl_rx_eye_pwr">Power: {{ item.left_pwr }}</p>
+                    <p class="cl_rx_eye_color">Color: {{ item.left_lens_color }}</p>
+                    <p class="cl_rx_eye_qty">Quantity: {{ item.left_qty }} box{% if item.left_qty > 1 %}es{% endif %}</p>
+                  </div>
+                </div>
+              </details>
+            </div>
+            {% endif %}
+
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+
+      <!-- Grand Total -->
+      <div class="ow-order-total">
+        <div class="ow-total-row">
+          <span>Grand Total</span>
+          <span class="ow-total-amount">Rs {{ grand_total }}</span>
+        </div>
+      </div>
+
+      <div class="ow-cart-actions">
+        <a href="/" class="ow-action-link">+ Add more</a>
+        <form action="{{ url_for('main.clear_the_cart') }}" method="post" style="display:inline">
+          <button type="submit" class="ow-action-link ow-action-danger">Clear cart</button>
+        </form>
+      </div>
+
+      <!-- Proceed to Delivery Button -->
+      <button class="ow-proceed-btn" id="owProceedBtn" onclick="owGoToStep(2)">
+        Proceed to Delivery &#8594;
+      </button>
+    </div>
+  </div>
+
+  <!-- ═══════════ STEP 2: DELIVERY ═══════════ -->
+  <div class="ow-step-panel ow-hidden" id="owDeliveryPanel">
+    <div class="ow-section-card">
+
+      <!-- Back to Cart -->
+      <button class="ow-back-btn" onclick="owGoToStep(1)">
+        &#8592; Back to Cart
+      </button>
+
+      <h2 class="ow-section-heading">Delivery Address</h2>
+
+      <!-- Address Tabs -->
+      <div class="ow-addr-tabs">
+        {% if saved_addresses is defined and saved_addresses|length > 0 %}
+        <button class="ow-addr-tab ow-addr-tab-active" onclick="owSwitchAddrTab('saved', this)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          Saved Addresses
+        </button>
+        {% endif %}
+        <button class="ow-addr-tab {% if not saved_addresses or saved_addresses|length == 0 %}ow-addr-tab-active{% endif %}" onclick="owSwitchAddrTab('detect', this)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          Detect Address
+        </button>
+        <button class="ow-addr-tab" onclick="owSwitchAddrTab('manual', this)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          New Address
+        </button>
+      </div>
+
+      <!-- Saved Addresses Panel -->
+      {% if saved_addresses is defined and saved_addresses|length > 0 %}
+      <div class="ow-addr-panel" id="owSavedPanel">
+        <div class="ow-saved-addr-list">
+          {% for addr in saved_addresses %}
+          <label class="ow-saved-addr-card {% if loop.first %}ow-addr-selected{% endif %}">
+            <input type="radio" name="saved_addr" value="{{ loop.index0 }}" {% if loop.first %}checked{% endif %}
+              data-address="{{ addr.address|e }}"
+              data-state="{{ addr.state|default('')|e }}"
+              data-zip="{{ addr.zipcode|default('')|e }}"
+              data-country="{{ addr.country|default('India')|e }}"
+              onchange="owSelectSavedAddr(this)">
+            <div class="ow-addr-card-body">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+              <div>
+                <div class="ow-addr-text">{{ addr.address }}</div>
+                {% if addr.state or addr.zipcode %}<div class="ow-addr-meta">{{ addr.state|default('') }} {{ addr.zipcode|default('') }}</div>{% endif %}
+              </div>
+            </div>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Detect Address Panel -->
+      <div class="ow-addr-panel ow-hidden" id="owDetectPanel">
+        <div class="ow-detect-box">
+          <p class="ow-detect-info">We'll use your device location to auto-fill your address.</p>
+          <button type="button" class="ow-detect-btn" onclick="owDetectAddress()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4m0 14v4M1 12h4m14 0h4"/><circle cx="12" cy="12" r="10"/></svg>
+            Detect My Location
+          </button>
+          <div id="owDetectStatus" class="ow-detect-status"></div>
+        </div>
+      </div>
+
+      <!-- Manual / New Address Panel -->
+      <div class="ow-addr-panel ow-hidden" id="owManualPanel">
+        <p class="ow-manual-hint">Enter your delivery address below.</p>
+      </div>
+
+      <!-- Delivery Form (always visible, fields get filled by selected method) -->
+      <form action="{{ url_for('main.checkout') }}" method="post" class="ow-delivery-form" id="owDeliveryForm">
+        <input type="hidden" name="product_id" value="{{ request.form.product_id }}">
+
+        <div class="ow-form-group">
+          <label for="customer_name">Full Name</label>
+          <input type="text" id="customer_name" name="name" placeholder="Enter your full name" value="{{ prefill.name|default('') }}" required>
+        </div>
+
+        <div class="ow-form-group">
+          <label for="customer_address">Delivery Address</label>
+          <input type="text" id="customer_address" name="address" placeholder="Full address with landmark" value="{{ prefill.address|default('') }}" required>
+        </div>
+
+        <div class="ow-form-row">
+          <div class="ow-form-group">
+            <label for="customer_phone">Phone</label>
+            <input type="text" id="customer_phone" name="phone" placeholder="10-digit mobile" value="{{ prefill.phone|default('') }}" required>
+          </div>
+          <div class="ow-form-group">
+            <label for="customer_email">Email</label>
+            <input type="email" id="customer_email" name="email" placeholder="your@email.com" value="{{ prefill.email|default('') }}" required>
+          </div>
+        </div>
+
+        <div class="ow-form-row">
+          <div class="ow-form-group">
+            <label for="customer_postcode">Zip Code</label>
+            <input type="text" id="customer_postcode" name="customer_postcode" placeholder="Pin code" value="{{ prefill.zipcode|default('') }}" required onblur="fetchAddressDetails()">
+          </div>
+          <div class="ow-form-group">
+            <label for="customer_state">State</label>
+            <input type="text" id="customer_state" name="customer_state" placeholder="Auto-filled" value="{{ prefill.state|default('') }}">
+          </div>
+        </div>
+
+        <div class="ow-form-group">
+          <label for="country">Country</label>
+          <select id="country" name="country" required>
+            <option value="India" {% if prefill.country|default('India') == 'India' %}selected{% endif %}>India</option>
+          </select>
+        </div>
+
+        <div class="ow-form-total">
+          <span>Total to Pay</span>
+          <span class="ow-form-total-amount">Rs {{ grand_total }}</span>
+        </div>
+
+        <button type="submit" id="paytm-button" class="ow-pay-btn" onclick="initiatePayment()">
+          <span class="ow-btn-text">Pay Now &#8594;</span>
+          <span class="ow-btn-loader" style="display:none;">
+            <svg class="ow-spinner" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10" stroke-opacity="0.3"/><path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></path></svg>
+            <span>Processing Payment...</span>
+          </span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+</div>
+
+<!-- Step Navigation CSS -->
+<style>
+.ow-checkout-page { max-width: 640px; margin: 0 auto; padding: 16px; font-family: Inter, -apple-system, sans-serif; }
+
+/* Steps bar */
+.ow-steps-bar { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 24px; padding: 16px; background: #f8fafc; border-radius: 16px; }
+.ow-step-indicator { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: #94a3b8; transition: color 0.3s; }
+.ow-step-indicator.ow-step-done { color: #4f46e5; }
+.ow-step-indicator .ow-step-num { width: 28px; height: 28px; border-radius: 50%; background: #e2e8f0; color: #64748b; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; transition: all 0.3s; }
+.ow-step-indicator.ow-step-done .ow-step-num { background: #4f46e5; color: #fff; }
+.ow-step-divider { width: 40px; height: 2px; background: #e2e8f0; border-radius: 2px; }
+
+/* Panels */
+.ow-step-panel { animation: owFadeIn 0.3s ease; }
+.ow-hidden { display: none !important; }
+@keyframes owFadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Section card */
+.ow-section-card { background: #fff; border-radius: 20px; padding: 24px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+.ow-section-heading { font-size: 18px; font-weight: 700; color: #0f172a; margin: 0 0 20px; }
+.ow-item-count { font-weight: 400; color: #64748b; font-size: 14px; }
+
+/* Cart items */
+.ow-cart-items { display: flex; flex-direction: column; gap: 16px; }
+.ow-cart-item { display: flex; gap: 14px; padding: 16px; background: #f8fafc; border-radius: 14px; }
+.ow-cart-item-img { width: 72px; min-width: 72px; }
+.ow-cart-item-img img { width: 72px; height: 72px; object-fit: contain; border-radius: 10px; background: #fff; }
+.ow-cart-item-details { flex: 1; min-width: 0; }
+.ow-cart-item-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.ow-cart-item-name { font-size: 14px; font-weight: 600; color: #0f172a; text-decoration: none; }
+.ow-cart-item-brand { font-size: 12px; color: #64748b; margin-top: 2px; }
+.ow-cart-item-rx { font-size: 12px; color: #4f46e5; font-style: italic; margin-top: 4px; }
+.ow-addon-line { font-size: 12px; color: #64748b; margin-top: 2px; }
+.addon-lenses-svg { width: 20px; height: 20px; vertical-align: middle; }
+.ow-trash-form { margin: 0; padding: 0; }
+.ow-trash-btn { background: none; border: none; cursor: pointer; color: #94a3b8; padding: 4px; }
+.ow-trash-btn:hover { color: #ef4444; }
+
+/* Price + Qty */
+.ow-cart-item-bottom { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+.ow-price-current { font-size: 16px; font-weight: 700; color: #0f172a; }
+.ow-price-old { font-size: 13px; color: #94a3b8; text-decoration: line-through; margin-left: 6px; }
+.ow-qty-controls { display: flex; align-items: center; gap: 0; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+.ow-qty-form { margin: 0; }
+.ow-qty-btn { width: 32px; height: 32px; border: none; background: #f8fafc; cursor: pointer; font-size: 16px; color: #475569; transition: 0.2s; }
+.ow-qty-btn:hover { background: #e2e8f0; }
+.ow-qty-btn:disabled { opacity: 0.3; cursor: default; }
+.ow-qty-value { width: 32px; text-align: center; font-size: 14px; font-weight: 600; }
+
+/* Ship badge */
+.ow-cart-item-ship { margin-top: 8px; }
+.ow-ship-badge { font-size: 11px; background: #f0fdf4; color: #16a34a; padding: 3px 8px; border-radius: 6px; font-weight: 500; }
+
+/* Prescription details */
+.prescription-summary { margin-top: 6px; }
+.prescription-summary summary { font-size: 12px; color: #4f46e5; cursor: pointer; }
+.eye-prescription { display: flex; gap: 12px; margin-top: 8px; }
+.eye-box { flex: 1; background: #fff; padding: 8px; border-radius: 8px; font-size: 11px; }
+.eye-label { font-weight: 600; color: #475569; margin-bottom: 4px; }
+.eye-data div { color: #64748b; }
+
+/* Contact lens details */
+.cl_rx_prescription { margin-top: 6px; }
+.cl_rx_summary { font-size: 12px; color: #4f46e5; cursor: pointer; }
+.cl_rx_eyes_container { display: flex; gap: 12px; margin-top: 8px; }
+.cl_rx_eye_section { flex: 1; background: #fff; padding: 8px; border-radius: 8px; font-size: 11px; }
+.cl_rx_eye_heading { font-size: 12px; font-weight: 600; color: #475569; margin: 0 0 4px; }
+.cl_rx_eye_pwr, .cl_rx_eye_color, .cl_rx_eye_qty { margin: 2px 0; color: #64748b; }
+
+/* Grand Total */
+.ow-order-total { margin-top: 20px; padding-top: 16px; border-top: 1px solid #e2e8f0; }
+.ow-total-row { display: flex; justify-content: space-between; align-items: center; }
+.ow-total-row span:first-child { font-size: 16px; font-weight: 600; color: #475569; }
+.ow-total-amount { font-size: 22px; font-weight: 800; color: #0f172a; }
+
+/* Cart actions */
+.ow-cart-actions { display: flex; gap: 16px; justify-content: center; margin-top: 16px; }
+.ow-action-link { font-size: 13px; color: #4f46e5; text-decoration: none; background: none; border: none; cursor: pointer; font-weight: 500; }
+.ow-action-danger { color: #ef4444; }
+
+/* Proceed button */
+.ow-proceed-btn { display: block; width: 100%; margin-top: 20px; padding: 16px; background: linear-gradient(135deg, #4f46e5, #6366f1); color: #fff; border: none; border-radius: 14px; font-size: 16px; font-weight: 700; cursor: pointer; transition: 0.25s; letter-spacing: 0.3px; }
+.ow-proceed-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(79,70,229,0.3); }
+
+/* Back button */
+.ow-back-btn { background: none; border: none; color: #4f46e5; font-size: 14px; font-weight: 500; cursor: pointer; padding: 0; margin-bottom: 16px; }
+
+/* Address Tabs */
+.ow-addr-tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.ow-addr-tab { display: flex; align-items: center; gap: 6px; padding: 10px 16px; border: 1.5px solid #e2e8f0; border-radius: 12px; background: #fff; font-size: 13px; font-weight: 600; color: #64748b; cursor: pointer; transition: 0.2s; }
+.ow-addr-tab:hover { border-color: #4f46e5; color: #4f46e5; }
+.ow-addr-tab-active { border-color: #4f46e5; background: #eef2ff; color: #4f46e5; }
+
+/* Saved address cards */
+.ow-saved-addr-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+.ow-saved-addr-card { display: block; padding: 14px; border: 1.5px solid #e2e8f0; border-radius: 14px; cursor: pointer; transition: 0.2s; }
+.ow-saved-addr-card:hover { border-color: #4f46e5; }
+.ow-saved-addr-card.ow-addr-selected { border-color: #4f46e5; background: #eef2ff; }
+.ow-saved-addr-card input[type="radio"] { display: none; }
+.ow-addr-card-body { display: flex; gap: 10px; align-items: flex-start; }
+.ow-addr-card-body svg { flex-shrink: 0; color: #4f46e5; margin-top: 2px; }
+.ow-addr-text { font-size: 14px; color: #0f172a; font-weight: 500; }
+.ow-addr-meta { font-size: 12px; color: #64748b; margin-top: 2px; }
+
+/* Detect address */
+.ow-detect-box { text-align: center; padding: 20px; margin-bottom: 20px; }
+.ow-detect-info { font-size: 13px; color: #64748b; margin-bottom: 16px; }
+.ow-detect-btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; background: linear-gradient(135deg, #4f46e5, #6366f1); color: #fff; border: none; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; transition: 0.25s; }
+.ow-detect-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(79,70,229,0.3); }
+.ow-detect-status { margin-top: 12px; font-size: 13px; color: #64748b; }
+
+/* Manual hint */
+.ow-manual-hint { font-size: 13px; color: #64748b; margin-bottom: 16px; }
+
+/* Delivery form */
+.ow-delivery-form { margin-top: 16px; }
+.ow-form-group { margin-bottom: 14px; }
+.ow-form-group label { display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+.ow-form-group input, .ow-form-group select { width: 100%; padding: 12px 14px; border: 1.5px solid #e2e8f0; border-radius: 12px; font-size: 14px; color: #0f172a; background: #f8fafc; transition: 0.2s; box-sizing: border-box; }
+.ow-form-group input:focus, .ow-form-group select:focus { border-color: #4f46e5; outline: none; background: #fff; box-shadow: 0 0 0 3px rgba(79,70,229,0.1); }
+.ow-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* Total to Pay */
+.ow-form-total { display: flex; justify-content: space-between; align-items: center; padding: 16px 0; margin-top: 8px; border-top: 1px solid #e2e8f0; }
+.ow-form-total span:first-child { font-size: 16px; font-weight: 600; color: #475569; }
+.ow-form-total-amount { font-size: 22px; font-weight: 800; color: #0f172a; }
+
+/* Pay Now button */
+.ow-pay-btn { display: flex; width: 100%; margin-top: 12px; padding: 16px; background: linear-gradient(135deg, #4f46e5, #6366f1); color: #fff; border: none; border-radius: 14px; font-size: 16px; font-weight: 700; cursor: pointer; transition: 0.25s; letter-spacing: 0.3px; align-items: center; justify-content: center; gap: 8px; }
+.ow-pay-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(79,70,229,0.3); }
+
+/* Loading state */
+.ow-pay-btn.ow-loading { background: linear-gradient(135deg, #6366f1, #8b5cf6); pointer-events: none; animation: ow-pulse 1.5s ease-in-out infinite; }
+.ow-pay-btn.ow-loading .ow-btn-text { display: none; }
+.ow-pay-btn.ow-loading .ow-btn-loader { display: flex !important; align-items: center; gap: 8px; }
+.ow-spinner { animation: ow-spin 0.8s linear infinite; }
+@keyframes ow-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes ow-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.85; } }
+
+/* Missing field highlights */
+.ow-field-missing { border: 2px solid #ef4444 !important; background: #fef2f2 !important; }
+.ow-field-missing::placeholder { color: #ef4444 !important; }
+.ow-field-label-missing { color: #ef4444 !important; }
+.ow-field-label-missing::after { content: " *required"; font-size: 0.75em; font-weight: 400; }
+.ow-payment-active .ow-field-missing { border: 1.5px solid #e2e8f0 !important; background: #f8fafc !important; }
+.ow-payment-active .ow-field-missing::placeholder { color: #94a3b8 !important; }
+.ow-payment-active .ow-field-label-missing { color: #475569 !important; }
+.ow-payment-active .ow-field-label-missing::after { content: ""; }
+
+/* Desktop: wider max-width */
+@media (min-width: 768px) { .ow-checkout-page { max-width: 680px; padding: 24px; } }
+@media (min-width: 1024px) { .ow-checkout-page { max-width: 720px; } }
+</style>
+
+<!-- Prefill data -->
+<script>
+var prefillData = {
+  name: {{ prefill.name|default('')|tojson }},
+  phone: {{ prefill.phone|default('')|tojson }},
+  email: {{ prefill.email|default('')|tojson }},
+  address: {{ prefill.address|default('')|tojson }},
+  state: {{ prefill.state|default('')|tojson }},
+  zipcode: {{ prefill.zipcode|default('')|tojson }},
+  country: {{ prefill.country|default('India')|tojson }}
+};
+</script>
+
+<!-- Step Navigation + Address Logic -->
+<script>
+function owGoToStep(step) {
+  var cart = document.getElementById('owCartPanel');
+  var delivery = document.getElementById('owDeliveryPanel');
+  var s1 = document.getElementById('owStep1');
+  var s2 = document.getElementById('owStep2');
+  if (step === 2) {
+    cart.classList.add('ow-hidden');
+    delivery.classList.remove('ow-hidden');
+    s2.classList.add('ow-step-done');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    highlightMissingFields();
+  } else {
+    delivery.classList.add('ow-hidden');
+    cart.classList.remove('ow-hidden');
+    s2.classList.remove('ow-step-done');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+}
+
+function owSwitchAddrTab(tab, btn) {
+  document.querySelectorAll('.ow-addr-tab').forEach(function(t) { t.classList.remove('ow-addr-tab-active'); });
+  btn.classList.add('ow-addr-tab-active');
+  var panels = ['owSavedPanel', 'owDetectPanel', 'owManualPanel'];
+  panels.forEach(function(id) { var el = document.getElementById(id); if (el) el.classList.add('ow-hidden'); });
+  if (tab === 'saved') {
+    var sp = document.getElementById('owSavedPanel'); if (sp) sp.classList.remove('ow-hidden');
+  } else if (tab === 'detect') {
+    var dp = document.getElementById('owDetectPanel'); if (dp) dp.classList.remove('ow-hidden');
+  } else {
+    var mp = document.getElementById('owManualPanel'); if (mp) mp.classList.remove('ow-hidden');
+    document.getElementById('customer_address').value = '';
+    document.getElementById('customer_state').value = '';
+    document.getElementById('customer_postcode').value = '';
+    document.getElementById('customer_address').focus();
+  }
+}
+
+function owSelectSavedAddr(radio) {
+  document.querySelectorAll('.ow-saved-addr-card').forEach(function(c) { c.classList.remove('ow-addr-selected'); });
+  radio.closest('.ow-saved-addr-card').classList.add('ow-addr-selected');
+  document.getElementById('customer_address').value = radio.dataset.address;
+  document.getElementById('customer_state').value = radio.dataset.state;
+  document.getElementById('customer_postcode').value = radio.dataset.zip;
+  var cs = document.getElementById('country');
+  for (var i = 0; i < cs.options.length; i++) {
+    if (cs.options[i].value === radio.dataset.country) { cs.selectedIndex = i; break; }
+  }
+  highlightMissingFields();
+}
+
+function owDetectAddress() {
+  var status = document.getElementById('owDetectStatus');
+  status.textContent = 'Detecting location...';
+  if (!navigator.geolocation) {
+    status.textContent = 'Geolocation not supported. Please enter address manually.';
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(function(pos) {
+    var lat = pos.coords.latitude;
+    var lon = pos.coords.longitude;
+    status.textContent = 'Location found. Looking up address...';
+    fetch('https://nominatim.openstreetmap.org/reverse?format=json&lat=' + lat + '&lon=' + lon + '&addressdetails=1')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var addr = data.address || {};
+        var parts = [];
+        if (addr.road) parts.push(addr.road);
+        if (addr.suburb) parts.push(addr.suburb);
+        if (addr.city || addr.town || addr.village) parts.push(addr.city || addr.town || addr.village);
+        document.getElementById('customer_address').value = parts.join(', ');
+        document.getElementById('customer_state').value = addr.state || '';
+        document.getElementById('customer_postcode').value = addr.postcode || '';
+        status.innerHTML = '<span style="color:#16a34a">Address detected successfully!</span>';
+        highlightMissingFields();
+      })
+      .catch(function() { status.textContent = 'Could not look up address. Please enter manually.'; });
+  }, function(err) {
+    if (err.code === 1) status.textContent = 'Location permission denied. Please enter address manually.';
+    else status.textContent = 'Could not detect location. Please enter address manually.';
+  }, { timeout: 10000 });
+}
+
+function highlightMissingFields() {
+  var cp = document.querySelector('.ow-checkout-page');
+  if (cp && cp.classList.contains('ow-payment-active')) return;
+  ['customer_name','customer_address','customer_phone','customer_email','customer_postcode'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    var label = el.closest('.ow-form-group') ? el.closest('.ow-form-group').querySelector('label') : null;
+    if (!el.value || !el.value.trim()) {
+      el.classList.add('ow-field-missing');
+      if (label) label.classList.add('ow-field-label-missing');
+    } else {
+      el.classList.remove('ow-field-missing');
+      if (label) label.classList.remove('ow-field-label-missing');
+    }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  // Apply prefill
+  if (typeof prefillData !== 'undefined') {
+    var map = { customer_name:'name', customer_phone:'phone', customer_email:'email', customer_address:'address', customer_postcode:'zipcode', customer_state:'state' };
+    for (var fid in map) {
+      var el = document.getElementById(fid);
+      var val = prefillData[map[fid]];
+      if (el && val && (!el.value || !el.value.trim())) el.value = val;
+    }
+  }
+  // If saved addresses exist and first one is selected, fill form
+  var firstRadio = document.querySelector('.ow-saved-addr-card input[type="radio"]:checked');
+  if (firstRadio) owSelectSavedAddr(firstRadio);
+  // Bind input events
+  document.querySelectorAll('.ow-delivery-form input[required]').forEach(function(inp) {
+    inp.addEventListener('input', highlightMissingFields);
+  });
+});
+</script>
+
+<!-- Paytm -->
+<script>
+function onScriptLoad() {
+  var config = {
+    "root": "",
+    "flow": "DEFAULT",
+    "data": {
+      "orderId": "{{ order_id }}",
+      "token": "{{ payment_token }}",
+      "tokenType": "TXN_TOKEN",
+      "amount": "{{ grand_total }}",
+    },
+    "handler": {
+      "notifyMerchant": function(eventName, data) {
+        console.log("notifyMerchant handler function called");
+        console.log("eventName => ", eventName);
+        console.log("data => ", data);
+      }
+    }
+  };
+  if (window.Paytm && window.Paytm.CheckoutJS) {
+    document.querySelector('.ow-checkout-page').classList.add('ow-payment-active');
+    window.Paytm.CheckoutJS.onLoad(function executeAfterCompleteLoad() {
+      window.Paytm.CheckoutJS.init(config).then(function onSuccess() {
+        window.Paytm.CheckoutJS.invoke();
+      }).catch(function onError(error) {
+        console.log("error => ", error);
+        var cp = document.querySelector('.ow-checkout-page');
+        if (cp) cp.classList.remove('ow-payment-active');
+      });
+    });
+  }
+}
+
+function startPaymentPolling() {
+  var orderId = "{{ order_id }}";
+  function checkStatus() {
+    fetch('/check-payment-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order_id: orderId })
+    })
+    .then(function(response) { return response.json(); })
+    .then(function(data) {
+      if (data.status === 'success') { alert('Payment success'); }
+      else if (data.status === 'pending') { setTimeout(checkStatus, 5000); }
+      else { alert("Payment Failed"); }
+    })
+    .catch(function(error) { console.error('Error checking payment status', error); });
+  }
+  checkStatus();
+}
+</script>
+
+<script type="application/javascript" src="https://secure.paytmpayments.com/merchantpgpui/checkoutjs/merchants/bjeIEk44546000657991.js" onload="onScriptLoad();" crossorigin="anonymous"></script>
+
+{% else %}
+<div style="text-align:center;padding:60px 20px;">
+  <h2 style="color:#475569;font-weight:600;">Your cart is empty</h2>
+  <p style="color:#94a3b8;">Add some frames to get started.</p>
+  <a href="/" style="display:inline-block;margin-top:16px;padding:12px 24px;background:#4f46e5;color:#fff;border-radius:12px;text-decoration:none;font-weight:600;">Browse Frames</a>
+</div>
+{% endif %}
+
+<!-- Payment button animation -->
+<script>
+(function() {
+  var form = document.getElementById('owDeliveryForm');
+  var btn = document.getElementById('paytm-button');
+  if (form && btn) {
+    form.addEventListener('submit', function() {
+      var missing = form.querySelectorAll('.ow-field-missing');
+      if (missing.length > 0) return;
+      btn.classList.add('ow-loading');
+      btn.disabled = true;
+      setTimeout(function() { btn.classList.remove('ow-loading'); btn.disabled = false; }, 30000);
+    });
+  }
+})();
+(function() {
+  var btn = document.getElementById('paytm-button');
+  if (btn && '{{ payment_token|default("") }}') {
+    btn.classList.add('ow-loading');
+    btn.disabled = true;
+  }
+})();
+</script>
+
+{% endblock %}

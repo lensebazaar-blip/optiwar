@@ -1,0 +1,56 @@
+{# Reusable responsive product-image macros.
+   Requires Jinja globals img_has_derivatives() and img_ver() (embed_helper).
+   `path` is a product_image entry, e.g. "./catalog/opticalbazaar/AE39/AE39_1.jpg". #}
+
+{# versioned static URL: adds ?v=<content-hash> when known #}
+{%- macro _u(rel) -%}
+{{- url_for('static', filename=rel) -}}{%- set v = img_ver(rel) -%}{%- if v -%}?v={{ v }}{%- endif -%}
+{%- endmacro -%}
+
+{# width-descriptor srcset string for one format #}
+{%- macro _srcset(base, fmt) -%}
+{%- set widths = [200, 400, 800, 1200, 2000] -%}
+{%- for w in widths %}{{ _u(base ~ '-' ~ w ~ '.' ~ fmt)|trim }} {{ w }}w{% if not loop.last %}, {% endif %}{% endfor -%}
+{%- endmacro -%}
+
+{# Full responsive <picture> (hero / standalone). eager=true for the LCP image. #}
+{%- macro product_picture(path, alt, cls='', width=800, height=800,
+                          sizes='(max-width:600px) 92vw, (max-width:1024px) 45vw, 400px',
+                          eager=false, priority=false, zoomable=false, img_id='') -%}
+{%- set p = path.strip() -%}
+{# loadattrs is one of THREE fixed, macro-generated attribute strings below —
+   never user- or DB-supplied. It is emitted with |safe purely to stop Jinja
+   autoescaping the quotes (which would produce loading=&#34;eager&#34; and
+   break the attribute). User/DB content (alt, paths) stays escaped normally.
+   The old generic `extra|safe` passthrough is REMOVED; the only interactive
+   attribute callers needed was the zoom handler, now a fixed boolean below. #}
+{%- if eager and priority -%}{%- set loadattrs = 'loading="eager" fetchpriority="high" decoding="async"' -%}
+{%- elif eager -%}{%- set loadattrs = 'loading="eager" decoding="async"' -%}
+{%- else -%}{%- set loadattrs = 'loading="lazy" decoding="async"' -%}{%- endif -%}
+{%- if img_has_derivatives(p) -%}
+  {%- set dir = p.rsplit('/', 1)[0] -%}
+  {%- set stem = p.rsplit('/', 1)[1].rsplit('.', 1)[0] -%}
+  {%- set base = dir ~ '/derivatives/' ~ stem -%}
+<picture>
+  <source{% if img_id %} id="{{ img_id }}Avif"{% endif %} type="image/avif" sizes="{{ sizes }}" srcset="{{ _srcset(base, 'avif')|trim }}">
+  <source{% if img_id %} id="{{ img_id }}Webp"{% endif %} type="image/webp" sizes="{{ sizes }}" srcset="{{ _srcset(base, 'webp')|trim }}">
+  <img{% if img_id %} id="{{ img_id }}"{% endif %} src="{{ _u(p)|trim }}" data-zoom="{{ _u(p)|trim }}" alt="{{ alt }}"{% if cls %} class="{{ cls }}"{% endif %} width="{{ width }}" height="{{ height }}" {{ loadattrs|safe }}{% if zoomable %} onclick="openZoom(this)"{% endif %}>
+</picture>
+{%- else -%}
+  <img{% if img_id %} id="{{ img_id }}"{% endif %} src="{{ _u(p)|trim }}" data-zoom="{{ _u(p)|trim }}" alt="{{ alt }}"{% if cls %} class="{{ cls }}"{% endif %} width="{{ width }}" height="{{ height }}" {{ loadattrs|safe }}{% if zoomable %} onclick="openZoom(this)"{% endif %}>
+{%- endif -%}
+{%- endmacro -%}
+
+{# Small gallery thumbnail: uses the 200w derivative (tiny) as src, and carries
+   data-avif/data-webp/data-full so a picture-aware swapper can repaint the hero. #}
+{%- macro thumb_img(path, alt, active=false) -%}
+{%- set p = path.strip() -%}
+{%- if img_has_derivatives(p) -%}
+  {%- set dir = p.rsplit('/', 1)[0] -%}
+  {%- set stem = p.rsplit('/', 1)[1].rsplit('.', 1)[0] -%}
+  {%- set base = dir ~ '/derivatives/' ~ stem -%}
+  <img src="{{ _u(base ~ '-200.jpg')|trim }}" data-avif="{{ _srcset(base, 'avif')|trim }}" data-webp="{{ _srcset(base, 'webp')|trim }}" data-full="{{ _u(p)|trim }}" alt="{{ alt }}"{% if active %} class="active"{% endif %} width="80" height="80" loading="lazy" decoding="async" role="button" tabindex="0" aria-label="Show {{ alt }}" aria-current="{{ 'true' if active else 'false' }}" onclick="pdpSw(this)" onkeydown="pdpKey(event,this)">
+{%- else -%}
+  <img src="{{ _u(p)|trim }}" data-full="{{ _u(p)|trim }}" alt="{{ alt }}"{% if active %} class="active"{% endif %} width="80" height="80" loading="lazy" decoding="async" role="button" tabindex="0" aria-label="Show {{ alt }}" aria-current="{{ 'true' if active else 'false' }}" onclick="pdpSw(this)" onkeydown="pdpKey(event,this)">
+{%- endif -%}
+{%- endmacro -%}

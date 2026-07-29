@@ -1,0 +1,181 @@
+/* ============================================================
+   CLEAN HEADER — Matching Mockup Design
+   ============================================================ */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+/* Hide old header content */
+header .top-title,
+header .loader,
+header .ow-icon-nav,
+header .ow-banner-solo {
+  display: none !important;
+}
+
+/* New clean header */
+.ow-header-clean {
+  background: #fff;
+  border-bottom: 1px solid #eee;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+.ow-hdr-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 12px 24px;
+  gap: 24px;
+}
+.ow-hdr-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: #111;
+  flex-shrink: 0;
+}
+.ow-logo-text {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+.ow-hdr-nav {
+  display: flex;
+  gap: 24px;
+  margin-left: 24px;
+}
+.ow-hdr-nav a {
+  text-decoration: none;
+  color: #444;
+  font-size: 0.88rem;
+  font-weight: 500;
+  transition: color 0.2s;
+  white-space: nowrap;
+}
+.ow-hdr-nav a:hover {
+  color: #111;
+}
+.ow-hdr-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-left: auto;
+}
+.ow-hdr-search {
+  display: flex;
+  align-items: center;
+  background: #f5f5f5;
+  border-radius: 8px;
+  padding: 6px 12px;
+  gap: 6px;
+  min-width: 180px;
+}
+.ow-hdr-search input {
+  border: none;
+  background: none;
+  outline: none;
+  font-size: 0.82rem;
+  color: #333;
+  width: 100%;
+  font-family: inherit;
+}
+.ow-hdr-search input::placeholder {
+  color: #aaa;
+}
+.ow-hdr-icon-link {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  text-decoration: none;
+  color: #333;
+  font-size: 0.82rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: color 0.2s;
+}
+.ow-hdr-icon-link:hover {
+  color: #111;
+}
+.ow-hdr-link-label {
+  font-size: 0.82rem;
+}
+
+/* Hamburger (mobile only) */
+.ow-hdr-hamburger {
+  display: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  flex-direction: column;
+  gap: 4px;
+  margin-left: auto;
+}
+.ow-hdr-hamburger span {
+  display: block;
+  width: 22px;
+  height: 2px;
+  background: #333;
+  border-radius: 2px;
+  transition: transform 0.3s, opacity 0.2s;
+}
+.ow-hdr-hamburger.active span:nth-child(1) {
+  transform: translateY(6px) rotate(45deg);
+}
+.ow-hdr-hamburger.active span:nth-child(2) {
+  opacity: 0;
+}
+.ow-hdr-hamburger.active span:nth-child(3) {
+  transform: translateY(-6px) rotate(-45deg);
+}
+
+/* Mobile menu */
+.ow-hdr-mobile-menu {
+  display: none;
+  flex-direction: column;
+  background: #fff;
+  border-top: 1px solid #eee;
+  padding: 8px 24px 16px;
+}
+.ow-hdr-mobile-menu.open {
+  display: flex;
+}
+.ow-hdr-mobile-menu a {
+  display: block;
+  padding: 10px 0;
+  text-decoration: none;
+  color: #333;
+  font-size: 0.9rem;
+  font-weight: 500;
+  border-bottom: 1px solid #f0f0f0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+.ow-hdr-mobile-menu a:last-child {
+  border-bottom: none;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 768px) {
+  .ow-hdr-nav {
+    display: none;
+  }
+  .ow-hdr-search {
+    display: none;
+  }
+  .ow-hdr-actions .ow-hdr-link-label {
+    display: none;
+  }
+  .ow-hdr-hamburger {
+    display: flex;
+  }
+  .ow-hdr-inner {
+    padding: 10px 16px;
+  }
+}
+@media (min-width: 769px) {
+  .ow-hdr-mobile-menu {
+    display: none !important;
+  }
+}

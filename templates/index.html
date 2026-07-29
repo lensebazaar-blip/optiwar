@@ -1,0 +1,251 @@
+{% extends 'base.html' %}
+{% block title %}{% if is_india %}Optiwar - Factory Outlet Eyewear | Spectacle Frames from Rs 499 | Free Prescription Lenses{% else %}Optiwar - Factory Outlet Eyewear | Spectacle Frames from €34.99 | Free Prescription Lenses{% endif %}{% endblock %}
+{% block meta_description %}{% if is_india %}Buy premium spectacle frames at factory outlet prices starting Rs 499. Save up to 70% on eyewear. Free prescription lenses, free delivery across India. 700+ frames in stock. Shop Half Frame, Clubmaster, Round, Rectangle, Rimless styles at Optiwar.{% else %}Buy premium spectacle frames at factory outlet prices starting €34.99. Save up to 70% on eyewear. Free prescription lenses, free delivery worldwide. 700+ frames in stock. Shop Half Frame, Clubmaster, Round, Rectangle, Rimless styles at Optiwar.{% endif %}{% endblock %}
+{% block meta_keywords %}{% if is_india %}optiwar, factory outlet eyewear, spectacle frames online India, buy eyeglasses online, prescription glasses cheap, half frame spectacles, clubmaster glasses, round spectacles, rimless frames, spectacle frames Rs 499, free prescription lenses{% else %}optiwar, factory outlet eyewear, spectacle frames online Europe, buy eyeglasses online, prescription glasses affordable, half frame spectacles, clubmaster glasses, round spectacles, rimless frames, spectacle frames Europe, free prescription lenses{% endif %}{% endblock %}
+{% block og_title %}{% if is_india %}Optiwar - Factory Outlet Eyewear | Spectacles from Rs 499{% else %}Optiwar - Factory Outlet Eyewear | Spectacles from €34.99{% endif %}{% endblock %}
+{% block og_description %}Premium spectacle frames at factory outlet wholesale prices. Save up to 70%. Free prescription lenses included with every frame. 700+ styles in stock.{% endblock %}
+{% block og_url %}{{ site_url }}/{% endblock %}
+
+{% block hreflang_in %}https://optiwar.in/{% endblock %}
+{% block hreflang_default %}https://optiwar.com/{% endblock %}
+{% block canonical_url %}{% if is_india %}https://optiwar.in/{% else %}https://optiwar.com/{% endif %}{% endblock %}
+
+{% block jsonld_extra %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "OpticalStore",
+  "name": "Optiwar Factory Outlet",
+  {% if is_india %}"description": "Factory outlet eyewear store in India offering spectacle frames at wholesale prices starting Rs 499. Free prescription lenses with every frame. Save up to 70% compared to retail."{% else %}"description": "Factory outlet eyewear store offering spectacle frames at wholesale prices starting €34.99. Free prescription lenses with every frame. Save up to 70% compared to retail. Worldwide delivery."{% endif %},
+  "url": "{{ site_url }}",
+  "logo": "{{ site_url }}/static/favicon-512x512.png",
+  "image": "{{ site_url }}/static/new-logo.png",
+  {% if is_india %}"priceRange": "Rs 499 - Rs 999"{% else %}"priceRange": "€34.99 - €39.99"{% endif %},
+  {% if is_india %}"currenciesAccepted": "INR"{% else %}"currenciesAccepted": "EUR"{% endif %},
+  {% if is_india %}"paymentAccepted": "UPI, Credit Card, Debit Card, Net Banking, Paytm"{% else %}"paymentAccepted": "Credit Card, Debit Card, PayPal, Bank Transfer, Visa, Mastercard"{% endif %},
+  {% if is_india %}"address": {"@type": "PostalAddress", "addressCountry": "IN"}{% else %}"address": {"@type": "PostalAddress", "addressCountry": "IN"}{% endif %},
+  "openingHoursSpecification": {"@type": "OpeningHoursSpecification", "dayOfWeek": ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"], "opens": "00:00", "closes": "23:59"},
+  {% if is_india %}"areaServed": {"@type": "Country", "name": "India"}{% else %}"areaServed": "Global"{% endif %},
+  {% if store_review_count > 0 %}"aggregateRating": {
+    "@type": "AggregateRating",
+    "ratingValue": "{{ store_avg_rating }}",
+    "reviewCount": "{{ store_review_count }}",
+    "bestRating": "5",
+    "worstRating": "1"
+  },{% endif %}
+  "hasOfferCatalog": {
+    "@type": "OfferCatalog",
+    "name": "Spectacle Frames Collection",
+    "itemListElement": [
+      {"@type": "OfferCatalog", "name": "Half Frame Spectacles", "itemListElement": {"@type": "Offer", "itemOffered": {"@type": "Product", "name": "Half Frame / Supra Spectacles", "offers": {"@type": "AggregateOffer", "lowPrice": "34.99", "highPrice": "39.99", "priceCurrency": "EUR", "offerCount": "700+"}}, "url": "{{ site_url }}/categories/supra"}},
+      {"@type": "OfferCatalog", "name": "Clubmaster Spectacles", "itemListElement": {"@type": "Offer", "itemOffered": {"@type": "Product", "name": "Clubmaster Spectacles", "offers": {"@type": "AggregateOffer", "lowPrice": "34.99", "highPrice": "39.99", "priceCurrency": "EUR", "offerCount": "700+"}}, "url": "{{ site_url }}/categories/clubmaster"}},
+      {"@type": "OfferCatalog", "name": "Round Spectacles", "itemListElement": {"@type": "Offer", "itemOffered": {"@type": "Product", "name": "Round / Circular Spectacles", "offers": {"@type": "AggregateOffer", "lowPrice": "34.99", "highPrice": "39.99", "priceCurrency": "EUR", "offerCount": "700+"}}, "url": "{{ site_url }}/categories/round"}},
+      {"@type": "OfferCatalog", "name": "Rectangle Spectacles", "itemListElement": {"@type": "Offer", "itemOffered": {"@type": "Product", "name": "Rectangle Spectacles", "offers": {"@type": "AggregateOffer", "lowPrice": "34.99", "highPrice": "39.99", "priceCurrency": "EUR", "offerCount": "700+"}}, "url": "{{ site_url }}/categories/rectangle"}},
+      {"@type": "OfferCatalog", "name": "Rimless Spectacles", "itemListElement": {"@type": "Offer", "itemOffered": {"@type": "Product", "name": "Rimless / 3-Piece Spectacles", "offers": {"@type": "AggregateOffer", "lowPrice": "34.99", "highPrice": "39.99", "priceCurrency": "EUR", "offerCount": "700+"}}, "url": "{{ site_url }}/categories/rimless"}},
+      {"@type": "OfferCatalog", "name": "Square Spectacles", "itemListElement": {"@type": "Offer", "itemOffered": {"@type": "Product", "name": "Square Spectacles", "offers": {"@type": "AggregateOffer", "lowPrice": "34.99", "highPrice": "39.99", "priceCurrency": "EUR", "offerCount": "700+"}}, "url": "{{ site_url }}/categories/square"}}
+    ]
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "CollectionPage",
+  "name": "Optiwar - Factory Outlet Eyewear Store",
+  {% if is_india %}"description": "Browse 700+ premium spectacle frames at factory outlet wholesale prices. Starting Rs 499 with free prescription lenses included."{% else %}"description": "Browse 700+ premium spectacle frames at factory outlet wholesale prices. Starting €34.99 with free prescription lenses included."{% endif %},
+  "url": "{{ site_url }}/",
+  "mainEntity": {
+    "@type": "ItemList",
+    "name": "Optiwar Spectacle Frames",
+    "numberOfItems": {{ products|length }},
+    "itemListOrder": "https://schema.org/ItemListUnordered",
+    "itemListElement": [
+      {% for product in products[:20] %}
+      {
+        "@type": "ListItem",
+        "position": {{ loop.index }},
+        "item": {
+          "@type": "Product",
+          "name": "{{ product.product_name }} {{ product.product_code }}",
+          "url": "{{ site_url }}/categories/{{ product.product_category|lower|replace(' ', '-') }}/{{ product.product_slug }}?pid={{ product.product_id }}",
+          {% if product.product_image %}"image": "{{ site_url }}/static/{{ product.product_image.split(',')[0].strip() }}",{% endif %}
+          {% if is_india %}"description": "{{ product.product_details|default(product.product_name ~ ' ' ~ product.product_code ~ ' - ' ~ product.product_category, true)|truncate(160) }}",{% else %}"description": "{{ product.product_details|default(product.product_name ~ ' ' ~ product.product_code ~ ' - ' ~ product.product_category, true)|replace('Rs ' ~ product.product_special_price|string, '\u20ac' ~ product.product_special_price_eur|string)|replace('Rs ' ~ product.product_price|string, '\u20ac' ~ product.product_price_eur|string)|replace('across India', 'worldwide')|replace('GST', 'taxes')|truncate(160) }}",{% endif %}
+          "sku": "{{ product.product_code }}",
+          "brand": {"@type": "Brand", "name": "Optiwar"},
+          {% if is_india %}"offers": {"@type": "Offer", "price": "{{ product.product_special_price }}", "priceCurrency": "INR", "availability": "https://schema.org/InStock", "seller": {"@type": "Organization", "name": "Optiwar"}}{% else %}"offers": {"@type": "Offer", "price": "{{ product.product_special_price_eur }}", "priceCurrency": "EUR", "availability": "https://schema.org/InStock", "seller": {"@type": "Organization", "name": "Optiwar"}}{% endif %}
+        }
+      }{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ]
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [{"@type": "ListItem", "position": 1, "name": "Home", "item": "{{ site_url }}/"}]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+{% if is_india %}  "@type": "FAQPage",
+  "mainEntity": [
+    {"@type": "Question", "name": "What is Optiwar?", "acceptedAnswer": {"@type": "Answer", "text": "Optiwar is an online factory outlet eyewear store based in India that sells premium spectacle frames at wholesale prices starting from Rs 499. Every frame includes complimentary prescription lenses, free delivery, and GST. Customers save up to 70% compared to retail optical stores."}},
+    {"@type": "Question", "name": "What types of spectacle frames does Optiwar sell?", "acceptedAnswer": {"@type": "Answer", "text": "Optiwar offers 700+ spectacle frames in multiple styles: Half Frame (Supra), Clubmaster, Round, Rectangle, Rimless (3-Piece / Frameless), and Square frames. Frames come in sizes Small, Medium, Large, and Extra Large to fit different face widths."}},
+    {"@type": "Question", "name": "Are prescription lenses included free with Optiwar frames?", "acceptedAnswer": {"@type": "Answer", "text": "Yes, every spectacle frame purchased from Optiwar includes complimentary single-vision prescription lenses at no extra charge. Customers can also upgrade to premium lens types like Anti-Glare (Rs 50), Blue Cut (Rs 200), Progressive (Rs 1800), and more at factory outlet prices."}},
+    {"@type": "Question", "name": "How much do spectacle frames cost at Optiwar?", "acceptedAnswer": {"@type": "Answer", "text": "Spectacle frames at Optiwar start from Rs 499 and go up to Rs 999. The most popular price point is Rs 599. All prices include GST and free delivery across India. Customers save 25% to 71% compared to retail prices."}},
+    {"@type": "Question", "name": "Does Optiwar deliver across India?", "acceptedAnswer": {"@type": "Answer", "text": "Yes, Optiwar delivers to all pin codes across India. Delivery is completely free with no minimum order. Payment can be made via UPI, credit card, debit card, net banking, or Paytm."}},
+    {"@type": "Question", "name": "What lens types are available at Optiwar?", "acceptedAnswer": {"@type": "Answer", "text": "Optiwar offers 11 types of prescription lenses: Anti-Glare (Rs 50), Blue Cut (Rs 200), Multi Anti-Glare (Rs 350), Thin Lenses (Rs 500), Ultra-Thin (Rs 800), Photogrey/Transitions (Rs 800), Photobrown (Rs 800), Polarized (Rs 800), Bifocal Round (Rs 500), Bifocal Flat-Top D (Rs 800), and Progressive/Varifocal (Rs 1800)."}},
+    {"@type": "Question", "name": "How do I choose the right frame size at Optiwar?", "acceptedAnswer": {"@type": "Answer", "text": "Optiwar frames are categorized by face fit: Small (44-48mm), Medium (49-53mm), Large (54-57mm), and Extra Large (58mm+). Each listing shows size in diameter-bridge-temple format. Optiwar also offers an AI-powered face measurement tool that recommends the perfect frame size."}}
+  ]
+}
+{% else %}  "@type": "FAQPage",
+  "mainEntity": [
+    {"@type": "Question", "name": "What is Optiwar?", "acceptedAnswer": {"@type": "Answer", "text": "Optiwar is an online factory outlet eyewear store that sells premium spectacle frames at wholesale prices starting from €34.99. Every frame includes complimentary prescription lenses, and free worldwide delivery. Customers save up to 70% compared to retail optical stores."}},
+    {"@type": "Question", "name": "What types of spectacle frames does Optiwar sell?", "acceptedAnswer": {"@type": "Answer", "text": "Optiwar offers 700+ spectacle frames in multiple styles: Half Frame (Supra), Clubmaster, Round, Rectangle, Rimless (3-Piece / Frameless), and Square frames. Frames come in sizes Small, Medium, Large, and Extra Large to fit different face widths."}},
+    {"@type": "Question", "name": "Are prescription lenses included free with Optiwar frames?", "acceptedAnswer": {"@type": "Answer", "text": "Yes, every spectacle frame purchased from Optiwar includes complimentary single-vision prescription lenses at no extra charge. Customers can also upgrade to premium lens types like Anti-Glare (€5), Blue Cut (€7), Progressive (€23), and more at factory outlet prices."}},
+    {"@type": "Question", "name": "How much do spectacle frames cost at Optiwar?", "acceptedAnswer": {"@type": "Answer", "text": "Spectacle frames at Optiwar start from €34.99 and go up to €39.99. The most popular price point is €35.99. Free worldwide delivery included. Customers save 25% to 71% compared to retail prices."}},
+    {"@type": "Question", "name": "Does Optiwar deliver worldwide?", "acceptedAnswer": {"@type": "Answer", "text": "Yes, Optiwar delivers worldwide. Delivery is completely free with no minimum order. Payment can be made via credit card, debit card, PayPal, or bank transfer."}},
+    {"@type": "Question", "name": "Does Optiwar ship to the United States?", "acceptedAnswer": {"@type": "Answer", "text": "Currently, we do not ship to the USA due to FDA detention issues. In the interest of our customers, we will not be shipping to the United States unless our administration team resolves the issues for shipping to USA. We apologize to US customers for the inconvenience."}},
+    {"@type": "Question", "name": "What lens types are available at Optiwar?", "acceptedAnswer": {"@type": "Answer", "text": "Optiwar offers 11 types of prescription lenses: Anti-Glare (€5), Blue Cut (€7), Multi Anti-Glare (€6.50), Thin Lenses (€8), Ultra-Thin (€11), Photogrey/Transitions (€11), Photobrown (€11), Polarized (€11), Bifocal Round (€8), Bifocal Flat-Top D (€11), and Progressive/Varifocal (€23)."}},
+    {"@type": "Question", "name": "How do I choose the right frame size at Optiwar?", "acceptedAnswer": {"@type": "Answer", "text": "Optiwar frames are categorized by face fit: Small (44-48mm), Medium (49-53mm), Large (54-57mm), and Extra Large (58mm+). Each listing shows size in diameter-bridge-temple format. Optiwar also offers an AI-powered face measurement tool that recommends the perfect frame size."}}
+  ]
+}
+{% endif %}</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  "name": "Optiwar Factory Outlet Eyewear",
+  "speakable": {"@type": "SpeakableSpecification", "cssSelector": [".ow-speakable-intro"]},
+  "url": "{{ site_url }}/"
+}
+</script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "HowTo",
+  "name": "How to Order Prescription Glasses Online at Optiwar",
+  "description": "Order prescription eyeglasses online at factory outlet prices in 4 simple steps.",
+  "totalTime": "PT5M",
+  "step": [
+    {"@type": "HowToStep", "position": 1, "name": "Browse frames", "text": "Browse 700+ spectacle frames across 6 categories: half-rim, clubmaster, round, rectangle, rimless, and square."},
+    {"@type": "HowToStep", "position": 2, "name": "Add to cart", "text": "Select your frame and add it to your cart. Choose Buy Frame Only or Add Prescription Lenses."},
+    {"@type": "HowToStep", "position": 3, "name": "Enter prescription", "text": "Enter your prescription values (SPH, CYL, AXIS, ADD) and select lens type: single vision, bifocal, or progressive."},
+    {"@type": "HowToStep", "position": 4, "name": "Checkout", {% if is_india %}"text": "Complete checkout and pay. Free delivery across India in 5-7 business days."{% else %}"text": "Complete checkout and pay. Free worldwide delivery in 7-14 business days."{% endif %}}
+  ]
+}
+</script>
+{% endblock %}
+
+{% block content %}
+{% from '_picture.html' import product_picture %}
+<style>#heroCarousel picture{display:contents;}</style>
+<div class="ow-speakable-intro" style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;" aria-hidden="true">
+{% if is_india %}Optiwar is India's factory outlet eyewear store. Buy premium spectacle frames starting Rs 499 with free prescription lenses and free delivery. Over 700 frames in stock across Half Frame, Clubmaster, Round, Rectangle, Rimless, and Square styles. Save up to 70% compared to retail optical stores.{% else %}Optiwar is a global factory outlet eyewear store. Buy premium spectacle frames starting €34.99 with free prescription lenses and free worldwide delivery. Over 700 frames in stock across Half Frame, Clubmaster, Round, Rectangle, Rimless, and Square styles. Save up to 70% compared to retail optical stores.{% endif %}
+</div>
+
+<!-- ═══ HERO ═══ -->
+<section class="hero">
+  <div class="hero-inner">
+    <h1>Frames including<br><span>Lenses as Complimentary</span></h1>
+    {% if not is_india %}
+    <div class="ow-hero-delivery">
+      <span class="ow-gift-icon">&#127873;</span>
+      + <span class="ow-free">FREE</span> Global Shipping &#127758;
+    </div>
+    {% endif %}
+    <a class="hero-cta" href="/eyeglasses/all-spectacle-frames.html">Explore Frames &rarr;</a>
+    <div class="hero-carousel" id="heroCarousel">
+      {% for product in products[:8] %}
+      {% set img = product.product_image.split(',')[0].strip() if product.product_image else 'new-logo.png' %}
+      {% if product.product_image %}
+      {{ product_picture(img, product.product_name ~ ' ' ~ (product.product_code or '') ~ ' ' ~ (product.product_category or ''), cls=('active' if loop.first else ''), width=400, height=400, sizes='(max-width:767px) 250px, 260px', eager=loop.first, priority=loop.first) }}
+      {% else %}
+      <img src="{{ url_for('static', filename=img) }}" alt="{{ product.product_name }}" {% if loop.first %}class="active"{% endif %} loading="{% if loop.first %}eager{% else %}lazy{% endif %}" width="400" height="400">
+      {% endif %}
+      {% endfor %}
+      <button class="hero-carousel-btn prev" onclick="heroSlide(-1)" aria-label="Previous">&lsaquo;</button>
+      <button class="hero-carousel-btn next" onclick="heroSlide(1)" aria-label="Next">&rsaquo;</button>
+      <div class="hero-carousel-dots" id="heroCarouselDots"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ BANNER SOLO (rotating) ═══ -->
+<div class="ow-banner-solo" id="bannerSolo">
+  <a href="#" class="active" data-banner="0"><span class="banner-icon">&check;</span> {% if is_india %}All Prices include GST{% else %}All Taxes Included{% endif %}</a>
+  <a href="/tryon" data-banner="1"><span class="banner-icon">&#128248;</span> Measure your Face with our FACES <span class="banner-arrow">&rarr;</span></a>
+  <a href="#" data-banner="2"><span class="banner-icon">&#128666;</span> {% if is_india %}Free Shipping across India{% else %}Free Worldwide Shipping{% endif %}</a>
+  <a href="/lenses/polarized-lenses" data-banner="3"><span class="banner-icon">&#128374;</span> Polarized Lenses at fractions of price <span class="banner-arrow">&rarr;</span></a>
+  <a href="/lenses/blue-cut-lenses" data-banner="4"><span class="banner-icon">&#128187;</span> Blue Cut Lenses <span class="banner-arrow">&rarr;</span></a>
+</div>
+
+<!-- ═══ BEST SELLING LENSES ═══ -->
+<section class="split" style="padding-bottom:24px;">
+  <div class="best-lenses" style="max-width:700px;margin:0 auto;">
+    <h3>Best Selling Lenses</h3>
+    <div class="lens-item"><span class="lens-name">Single Vision</span><span class="lens-price free">FREE</span></div>
+    <div class="lens-item"><span class="lens-name">Blue-Cut Lens</span><span class="lens-price">{% if is_india %}&#8377;{{ lens_prices["bcm02"]["price"] }}{% else %}&euro;{{ lens_prices["bcm02"]["price_eur"] }}{% endif %}</span></div>
+    <div class="lens-item"><span class="lens-name">Multi-Glare Protection Lenses</span><span class="lens-price">{% if is_india %}&#8377;{{ lens_prices["arcmat03"]["price"] }}{% else %}&euro;{{ lens_prices["arcmat03"]["price_eur"] }}{% endif %}</span></div>
+    <div class="lens-item"><span class="lens-name">Thin Lenses</span><span class="lens-price">{% if is_india %}&#8377;{{ lens_prices["opsix1"]["price"] }}{% else %}&euro;{{ lens_prices["opsix1"]["price_eur"] }}{% endif %}</span></div>
+    <div class="lens-item"><span class="lens-name">Extra-Thin Lenses</span><span class="lens-price">{% if is_india %}&#8377;{{ lens_prices["ops672"]["price"] }}{% else %}&euro;{{ lens_prices["ops672"]["price_eur"] }}{% endif %}</span></div>
+    <div class="lens-item"><span class="lens-name">Bifocal Round Top Lenses</span><span class="lens-price">{% if is_india %}&#8377;{{ lens_prices["crkt"]["price"] }}{% else %}&euro;{{ lens_prices["crkt"]["price_eur"] }}{% endif %}</span></div>
+    <div class="lens-item"><span class="lens-name">Photogrey Lenses</span><span class="lens-price">{% if is_india %}&#8377;{{ lens_prices["pcgreystyle"]["price"] }}{% else %}&euro;{{ lens_prices["pcgreystyle"]["price_eur"] }}{% endif %}</span></div>
+    <div class="lens-item"><span class="lens-name">Bifocal Flat-Top D Lenses</span><span class="lens-price">{% if is_india %}&#8377;{{ lens_prices["crd"]["price"] }}{% else %}&euro;{{ lens_prices["crd"]["price_eur"] }}{% endif %}</span></div>
+    <div class="lens-item"><span class="lens-name">Photo-Brown Lenses</span><span class="lens-price">{% if is_india %}&#8377;{{ lens_prices["pcbostyle"]["price"] }}{% else %}&euro;{{ lens_prices["pcbostyle"]["price_eur"] }}{% endif %}</span></div>
+    <div class="lens-item"><span class="lens-name">Polarized Lenses</span><span class="lens-price">{% if is_india %}&#8377;{{ lens_prices["polarized04"]["price"] }}{% else %}&euro;{{ lens_prices["polarized04"]["price_eur"] }}{% endif %}</span></div>
+    <div class="lens-item"><span class="lens-name">Progressive Lenses</span><span class="lens-price">{% if is_india %}&#8377;{{ lens_prices["prog01"]["price"] }}{% else %}&euro;{{ lens_prices["prog01"]["price_eur"] }}{% endif %}</span></div>
+    <a href="javascript:void(0)" class="browse-btn" onclick="document.getElementById('lens-grid-popup').style.display='flex'">Browse Lens Collections &rarr;</a>
+  </div>
+</section>
+
+<!-- ═══ PRODUCTS ═══ -->
+<h2 class="section-title">Our Collection</h2>
+<ul id="product-list">
+</ul>
+
+<!-- ═══ REVIEWS + SOCIAL ═══ -->
+<section class="bottom-row">
+  <div class="bottom-grid">
+    <div class="reviews-box">
+      <h3>Customer Reviews</h3>
+      <div class="review-item">
+        <div class="review-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+        <div class="review-text">Great quality frames at unbeatable prices</div>
+      </div>
+      <div class="review-item">
+        <div class="review-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+        <div class="review-text">Fast delivery, exactly as described</div>
+      </div>
+      <div class="review-item">
+        <div class="review-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+        <div class="review-text">Excellent lenses, very comfortable to wear</div>
+      </div>
+      <div class="review-note">Reviews shown only when verified purchases are available</div>
+    </div>
+    <div class="social-box">
+      <h3>Follow Us</h3>
+      <a href="https://www.instagram.com/optiwar_" target="_blank" rel="noopener" class="social-link">
+        <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="17.5" cy="6.5" r="1.5"/></svg>
+        <span>Instagram</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<script>
+    let productsData = {{ products_js | tojson | safe }};
+    let owCurrency = '{{ current_currency }}';
+    
+    let owIsEur = {{ "true" if is_eur else "false" }};
+    let owEuPrefix = '';
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='scripts.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,93 @@
+{% extends 'base.html' %}
+
+{% block title %} My Orders - Optiwar {% endblock %}
+{% block content %}
+<!--
+{% with messages = get_flashed_messages() %}
+    {% if messages %}
+        <ul class="flashes">
+            {% for message in messages %}
+                <li>{{ message|safe }}</li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+{% endwith %}
+-->
+<div class="my-order-section">
+    <h1>Check Your Order Status</h1>
+
+<!-- OTP requesting section -->
+        {% if otp_required %}
+	<form id="otpform" action="{{ url_for('orders.my_order') }}" method="POST" >
+	<input type="hidden" name="contact" value="{{ contact }}">
+	<label for="otp" > Enter the OTP sent to your email: </label><br>
+	<input type="text" id="otp" name="otp" placeholder="Enter OTP received" required > <br> <br>
+	<button type="submit" > Verify OTP </button>
+	</form>
+
+
+	{% else %}
+
+
+
+    <form id="myorderform" action="{{ url_for('orders.my_order') }}" method="POST">
+        <label for="contact">Enter your email ID or phone number:</label><br>
+        <input type="text" id="contact" name="contact" placeholder="Enter either your email or phone number" required><br><br>
+	<!-- F Defence  -->
+	<div style="display: none;">
+	<label for="captcha"> Enter the Captcha here </label>
+	<input type="text" id="captcha" name="captcha" value="" >
+	</div>
+        <button type="submit">Check Status</button>
+    </form>
+	{% endif %}
+
+    <div id="order-details">
+	{% if submitted %}   
+	     {% if order_found %}
+	            <ul>
+	                {% for order in orders %}
+	                    <li>Order ID: {{ order['order_id'] }}      Status: {{ order['order_status_name'] }} <br> {{ order['date_created'].strftime('%Y-%m-%d %H:%M:%S') }} | <br>
+				Order Total: {{ order['order_total'] }} | Order Quantity: {{ order['order_quantity'] }} <br>
+				Product your bought : {{ order['product_name'] }} <br>
+	                        Price you paid: {{ order['product_special_price'] }} <br> <br>
+				 {% if order['product_image'] %}
+				 {% set image_paths = order['product_image'].split(',') %}
+	                        How it looks: <img id="product-image-{{ loop.index }}" src="{{ url_for('static', filename=image_paths[0].strip()) }}"> 
+			 {% else %} 
+			 		<p> No image found </p>
+	                 {% endif %}
+		
+			    </li>
+			    
+	                {% endfor %}
+	            </ul>
+	        {% else %}
+	            <p>{{ _('No orders found') }} for this contact. You may contact support for further assistance.</p>
+	        {% endif %}
+	{% endif %}
+	    </div>
+</div>
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+<a href="https://wa.me/919355380318?text=Hi%20Optiwar%Team%2C%20I%20have%20a%20query" target="_blank"
+   class="whatsapp-button">
+   <i class="fab fa-whatsapp"></i> Chat with us on WhatsApp
+</a>
+
+<style>
+.whatsapp-button {
+    background-color: #25D366;
+    color: white;
+    padding: 10px 16px;
+    border-radius: 5px;
+    text-decoration: none;
+    font-size: 16px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+</style>
+{% endblock %}
+
+

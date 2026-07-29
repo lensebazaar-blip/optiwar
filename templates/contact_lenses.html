@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+    <!-- Unique Meta Tags for Contact Lenses -->
+{% block meta_description %}    {% if is_india %}Contact lenses at Optiwar will be the most reasoned price products to large customer base of India and Global market{% else %}Contact lenses at Optiwar — premium quality at factory outlet prices for customers worldwide{% endif %} {% endblock %}
+{% block meta_keywords %}    Contact lenses, color contact lenses, toric contact lenses  {% endblock %}
+{% block meta_author %}     OPTIWAR Product Team  {% endblock %}
+{% block og_title %}    Contact Lenses - OPTIWAR"> {% endblock %}
+{% block og_description %}    Use Contact Lenses with great care and utmost safety for healthy contact lens wearers  {% endblock %}
+{% block og_image %}    {{ url_for('static', filename='catalog/new-logo.png') }}  {% endblock %}
+{% block og_url %}    {{ url_for('main.contact_lenses', _external=True) }}  {% endblock %}
+
+
+
+{% block title %} OPTIWAR - Contact Lenses {% endblock %}
+{% block content %}
+		<h2> Contact Lenses </h2>
+		<ul>
+		    {% for product in products %}
+		    <li>
+			{% if product['product_image'] %}
+		        {% set image_paths = product['product_image'].split(',') %}
+		            <div class="img-container normal"> 
+			    <div class="s-badge"> Enter details inside </div>
+ 		            <img id="product-image-{{ loop.index }}" src="{{ url_for('static', filename=image_paths[0].strip()) }}">
+			    </div>
+		        {% else %}
+		        <div class="img-container normal">
+		        <img src="{{ url_for('static', filename='catalog/BB97_1.jpg') }}" >
+		        </div>
+		        {% endif %}
+		        <h3> {{ product['product_name'] }}</h3>
+			<div class="heart" data-product-id="{{ product['product_id']	}}" onclick="toggleFavorite(this)">
+			  <svg class="heart-outline" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+			    <path d="M20.8 4.6a5.6 5.6 0 0 0-7.9 0L12 5.5l-.9-.9A5.6 5.6 0 0 0 3.2 12l8.8 8.8 8.8-8.8a5.6 5.6 0 0 0 0-7.9z"></path>
+  			 </svg>
+			 <svg class="heart-filled" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display: none;">
+                	<path d="M20.8 4.6a5.6 5.6 0 0 0-7.9 0L12 5.5l-.9-.9A5.6 5.6 0 0 0 3.2 12l8.8 8.8 8.8-8.8a5.6 5.6 0 0 0 0-7.9z"></path>
+            		</svg>
+
+			</div>
+
+		       <!--LOCK  <p> {{ product['product_details'] }}</p> -->
+		        <span style="text-decoration: line-through;"> <p> Market Price {% if is_india %}Rs {{ product['product_price'] }}{% else %}&euro;{{ product['product_price_eur'] }}{% endif %} </p> </span>
+			<span style="color: red;"> <p> Wholesale Price <b>{% if is_india %}Rs {{  product['product_special_price'] }}{% else %}&euro;{{ product['product_special_price_eur'] }}{% endif %} </b>  </p>
+		         <form action="{{ url_for('main.add_to_cart_wcl') }}" method="post">
+		            <input type="hidden" name="product_id" value="{{ product.product_id }}">
+		            <input type="hidden" name="product_name" value="{{ product.product_name }}">
+		            <input type="hidden" name="product_price" value="{% if is_india %}{{ product.product_price }}{% else %}{{ product.product_price_eur }}{% endif %}">
+			    <input type="hidden" name="product_special_price" value="{% if is_india %}{{ product.product_special_price }}{% else %}{{ product.product_special_price_eur }}{% endif %}">
+		            <button type="submit" > Buy Now  </button>
+		        </form>
+			
+		    </li>
+		    {% endfor %}
+		</ul>
+{% endblock %}
+

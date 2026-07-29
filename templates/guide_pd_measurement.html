@@ -1,0 +1,129 @@
+{% extends 'base.html' %}
+{% block title %}PD Measurement Guide — How to Measure Your Pupillary Distance | Optiwar{% endblock %}
+{% block meta_description %}Complete guide to measuring your Pupillary Distance (PD) for ordering prescription glasses online. Learn about Single PD, Dual PD, Near PD vs Distance PD, and how to use Optiwar's face measurement tool.{% endblock %}
+{% block meta_keywords %}pd measurement, pupillary distance, how to measure pd, single pd, dual pd, near pd, distance pd, optiwar pd guide{% endblock %}
+{% block og_title %}PD Measurement Guide | Optiwar{% endblock %}
+{% block og_description %}Learn how to measure your Pupillary Distance for accurate prescription glasses. Includes guide for Single vs Dual PD and Optiwar's camera-based measurement tool.{% endblock %}
+{% block og_url %}{{ site_url }}/ai-guide/pd-measurement{% endblock %}
+{% block canonical_url %}{{ site_url }}/ai-guide/pd-measurement{% endblock %}
+{% block hreflang_in %}https://optiwar.in/ai-guide/pd-measurement{% endblock %}
+{% block hreflang_default %}https://optiwar.com/ai-guide/pd-measurement{% endblock %}
+
+{% block jsonld_extra %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "HowTo",
+  "name": "How to Measure Your Pupillary Distance (PD)",
+  "description": "Step-by-step guide to measuring PD at home for ordering prescription glasses online",
+  "totalTime": "PT5M",
+  "tool": [
+    {"@type": "HowToTool", "name": "Mirror"},
+    {"@type": "HowToTool", "name": "Ruler (millimetre)"}
+  ],
+  "step": [
+    {"@type": "HowToStep", "position": 1, "name": "Stand in front of a mirror", "text": "Stand approximately 20cm (8 inches) from a mirror. Keep your face straight and look directly ahead."},
+    {"@type": "HowToStep", "position": 2, "name": "Position the ruler", "text": "Hold a ruler flat against your brow, resting it on the bridge of your nose. The millimetre markings should face outward."},
+    {"@type": "HowToStep", "position": 3, "name": "Close your right eye", "text": "Close your right eye. With your left eye open, align the 0mm mark of the ruler with the centre of your left pupil."},
+    {"@type": "HowToStep", "position": 4, "name": "Measure to right pupil", "text": "Without moving the ruler, open your right eye and close your left eye. Read the millimetre mark that aligns with the centre of your right pupil. This is your PD."},
+    {"@type": "HowToStep", "position": 5, "name": "Repeat for accuracy", "text": "Repeat the measurement 3 times and take the average. Typical adult PD is 54-74mm."}
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {"@type": "Question", "name": "What is Pupillary Distance (PD)?", "acceptedAnswer": {"@type": "Answer", "text": "PD is the distance in millimetres between the centres of your two pupils. It's used to align the optical centres of prescription lenses with your eyes for clear, comfortable vision."}},
+    {"@type": "Question", "name": "What is the difference between Single PD and Dual PD?", "acceptedAnswer": {"@type": "Answer", "text": "Single PD is one number (e.g. 63mm) representing the total distance between both pupils. Dual PD is two numbers (e.g. R:31.5mm L:32.0mm) measuring each pupil to the nose bridge independently. Dual PD is more precise."}},
+    {"@type": "Question", "name": "What is Near PD vs Distance PD?", "acceptedAnswer": {"@type": "Answer", "text": "Distance PD is measured when looking at far objects and is used for most glasses. Near PD is 3-4mm less than distance PD because eyes converge when focusing close. Progressive and bifocal lenses may use both."}},
+    {"@type": "Question", "name": "Is PD mandatory for ordering at Optiwar?", "acceptedAnswer": {"@type": "Answer", "text": "PD is recommended but not mandatory. You can use Optiwar's face measurement tool at /tryon to measure PD via your device camera, or ask your optometrist."}}
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {"@type": "ListItem", "position": 1, "name": "Home", "item": "{{ site_url }}/"},
+    {"@type": "ListItem", "position": 2, "name": "AI Guides", "item": "{{ site_url }}/ai-faq"},
+    {"@type": "ListItem", "position": 3, "name": "PD Measurement", "item": "{{ site_url }}/ai-guide/pd-measurement"}
+  ]
+}
+</script>
+{% endblock %}
+
+{% block content %}
+<div style="max-width:800px;margin:40px auto;padding:0 20px;font-family:Arial,sans-serif;">
+
+  <h1 style="font-size:2rem;margin-bottom:8px;">PD Measurement Guide</h1>
+  <p style="color:#64748b;margin-bottom:32px;">How to measure your Pupillary Distance for accurate prescription glasses</p>
+
+  <section style="margin-bottom:40px;">
+    <h2 style="font-size:1.4rem;color:#4f46e5;">What is PD?</h2>
+    <p><strong>Pupillary Distance (PD)</strong> is the distance in millimetres between the centres of your two pupils. It determines where the optical centres of your lenses are positioned — get it right and your vision is sharp and comfortable. Get it wrong and you may experience eye strain, headaches, or blurred vision.</p>
+    <p>Typical adult PD ranges from <strong>54mm to 74mm</strong> (average: 63mm women, 65mm men). Children's PD ranges from 43mm to 58mm.</p>
+  </section>
+
+  <section style="margin-bottom:40px;">
+    <h2 style="font-size:1.4rem;color:#4f46e5;">Method 1: Optiwar Face Measurement Tool</h2>
+    <p>The easiest way — use your device camera:</p>
+    <div style="background:#f8fafc;border-left:4px solid #4f46e5;padding:16px 20px;margin:16px 0;border-radius:0 8px 8px 0;">
+      <p style="margin:0;"><strong>Go to <a href="/tryon" style="color:#4f46e5;">/tryon</a></strong> → allow camera access → follow the on-screen prompts. The tool automatically measures your PD and face width using MediaPipe face detection.</p>
+    </div>
+  </section>
+
+  <section style="margin-bottom:40px;">
+    <h2 style="font-size:1.4rem;color:#4f46e5;">Method 2: Mirror + Ruler</h2>
+    <ol style="line-height:2;">
+      <li>Stand <strong>20cm (8 inches)</strong> from a mirror. Look straight ahead.</li>
+      <li>Hold a <strong>millimetre ruler</strong> flat against your brow, resting on the bridge of your nose.</li>
+      <li><strong>Close your right eye.</strong> Align the 0mm mark with the centre of your <strong>left pupil</strong>.</li>
+      <li><strong>Open your right eye, close your left.</strong> Read the mm mark at the centre of your <strong>right pupil</strong>.</li>
+      <li>Repeat <strong>3 times</strong> and take the average.</li>
+    </ol>
+  </section>
+
+  <section style="margin-bottom:40px;">
+    <h2 style="font-size:1.4rem;color:#4f46e5;">Single PD vs Dual PD</h2>
+    <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+      <tr style="background:#f1f5f9;">
+        <th style="padding:12px;text-align:left;border-bottom:2px solid #e2e8f0;">Type</th>
+        <th style="padding:12px;text-align:left;border-bottom:2px solid #e2e8f0;">Example</th>
+        <th style="padding:12px;text-align:left;border-bottom:2px solid #e2e8f0;">When to use</th>
+      </tr>
+      <tr>
+        <td style="padding:12px;border-bottom:1px solid #e2e8f0;"><strong>Single PD</strong></td>
+        <td style="padding:12px;border-bottom:1px solid #e2e8f0;">63mm</td>
+        <td style="padding:12px;border-bottom:1px solid #e2e8f0;">Total distance between both pupils. Most common format on prescriptions.</td>
+      </tr>
+      <tr>
+        <td style="padding:12px;border-bottom:1px solid #e2e8f0;"><strong>Dual PD</strong></td>
+        <td style="padding:12px;border-bottom:1px solid #e2e8f0;">R: 31.5 / L: 32.0</td>
+        <td style="padding:12px;border-bottom:1px solid #e2e8f0;">Per-eye measurement from nose centre. More precise — ideal for high prescriptions.</td>
+      </tr>
+    </table>
+    <p>Either format works for ordering at Optiwar. Optiwar's face measurement tool provides dual PD automatically.</p>
+  </section>
+
+  <section style="margin-bottom:40px;">
+    <h2 style="font-size:1.4rem;color:#4f46e5;">Near PD vs Distance PD</h2>
+    <p><strong>Distance PD</strong> — measured when looking at far objects. Used for most single-vision glasses.</p>
+    <p><strong>Near PD</strong> — measured when looking at close objects (reading). Typically 3-4mm less than distance PD because your eyes converge inward.</p>
+    <ul>
+      <li>Single-vision distance glasses → use <strong>distance PD</strong></li>
+      <li>Dedicated reading glasses → use <strong>near PD</strong></li>
+      <li>Progressive / bifocal lenses → both may be used (our team handles this)</li>
+    </ul>
+    <p>If your prescription lists only one PD, it's your <strong>distance PD</strong> — that's what Optiwar uses by default.</p>
+  </section>
+
+  <section style="margin-bottom:40px;background:#f0fdf4;padding:20px;border-radius:12px;">
+    <h2 style="font-size:1.2rem;color:#16a34a;margin-top:0;">Not sure about your PD?</h2>
+    <p>Don't worry — PD is recommended but not mandatory at Optiwar. If you skip it, our team will use standard optical centering. For best results, use our <a href="/tryon" style="color:#4f46e5;font-weight:600;">face measurement tool</a> — it takes 30 seconds.</p>
+  </section>
+
+</div>
+{% endblock %}

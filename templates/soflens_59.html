@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% block title %} Soflens 59 - Contact Lenses - OPTIWAR {% endblock %}
+
+
+    <!-- Unique Meta Tags for Optiwar Product  Page -->
+{% block meta_description %}  Soflens 59 Classical old hydrogel contact lens from Bausch & Lomb  {% endblock %}
+{% block meta_keywords %}    soflens59, contact lenses, hydrogel contact lenses  {% endblock %}
+{% block meta_author %}     OPTIWAR Product Team  {% endblock %}
+{% block og_title %}     Soflens 59 - OPTIWAR"> {% endblock %}
+{% block og_description %}    Soflens 59 Classical old hydrogel contact lens from Bausch & Lomb {% endblock %}
+{% block og_image %}    {{ url_for('static', filename='catalog/aryan.jpeg') }}  {% endblock %}
+{% block og_url %}    {{ url_for('products.soflens_59', _external=True) }}  {% endblock %}
+{% block content %}
+
+<div class="cl-product-page">
+	{% for product in product %}
+<h3> Soflens 59 Monthly Disposable Contact Lens </h3>
+<h5> Market Price {{ product.product_price }}  || Wholesale Price {{ product.product_special_price }}</h5>
+<h5> Ship immediately || Delivery within 1-3 days </h5>
+<div class="img-magnifier-container">
+	{% if product.product_image %}
+<img id="productImage"src="{{ url_for('static', filename='catalog/' + product.product_image) }}" alt="Aryan Daily Color Lens" style="width:300px; height:auto;">
+</div>
+</div>
+	{% endif %}
+<form action="{{ url_for('main.add_to_cart_wcl') }}" method="post"> 
+	<input type="hidden" name="product_id" value="{{ product.product_id }}" >
+        <input type="hidden" name="product_name" value="{{ product.product_name }}" >
+  	<input type="hidden" name="product_special_price" value="{% if is_india %}{{ product.product_special_price }}{% else %}{{ product.product_special_price_eur }}{% endif %}" >
+<table>
+<thead>
+<tr>
+	<th>  </th>
+	<th> PWR (Spherical) </th> 
+	<th> Quantity (in boxes)</th>
+ </tr>
+ </thead>
+<tbody> 
+	<tr> <td> RIGHT EYE </td>
+		 <td> <select id="right_pwr" name="right_pwr" ><option> Choose  </option>
+				{% for power in [None, -0.50, -0.75, -1.00, -1.25, -1.50, -1.75, -2.00, -2.25, -2.50, -2.75, -3.00, -3.25, -3.50, -3.75, -4.00, -4.25, -4.50, -4.75, -5.00, -5.25, -5.50, -5.75, -6.00, -6.50, -7.00, -7.50, -8.00, -8.50, -9.00] %}
+				{% if power is none %}
+				<option value="" disabled selected> None </option>
+				{% else %}
+				<option value="{{ power }}"> {{ "%.2f" | format(power) }}  </option>
+				{% endif %}
+				{% endfor %}
+		     </select> 
+		</td> 
+
+		<td>  <select id="right_qty" name="right_qty" ><option>   </option>
+                                {% for quantity in [None, 1, 2,3,4,5,6,7,8] %}
+                                <option value="{{ quantity }}" {% if quantity == 2 %}selected{% endif %}> {{ quantity }} </option>
+                                {% endfor %}
+                     </select>
+
+		</td>
+	
+	</tr>
+	<tr> <td> LEFT EYE  </d> 
+		<td> <select id="left_pwr" name="left_pwr" ><option> Choose  </option>
+                                {% for power in [None, -0.50, -0.75, -1.00, -1.25, -1.50, -1.75, -2.00, -2.25, -2.50, -2.75, -3.00, -3.25, -3.50, -3.75, -4.00, -4.25, -4.50, -4.75, -5.00, -5.25, -5.50, -5.75, -6.00, -6.50, -7.00, -7.50, -8.00, -8.50, -9.00] %}
+                	        {% if power is none %}
+				<option value="" disabled selected> None </option>       
+				{% else %}
+		 		<option value="{{ power }}" > {{ "%.2f" | format(power) }} </option>
+				{% endif %}
+                                {% endfor %}
+                     </select>
+                </td>
+
+                <td>  <select id="left_qty" name="left_qty" ><option>   </option>
+                                {% for quantity in [None, 1, 2,3,4,5,6,7,8] %}
+                                <option value="{{ quantity }}" {% if quantity == None %}selected{% endif %}> {{ quantity }} </option>
+                                {% endfor %}
+                     </select>
+
+                </td>
+        </tr>
+</tbody>
+</table>
+		<button type="submit" > Add to Cart and checkout </button> 
+</form>
+
+{% endfor %}
+{% endblock %}
+

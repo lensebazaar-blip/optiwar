@@ -1,0 +1,185 @@
+{
+  "version": "1.0",
+  "last_updated": "2026-06-16",
+  "description": "Structured frame sizing rules mapping face measurements to recommended frame dimensions. Supports Optiwar's MediaPipe face measurement and virtual try-on system.",
+  "measurement_guide": {
+    "face_width_mm": {
+      "description": "Total face width measured at the widest point (temple to temple across cheekbones)",
+      "measurement_method": "Use Optiwar's face measurement tool at /tryon or measure with a ruler from the front of one temple to the other at the widest point of your face",
+      "typical_range_mm": {
+        "min": 120,
+        "max": 160
+      }
+    },
+    "pd_mm": {
+      "description": "Pupillary Distance — distance between the centres of both pupils",
+      "measurement_method": "Use Optiwar's /tryon tool, ask your optometrist, or self-measure in a mirror at 20cm distance",
+      "typical_adult_range_mm": {
+        "min": 54,
+        "max": 74
+      },
+      "typical_child_range_mm": {
+        "min": 43,
+        "max": 58
+      }
+    }
+  },
+  "frame_size_notation": {
+    "format": "lens_width-bridge_width-temple_length",
+    "example": "52-18-140",
+    "units": "millimetres",
+    "fields": {
+      "lens_width": "Horizontal width of one lens in mm (typically 44-58mm). Larger = wider frame.",
+      "bridge_width": "Distance between the two lenses at the nose (typically 15-22mm). Larger = wider nose fit.",
+      "temple_length": "Length of the arm from hinge to ear tip (typically 135-150mm). Most adults fit 140mm."
+    }
+  },
+  "face_width_to_frame": [
+    {
+      "face_width_mm_min": 120,
+      "face_width_mm_max": 128,
+      "face_category": "narrow",
+      "recommended_total_frame_width_mm": "120-128",
+      "recommended_lens_width_mm": "46-49",
+      "recommended_bridge_mm": "16-18",
+      "recommended_temple_mm": "135-140",
+      "notes": "Look for frames labelled Narrow or Small. Optiwar frame sizes starting with 46-xx or 48-xx."
+    },
+    {
+      "face_width_mm_min": 129,
+      "face_width_mm_max": 135,
+      "face_category": "medium_narrow",
+      "recommended_total_frame_width_mm": "128-135",
+      "recommended_lens_width_mm": "49-51",
+      "recommended_bridge_mm": "17-19",
+      "recommended_temple_mm": "140",
+      "notes": "Medium-narrow fit. Most Optiwar frames in 49-18 or 50-18 range."
+    },
+    {
+      "face_width_mm_min": 136,
+      "face_width_mm_max": 142,
+      "face_category": "medium",
+      "recommended_total_frame_width_mm": "135-142",
+      "recommended_lens_width_mm": "51-54",
+      "recommended_bridge_mm": "17-20",
+      "recommended_temple_mm": "140-145",
+      "notes": "Standard/average fit. Widest selection of Optiwar frames available (52-18-140 is the most common size)."
+    },
+    {
+      "face_width_mm_min": 143,
+      "face_width_mm_max": 150,
+      "face_category": "medium_wide",
+      "recommended_total_frame_width_mm": "142-150",
+      "recommended_lens_width_mm": "54-56",
+      "recommended_bridge_mm": "18-21",
+      "recommended_temple_mm": "140-145",
+      "notes": "Medium-wide fit. Look for larger frames, typically 54-xx or 55-xx lens width."
+    },
+    {
+      "face_width_mm_min": 151,
+      "face_width_mm_max": 160,
+      "face_category": "wide",
+      "recommended_total_frame_width_mm": "150-160",
+      "recommended_lens_width_mm": "56-58",
+      "recommended_bridge_mm": "19-22",
+      "recommended_temple_mm": "145-150",
+      "notes": "Wide fit. Limited selection — look for wide/large labelled frames. Consider adjustable nose pads for better fit."
+    }
+  ],
+  "pd_to_bridge": [
+    {
+      "pd_mm_min": 54,
+      "pd_mm_max": 60,
+      "recommended_bridge_mm": "15-17",
+      "notes": "Narrow PD — narrow bridge keeps lenses centred on pupils"
+    },
+    {
+      "pd_mm_min": 61,
+      "pd_mm_max": 66,
+      "recommended_bridge_mm": "17-19",
+      "notes": "Average PD — standard bridge width works well"
+    },
+    {
+      "pd_mm_min": 67,
+      "pd_mm_max": 74,
+      "recommended_bridge_mm": "19-22",
+      "notes": "Wide PD — wider bridge ensures proper optical centering"
+    }
+  ],
+  "face_shape_to_frame_style": [
+    {
+      "face_shape": "oval",
+      "description": "Balanced proportions, slightly wider at cheekbones",
+      "recommended_styles": [
+        "Rectangle",
+        "Square",
+        "Clubmaster",
+        "Round"
+      ],
+      "notes": "Oval faces suit most frame shapes. Avoid frames that are too large or too small for your face width."
+    },
+    {
+      "face_shape": "round",
+      "description": "Equal width and length, soft angles, full cheeks",
+      "recommended_styles": [
+        "Rectangle",
+        "Square",
+        "Clubmaster"
+      ],
+      "avoid_styles": [
+        "Round"
+      ],
+      "notes": "Angular frames add definition and contrast to round features. Avoid round frames that echo face shape."
+    },
+    {
+      "face_shape": "square",
+      "description": "Strong jawline, equal width forehead and jaw, angular features",
+      "recommended_styles": [
+        "Round",
+        "Supra"
+      ],
+      "avoid_styles": [
+        "Square",
+        "Rectangle"
+      ],
+      "notes": "Curved and round frames soften angular features. Avoid angular frames that emphasise squareness."
+    },
+    {
+      "face_shape": "heart",
+      "description": "Wider forehead, narrower chin, prominent cheekbones",
+      "recommended_styles": [
+        "Round",
+        "Rimless",
+        "Supra"
+      ],
+      "avoid_styles": [
+        "Clubmaster"
+      ],
+      "notes": "Light, thin frames or rimless balance the wider forehead. Avoid heavy top-bar styles (Clubmaster) that widen the upper face."
+    },
+    {
+      "face_shape": "oblong",
+      "description": "Longer than wide, straight cheek line",
+      "recommended_styles": [
+        "Square",
+        "Rectangle",
+        "Clubmaster"
+      ],
+      "avoid_styles": [
+        "Rimless"
+      ],
+      "notes": "Wider frames with strong horizontal lines add width. Deep lenses break up face length."
+    }
+  ],
+  "fit_formula": {
+    "description": "Calculate approximate total frame width from face width",
+    "formula": "recommended_frame_width_mm ≈ face_width_mm (±3mm tolerance)",
+    "optical_center": "lens_width + bridge_width should approximately equal PD for optimal optical centering",
+    "example": {
+      "face_width_mm": 137,
+      "pd_mm": 66.5,
+      "calculation": "Face width 137mm → frame width ~135-140mm. PD 66.5 → lens 52 + bridge 18 = 70 (close to PD + bridge overlap). Recommended: 52-18-140 frames.",
+      "recommended_frames": "52-18-140 or 53-17-140"
+    }
+  }
+}

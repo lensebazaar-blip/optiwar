@@ -1,0 +1,404 @@
+# Malayalam translations for PROJECT.
+# Copyright (C) 2026 ORGANIZATION
+# This file is distributed under the same license as the PROJECT project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: PROJECT VERSION\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2026-06-30 12:05+0530\n"
+"PO-Revision-Date: 2026-06-30 12:05+0530\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: ml\n"
+"Language-Team: ml <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: templates/all_frames.html:121
+msgid "All Spectacle Frames"
+msgstr "എല്ലാ കണ്ണട ഫ്രെയിമുകളും"
+
+#: templates/base.html:277
+msgid "Single Vision Lenses"
+msgstr "സിംഗിൾ വിഷൻ ലെൻസുകൾ"
+
+#: templates/base.html:279
+msgid "Browse Frames"
+msgstr "ഫ്രെയിമുകൾ ബ്രൗസ് ചെയ്യുക"
+
+#: templates/base.html:285
+msgid "Progressive Lenses"
+msgstr "പ്രോഗ്രസീവ് ലെൻസുകൾ"
+
+#: templates/base.html:287
+msgid "Measure My Face"
+msgstr "എന്റെ മുഖം അളക്കുക"
+
+#: templates/base.html:294
+msgid "Bifocal Lenses"
+msgstr "ബൈഫോക്കൽ ലെൻസുകൾ"
+
+#: templates/base.html:302
+msgid "Blue Cut Lenses"
+msgstr "ബ്ലൂ കട്ട് ലെൻസുകൾ"
+
+#: templates/base.html:310
+msgid "Multi-Glare Protection"
+msgstr "മൾട്ടി-ഗ്ലെയർ പ്രൊട്ടക്ഷൻ"
+
+#: templates/base.html:318
+msgid "Photochromic Lenses"
+msgstr "ഫോട്ടോക്രോമിക് ലെൻസുകൾ"
+
+#: templates/base.html:326
+msgid "Polarized Lenses"
+msgstr "പോളറൈസ്ഡ് ലെൻസുകൾ"
+
+#: templates/base.html:334 templates/base.html:572
+msgid "UV Protection"
+msgstr "യുവി പ്രൊട്ടക്ഷൻ"
+
+#: templates/base.html:342
+msgid "Anti-Glare Lenses"
+msgstr "ആന്റി-ഗ്ലെയർ ലെൻസുകൾ"
+
+#: templates/base.html:353
+msgid "Factory Outlet Opticals"
+msgstr "ഫാക്ടറി ഔട്ട്ലെറ്റ് ഒപ്റ്റിക്കൽസ്"
+
+#: templates/base.html:358
+msgid "Faces"
+msgstr "മുഖങ്ങൾ"
+
+#: templates/base.html:368
+msgid "Search"
+msgstr "തിരയുക"
+
+#: templates/base.html:374
+msgid "Favorites"
+msgstr "പ്രിയങ്കരങ്ങൾ"
+
+#: templates/base.html:379
+msgid "Cart"
+msgstr "കാർട്ട്"
+
+#: templates/base.html:384
+msgid "Account"
+msgstr "അക്കൗണ്ട്"
+
+#: templates/base.html:388 templates/base.html:444
+msgid "Logout"
+msgstr "ലോഗൗട്ട്"
+
+#: templates/base.html:393 templates/base.html:449 templates/login.html:38
+msgid "Login"
+msgstr "ലോഗിൻ"
+
+#: templates/base.html:399
+msgid "Select Language"
+msgstr "ഭാഷ തിരഞ്ഞെടുക്കുക"
+
+#: templates/base.html:440
+msgid "My Profile"
+msgstr "എന്റെ പ്രൊഫൈൽ"
+
+#: templates/base.html:459
+msgid "Lens Types"
+msgstr "ലെൻസ് തരങ്ങൾ"
+
+#: templates/base.html:487
+msgid "Anti-Glare"
+msgstr "ആന്റി-ഗ്ലെയർ"
+
+#: templates/base.html:488
+msgid "Reduces reflections"
+msgstr "പ്രതിഫലനങ്ങൾ കുറയ്ക്കുന്നു"
+
+#: templates/base.html:509
+msgid "Blue Cut"
+msgstr "ബ്ലൂ കട്ട്"
+
+#: templates/base.html:510
+msgid "Screen protection"
+msgstr "സ്ക്രീൻ സംരക്ഷണം"
+
+#: templates/base.html:530
+msgid "Photochromic"
+msgstr "ഫോട്ടോക്രോമിക്"
+
+#: templates/base.html:531
+msgid "Auto-tinting"
+msgstr "ഓട്ടോ-ടിന്റിംഗ്"
+
+#: templates/base.html:552
+msgid "Polarized"
+msgstr "പോളറൈസ്ഡ്"
+
+#: templates/base.html:553
+msgid "Glare elimination"
+msgstr "ഗ്ലെയർ ഇല്ലാതാക്കൽ"
+
+#: templates/base.html:573
+msgid "UV400 shield"
+msgstr "യുവി400 ഷീൽഡ്"
+
+#: templates/base.html:588
+msgid "Filters"
+msgstr "ഫിൽട്ടറുകൾ"
+
+#: templates/base.html:611
+msgid "Select Frame Shape"
+msgstr "ഫ്രെയിം ആകൃതി തിരഞ്ഞെടുക്കുക"
+
+#: templates/base.html:668
+msgid "Select Color"
+msgstr "നിറം തിരഞ്ഞെടുക്കുക"
+
+#: templates/base.html:700
+msgid "Categories"
+msgstr "വിഭാഗങ്ങൾ"
+
+#: templates/base.html:702
+msgid "Half Frames Specs"
+msgstr "ഹാഫ് ഫ്രെയിം സ്പെക്സ്"
+
+#: templates/base.html:703
+msgid "Club Master Specs"
+msgstr "ക്ലബ് മാസ്റ്റർ സ്പെക്സ്"
+
+#: templates/base.html:704
+msgid "Rounded-Glass Specs"
+msgstr "റൗണ്ടഡ്-ഗ്ലാസ് സ്പെക്സ്"
+
+#: templates/base.html:705
+msgid "Rectangle Specs"
+msgstr "റെക്ടാംഗിൾ സ്പെക്സ്"
+
+#: templates/base.html:706
+msgid "Rimless Specs"
+msgstr "റിംലെസ്സ് സ്പെക്സ്"
+
+#: templates/base.html:707
+msgid "Square Specs"
+msgstr "സ്ക്വയർ സ്പെക്സ്"
+
+#: templates/base.html:734
+msgid "About Optiwar"
+msgstr "ഒപ്റ്റിവാറിനെ കുറിച്ച്"
+
+#: templates/base.html:746
+msgid "Our Lenses"
+msgstr "ഞങ്ങളുടെ ലെൻസുകൾ"
+
+#: templates/base.html:764
+msgid "Shop Categories"
+msgstr "ഷോപ്പ് വിഭാഗങ്ങൾ"
+
+#: templates/base.html:777
+msgid "Quick Links"
+msgstr "ക്വിക്ക് ലിങ്കുകൾ"
+
+#: templates/base.html:779
+msgid "All Lenses"
+msgstr "എല്ലാ ലെൻസുകളും"
+
+#: templates/base.html:780
+msgid "AI Face Measurement"
+msgstr "എഐ മുഖ അളവ്"
+
+#: templates/base.html:781
+msgid "Search Products"
+msgstr "ഉൽപ്പന്നങ്ങൾ തിരയുക"
+
+#: templates/base.html:782
+msgid "Terms & Conditions"
+msgstr "നിബന്ധനകളും വ്യവസ്ഥകളും"
+
+#: templates/base.html:783
+msgid "Privacy Policy"
+msgstr "സ്വകാര്യതാ നയം"
+
+#: templates/base.html:784 templates/base.html:857
+msgid "Contact Us"
+msgstr "ഞങ്ങളെ ബന്ധപ്പെടുക"
+
+#: templates/base.html:786
+msgid "Contact"
+msgstr "ബന്ധപ്പെടുക"
+
+#: templates/base.html:799
+msgid "Visit Global Site"
+msgstr "ഗ്ലോബൽ സൈറ്റ് സന്ദർശിക്കുക"
+
+#: templates/base.html:807
+msgid "Visit India Site"
+msgstr "ഇന്ത്യ സൈറ്റ് സന്ദർശിക്കുക"
+
+#: templates/base.html:814
+msgid "All rights reserved."
+msgstr "എല്ലാ അവകാശങ്ങളും നിക്ഷിപ്തം."
+
+#: templates/base.html:816
+msgid "Clear Cart"
+msgstr "കാർട്ട് ശൂന്യമാക്കുക"
+
+#: templates/base.html:857
+msgid "Raise a support ticket and our team will respond shortly."
+msgstr "സപ്പോർട്ട് ടിക്കറ്റ് ഉയർത്തുക, ഞങ്ങളുടെ ടീം ഉടൻ പ്രതികരിക്കും."
+
+#: templates/base.html:857
+msgid "Name"
+msgstr "പേര്"
+
+#: templates/base.html:857
+msgid "Your name"
+msgstr "നിങ്ങളുടെ പേര്"
+
+#: templates/base.html:857
+msgid "Subject"
+msgstr "വിഷയം"
+
+#: templates/base.html:857
+msgid "Select a subject"
+msgstr "ഒരു വിഷയം തിരഞ്ഞെടുക്കുക"
+
+#: templates/base.html:857
+msgid "Description"
+msgstr "വിവരണം"
+
+#: templates/base.html:857
+msgid "Tell us how we can help..."
+msgstr "ഞങ്ങൾക്ക് എങ്ങനെ സഹായിക്കാമെന്ന് പറയൂ..."
+
+#: templates/base.html:857
+msgid "Mobile"
+msgstr "മൊബൈൽ"
+
+#: templates/base.html:857
+msgid "Email"
+msgstr "ഇമെയിൽ"
+
+#: templates/base.html:857
+msgid "Enter the text shown below:"
+msgstr "താഴെ കാണിച്ചിരിക്കുന്ന വാചകം നൽകുക:"
+
+#: templates/checkout.html:960
+msgid "Your Cart"
+msgstr "നിങ്ങളുടെ കാർട്ട്"
+
+#: templates/checkout.html:1065
+msgid "Qty"
+msgstr "എണ്ണം"
+
+#: templates/checkout.html:1237
+msgid "Delivery Address"
+msgstr "ഡെലിവറി വിലാസം"
+
+#: templates/checkout.html:2440
+msgid "Your cart is empty"
+msgstr "നിങ്ങളുടെ കാർട്ട് ശൂന്യമാണ്"
+
+#: templates/forgot_password.html:2
+msgid "Reset Password"
+msgstr "പാസ്വേഡ് പുനഃസജ്ജമാക്കുക"
+
+#: templates/forgot_password.html:27
+msgid "Back to Login"
+msgstr "ലോഗിൻ പേജിലേക്ക് മടങ്ങുക"
+
+#: templates/login.html:6
+msgid "Login to Your Account"
+msgstr "നിങ്ങളുടെ അക്കൗണ്ടിൽ ലോഗിൻ ചെയ്യുക"
+
+#: templates/login.html:16
+msgid "Sign in with Google"
+msgstr "Google ഉപയോഗിച്ച് സൈൻ ഇൻ ചെയ്യുക"
+
+#: templates/login.html:21 templates/register.html:21
+msgid "OR"
+msgstr "അഥവാ"
+
+#: templates/login.html:26 templates/register.html:28
+msgid "Email Address"
+msgstr "ഇമെയിൽ വിലാസം"
+
+#: templates/login.html:27
+msgid "your@email.com"
+msgstr "your@email.com"
+
+#: templates/login.html:29 templates/register.html:34
+msgid "Password"
+msgstr "പാസ്വേഡ്"
+
+#: templates/login.html:30
+msgid "Your password"
+msgstr "നിങ്ങളുടെ പാസ്വേഡ്"
+
+#: templates/login.html:42
+msgid "Don't have an account?"
+msgstr "അക്കൗണ്ട് ഇല്ലേ?"
+
+#: templates/login.html:42
+msgid "Register here"
+msgstr "ഇവിടെ രജിസ്റ്റർ ചെയ്യുക"
+
+#: templates/login.html:43
+msgid "Forgot your password? Click here"
+msgstr "പാസ്വേഡ് മറന്നോ? ഇവിടെ ക്ലിക്ക് ചെയ്യുക"
+
+#: templates/my_orders.html:66
+msgid "No orders found"
+msgstr "ഓർഡറുകളൊന്നും കണ്ടെത്തിയില്ല"
+
+#: templates/product_page.html:132
+msgid "Add to Cart"
+msgstr "കാർട്ടിൽ ചേർക്കുക"
+
+#: templates/product_page.html:373
+msgid "In Stock"
+msgstr "സ്റ്റോക്കിൽ ഉണ്ട്"
+
+#: templates/product_page.html:377
+msgid "Out of Stock"
+msgstr "സ്റ്റോക്കിൽ ഇല്ല"
+
+#: templates/register.html:6
+msgid "Create Your Account"
+msgstr "നിങ്ങളുടെ അക്കൗണ്ട് സൃഷ്ടിക്കുക"
+
+#: templates/register.html:16
+msgid "Sign up with Google"
+msgstr "Google ഉപയോഗിച്ച് സൈൻ അപ്പ് ചെയ്യുക"
+
+#: templates/register.html:25
+msgid "Full Name"
+msgstr "മുഴുവൻ പേര്"
+
+#: templates/register.html:26
+msgid "Your full name"
+msgstr "നിങ്ങളുടെ മുഴുവൻ പേര്"
+
+#: templates/register.html:31
+msgid "Phone Number"
+msgstr "ഫോൺ നമ്പർ"
+
+#: templates/register.html:37
+msgid "Confirm Password"
+msgstr "പാസ്വേഡ് സ്ഥിരീകരിക്കുക"
+
+#: templates/register.html:50
+msgid "Already have an account?"
+msgstr "ഇതിനകം അക്കൗണ്ട് ഉണ്ടോ?"
+
+#: templates/register.html:50
+msgid "Login here"
+msgstr "ഇവിടെ ലോഗിൻ ചെയ്യുക"
+
+#: templates/terms-and-conditions.html:17
+msgid "Terms and Conditions"
+msgstr "നിബന്ധനകളും വ്യവസ്ഥകളും"
+

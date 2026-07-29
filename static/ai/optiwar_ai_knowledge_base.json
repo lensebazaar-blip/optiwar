@@ -1,0 +1,816 @@
+{
+  "version": "1.0",
+  "last_updated": "2026-06-16",
+  "provider": {
+    "name": "Optiwar",
+    "legal_entity": "Krishna Ecommerce Technologies Private Limited",
+    "websites": [
+      "https://optiwar.com",
+      "https://optiwar.in"
+    ],
+    "description": "Factory outlet eyewear — premium spectacle frames with free prescription lenses at wholesale pricing"
+  },
+  "faq": [
+    {
+      "question": "What is Optiwar?",
+      "answer": "Optiwar is a factory outlet eyewear e-commerce platform operated by Krishna Ecommerce Technologies Private Limited. We sell premium spectacle frames with complimentary prescription lenses at wholesale factory outlet prices — up to 70% less than retail optical stores. We operate two sites: optiwar.com for global customers (EUR pricing) and optiwar.in for Indian customers (INR pricing).",
+      "category": "business_identity",
+      "intent": "about_company",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Who operates Optiwar?",
+      "answer": "Optiwar is operated by Krishna Ecommerce Technologies Private Limited, located at Godown Village Fazilpur, Badshahpur Tethar(222), Badshahpur, Gurgaon-122101 India. All products are shipped from India to customers worldwide.",
+      "category": "business_identity",
+      "intent": "company_details",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/terms_and_conditions",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What is the difference between optiwar.com and optiwar.in?",
+      "answer": "optiwar.com serves global/international customers with prices displayed in EUR (€). optiwar.in serves Indian customers with prices in INR (₹). Both sites offer the same product catalog and ship from India. optiwar.com currently does not ship to the United States or India (use optiwar.in for India).",
+      "category": "business_identity",
+      "intent": "dual_site_difference",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "How do I contact Optiwar customer support?",
+      "answer": "Optiwar provides support exclusively through the ticketing system. Submit a request via the contact form on the website. Expect a response within 24 hours. There is no phone support.",
+      "category": "business_identity",
+      "intent": "contact_support",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/contact_us",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What product categories does Optiwar offer?",
+      "answer": "Optiwar offers: (1) Spectacle Frames — \"712 in-stock frames\" (actual current count) in categories including Supra (Half Frame), Clubmaster, Round, Rectangle, Rimless, and Square.  The primary focus is spectacle frames with prescription lenses.",
+      "category": "product_categories",
+      "intent": "product_range",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/eyeglasses/all-spectacle-frames.html",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What spectacle frame styles are available?",
+      "answer": "Optiwar carries frames in these styles: Supra (Half Frame), Clubmaster, Round, Rectangle, Rimless, and Square. Over 998 frames are in stock with various colors and sizes.",
+      "category": "frames",
+      "intent": "frame_styles",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/eyeglasses/all-spectacle-frames.html",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "How much do spectacle frames cost at Optiwar?",
+      "answer": "Spectacle frames at Optiwar are priced from ₹499 to ₹999 (INR) on optiwar.in, and from €34.99 to €39.99 on optiwar.com. Every frame includes complimentary single-vision prescription lenses at no extra cost.",
+      "category": "frames",
+      "intent": "frame_pricing",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/eyeglasses/all-spectacle-frames.html",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What does frame size (e.g. 52-18-140) mean?",
+      "answer": "Frame size is expressed as three numbers: Lens Width - Bridge Width - Temple Length, all in millimeters. For example, 52-18-140 means the lens is 52mm wide, the bridge (nose piece) is 18mm, and the temple arm is 140mm long. Choosing the right size is important for comfort — use Optiwar's face measurement tool at /tryon to find your ideal size.",
+      "category": "frame_size",
+      "intent": "size_explanation",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/guides/frame-shapes",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "How do I choose the right frame size for my face?",
+      "answer": "Optiwar provides a face measurement tool at /tryon that uses your device camera to measure your face width and recommend suitable frame sizes. This helps ensure comfortable fit. You can also measure an existing pair of glasses — the size is usually printed on the inside of the temple arm.",
+      "category": "face_width_recommendation",
+      "intent": "face_measurement",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/tryon",
+      "agent_action": "recommend_tool"
+    },
+    {
+      "question": "Does Optiwar include lenses with spectacle frames?",
+      "answer": "Yes. Every spectacle frame purchased at Optiwar includes complimentary single-vision prescription lenses at no extra cost. Customers can optionally upgrade to premium lens types such as Anti-Glare, Blue Cut, Multi Anti-Glare, Polarized, Thin, Extra-Thin, Photo-Grey, Photo-Brown, Bifocal (KT or Flat-top D), or Progressive lenses for an additional charge.",
+      "category": "lenses",
+      "intent": "included_lenses",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What types of prescription lenses does Optiwar offer?",
+      "answer": "Optiwar offers 12 lens types: (1) Anti-Glare — Rs 50/€5, reduces reflections. (2) Blue Cut — Rs 100/€7, blocks blue light from screens. (3) Multi Anti-Glare — Rs 200/€7, premium multi-layer AR coating. (4) Polarized — Rs 800/€10, eliminates glare from reflective surfaces. (5) Thin Lenses — Rs 100/€10, slimmer profile (1.56-1.61 index). (6) Extra-Thin — Rs 350/€7, ultra-slim (1.67+ index). (7) Photo-Grey — Rs 350/€10, darkens in sunlight. (8) Photo-Brown — Rs 650/€10, brown tint in sunlight. (9) Bifocal Round KT — Rs 250/€8. (10) Bifocal Flat-top D — Rs 500/€8. (11) Progressive — Rs 1000/€10, seamless no-line multifocal. (12) Complimentary single-vision lenses included free with every frame.",
+      "category": "lenses",
+      "intent": "lens_types_available",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What are Anti-Glare lenses?",
+      "answer": "Anti-glare lenses have a multi-layer anti-reflection (AR) coating that reduces reflections from the front and back of the lens. They allow 99.5% of light to pass through for sharper, clearer vision. Benefits include reduced eye strain, better night driving, and nearly invisible lenses. Available as an add-on for Rs 50 (₹) / €5.",
+      "category": "lenses",
+      "intent": "lens_detail_antiglare",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses/anti-glare-lenses",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What are Blue Cut lenses?",
+      "answer": "Blue Cut lenses block harmful blue-violet light (380-450nm) emitted by digital screens, LED lights, and the sun. They are designed to reduce digital eye strain, improve contrast, and protect against long-term blue light exposure. Better designed than traditional anti-glare lenses for screen-heavy use. Available as an add-on for Rs 100 (₹) / €7.",
+      "category": "lenses",
+      "intent": "lens_detail_bluecut",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses/blue-cut-lenses",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Should I choose Blue Cut or Anti-Glare lenses?",
+      "answer": "Blue Cut lenses are the better choice if you spend significant time on computers, phones, or other screens — they are a more advanced design than traditional anti-glare. Anti-Glare is a good basic upgrade for general use, especially for night driving and reducing reflections. For heavy screen users, we recommend Blue Cut.",
+      "category": "lens_recommendation",
+      "intent": "bluecut_vs_antiglare",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses/blue-cut-lenses",
+      "agent_action": "recommend_product"
+    },
+    {
+      "question": "What are Thin and Extra-Thin lenses?",
+      "answer": "Thin lenses (1.56-1.61 index) provide a slimmer profile suitable for most prescriptions. Extra-Thin lenses (1.67 index and above) are even thinner and lighter — recommended for higher prescriptions where standard lenses would be noticeably thick. Our specialized team evaluates each prescription and may provide upgraded lens material at no extra cost if the fitting requires it.",
+      "category": "lenses",
+      "intent": "lens_detail_thin",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses/thin-lenses",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "When should I choose Thin vs Extra-Thin lenses?",
+      "answer": "Most prescriptions work well with Thin lenses (1.56-1.61 index). Extra-Thin (1.67+ index) is recommended for higher powers where the lens edge would be visibly thick with standard material. Extra-Thin lenses also look better aesthetically as they are slimmer and lighter. Our team may upgrade lens material at their own cost if they determine a higher index is needed for proper fitting.",
+      "category": "lens_recommendation",
+      "intent": "thin_vs_extrathin",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses/extra-thin-lenses",
+      "agent_action": "recommend_product"
+    },
+    {
+      "question": "What are Photochromic lenses?",
+      "answer": "Photochromic lenses automatically darken when exposed to sunlight (UV) and return to clear indoors. Optiwar offers two options: Photo-Grey (Rs 350/€10) which transitions to grey, and Photo-Brown (Rs 650/€10) which transitions to brown. The choice between grey and brown is primarily aesthetic — both function the same way. These lenses have been popular for decades and remain fashionable.",
+      "category": "lenses",
+      "intent": "lens_detail_photochromic",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses/photo-grey-lenses",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Should I choose Photo-Grey or Photo-Brown lenses?",
+      "answer": "This is purely an aesthetic choice. Some customers prefer grey lenses to match their frame color, while others prefer brown. Both darken in sunlight and clear indoors the same way. Choose the color that complements your frame and personal style.",
+      "category": "lens_recommendation",
+      "intent": "photogrey_vs_photobrown",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses/photo-grey-lenses",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What are Polarized lenses?",
+      "answer": "Polarized lenses eliminate glare from reflective surfaces like water, roads, and glass. They are ideal for outdoor activities, driving, and anyone exposed to bright reflective light. Available as an add-on for Rs 800 (₹) / €10 with single-vision frames, or Rs 2000 (₹) / €20 with bifocal/progressive frames.",
+      "category": "lenses",
+      "intent": "lens_detail_polarized",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses/polarized-lenses",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What is the difference between Progressive and Bifocal lenses?",
+      "answer": "Progressive lenses are advanced multi-stage vision lenses that provide seamless transition between distance, intermediate, and near vision with no visible line on the lens. Bifocal lenses are older-generation lenses with two distinct focal zones (distance and near) separated by a visible line. Progressive lenses are recommended as the modern, more comfortable option for anyone needing multifocal correction.",
+      "category": "lenses",
+      "intent": "progressive_vs_bifocal",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses/progressive-lenses",
+      "agent_action": "recommend_product"
+    },
+    {
+      "question": "What are Progressive lenses?",
+      "answer": "Progressive lenses are seamless multifocal no-line lenses that correct vision at all distances — far, intermediate, and near — in a single lens without any visible dividing line. They are the most advanced lens type for people who need correction at multiple distances. Available at Rs 1000 (₹) / €10 as an add-on.",
+      "category": "lenses",
+      "intent": "lens_detail_progressive",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses/progressive-lenses",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What Bifocal lens options does Optiwar offer?",
+      "answer": "Optiwar offers two bifocal types: (1) Bifocal Round KT (Kryptok) — Rs 250/€8, round-segment bifocal where the reading area blends into the distance zone. (2) Bifocal Flat-top D — Rs 500/€8, D-shaped segment with a clear dividing line between distance and reading zones. Both are available as add-ons with any frame.",
+      "category": "lenses",
+      "intent": "lens_detail_bifocal",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses/bifocal-round-kt-lenses",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Can I combine lens upgrades?",
+      "answer": "Yes, customers can combine lens upgrades during ordering. For example, you can add Blue Cut coating with Thin lenses, or choose Progressive with Anti-Glare. Our team evaluates every prescription and makes the ultimate fitting decision — if a higher-quality lens material is needed for your prescription, our team will provide it at their own cost to ensure proper fitting.",
+      "category": "lenses",
+      "intent": "lens_combinations",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What prescription details do I need to order?",
+      "answer": "To order prescription glasses, you need: Right eye SPH (sphere) and Left eye SPH as minimum required fields. Optional but recommended fields include: CYL (cylinder) for astigmatism, AXIS (required if CYL is present), ADD power (for bifocal/progressive), and PD (pupillary distance). You can also upload a prescription image. All prescription parameters are validated by our software.",
+      "category": "prescription",
+      "intent": "prescription_fields",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/add_prescription",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "How do I read my prescription?",
+      "answer": "A typical prescription includes: SPH (Sphere) — the main correction power, negative for near-sightedness, positive for far-sightedness. CYL (Cylinder) — correction for astigmatism, if present. AXIS — the angle of astigmatism correction (0-180 degrees), required when CYL is present. ADD — additional power for reading (used in bifocal/progressive lenses). PD — pupillary distance in millimeters, the distance between your pupils. Your optometrist or ophthalmologist provides these values.",
+      "category": "prescription",
+      "intent": "prescription_reading",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/add_prescription",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What power range does Optiwar fulfill?",
+      "answer": "Optiwar fulfills all prescription powers from its factory outlet. There are no strict power limits. However, higher powers may incur additional charges for specialized lens manufacturing. Our software validates that all prescription parameters are correct before processing. Our specialized team makes corrective fitting decisions when needed.",
+      "category": "prescription",
+      "intent": "power_range",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Is PD (Pupillary Distance) mandatory?",
+      "answer": "PD is not mandatory but strongly recommended for optimal lens fitting and visual comfort. If you don't know your PD, you can use Optiwar's face measurement app at /tryon which uses your device camera to measure your face dimensions including PD. A more accurate PD measurement improves your chances of getting a perfectly fitted pair of glasses.",
+      "category": "pd_measurement",
+      "intent": "pd_required",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/tryon",
+      "agent_action": "recommend_tool"
+    },
+    {
+      "question": "How can I measure my PD at home?",
+      "answer": "Use Optiwar's face measurement tool at /tryon — it uses your device camera to accurately measure your face width and pupillary distance. Alternatively, you can: (1) Stand 20cm from a mirror, (2) Hold a ruler across the bridge of your nose, (3) Close your right eye and align 0mm with the center of your left pupil, (4) Open your right eye, close your left, and note the mm reading at the center of your right pupil. Average adult PD is 58-68mm.",
+      "category": "pd_measurement",
+      "intent": "pd_self_measure",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/tryon",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Does Optiwar check prescriptions before making lenses?",
+      "answer": "Yes. Optiwar's software automatically validates all prescription parameters for correctness during the ordering process. Our specialized team also reviews each order and takes corrective lens fitting decisions when needed — for example, if a higher-index lens material is required for proper fitting, the team will provide it at their own cost even if the customer did not select it.",
+      "category": "prescription_verification",
+      "intent": "rx_verification",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Do you accept expired prescriptions?",
+      "answer": "Optiwar is an online fulfilment factory outlet. When you place an order with a prescription, we consider it in order and ready to fulfil. We recommend customers get their eyes checked regularly (every 1-2 years) for accurate vision correction, but we do not enforce prescription expiry rules.",
+      "category": "prescription_verification",
+      "intent": "rx_expiry",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Where does Optiwar ship to?",
+      "answer": "Optiwar ships globally from India. optiwar.in ships within India. optiwar.com ships to  35 countries (AU, AT, BH, BE, CA, CY, DK, FI, FR, DE, GR, HU, IE, IL, IT, JP, KW, MU, NL, NZ, NO, OM, PA, PL, PT, RO, SA, SG, ZA, ES, SE, CH, AE, GB, QA) EXCEPT the United States (due to US FDA import regulations) and India (use optiwar.in for India). All products ship from our facility in Gurgaon, India.",
+      "category": "shipping",
+      "intent": "shipping_destinations",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/terms_and_conditions",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Why doesn't Optiwar ship to the United States?",
+      "answer": "Optiwar currently does not ship to the United States due to potential US FDA detentions on eyewear imports. In the interest of our site visitors, we have paused US shipping until this can be resolved. This policy may change in the future.",
+      "category": "shipping",
+      "intent": "no_usa_shipping",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "How long does shipping take?",
+      "answer": "Most orders ship within 24-36 hours of placement. Complex prescriptions may take 3-7 days to process before shipping. Once shipped, delivery typically takes 3-7 business days globally via FedEx or DHL. Customs delays at the importing country are exceptions and beyond Optiwar's control.",
+      "category": "shipping",
+      "intent": "shipping_time",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/terms_and_conditions",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Which shipping carriers does Optiwar use?",
+      "answer": "Optiwar ships globally via FedEx and DHL. AWB (Air Waybill) tracking numbers are shared with customers once the order is shipped.",
+      "category": "shipping",
+      "intent": "shipping_carriers",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/terms_and_conditions",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Is shipping free?",
+      "answer": "Yes. Optiwar provides free shipping on all orders with no minimum order value. This applies to both domestic (India) and international orders.",
+      "category": "shipping",
+      "intent": "free_shipping",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Do I have to pay customs duties on international orders?",
+      "answer": "Yes. Customers are responsible for all import duties, taxes, and customs fees in their respective importing countries. Every country has specific regulations and duty rates that are beyond Optiwar's scope to advise on. Optiwar cannot be held responsible for customs delays or additional charges imposed by the importing country.",
+      "category": "customs",
+      "intent": "customs_duties",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/terms_and_conditions",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What happens if my order is held at customs?",
+      "answer": "International orders once shipped are subject to the customs regulations of the importing country. Any confiscation or detention of goods outside India's jurisdiction is the liability of the customer as per Reserve Bank of India rules. Optiwar shares AWB tracking so you can monitor your shipment's status through customs.",
+      "category": "customs",
+      "intent": "customs_detention",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/terms_and_conditions",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Can I cancel my order?",
+      "answer": "Yes, with conditions: (1) Unprocessed orders can be cancelled free of cost within 6 hours of placing the order. (2) Processed orders (where lenses have been ordered, cut, or processing initiated) may be subject to a cancellation cost of up to 50% of order value. (3) International orders: unprocessed within 6 hours attracts 7% cancellation fee; processed international orders attract 57% cancellation cost. Submit cancellation requests via the contact form to receive a ticket number.",
+      "category": "returns_cancellation",
+      "intent": "cancellation_policy",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/terms_and_conditions",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What is Optiwar's return policy?",
+      "answer": "Optiwar is a wholesale optical outlet and returns/replacements are subjective and in most cases restricted. For international orders Dead-on-arrival items only only refundable. Proof of damage required from courier. Refund within 1-7 business days after courier verification.",
+      "category": "returns_cancellation",
+      "intent": "return_policy",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/terms_and_conditions",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "How long does a refund take?",
+      "answer": "Approved refunds are processed back to the same source of payment within 1-7 business days.",
+      "category": "returns_cancellation",
+      "intent": "refund_timeline",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/terms_and_conditions",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Can I return international orders?",
+      "answer": "No. International orders once shipped cannot be returned or refunded. Once goods are exported from India with a generated AWB, they are considered shipped as per Reserve Bank of India rules.",
+      "category": "returns_cancellation",
+      "intent": "international_return",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/terms_and_conditions",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Does Optiwar offer warranty on products?",
+      "answer": "Optiwar is a factory outlet with exceptional direct factory pricing. Factory outlets do not offer traditional warranty terms. The prices reflect wholesale direct-from-factory rates which do not include warranty overhead.",
+      "category": "returns_cancellation",
+      "intent": "warranty",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/terms_and_conditions",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What payment methods does Optiwar accept?",
+      "answer": "Optiwar accepts Visa, Mastercard, American Express, Netbanking, and Apple Pay. Payment options automatically adjust based on your location — Indian customers see INR payment methods via Paytm/Razorpay, international customers see EUR payment options. Currency is INR (₹) on optiwar.in and EUR (€) on optiwar.com.",
+      "category": "payment",
+      "intent": "payment_methods",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/checkout",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What currencies does Optiwar support?",
+      "answer": "INR (Indian Rupees) for Indian customers on optiwar.in and EUR (Euros) for international customers on optiwar.com. These are the only two currencies supported.",
+      "category": "payment",
+      "intent": "currencies",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Is it safe to pay on Optiwar?",
+      "answer": "Yes. Optiwar uses industry-standard secure payment processing through Paytm and Razorpay payment gateways. All transactions are encrypted and processed through PCI-DSS compliant infrastructure. Optiwar does not store your card details.",
+      "category": "payment",
+      "intent": "payment_security",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/checkout",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What information is needed to place an order?",
+      "answer": "Required: Frame selection (product ID and color), lens type, Right eye SPH, Left eye SPH, customer name, phone number with country code, email address, full shipping address, and payment authorization. Optional but recommended: CYL, AXIS, ADD power, PD, near PD, and prescription image upload.",
+      "category": "ai_order_flow",
+      "intent": "order_requirements",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/checkout",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What is the step-by-step order process?",
+      "answer": "1. Browse and select a frame from the catalog. 2. Add to cart. 3. Enter your prescription (SPH, CYL, AXIS, ADD, PD). 4. Choose lens upgrades (Anti-Glare, Blue Cut, etc.) if desired. 5. Proceed to checkout. 6. Enter delivery details (name, address, phone with country code, email). 7. Complete payment. 8. Receive order confirmation via email. 9. Order ships within 24-36 hours (3-7 days for complex Rx). 10. Track via AWB number shared by email.",
+      "category": "ai_order_flow",
+      "intent": "order_process",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/checkout",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Can I track my order?",
+      "answer": "Yes. Once your order is shipped, Optiwar shares the AWB (Air Waybill) tracking number via email. You can use this tracking number on the FedEx or DHL website to monitor your shipment status in real-time.",
+      "category": "shipping",
+      "intent": "order_tracking",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/terms_and_conditions",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Can I view my past orders?",
+      "answer": "Yes. Log in to your account and visit the My Orders page to view all your past orders, their status, and details.",
+      "category": "ai_order_flow",
+      "intent": "order_history",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/my_orders",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What lens should I choose if I use computers all day?",
+      "answer": "Blue Cut lenses are recommended for heavy screen users. They block harmful blue-violet light (380-450nm) from computers, phones, and LED screens, reducing digital eye strain and improving sleep quality. Blue Cut is a more advanced design than traditional anti-glare for screen-heavy use.",
+      "category": "lens_recommendation",
+      "intent": "recommend_for_screen_use",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses/blue-cut-lenses",
+      "agent_action": "recommend_product"
+    },
+    {
+      "question": "What lens should I choose for driving?",
+      "answer": "For driving: (1) Polarized lenses are excellent for reducing road glare and reflective surfaces during daytime. (2) Anti-Glare lenses help reduce headlight glare for night driving. (3) Photo-Grey or Photo-Brown lenses adapt to changing light conditions when going in and out of tunnels or varying sunlight.",
+      "category": "lens_recommendation",
+      "intent": "recommend_for_driving",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses/polarized-lenses",
+      "agent_action": "recommend_product"
+    },
+    {
+      "question": "What lens should I choose for outdoor activities?",
+      "answer": "Polarized lenses are ideal for outdoor activities — they eliminate glare from water, snow, roads, and other reflective surfaces. Photochromic lenses (Photo-Grey or Photo-Brown) are also excellent as they automatically darken in sunlight and clear indoors.",
+      "category": "lens_recommendation",
+      "intent": "recommend_for_outdoor",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses/polarized-lenses",
+      "agent_action": "recommend_product"
+    },
+    {
+      "question": "What lens is best for high prescription powers?",
+      "answer": "Extra-Thin lenses (1.67 index and above) are recommended for higher prescription powers. They are thinner, lighter, and aesthetically better-looking than standard lenses for high powers. Our team may also upgrade your lens material if they determine a higher index is needed for proper fitting.",
+      "category": "lens_recommendation",
+      "intent": "recommend_for_high_power",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses/extra-thin-lenses",
+      "agent_action": "recommend_product"
+    },
+    {
+      "question": "I need glasses for both distance and reading. What should I choose?",
+      "answer": "Progressive lenses are recommended — they provide seamless multifocal correction for distance, intermediate, and near vision in one lens without any visible line. They are the modern, advanced alternative to bifocals. Bifocal lenses (KT or Flat-top D) are available as a more traditional option with two distinct zones.",
+      "category": "lens_recommendation",
+      "intent": "recommend_multifocal",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses/progressive-lenses",
+      "agent_action": "recommend_product"
+    },
+    {
+      "question": "What are Multi Anti-Glare lenses?",
+      "answer": "Multi Anti-Glare (Multi AG) lenses feature a premium multi-layer anti-reflective coating that provides superior reflection reduction compared to standard Anti-Glare. They offer enhanced clarity, better scratch resistance, and easier cleaning. Available as an add-on for Rs 200 (₹) / €7.",
+      "category": "lenses",
+      "intent": "lens_detail_multiag",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses/multi-anti-glare-lenses",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "How does the face measurement / virtual try-on work?",
+      "answer": "Optiwar's face measurement tool at /tryon uses your device camera to capture your face dimensions. It measures your face width, temple-to-temple distance, and helps estimate your PD (pupillary distance). Based on these measurements, it recommends frame sizes that will fit your face comfortably. You can also see matching frames from the catalog based on your measurements.",
+      "category": "face_width_recommendation",
+      "intent": "tryon_how_it_works",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/tryon",
+      "agent_action": "recommend_tool"
+    },
+    {
+      "question": "Can an AI agent place an order on my behalf?",
+      "answer": "AI agents can collect all required order information (frame selection, prescription, delivery address, contact details) and submit it for processing. However, payment authorization must come directly from the customer. AI agents can assist with product selection, lens recommendations, and answering questions about the ordering process.",
+      "category": "ai_order_flow",
+      "intent": "ai_agent_ordering",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "When should an AI agent escalate to a human?",
+      "answer": "AI agents should escalate to human support via the ticketing system for: (1) Complex prescription queries requiring optical expertise. (2) Order modification requests (cancellation, address change, lens change). (3) Complaints or disputes. (4) Warranty or quality concerns. (5) Customs/shipping issues with specific orders. AI agents can take all requests and forward them for human approval.",
+      "category": "escalation_rules",
+      "intent": "when_to_escalate",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/contact_us",
+      "agent_action": "escalate_to_human"
+    },
+    {
+      "question": "What can an AI agent handle without human approval?",
+      "answer": "AI agents can independently: (1) Answer product and lens questions. (2) Recommend frames and lenses based on customer needs. (3) Explain prescription fields and how to read a prescription. (4) Provide shipping, payment, and policy information. (5) Guide customers through the ordering process. (6) Help with PD measurement guidance. All order modifications and complaints should be escalated to humans via the ticketing system.",
+      "category": "escalation_rules",
+      "intent": "ai_agent_capabilities",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Does Optiwar have a physical store?",
+      "answer": "Optiwar operates primarily as an online factory outlet. The warehouse and fulfillment center is located at Godown Village Fazilpur, Badshahpur Tethar(222), Badshahpur, Gurgaon-122101 India. All orders are processed and shipped from this location.",
+      "category": "business_identity",
+      "intent": "physical_location",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/terms_and_conditions",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Can I save multiple delivery addresses?",
+      "answer": "Yes. Logged-in customers can save multiple delivery addresses in their profile. During checkout, you can select from saved addresses or enter a new one. Each address includes street, apartment/unit, city, state, zipcode, and country.",
+      "category": "ai_order_flow",
+      "intent": "multiple_addresses",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/profile",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "How do I create an account on Optiwar?",
+      "answer": "You can register with an email and password, or sign in instantly with your Google account. Registration is free and gives you access to order history, saved addresses, and saved prescriptions.",
+      "category": "business_identity",
+      "intent": "account_creation",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/register",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Can I order without creating an account?",
+      "answer": "Guest checkout is available — you can place an order by providing your name, email, phone, and delivery address without creating a permanent account. However, creating an account allows you to track orders, reorder, and manage saved addresses and prescriptions.",
+      "category": "ai_order_flow",
+      "intent": "guest_checkout",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/checkout",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What frame shapes are best for my face?",
+      "answer": "Optiwar's frame shape guide helps match frame styles to face shapes: Round faces suit angular frames (Rectangle, Square). Oval faces suit most styles. Square faces suit round or curved frames. Heart-shaped faces suit wider bottom frames. Use the face measurement tool at /tryon for personalized recommendations based on your actual face dimensions.",
+      "category": "frame_size",
+      "intent": "frame_shape_guide",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/guides/frame-shapes",
+      "agent_action": "recommend_product"
+    },
+    {
+      "question": "Are Optiwar frames suitable for all ages?",
+      "answer": "Optiwar carries frames in a wide range of sizes (lens widths from 42mm to 58mm+) suitable for teens through adults. Frame sizes are clearly listed for each product. Use the size guide (lens-bridge-temple measurements) to find the right fit for any age.",
+      "category": "frames",
+      "intent": "frame_age_suitability",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/eyeglasses/all-spectacle-frames.html",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What materials are Optiwar frames made of?",
+      "answer": "Optiwar spectacle frames are made from various materials including metal, acetate, TR-90, and titanium alloys depending on the style. Material details are listed on individual product pages. All frames are manufactured to wholesale factory specifications.",
+      "category": "frames",
+      "intent": "frame_materials",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/eyeglasses/all-spectacle-frames.html",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Can I order prescription sunglasses?",
+      "answer": "Yes. You can select any frame and add Polarized lenses (which reduce glare) or Photochromic lenses (which darken in sunlight) to create prescription sunglasses. Polarized lenses are Rs 800/€10 and Photochromic options start at Rs 350/€10.",
+      "category": "lenses",
+      "intent": "prescription_sunglasses",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses/polarized-lenses",
+      "agent_action": "recommend_product"
+    },
+    {
+      "question": "Does Optiwar offer contact lenses?",
+      "answer": "Yes, Optiwar offers contact lenses in addition to spectacle frames. Contact lens products are available in the Contact Lenses category on the website.",
+      "category": "product_categories",
+      "intent": "contact_lenses",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/contact_lenses",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Does Optiwar offer hearing aids?",
+      "answer": "Yes, Optiwar offers hearing aids as part of its product catalog. Hearing aid products are available in the Hearing Aids category on the website.",
+      "category": "product_categories",
+      "intent": "hearing_aids",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "How does Optiwar offer such low prices?",
+      "answer": "Optiwar operates as a factory outlet, selling directly from the factory at wholesale prices. By eliminating retail middlemen, store overhead, and traditional optical shop markup, Optiwar can offer savings of up to 70% compared to retail optical stores. Every frame includes complimentary prescription lenses to provide maximum value.",
+      "category": "business_identity",
+      "intent": "pricing_model",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What API endpoints are available for AI agents?",
+      "answer": "Optiwar provides several API endpoints for AI integration: (1) GET /api/v1/products — full product catalog with filters (category, color, shape, price, stock). (2) GET /api/v1/products/{id} — single product details. (3) GET /api/v1/categories — all product categories. (4) GET /api/openapi.json — full OpenAPI specification. (5) GET /.well-known/ai-plugin.json — AI plugin manifest. (6) GET /.well-known/ucp — Universal Commerce Protocol discovery. All APIs support ?currency=INR or ?currency=EUR.",
+      "category": "ai_order_flow",
+      "intent": "api_endpoints",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/api/openapi.json",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What is Optiwar's privacy policy?",
+      "answer": "Optiwar collects only the information necessary to process orders: name, email, phone, delivery address, and prescription details. Payment information is processed securely through third-party gateways (Paytm/Razorpay) and is not stored by Optiwar. Full privacy policy details are available at /privacy_policy.",
+      "category": "business_identity",
+      "intent": "privacy_policy",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/privacy_policy",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Can I change my order after placing it?",
+      "answer": "Order modifications must be requested through the support ticketing system as soon as possible. Unprocessed orders (within 6 hours) have the best chance of modification. Once lens processing has begun, modifications may not be possible. Contact support immediately for any changes needed.",
+      "category": "ai_order_flow",
+      "intent": "order_modification",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/contact_us",
+      "agent_action": "escalate_to_human"
+    },
+    {
+      "question": "Does Optiwar offer bulk or wholesale ordering?",
+      "answer": "Optiwar already operates at wholesale factory outlet pricing for individual customers. For bulk ordering inquiries, contact support through the ticketing system with your requirements.",
+      "category": "business_identity",
+      "intent": "bulk_ordering",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/contact_us",
+      "agent_action": "escalate_to_human"
+    },
+    {
+      "question": "What if I receive a wrong or damaged product?",
+      "answer": "Contact Optiwar support immediately via the ticketing system. Replacement and return requests are handled on a case-by-case basis. Products must be returned to Optiwar's designated location. Used or damaged products (by the customer) will not be refunded. Return shipping costs are borne by the customer. For International customer receiving dead-on-arrival products will be refunded once proof of DOA is given by courier partner.",
+      "category": "returns_cancellation",
+      "intent": "damaged_product",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/terms_and_conditions",
+      "agent_action": "escalate_to_human"
+    },
+    {
+      "question": "Can I add prescription lenses to frames I already own?",
+      "answer": "No. Optiwar only fits prescription lenses into frames purchased from Optiwar. Each frame is paired with lenses during the manufacturing process at the factory.",
+      "category": "lenses",
+      "intent": "own_frames",
+      "confidence": "medium",
+      "source_url": "https://optiwar.com/lenses",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "How do I use the search and filtering features?",
+      "answer": "Use the search bar to find frames by name or code. The All Frames page at /eyeglasses/all-spectacle-frames.html allows filtering by category (Supra, Clubmaster, Round, Rectangle, Rimless, Square), color, price range, and availability. The API also supports these filters: GET /api/v1/products?category=round&color=black&min_price=499&max_price=999&in_stock=true",
+      "category": "product_categories",
+      "intent": "search_filter",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/eyeglasses/all-spectacle-frames.html",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What is the complimentary lens included with every frame?",
+      "answer": "Every spectacle frame at Optiwar includes free single-vision prescription lenses at no additional cost. These are standard-index lenses with your prescription built in. You only pay extra if you choose to upgrade to premium coatings (Anti-Glare, Blue Cut, etc.) or special lens types (Thin, Bifocal, Progressive, etc.).",
+      "category": "lenses",
+      "intent": "complimentary_lens",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What does AXIS mean in a prescription, and is it required?",
+      "answer": "AXIS is the angle (0-180 degrees) at which cylindrical correction is applied to correct astigmatism. It is required ONLY when CYL (cylinder) power is present in your prescription. If your prescription has no CYL value, AXIS is not needed. Optiwar's system validates this automatically.",
+      "category": "prescription",
+      "intent": "axis_explanation",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/add_prescription",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What is ADD power in a prescription?",
+      "answer": "ADD (addition) power is the extra magnification needed for reading or close work, used in bifocal and progressive lenses. It is typically prescribed for people over 40 who have presbyopia (age-related difficulty focusing on close objects). ADD values usually range from +0.75 to +3.00. This field is only needed if you are ordering bifocal or progressive lenses.",
+      "category": "prescription",
+      "intent": "add_power_explanation",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/add_prescription",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Can I upload my prescription as an image instead of entering values?",
+      "answer": "Yes. During the prescription entry step, you can upload a photo or scan of your prescription. Our team will read the values from the uploaded image and configure the correct lenses for your order.",
+      "category": "prescription",
+      "intent": "rx_upload",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/add_prescription",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What happens if my prescription parameters are incorrect?",
+      "answer": "Optiwar's software automatically validates prescription parameters during ordering. If values are inconsistent (e.g., AXIS present without CYL, or missing required fields), the system will flag the issue. Additionally, our specialized team reviews each order and may contact you if they notice potential issues with your prescription.",
+      "category": "prescription_verification",
+      "intent": "rx_validation",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/add_prescription",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "Are there extra charges for high prescriptions?",
+      "answer": "Standard prescriptions are fulfilled with complimentary lenses at no extra charge. If powers exceed certain parameters, there may be additional charges for specialized manufactured products. Our team evaluates each prescription and may provide upgraded lens material at their own cost if needed for proper fitting.",
+      "category": "prescription",
+      "intent": "high_power_surcharge",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/lenses",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What is SPH (Sphere) in an eye prescription?",
+      "answer": "SPH (Sphere) is the main lens power that corrects near-sightedness (myopia) or far-sightedness (hyperopia). A negative SPH value (e.g. -2.00) corrects myopia — you struggle to see far objects clearly. A positive SPH value (e.g. +1.50) corrects hyperopia — you struggle to see near objects clearly. SPH is measured in dioptres (D) and is the most important value in any prescription. Every Optiwar order requires at least Right Eye SPH and Left Eye SPH. If your prescription shows 0.00 or Plano/Pl, it means no spherical correction is needed for that eye.",
+      "category": "prescription",
+      "intent": "sph_definition",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/ai-faq",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What is CYL (Cylinder) in an eye prescription?",
+      "answer": "CYL (Cylinder) corrects astigmatism — a condition where the cornea is shaped more like a rugby ball than a sphere, causing blurred or distorted vision at all distances. CYL is measured in dioptres and is always accompanied by an AXIS value (0–180 degrees) that specifies the angle of correction. Common CYL values range from -0.25 to -4.00. If your prescription has no CYL value, you do not have astigmatism. At Optiwar, CYL is optional — leave it blank if your prescription does not include it. If CYL is present, AXIS must also be provided.",
+      "category": "prescription",
+      "intent": "cyl_definition",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/ai-faq",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What is Prism in an eye prescription?",
+      "answer": "Prism correction is prescribed for people with eye alignment issues (strabismus or binocular vision problems) where the eyes do not point at the same object simultaneously. Prism is measured in prism dioptres (PD or Δ) and has a Base direction (Base Up, Base Down, Base In, Base Out) that tells the lab which way to orient the prism in the lens. Prism prescriptions are relatively uncommon — most prescriptions do not include prism. If your prescription includes prism values, please upload the prescription image during ordering so our team can verify the parameters. Optiwar fulfils prism prescriptions from its factory.",
+      "category": "prescription",
+      "intent": "prism_definition",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/ai-faq",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What is the difference between Single PD and Dual PD?",
+      "answer": "Single PD (Pupillary Distance) is one number (e.g. 63mm) representing the total distance between the centres of both pupils. Dual PD is two separate numbers (e.g. Right 31.5mm, Left 32.0mm) measuring from each pupil to the centre of the nose bridge independently. Dual PD is more precise because most faces are slightly asymmetrical. Either format works for ordering at Optiwar. If your prescription shows only one PD number, that is single PD. If it shows two numbers (sometimes labelled RE/LE or OD/OS), that is dual PD. Optiwar's face measurement tool at /tryon provides dual PD automatically.",
+      "category": "pd_measurement",
+      "intent": "single_vs_dual_pd",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/ai-faq",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What is Near PD vs Distance PD?",
+      "answer": "Distance PD is your pupillary distance when looking at far objects — this is the standard PD used for most glasses. Near PD is your pupillary distance when looking at close objects (reading, computer) — it is typically 3-4mm less than your distance PD because your eyes converge (turn inward) when focusing on near objects. For single-vision distance glasses, use your distance PD. For dedicated reading glasses, use your near PD. For progressive and bifocal lenses, both values may be used. If your prescription only lists one PD, it is your distance PD. Optiwar's ordering system uses distance PD by default.",
+      "category": "pd_measurement",
+      "intent": "near_vs_distance_pd",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/ai-faq",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "What are the common PD ranges for adults and children?",
+      "answer": "Adult PD typically ranges from 54mm to 74mm, with the average being about 63mm for women and 65mm for men. Children's PD ranges from 43mm to 58mm. If your PD falls outside these ranges, double-check the measurement. PD does not change significantly after age 20. You can measure your PD using Optiwar's face measurement tool at /tryon, or ask your optometrist to include it on your prescription.",
+      "category": "pd_measurement",
+      "intent": "pd_ranges",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/ai-faq",
+      "agent_action": "inform_customer"
+    }
+  ]
+}

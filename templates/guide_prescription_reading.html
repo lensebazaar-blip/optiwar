@@ -1,0 +1,184 @@
+{% extends 'base.html' %}
+{% block title %}How to Read Your Prescription — Prescription Guide | Optiwar{% endblock %}
+{% block meta_description %}Complete guide to reading and understanding your eye prescription. Learn what SPH, CYL, AXIS, ADD, Prism, and PD mean. Understand how to enter your prescription when ordering glasses online at Optiwar.{% endblock %}
+{% block meta_keywords %}eye prescription guide, how to read prescription, sph meaning, cyl meaning, axis meaning, add power, prism prescription, ordering glasses online{% endblock %}
+{% block og_title %}How to Read Your Eye Prescription | Optiwar{% endblock %}
+{% block og_description %}Understand every value on your eye prescription — SPH, CYL, AXIS, ADD, Prism, PD. Step-by-step guide for ordering prescription glasses online.{% endblock %}
+{% block og_url %}{{ site_url }}/ai-guide/prescription-reading{% endblock %}
+{% block canonical_url %}{{ site_url }}/ai-guide/prescription-reading{% endblock %}
+{% block hreflang_in %}https://optiwar.in/ai-guide/prescription-reading{% endblock %}
+{% block hreflang_default %}https://optiwar.com/ai-guide/prescription-reading{% endblock %}
+
+{% block jsonld_extra %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {"@type": "Question", "name": "What is SPH (Sphere) in an eye prescription?", "acceptedAnswer": {"@type": "Answer", "text": "SPH is the main lens power. Negative values (e.g. -2.00) correct myopia (near-sightedness). Positive values (e.g. +1.50) correct hyperopia (far-sightedness). Measured in dioptres. 0.00 or Plano means no correction needed."}},
+    {"@type": "Question", "name": "What is CYL (Cylinder) in an eye prescription?", "acceptedAnswer": {"@type": "Answer", "text": "CYL corrects astigmatism — uneven cornea curvature causing blurred vision at all distances. Always accompanied by AXIS (0-180°). If your prescription has no CYL, you don't have astigmatism."}},
+    {"@type": "Question", "name": "What is AXIS in an eye prescription?", "acceptedAnswer": {"@type": "Answer", "text": "AXIS is the angle (0-180 degrees) at which cylindrical correction is applied. Required only when CYL is present. If CYL is blank, AXIS should also be blank."}},
+    {"@type": "Question", "name": "What is ADD power?", "acceptedAnswer": {"@type": "Answer", "text": "ADD is extra magnification for near/reading vision, prescribed for presbyopia (age-related difficulty focusing close). Typically +0.50 to +3.50. Required for bifocal and progressive lenses. Usually same for both eyes."}},
+    {"@type": "Question", "name": "What is Prism in a prescription?", "acceptedAnswer": {"@type": "Answer", "text": "Prism corrects eye alignment issues (strabismus). Measured in prism dioptres with a base direction (Up, Down, In, Out). Uncommon — most prescriptions don't include it."}},
+    {"@type": "Question", "name": "What is OD and OS on a prescription?", "acceptedAnswer": {"@type": "Answer", "text": "OD (Oculus Dexter) means right eye. OS (Oculus Sinister) means left eye. OU (Oculus Uterque) means both eyes. Some prescriptions use R/L or RE/LE instead."}}
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {"@type": "ListItem", "position": 1, "name": "Home", "item": "{{ site_url }}/"},
+    {"@type": "ListItem", "position": 2, "name": "AI Guides", "item": "{{ site_url }}/ai-faq"},
+    {"@type": "ListItem", "position": 3, "name": "Prescription Reading", "item": "{{ site_url }}/ai-guide/prescription-reading"}
+  ]
+}
+</script>
+{% endblock %}
+
+{% block content %}
+<div style="max-width:800px;margin:40px auto;padding:0 20px;font-family:Arial,sans-serif;">
+
+  <h1 style="font-size:2rem;margin-bottom:8px;">How to Read Your Eye Prescription</h1>
+  <p style="color:#64748b;margin-bottom:32px;">Understanding every value on your prescription for ordering glasses online</p>
+
+  <!-- Sample Prescription Visual -->
+  <section style="margin-bottom:40px;">
+    <h2 style="font-size:1.4rem;color:#4f46e5;">Sample Prescription</h2>
+    <div style="background:#f8fafc;border:2px solid #e2e8f0;border-radius:12px;padding:20px;margin:16px 0;font-family:monospace;">
+      <table style="width:100%;border-collapse:collapse;">
+        <tr style="border-bottom:2px solid #cbd5e1;">
+          <th style="padding:8px;text-align:left;"></th>
+          <th style="padding:8px;text-align:center;">SPH</th>
+          <th style="padding:8px;text-align:center;">CYL</th>
+          <th style="padding:8px;text-align:center;">AXIS</th>
+          <th style="padding:8px;text-align:center;">ADD</th>
+        </tr>
+        <tr>
+          <td style="padding:8px;font-weight:bold;">OD (Right)</td>
+          <td style="padding:8px;text-align:center;color:#dc2626;">-2.50</td>
+          <td style="padding:8px;text-align:center;color:#2563eb;">-0.75</td>
+          <td style="padding:8px;text-align:center;color:#16a34a;">180</td>
+          <td style="padding:8px;text-align:center;color:#9333ea;">+1.50</td>
+        </tr>
+        <tr>
+          <td style="padding:8px;font-weight:bold;">OS (Left)</td>
+          <td style="padding:8px;text-align:center;color:#dc2626;">-3.00</td>
+          <td style="padding:8px;text-align:center;color:#2563eb;">-1.00</td>
+          <td style="padding:8px;text-align:center;color:#16a34a;">175</td>
+          <td style="padding:8px;text-align:center;color:#9333ea;">+1.50</td>
+        </tr>
+      </table>
+      <p style="margin:12px 0 0;font-size:13px;color:#64748b;font-family:Arial,sans-serif;">PD: 64mm</p>
+    </div>
+  </section>
+
+  <!-- SPH -->
+  <section style="margin-bottom:36px;">
+    <h2 style="font-size:1.4rem;color:#dc2626;">SPH (Sphere)</h2>
+    <p><strong>The main correction power.</strong> This is the most important value on your prescription.</p>
+    <ul>
+      <li><strong>Negative</strong> (e.g. -2.50) → corrects <strong>myopia</strong> (can't see far clearly)</li>
+      <li><strong>Positive</strong> (e.g. +1.50) → corrects <strong>hyperopia</strong> (can't see near clearly)</li>
+      <li><strong>0.00 / Plano / Pl</strong> → no spherical correction needed</li>
+    </ul>
+    <p>Values come in <strong>0.25 increments</strong> (e.g. -1.25, -1.50, -1.75). SPH is <strong>required</strong> for both eyes when ordering at Optiwar.</p>
+    <div style="background:#fef2f2;padding:12px 16px;border-radius:8px;margin-top:8px;">
+      <strong>High prescription?</strong> If your SPH exceeds ±6.00, we recommend <a href="/lenses" style="color:#4f46e5;">Extra-Thin lenses</a> (1.67 index) for thinner, lighter glasses.
+    </div>
+  </section>
+
+  <!-- CYL -->
+  <section style="margin-bottom:36px;">
+    <h2 style="font-size:1.4rem;color:#2563eb;">CYL (Cylinder)</h2>
+    <p><strong>Corrects astigmatism</strong> — where your cornea is shaped more like a rugby ball than a perfect sphere, causing blurred or distorted vision at all distances.</p>
+    <ul>
+      <li>If your prescription has <strong>no CYL</strong>, you don't have astigmatism — leave it blank when ordering</li>
+      <li>If CYL is present, you <strong>must also have AXIS</strong></li>
+      <li>Common values: -0.25 to -4.00</li>
+    </ul>
+  </section>
+
+  <!-- AXIS -->
+  <section style="margin-bottom:36px;">
+    <h2 style="font-size:1.4rem;color:#16a34a;">AXIS</h2>
+    <p><strong>The angle of astigmatism correction</strong>, measured in degrees from 0 to 180.</p>
+    <ul>
+      <li>Only meaningful when CYL is present</li>
+      <li>If CYL is blank, AXIS should be blank too</li>
+      <li>If CYL is present but AXIS is missing on your prescription, contact your eye doctor</li>
+    </ul>
+  </section>
+
+  <!-- ADD -->
+  <section style="margin-bottom:36px;">
+    <h2 style="font-size:1.4rem;color:#9333ea;">ADD (Addition)</h2>
+    <p><strong>Extra magnification for reading/close work.</strong> Prescribed for <strong>presbyopia</strong> — the age-related difficulty focusing on near objects, typically starting after age 40.</p>
+    <ul>
+      <li>Range: +0.50 to +3.50 (higher = more near magnification)</li>
+      <li>Usually <strong>same for both eyes</strong></li>
+      <li>Required when ordering <strong>bifocal or progressive</strong> lenses</li>
+      <li>If your prescription has ADD but you're ordering single-vision, you'll only get distance correction</li>
+    </ul>
+  </section>
+
+  <!-- Prism -->
+  <section style="margin-bottom:36px;">
+    <h2 style="font-size:1.4rem;color:#f59e0b;">Prism (uncommon)</h2>
+    <p><strong>Corrects eye alignment issues</strong> (strabismus / binocular vision problems). Most prescriptions do <strong>not</strong> include prism.</p>
+    <ul>
+      <li>Measured in <strong>prism dioptres</strong> with a <strong>base direction</strong>: Base Up (BU), Base Down (BD), Base In (BI), Base Out (BO)</li>
+      <li>If your prescription includes prism, <strong>upload the prescription image</strong> when ordering so our team can verify</li>
+    </ul>
+  </section>
+
+  <!-- Eye Notation -->
+  <section style="margin-bottom:36px;">
+    <h2 style="font-size:1.4rem;color:#4f46e5;">Eye Notation</h2>
+    <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+      <tr style="background:#f1f5f9;">
+        <th style="padding:12px;text-align:left;border-bottom:2px solid #e2e8f0;">Abbreviation</th>
+        <th style="padding:12px;text-align:left;border-bottom:2px solid #e2e8f0;">Meaning</th>
+        <th style="padding:12px;text-align:left;border-bottom:2px solid #e2e8f0;">Also written as</th>
+      </tr>
+      <tr>
+        <td style="padding:12px;border-bottom:1px solid #e2e8f0;"><strong>OD</strong></td>
+        <td style="padding:12px;border-bottom:1px solid #e2e8f0;">Right eye (Oculus Dexter)</td>
+        <td style="padding:12px;border-bottom:1px solid #e2e8f0;">R, RE, Right</td>
+      </tr>
+      <tr>
+        <td style="padding:12px;border-bottom:1px solid #e2e8f0;"><strong>OS</strong></td>
+        <td style="padding:12px;border-bottom:1px solid #e2e8f0;">Left eye (Oculus Sinister)</td>
+        <td style="padding:12px;border-bottom:1px solid #e2e8f0;">L, LE, Left</td>
+      </tr>
+      <tr>
+        <td style="padding:12px;border-bottom:1px solid #e2e8f0;"><strong>OU</strong></td>
+        <td style="padding:12px;border-bottom:1px solid #e2e8f0;">Both eyes (Oculus Uterque)</td>
+        <td style="padding:12px;border-bottom:1px solid #e2e8f0;">—</td>
+      </tr>
+    </table>
+  </section>
+
+  <!-- Validation -->
+  <section style="margin-bottom:40px;background:#fffbeb;padding:20px;border-radius:12px;">
+    <h2 style="font-size:1.2rem;color:#d97706;margin-top:0;">Quick Validation Checklist</h2>
+    <ul style="line-height:2;">
+      <li>SPH present for both eyes? <strong>Required.</strong></li>
+      <li>CYL present? → AXIS must also be present (0-180).</li>
+      <li>AXIS present but no CYL? → Something's wrong — check your prescription.</li>
+      <li>Ordering bifocal/progressive? → ADD power is required.</li>
+      <li>SPH values in 0.25 increments? (e.g. -1.25, not -1.30)</li>
+      <li>PD between 54-74mm for adults?</li>
+    </ul>
+    <p style="margin-top:8px;">Not sure? Upload your prescription image at checkout — <strong>our team will read it for you</strong>.</p>
+  </section>
+
+  <!-- CTA -->
+  <section style="text-align:center;margin-bottom:40px;">
+    <a href="/eyeglasses/all-spectacle-frames.html" style="display:inline-block;background:#4f46e5;color:#fff;padding:14px 32px;border-radius:10px;text-decoration:none;font-weight:600;font-size:1.1rem;">Browse Frames →</a>
+    <p style="color:#64748b;font-size:13px;margin-top:12px;">Every frame includes complimentary prescription lenses</p>
+  </section>
+
+</div>
+{% endblock %}

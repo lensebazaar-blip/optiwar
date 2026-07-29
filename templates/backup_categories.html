@@ -1,0 +1,100 @@
+{% extends 'base.html' %}
+{% block title %} Categories - OPTIWAR {% endblock %}
+{% block meta %}
+    <!-- Unique Meta Tags for Privacy Policy Page -->
+    <meta name="description" content="Find products like eyeglasses, contact lenses, hearing aids as we keep adding more products to our site">
+    <meta name="keywords" content="Optiwar categories page">
+    <meta name="author" content="OPTIWAR">
+    <meta property="og:title" content="Cateogires - OPTIWAR">
+    <meta property="og:description" content="This page tries to find as many products your will be looking at OPTIWAR">
+    <meta property="og:url" content="{{ url_for('main.categories', _external=True) }}">
+{% endblock %}
+
+
+{% block content %}
+<h2>  Select Categories </h2>
+
+
+<ul> 
+ {% for product in products %}
+		    <li>
+			{% if product['product_image'] %}
+		        {% set image_paths = product['product_image'].split(',') %}
+		            <div class="img-container normal"> 
+			{% if product_category == "Spectacle Frame" %}
+			    <div class="s-badge"> Lenses inside </div>
+			{% else %}
+			{% endif %}
+ 		            <img id="product-image-{{ loop.index }}" src="{{ url_for('static', filename=image_paths[0].strip()) }}">
+			    </div>
+		        {% else %}
+		        <div class="img-container normal">
+		        <img src="{{ url_for('static', filename='catalog/BB97_1.jpg') }}" >
+		        </div>
+		        {% endif %}
+		        <h3> {{ product['product_name'] }}</h3>
+			<div class="heart" data-product-id="{{ product['product_id']	}}" onclick="toggleFavorite(this)">
+			  <svg class="heart-outline" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+			    <path d="M20.8 4.6a5.6 5.6 0 0 0-7.9 0L12 5.5l-.9-.9A5.6 5.6 0 0 0 3.2 12l8.8 8.8 8.8-8.8a5.6 5.6 0 0 0 0-7.9z"></path>
+  			 </svg>
+			 <svg class="heart-filled" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display: none;">
+                	<path d="M20.8 4.6a5.6 5.6 0 0 0-7.9 0L12 5.5l-.9-.9A5.6 5.6 0 0 0 3.2 12l8.8 8.8 8.8-8.8a5.6 5.6 0 0 0 0-7.9z"></path>
+            		</svg>
+
+			</div>
+
+		       <!--LOCK  <p> {{ product['product_details'] }}</p> -->
+		        <span style="text-decoration: line-through;"> <p> Market Price Rs {{ product['product_price'] }} </p> </span>
+			<span style="color: red;"> <p> Wholesale Price <b>Rs {{  product['product_special_price'] }} </b>  </p>
+			{% if category == 'hearing_aids' %} <div> <details style="direction: color: purple;"> 
+									 <span id="form-factor"> {{ product['form_factor'] }}  </span>
+									 <span id="warranty"> {{ product['warranty'] }} Warranty </span>
+									 <span id="fitting_range"> {{ product['fitting_range'] }} Fitting range in dB</span>
+									 <span id="channels"> {{ product['channels'] }} Channels </span>
+
+								  </details> 
+
+							</div> 
+
+			{% else %}
+  			{% endif %}
+
+		         <form action="{{ url_for('main.add_to_cart') }}" method="post">
+		            <input type="hidden" name="product_id" value="{{ product.product_id }}">
+		            <input type="hidden" name="product_name" value="{{ product.product_name }}">
+		            <input type="hidden" name="product_price" value="{{ product.product_price}}">
+			    <input type="hidden" name="product_special_price" value="{{ product.product_special_price }}">
+ 	        	    <input type="hidden" name="product_category" value="{{ product.product_category }}">
+
+		        {% if category != "hearing_aids" and category != "contact_lenses" %}
+			       <button type="submit" > Buy Frame only  </button>
+		        {% elif category == "hearing_aids" %}
+				<button type ="submit"> Fast Checkout now </button>
+			{% elif category == "contact_lenses" %}
+	                     <form action="{{ url_for('cl_range.add_prescription_of_cl') }}" method="post">
+                            <input type="hidden" name="product_id" value="{{ product.product_id }}">
+                            <input type="hidden" name="product_name" value="{{ product.product_name }}">
+                            <input type="hidden" name="product_price" value="{{ product.product_price}}">
+                            <input type="hidden" name="product_special_price" value="{{ product.product_special_price }}">
+                            <input type="hidden" name="product_category" value="{{ product.product_category }}">
+          		    <button type="submit"> Buy Contact Lenses </button>
+
+			  {% endif %}
+			
+			</form>
+	
+			{% if category != 'hearing_aids' and category != 'contact_lenses' %}		
+		        <form action="{{ url_for('main.add_prescription') }}" method="post">
+		            <input type="hidden" name="product_id" value="{{ product.product_id }}">
+		            <input type="hidden" name="product_name" value="{{ product.product_name }}">
+		            <input type="hidden" name="product_price" value="{{ product.product_price}}">
+			    <input type="hidden" name="product_special_price" value="{{ product.product_special_price }}">
+			     <input type="hidden" name="product_category" value="{{ product.product_category }}">
+
+		            <button type="submit" > Buy Frame with Special Made Lenses </button>
+		        </form>
+			{% endif %}
+		    </li>
+		    {% endfor %}
+</ul>
+{% endblock %}

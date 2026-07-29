@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Face Scan — Optiwar</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+    <meta name="theme-color" content="#000000">
+    <link rel="stylesheet" href="/static/tryon/css/tryon.css?v=6.7">
+</head>
+<body style="margin:0;padding:0;overflow:hidden;background:#000;">
+
+<div class="scan-page">
+    <!-- Camera feed -->
+    <video id="video" playsinline autoplay muted></video>
+    <canvas id="overlayCanvas"></canvas>
+
+    <!-- Top bar: status + progress -->
+    <div class="top-bar">
+        <div class="status-badge" id="statusBadge">
+            <span class="pulse"></span>
+            <span class="sb-text">Loading...</span>
+        </div>
+        <div id="progressRing" class="progress-ring" style="--pct:0">
+            <svg viewBox="0 0 36 36"><circle class="bg" cx="18" cy="18" r="15"/><circle class="fg" cx="18" cy="18" r="15"/></svg>
+        </div>
+    </div>
+
+    <!-- Existing measurement chip -->
+    <div class="existing-chip" id="existingInfo">
+        <span id="exVals"></span>
+    </div>
+
+    <!-- Distance guide -->
+    <div class="dist-guide" id="distGuide" style="display:none"></div>
+
+    <!-- Guide oval (before start) -->
+    <div class="guide-oval" id="guideOval"></div>
+    <div class="intro-text" id="introText">Position your face in the oval</div>
+
+    <!-- Start button -->
+    <button class="start-btn" id="startBtn">
+        <svg viewBox="0 0 24 24"><path d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97s-.03-.66-.07-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.3 7.3 0 0 0-1.69-.98l-.38-2.65A.49.49 0 0 0 14 2h-4a.49.49 0 0 0-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.49.49 0 0 0 .12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.65.07.97l-2.11 1.66a.5.5 0 0 0-.12.63l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.05.24.26.42.49.42h4c.24 0 .44-.18.49-.42l.38-2.65a7.2 7.2 0 0 0 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65Z"/></svg>
+    </button>
+
+    <!-- Measurement overlay cards (after DONE) -->
+    <div class="measure-cards" id="measureCards">
+        <div class="mc">
+            <span class="mc-label">Far PD</span>
+            <span class="mc-val" id="mFarPD">--</span>
+            <span class="mc-unit">mm</span>
+        </div>
+        <div class="mc">
+            <span class="mc-label">Near PD</span>
+            <span class="mc-val" id="mNearPD">--</span>
+            <span class="mc-unit">mm</span>
+        </div>
+        <div class="mc">
+            <span class="mc-label">Face Width</span>
+            <span class="mc-val" id="mFaceW">--</span>
+            <span class="mc-unit">mm</span>
+        </div>
+        <div class="mc-rec">
+            <span class="mc-rec-label">Recommended Size</span>
+            <span class="mc-rec-size" id="mSize">--</span>
+            <span class="mc-rec-sub">Lens – Bridge – Temple</span>
+            <span class="dec-badge fit-excellent" id="mDec">--</span>
+            <span class="conf-badge conf-high" id="mConf"></span>
+        </div>
+    </div>
+
+    <!-- Frame candidates table -->
+    <div class="frame-candidates" id="frameCandidates"></div>
+
+    <!-- Bottom action bar -->
+    <div class="bottom-bar" id="bottomBar">
+        <button class="bb-btn btn-rescan" id="rescanBtn">↻ Rescan</button>
+        <button class="bb-btn btn-save" id="saveBtn">Save</button>
+    </div>
+
+    <!-- Choice bar (after save) -->
+    <div class="choice-bar" id="choiceBar">
+        <button class="cb-btn btn-match" id="matchBtn">Show Frames matching my face</button>
+        <button class="cb-btn btn-browse" id="browseBtn">Browse all</button>
+    </div>
+
+    <!-- Back to site link -->
+    <a href="/" class="back-link" id="backLink" onclick="event.preventDefault(); window.location.href='/';">
+        <svg viewBox="0 0 24 24" width="18" height="18"><path fill="#fff" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+    </a>
+
+    <!-- Returning user overlay -->
+    <div class="returning-overlay" id="returningOverlay">
+        <div class="returning-card">
+            <div class="returning-icon">
+                <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="#34d399" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 12l2 2 4-4"/>
+                    <circle cx="12" cy="12" r="10"/>
+                </svg>
+            </div>
+            <h2 class="returning-title">You have already measured your face</h2>
+            <p class="returning-sub" id="returningVals"></p>
+            <a href="/profile" class="returning-btn returning-btn--view" id="viewMeasBtn">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                Click to see your Face Measurements
+            </a>
+            <button class="returning-btn returning-btn--rescan" id="rescanAgainBtn">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                OR Scan your face again
+            </button>
+        </div>
+    </div>
+
+    <!-- Frames overlay (slides up) -->
+    <div class="frames-overlay" id="framesOverlay">
+        <button class="fo-close" id="closeFrames">
+            <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+        <div id="framesContent"></div>
+    </div>
+</div>
+
+<script src="/static/ow_picture.js?v=2"></script>
+<script type="module" src="/static/tryon/js/tryon.js?v=7.2"></script>
+</body>
+</html>

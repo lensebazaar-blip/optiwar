@@ -1,0 +1,459 @@
+{% extends 'base.html' %}
+{% block title %} Order Success {% endblock %}
+{% block content %}
+
+<style>
+/* ===== Success Page v3 — Two-column with Delivery Details ===== */
+.osp{max-width:1080px;margin:0 auto;padding:24px 16px 40px;font-family:-apple-system,'SF Pro',system-ui,sans-serif;}
+
+/* Hero */
+.osp-hero{text-align:center;padding:32px 0 24px;}
+.osp-check{position:relative;display:inline-block;margin-bottom:16px;}
+.osp-check svg{width:64px;height:64px;}
+.osp-sparkle{position:absolute;width:12px;height:12px;fill:#a78bfa;}
+.osp-sparkle--tl{top:-4px;left:-8px;}
+.osp-sparkle--tr{top:0;right:-10px;}
+.osp-sparkle--bl{bottom:4px;left:-6px;}
+.osp-hero h1{font-size:24px;font-weight:800;color:#1e293b;line-height:1.3;margin:0 0 4px;}
+.osp-hero h1 span{color:#16a34a;}
+.osp-hero .osp-thanks{color:#64748b;font-size:14px;margin:0;}
+
+/* Email card */
+.osp-email-card{display:flex;align-items:center;gap:14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:14px 18px;margin-bottom:20px;max-width:640px;margin-left:auto;margin-right:auto;}
+.osp-email-icon{width:40px;height:40px;border-radius:10px;background:#ede9fe;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.osp-email-icon svg{width:20px;height:20px;stroke:#7c3aed;fill:none;stroke-width:1.5;}
+.osp-email-text{font-size:13px;color:#475569;line-height:1.4;}
+.osp-email-text a{color:#4f46e5;text-decoration:none;font-weight:600;}
+
+/* Action buttons */
+.osp-actions{display:flex;gap:10px;margin-bottom:28px;max-width:640px;margin-left:auto;margin-right:auto;}
+.osp-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:13px 16px;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;transition:.2s;text-decoration:none;border:none;font-family:inherit;}
+.osp-btn:active{transform:scale(0.97);}
+.osp-btn--print{background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;border:none;}
+.osp-btn--print:hover{background:linear-gradient(135deg,#4f46e5,#4338ca);}
+.osp-btn--pdf{background:#fff;color:#4f46e5;border:2px solid #c7d2fe;}
+.osp-btn--pdf:hover{background:#eef2ff;border-color:#a5b4fc;}
+.osp-btn--shop{background:#fff;color:#4f46e5;border:2px solid #c7d2fe;}
+.osp-btn--shop:hover{background:#eef2ff;border-color:#a5b4fc;}
+.osp-btn svg{width:18px;height:18px;flex-shrink:0;}
+
+/* Two-column layout */
+.osp-columns{display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start;}
+
+/* Order card (left) */
+.osp-left{}
+.osp-order{background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,0.04);}
+.osp-order-head{display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid #f1f5f9;}
+.osp-order-head-left{display:flex;align-items:center;gap:10px;}
+.osp-order-head-left svg{width:22px;height:22px;stroke:#6366f1;fill:none;stroke-width:1.5;}
+.osp-order-head-left strong{font-size:16px;font-weight:700;color:#1e293b;}
+.osp-order-head-right{text-align:right;font-size:12px;color:#64748b;line-height:1.5;}
+.osp-order-head-right strong{color:#1e293b;font-weight:600;}
+
+/* Item */
+.osp-item{padding:18px;border-bottom:1px solid #f1f5f9;}
+.osp-item:last-of-type{border-bottom:none;}
+.osp-item-top{display:flex;gap:14px;margin-bottom:14px;}
+.osp-item-img{width:110px;height:110px;border-radius:12px;border:1px solid #e2e8f0;background:#f8fafc;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;}
+.osp-item-img img{width:100%;height:100%;object-fit:contain;}
+.osp-item-info{flex:1;min-width:0;}
+.osp-item-badge{display:inline-block;background:#eef2ff;color:#4f46e5;font-size:11px;font-weight:700;padding:3px 10px;border-radius:6px;margin-bottom:8px;}
+.osp-item-name{font-size:16px;font-weight:700;color:#4f46e5;text-decoration:none;display:block;margin-bottom:4px;}
+.osp-item-code{font-size:12px;color:#94a3b8;margin-bottom:0;}
+
+/* Prescription cards */
+.osp-rx{margin-bottom:12px;}
+.osp-eye{border-radius:12px;padding:14px 16px;margin-bottom:10px;}
+.osp-eye--right{border:1.5px solid #bfdbfe;background:#f0f9ff;}
+.osp-eye--left{border:1.5px solid #fecdd3;background:#fff1f2;}
+.osp-eye-header{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+.osp-eye-header svg{width:20px;height:20px;flex-shrink:0;}
+.osp-eye-header span{font-size:13px;font-weight:700;letter-spacing:0.5px;}
+.osp-eye--right .osp-eye-header span{color:#2563eb;}
+.osp-eye--left .osp-eye-header span{color:#e11d48;}
+.osp-eye-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;}
+.osp-eye-row{display:flex;align-items:center;gap:8px;}
+.osp-eye-label{font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;width:36px;}
+.osp-eye-val{font-size:15px;font-weight:700;color:#1e293b;}
+
+/* Non-Rx / Complimentary badge */
+.osp-lens-badge{display:flex;align-items:center;gap:8px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:10px 14px;margin-bottom:12px;}
+.osp-lens-badge svg{width:18px;height:18px;stroke:#16a34a;fill:none;stroke-width:2;flex-shrink:0;}
+.osp-lens-badge span{font-size:13px;font-weight:600;color:#15803d;font-style:italic;}
+
+/* Addons */
+.osp-addons{margin-bottom:12px;font-size:13px;}
+.osp-addons strong{color:#1e293b;}
+.osp-addon-tag{display:inline-block;padding:3px 10px;border-radius:6px;font-size:12px;font-weight:600;margin:2px 4px 2px 0;}
+.osp-addon-tag--1{background:#ede9fe;color:#6d28d9;}
+.osp-addon-tag--2{background:#fef3c7;color:#92400e;}
+.osp-addon-tag--3{background:#dbeafe;color:#1d4ed8;}
+
+/* Qty + Total row */
+.osp-item-footer{display:flex;justify-content:space-between;align-items:center;padding-top:12px;border-top:1px solid #f1f5f9;}
+.osp-item-footer div{font-size:13px;color:#64748b;}
+.osp-item-footer div strong{display:block;font-size:18px;color:#1e293b;}
+.osp-item-footer .osp-total strong{color:#16a34a;}
+
+/* Grand total */
+.osp-grand{display:flex;justify-content:space-between;align-items:center;background:linear-gradient(135deg,#f0fdf4,#ecfdf5);border:1.5px solid #86efac;border-radius:14px;padding:18px 20px;margin-bottom:24px;}
+.osp-grand-label{font-size:15px;font-weight:700;color:#166534;}
+.osp-grand-val{font-size:22px;font-weight:800;color:#16a34a;}
+
+/* ===== Right sidebar cards ===== */
+.osp-right{display:flex;flex-direction:column;gap:14px;}
+
+.osp-sidebar-card{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:18px 20px;box-shadow:0 1px 3px rgba(0,0,0,0.04);}
+.osp-sidebar-card-header{display:flex;align-items:center;gap:10px;margin-bottom:14px;}
+.osp-sidebar-card-header svg{width:22px;height:22px;flex-shrink:0;}
+.osp-sidebar-card-header strong{font-size:15px;font-weight:700;color:#1e293b;}
+
+/* Delivery Details */
+.osp-delivery-name{font-size:14px;font-weight:600;color:#1e293b;margin-bottom:4px;}
+.osp-delivery-line{font-size:13px;color:#475569;line-height:1.6;margin:0;}
+
+/* Expected Shipping */
+.osp-ship-row{display:flex;align-items:center;gap:12px;}
+.osp-ship-icon{width:40px;height:40px;border-radius:10px;background:#f0fdf4;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.osp-ship-icon svg{width:20px;height:20px;stroke:#16a34a;fill:none;stroke-width:1.5;}
+.osp-ship-date{font-size:14px;font-weight:700;color:#16a34a;}
+.osp-ship-note{font-size:11px;color:#94a3b8;margin-top:2px;}
+
+/* Invoice */
+.osp-invoice-row{display:flex;align-items:center;gap:12px;}
+.osp-invoice-icon{width:40px;height:40px;border-radius:10px;background:#f8fafc;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.osp-invoice-icon svg{width:20px;height:20px;stroke:#64748b;fill:none;stroke-width:1.5;}
+.osp-invoice-text{font-size:13px;color:#475569;line-height:1.5;}
+
+/* Link cards (My Account / Need Help) */
+.osp-link-card{display:flex;align-items:center;justify-content:space-between;background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:16px 18px;text-decoration:none;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,0.04);}
+.osp-link-card:hover{border-color:var(--ow-primary,#4f46e5);box-shadow:0 2px 8px rgba(79,70,229,0.1);}
+.osp-link-left{display:flex;align-items:center;gap:12px;}
+.osp-link-icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.osp-link-icon svg{width:20px;height:20px;stroke-width:1.5;fill:none;}
+.osp-link-icon--account{background:#eef2ff;}
+.osp-link-icon--account svg{stroke:#4f46e5;}
+.osp-link-icon--help{background:#ecfdf5;}
+.osp-link-icon--help svg{stroke:#16a34a;}
+.osp-link-text strong{display:block;font-size:14px;color:#4f46e5;font-weight:600;}
+.osp-link-text span{font-size:12px;color:#64748b;}
+.osp-link-arrow{width:20px;height:20px;stroke:#94a3b8;fill:none;stroke-width:2;}
+
+/* Safe badge */
+.osp-safe{text-align:center;margin-top:24px;padding:12px 0;font-size:13px;color:#94a3b8;display:flex;align-items:center;justify-content:center;gap:8px;}
+.osp-safe svg{width:16px;height:16px;stroke:#94a3b8;fill:none;stroke-width:1.5;}
+
+/* Print styles */
+@media print{
+  .osp-actions,.osp-link-card,.osp-safe,header,footer,nav,.lens-types-bar{display:none!important;}
+  .osp{max-width:100%;padding:0;}
+  .osp-order{box-shadow:none;border:1px solid #ccc;}
+  .osp-columns{grid-template-columns:1fr 300px;}
+}
+
+/* Responsive: stack on mobile */
+@media(max-width:768px){
+  .osp-columns{grid-template-columns:1fr;gap:16px;}
+  .osp-actions{flex-wrap:wrap;}
+  .osp-btn{min-width:calc(50% - 8px);}
+  .osp-item-top{flex-direction:column;align-items:center;}
+  .osp-item-img{width:140px;height:100px;}
+}
+@media(max-width:480px){
+  .osp-actions{flex-direction:column;}
+  .osp-btn{min-width:100%;}
+}
+</style>
+
+<div class="osp">
+{% if order_details %}
+  <!-- Hero -->
+  <div class="osp-hero">
+    <div class="osp-check">
+      <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/><path d="M8 12.5l2.5 2.5 5-5" stroke="#16a34a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <svg class="osp-sparkle osp-sparkle--tl" viewBox="0 0 24 24"><path d="M12 0l2.35 8.65L24 12l-9.65 2.35L12 24l-2.35-9.65L0 12l9.65-2.35z" fill="#a78bfa"/></svg>
+      <svg class="osp-sparkle osp-sparkle--tr" viewBox="0 0 24 24"><path d="M12 0l2.35 8.65L24 12l-9.65 2.35L12 24l-2.35-9.65L0 12l9.65-2.35z" fill="#c4b5fd"/></svg>
+      <svg class="osp-sparkle osp-sparkle--bl" viewBox="0 0 24 24"><path d="M12 0l2.35 8.65L24 12l-9.65 2.35L12 24l-2.35-9.65L0 12l9.65-2.35z" fill="#ddd6fe"/></svg>
+    </div>
+    <h1>Your order <span>{{ order_details[0]['order_id'] }}</span><br>is a success!</h1>
+    <p class="osp-thanks">Thank you for shopping with us.</p>
+  </div>
+
+  <!-- Email notification -->
+  <div class="osp-email-card">
+    <div class="osp-email-icon">
+      <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="M22 7l-10 6L2 7"/></svg>
+    </div>
+    <div class="osp-email-text">
+      Summary of your items is below.<br>
+      An email has been sent to <a href="mailto:{{ order_details[0]['delivery_email'] or order_details[0]['customer_email'] }}">{{ order_details[0]['delivery_email'] or order_details[0]['customer_email'] }}</a>
+    </div>
+  </div>
+
+  <!-- Action buttons -->
+  <div class="osp-actions">
+    <button class="osp-btn osp-btn--print" onclick="window.print()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7"/><rect x="4" y="9" width="16" height="9" rx="2"/><path d="M6 18v4h12v-4"/></svg>
+      Take a print
+    </button>
+    <button class="osp-btn osp-btn--pdf" onclick="window.print()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15V3m0 12l-4-4m4 4l4-4"/><path d="M2 17l.62 2.48A2 2 0 004.56 21h14.88a2 2 0 001.94-1.52L22 17"/></svg>
+      Save PDF
+    </button>
+    <a class="osp-btn osp-btn--shop" href="/">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>
+      Continue Shopping
+    </a>
+  </div>
+
+  <!-- Two-column layout -->
+  <div class="osp-columns">
+    <!-- LEFT: Order Summary -->
+    <div class="osp-left">
+      <div class="osp-order">
+        <div class="osp-order-head">
+          <div class="osp-order-head-left">
+            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 7h8M8 11h5M8 15h8"/></svg>
+            <strong>Order Summary</strong>
+          </div>
+          <div class="osp-order-head-right">
+            <strong>Order ID: {{ order_details[0]['order_id'] }}</strong><br>
+            {% if order_details[0]['date_created'] %}
+            Placed on: {{ order_details[0]['date_created'].strftime('%b %d, %Y') }}
+            {% endif %}
+          </div>
+        </div>
+
+        {% for product in order_details %}
+        <div class="osp-item">
+          <!-- Image + Name row -->
+          <div class="osp-item-top">
+            <div class="osp-item-img">
+              {% if product['product_image'] %}
+                {% set image_paths = product['product_image'].split(',') %}
+                <img src="{{ url_for('static', filename=image_paths[0].strip()) }}" alt="{{ product['product_name'] }}">
+              {% else %}
+                <span style="color:#94a3b8;font-size:12px;">No image</span>
+              {% endif %}
+            </div>
+            <div class="osp-item-info">
+              <span class="osp-item-badge">Item no. {{ loop.index }}</span>
+              <span class="osp-item-name">{{ product['product_name'] }}</span>
+              {% if product['product_code'] and product['product_code'] != 'None' and product['product_code'] != '0' %}
+              <p class="osp-item-code">Code: {{ product['product_code'] }}</p>
+              {% endif %}
+            </div>
+          </div>
+
+          {% if product['product_category'] == 'Spectacles Frame' %}
+            {% set has_rx = product['right_eye'] and product['right_eye'] != 'No RX selected' and product['right_eye'] != 'NULL' and '/' in (product['right_eye']|string) %}
+
+            {% if has_rx %}
+              {% set r_parts = product['right_eye'].split('/') %}
+              {% set l_parts = product['left_eye'].split('/') if product['left_eye'] and '/' in (product['left_eye']|string) else ['—','—','—','—'] %}
+              <div class="osp-rx">
+                <div class="osp-eye osp-eye--right">
+                  <div class="osp-eye-header">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/></svg>
+                    <span>RIGHT EYE (OD)</span>
+                  </div>
+                  <div class="osp-eye-grid">
+                    <div class="osp-eye-row"><span class="osp-eye-label">SPH</span><span class="osp-eye-val">{{ r_parts[0]|default('—') }}</span></div>
+                    <div class="osp-eye-row"><span class="osp-eye-label">CYL</span><span class="osp-eye-val">{{ r_parts[1]|default('—') }}</span></div>
+                    <div class="osp-eye-row"><span class="osp-eye-label">AXIS</span><span class="osp-eye-val">{{ r_parts[2]|default('—') }}{% if r_parts[2] and r_parts[2] != '—' %}&deg;{% endif %}</span></div>
+                    <div class="osp-eye-row"><span class="osp-eye-label">ADD</span><span class="osp-eye-val">{{ r_parts[3]|default('—') }}</span></div>
+                  </div>
+                </div>
+                <div class="osp-eye osp-eye--left">
+                  <div class="osp-eye-header">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#e11d48" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/></svg>
+                    <span>LEFT EYE (OS)</span>
+                  </div>
+                  <div class="osp-eye-grid">
+                    <div class="osp-eye-row"><span class="osp-eye-label">SPH</span><span class="osp-eye-val">{{ l_parts[0]|default('—') }}</span></div>
+                    <div class="osp-eye-row"><span class="osp-eye-label">CYL</span><span class="osp-eye-val">{{ l_parts[1]|default('—') }}</span></div>
+                    <div class="osp-eye-row"><span class="osp-eye-label">AXIS</span><span class="osp-eye-val">{{ l_parts[2]|default('—') }}{% if l_parts[2] and l_parts[2] != '—' %}&deg;{% endif %}</span></div>
+                    <div class="osp-eye-row"><span class="osp-eye-label">ADD</span><span class="osp-eye-val">{{ l_parts[3]|default('—') }}</span></div>
+                  </div>
+                </div>
+              </div>
+            {% endif %}
+
+            {% set has_addon_1 = product['addon_1_name'] %}
+            {% set has_addon_2 = product['addon_2_name'] %}
+            {% set has_addon_3 = product['addon_3_name'] %}
+            {% if has_addon_1 or has_addon_2 or has_addon_3 %}
+              <div class="osp-addons">
+                <strong>Addons: </strong>
+                {% if has_addon_3 %}<span class="osp-addon-tag osp-addon-tag--3">{{ product['addon_3_name'] }}</span>{% endif %}
+                {% if has_addon_1 %}<span class="osp-addon-tag osp-addon-tag--1">{{ product['addon_1_name'] }}</span>{% endif %}
+                {% if has_addon_2 %}<span class="osp-addon-tag osp-addon-tag--2">{{ product['addon_2_name'] }}</span>{% endif %}
+              </div>
+            {% endif %}
+
+            <div class="osp-lens-badge">
+              <svg viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+              <span>
+                {% if has_rx %}
+                  {% if product['recommendations'] %}{{ product['recommendations'] }}{% else %}Prescription Lenses to be fitted{% endif %}
+                {% else %}
+                  Complimentary Anti-Glare Plano Lens to be fitted
+                {% endif %}
+              </span>
+            </div>
+
+          {% elif product['product_category'] == 'Contact Lenses' %}
+            {% set right_vals = product['right_eye'].split('/') if product['right_eye'] and '/' in (product['right_eye']|string) else [] %}
+            {% set left_vals = product['left_eye'].split('/') if product['left_eye'] and '/' in (product['left_eye']|string) else [] %}
+            {% if right_vals %}
+            <div class="osp-rx">
+              <div class="osp-eye osp-eye--right">
+                <div class="osp-eye-header">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/></svg>
+                  <span>RIGHT EYE (OD)</span>
+                </div>
+                <div class="osp-eye-grid">
+                  <div class="osp-eye-row"><span class="osp-eye-label">PWR</span><span class="osp-eye-val">{{ right_vals[0]|default('—') }}</span></div>
+                  <div class="osp-eye-row"><span class="osp-eye-label">COLOR</span><span class="osp-eye-val">{{ right_vals[3]|default('—') }}</span></div>
+                  <div class="osp-eye-row"><span class="osp-eye-label">QTY</span><span class="osp-eye-val">{{ right_vals[2]|default('—') }} boxes</span></div>
+                </div>
+              </div>
+              {% if left_vals %}
+              <div class="osp-eye osp-eye--left">
+                <div class="osp-eye-header">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="#e11d48" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/></svg>
+                  <span>LEFT EYE (OS)</span>
+                </div>
+                <div class="osp-eye-grid">
+                  <div class="osp-eye-row"><span class="osp-eye-label">PWR</span><span class="osp-eye-val">{{ left_vals[0]|default('—') }}</span></div>
+                  <div class="osp-eye-row"><span class="osp-eye-label">COLOR</span><span class="osp-eye-val">{{ left_vals[3]|default('—') }}</span></div>
+                  <div class="osp-eye-row"><span class="osp-eye-label">QTY</span><span class="osp-eye-val">{{ left_vals[2]|default('—') }} boxes</span></div>
+                </div>
+              </div>
+              {% endif %}
+            </div>
+            {% endif %}
+          {% endif %}
+
+          <!-- Quantity + Total -->
+          <div class="osp-item-footer">
+            <div>Quantity<br><strong>{{ product['order_quantity'] }}</strong></div>
+            <div class="osp-total">Total<br><strong>{% if is_india %}&#8377;{% else %}&euro;{% endif %} {{ product['order_total'] }}</strong></div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+
+      <!-- Grand Total -->
+      <div class="osp-grand">
+        <span class="osp-grand-label">Grand Total you Paid:</span>
+        <span class="osp-grand-val">{% if is_india %}&#8377;{% else %}&euro;{% endif %} {{ grand_total }}</span>
+      </div>
+    </div>
+
+    <!-- RIGHT: Sidebar cards -->
+    <div class="osp-right">
+      <!-- Delivery Details -->
+      <div class="osp-sidebar-card">
+        <div class="osp-sidebar-card-header">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="1.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          <strong>Delivery Details</strong>
+        </div>
+        {% if order_details[0]['customer_name'] %}
+        <p class="osp-delivery-name">{{ order_details[0]['customer_name'] }}</p>
+        {% endif %}
+        {% if order_details[0]['address'] %}
+        <p class="osp-delivery-line">{{ order_details[0]['address'] }}</p>
+        {% endif %}
+        {% if order_details[0]['address2'] %}
+        <p class="osp-delivery-line">{{ order_details[0]['address2'] }}</p>
+        {% endif %}
+        <p class="osp-delivery-line">
+          {% if order_details[0]['state'] %}{{ order_details[0]['state'] }}{% endif %}
+          {% if order_details[0]['zipcode'] %} {{ order_details[0]['zipcode'] }}{% endif %}
+          {% if order_details[0]['country'] %}, {{ order_details[0]['country'] }}{% endif %}
+        </p>
+        {% if order_details[0]['delivery_phone'] or order_details[0]['customer_phone'] %}
+        <p class="osp-delivery-line">Phone: {{ order_details[0]['delivery_phone'] or order_details[0]['customer_phone'] }}</p>
+        {% endif %}
+        {% if order_details[0]['delivery_email'] or order_details[0]['customer_email'] %}
+        <p class="osp-delivery-line">Email: {{ order_details[0]['delivery_email'] or order_details[0]['customer_email'] }}</p>
+        {% endif %}
+      </div>
+
+      <!-- Expected Shipping Date -->
+      <div class="osp-sidebar-card">
+        <div class="osp-sidebar-card-header">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="1.5"><rect x="1" y="4" width="22" height="18" rx="3"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+          <strong>Expected Shipping Date</strong>
+        </div>
+        <div class="osp-ship-row">
+          <div class="osp-ship-icon">
+            <svg viewBox="0 0 24 24"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+          </div>
+          <div>
+            <div class="osp-ship-date">{{ ship_date }}</div>
+            <div class="osp-ship-note">We'll notify you once your order is shipped.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Invoice Information -->
+      <div class="osp-sidebar-card">
+        <div class="osp-sidebar-card-header">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          <strong>Invoice Information</strong>
+        </div>
+        <div class="osp-invoice-row">
+          <div class="osp-invoice-icon">
+            <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          </div>
+          <div class="osp-invoice-text">Invoice will be provided<br>at the time of shipping.</div>
+        </div>
+      </div>
+
+      <!-- My Account -->
+      <a class="osp-link-card" href="/profile">
+        <div class="osp-link-left">
+          <div class="osp-link-icon osp-link-icon--account">
+            <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          </div>
+          <div class="osp-link-text">
+            <strong>My Account</strong>
+            <span>View your orders, profile &amp; more</span>
+          </div>
+        </div>
+        <svg class="osp-link-arrow" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+      </a>
+
+      <!-- Need Help? -->
+      <a class="osp-link-card" href="javascript:void(0)" onclick="document.querySelector('.osp-help-contact').classList.toggle('osp-help-visible')">
+        <div class="osp-link-left">
+          <div class="osp-link-icon osp-link-icon--help">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          </div>
+          <div class="osp-link-text">
+            <strong style="color:#16a34a;">Need Help?</strong>
+            <span>Contact our customer care</span>
+          </div>
+        </div>
+        <svg class="osp-link-arrow" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+      </a>
+    </div>
+  </div>
+
+  <!-- Safe footer -->
+  <div class="osp-safe">
+    <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+    Safe. Secure. Encrypted.
+  </div>
+
+{% else %}
+  <div class="osp-hero">
+    <h1>No order found</h1>
+    <p class="osp-thanks">We couldn't find any order details to display.</p>
+  </div>
+{% endif %}
+</div>
+
+{% endblock %}

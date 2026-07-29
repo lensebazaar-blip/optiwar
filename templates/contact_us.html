@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+{% block title %} Contact us - Optiwar {% endblock %}
+{% block meta %}
+    <!-- Unique Meta Tags for Privacy Policy Page -->
+    <meta name="description" content="Contact OPTIWAR team via email support for things like your order, changes, cancellations or simply query about a new product">
+    <meta name="keywords" content=" Optiwar Contact_Us ">
+    <meta name="author" content="OPTIWAR">
+    <meta property="og:title" content="Contact Us - OPTIWAR">
+    <meta property="og:description" content="Optiwar will collect your email and try to manage a solution to your query.">
+    <meta property="og:url" content="{{ url_for('main.contact_us', _external=True) }}">
+{% endblock %}
+
+
+{% block content %}
+
+<script>
+	function prefillDescription() {
+		var subject = document.getElementById('subject').value;
+		var descriptionField = document.getElementById('description');
+
+		if (subject === "I want to order frames with lenses") {
+			descriptionField.value = "Hi, I want to order for spectacle frames with lenses, I am attaching my prescription here";
+		} else if (subject === "Requesting someone to call me before I order") {
+			descriptionField.value ="Hello, can someone call me before I place an order";
+		} else {
+			descriptionField.value = "";
+		}
+	}
+
+</script>
+{% if not ticket_id %}
+<div class="contact-us-container">
+<form action="{{ url_for('crm.create_ticket') }}" method="POST">
+	<label for="name"> Name </label>
+	<input type="text" id="name" name="name" required > <br><br>
+
+        <label for="subject"> Subject of my query </label>
+	<select id="subject" name="subject" onchange="prefillDescription()" required>
+	<option value = ""> Select a subject </option>
+	<option value ="I want to order frames with lenses"> I want to order frames with lenses </option>
+	<option value ="Requesting someone to call me before I order"> Requesting someone to call me before I order </option>
+	<option value="Others" > Something else </option>
+	</select>
+
+	<label for="description" > Description </label>
+        <textarea id="description" name="description" rows="4" required> </textarea> <br><br>
+
+         <label for="phone"> Your Mobile phone </label>
+        <input type="phone" id="phone" name="phone" required>  <br><br>
+
+
+	<label for="email"> Your email address </label><br>
+	<input type="email" id="email" name="email" required> <br><br>
+
+	<!-- Form Defence -->
+	<div style="display: none;">	
+	<label for="captcha"> Verify you are human: </label><br>
+	<input type="text" id="captcha_input" name="captcha_input" value="" > 
+	</div>
+
+	<div> 
+		<label for ="captcha"> Enter the text: </label>
+		<img src="data:image/png;base64, {{ captcha_image }}">
+		<div style="font-size: 24px; font-weight: bold; padding: 10px;"> {{ captcha }} </div>
+		<input type="text" id="captcha" name="captcha" required>
+	</div>
+	
+	<button type="submit"> Create Support Ticket </button> 
+</form>
+</div>
+{% else %}
+<div>
+	<p> {{ message }} Support Ticket Number{{ ticket_id }} generated successfully </p> <br><br>
+	<p> For spam protection rules, we will not send you immediate reply of this support right now </p> <br>
+	<p> Our Support team will be responding to your request shortly.</p>
+</div>
+{% endif %}
+
+{% endblock %}

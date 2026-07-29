@@ -1,0 +1,182 @@
+{% extends 'base.html' %}
+{% block title %} Prescription for Contact lenses - Optiwar {% endblock %}
+{% block content %}
+<h1> Enter details for {{ product_name }} </h1>
+<form action="{{ url_for('main.add_to_cart_wcl') }}" method="post">
+    <input type="hidden" name="product_id" value="{{ product_id }}">
+    <input type="hidden" name="product_name" value="{{ product_name }}">
+    <input type="hidden" name="product_code" value="{{ product_code}}">
+    <input type="hidden" name="product_special_price" value="{{ product_special_price }}" id="basePrice" >
+    <input type="hidden" name="product_price" value="{{ product_price }}" >
+    <input type="hidden" name="product_category" value="{{ product_category }}">
+    <input type="hidden" name="order_quantity" value="{{ order_quantity }}">
+    <input type="hidden" name="total_price" id="totalPrice" value="0">
+    
+
+
+<!--    <input type="hidden" id="hiddenRightPwr" name="right_pwr" value=""> 
+    <input type="hidden" id="hiddenLeftPwr" name="left_pwr" value="">
+    <input type="hidden" id="hiddenRightCyl" name="right_cyl" value="">
+    <input type="hidden" id="hiddenRightAxis" name="right_axis" value="">
+    <input type="hidden" id="hiddenLeftCyl" name="left_cyl" value="">
+    <input type="hidden" id="hiddenLeftAxis" name="left_axis" value="">
+     <input type="hidden" id="hiddenRightAdd" name="right_add" value="">
+    <input type="hidden" id="hiddenLeftAdd" name="left_add" value="">
+    <input type="hidden" id="hiddencolor" name="color.name" value="">  -->
+
+<!--
+<div class="cl-section">
+   <h3> Right Eye </h3>
+   <label> Power </label>
+   <select name="right_pwr" id="right_pwr" required> 
+		<option value="">--Default 0.00-- </option>
+		{% for val in pwr_range %} 
+		<option value="{{ val }}"> {{ val }} </option>
+			     {% endfor %}
+   </select>
+<div>
+<div>
+
+<label> Enter Color </label>
+	{% if color_range %}
+	<select name="right_lens_color" id="right_lens_color" >
+	<option value="">--select--</option>
+	{% for color in color_range %}
+	<option value="{{ color.name }}" data-img="{{ color.img }}">{{ color.name }} </option>
+	{% endfor %}
+	</select>
+	<h3> See colors from below </h3>
+	{% for color in color_range %}
+	<div id="color_image_preview">  
+        <img id="color_image" src="{{ url_for('static', filename='catalog/' ~ color.img) }}" alt="{{ color.name}}" class="color-swatch">
+	{% endfor %}
+	{% endif %}
+</div>
+</div>
+<button type="submit"> Add my prescription </button>
+-->
+
+
+
+<div class="prescription-container">
+    <table class="prescription-table">
+        <thead>
+            <tr>
+                <th>PWR</th>
+                <th>Color</th>
+                <th>Qty</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td colspan="3" class="eye-label">RIGHT EYE</td>
+            </tr>
+            <tr>
+                <td>
+                    <select name="right_pwr" id="right_pwr" required>
+                        <option value="0.00" selected>0.00</option>
+                        {% for option in pwr_range %}
+                        <option value="{{ option }}">{{ option }}</option>
+                        {% endfor %}
+                    </select>
+                </td>
+                <td>
+                    <select name="right_lens_color" id="right_lens_color" required>
+                        {% for color in color_range %}
+                        <option value="{{ color.name }}" {% if color.name == 'Glitter Grey' %} selected  {% endif %}>{{ color.name }}</option>
+                        {% endfor %}
+                    </select>
+                </td>
+                <td>
+                    <select name="right_qty" id="right_qty" required>
+			<option value="2" selected>2 </option>
+	                {% for i in range(0, 101) %}
+                        <option value="{{ i }}">{{ i }}</option>
+                        {% endfor %}
+                    </select>
+                </td>
+            </tr>
+
+            <tr>
+                <td colspan="3" class="eye-label">LEFT EYE</td>
+            </tr>
+            <tr>
+                <td>
+                    <select name="left_pwr" id="left_pwr" required>
+                        <option value="0.00" selected>0.00</option>
+                        {% for option in pwr_range %}
+                        <option value="{{ option }}">{{ option }}</option>
+                        {% endfor %}
+                    </select>
+                </td>
+                <td>
+                    <select name="left_lens_color" id="left_lens_color" required>
+                        {% for color in color_range %}
+                        <option value="{{ color.name }}" {% if color.name == 'Glitter Grey' %} selected {% endif %}>{{ color.name }}</option>
+                        {% endfor %}
+                    </select>
+                </td>
+                <td>
+                    <select name="left_qty" id="left_qty" required>
+                        <option value="2" selected>2</option>
+                        {% for i in range(0, 101) %}
+                        <option value="{{ i }}">{{ i }}</option>
+                        {% endfor %}
+                    </select>
+                </td>
+            </tr>
+
+
+		<div class="color-section">
+		    <details>
+		        <summary>🎨 Tab to See Colors lens here</summary>
+		        {% if color_range %}
+		        <div class="color-grid">
+		            {% for color in color_range %}
+		            <div>
+		                <img src="{{ url_for('static', filename='catalog/' ~ color.img) }}" alt="{{ color.name }}" class="color-swatch">
+		                <div class="color-label">{{ color.name }}</div>
+		            </div>
+		            {% endfor %}
+		        </div>
+		        {% endif %}
+		    </details>
+		</div>
+
+
+        </tbody>
+    </table>
+</div>
+<button type="submit"> Add to Checkout now </button>
+</form>
+{% endblock %}
+
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    // Restore right lens color
+    const rightColor = localStorage.getItem('right_color_lens');
+    const rightColorSelect = document.getElementById('right_lens_color');
+    if (rightColor && rightColorSelect) {
+        rightColorSelect.value = rightColor;
+        console.log("Right lens color restored to:", rightColor);
+    }
+
+    // Restore left lens color
+    const leftColor = localStorage.getItem('left_color_lens');
+    const leftColorSelect = document.getElementById('left_lens_color');
+    if (leftColor && leftColorSelect) {
+        leftColorSelect.value = leftColor;
+        console.log("Left lens color restored to:", leftColor);
+    }
+
+    // OPTIONAL: If you want to auto-save when changed
+    rightColorSelect.addEventListener('change', function () {
+        localStorage.setItem('right_color_lens', this.value);
+    });
+
+    leftColorSelect.addEventListener('change', function () {
+        localStorage.setItem('left_color_lens', this.value);
+    });
+});
+</script>

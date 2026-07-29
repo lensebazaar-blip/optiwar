@@ -1,0 +1,76 @@
+{% extends 'base.html' %}
+{% block title %} Favorites - OPTIWAR {% endblock %}
+{% block content %}
+{% from '_picture.html' import product_picture %}
+<style>.scrolling-track picture{display:contents;}</style>
+<h2>  Your selections below  </h2>
+{% if products %}
+		<ul>
+		    {% for product in products %}
+		    {% set card_index = loop.index %}
+		    <li>
+			{% if product['product_image'] %}
+                        {% set image_paths = product['product_image'].split(',')  %}
+                        {% set card_alt = product.product_name ~ ' ' ~ (product.product_code or '') ~ ' ' ~ (product.product_category or '') %}
+                        <div class="scrolling-image-container">
+                        <div class="scrolling-track">
+                        {% for image in image_paths %}
+                        {{ product_picture(image.strip(), card_alt ~ ' — view ' ~ loop.index, cls='zoomable-image', width=400, height=400, sizes='(max-width:767px) 150px, (max-width:1023px) 220px, 300px', eager=(card_index == 1 and loop.first), priority=(card_index == 1 and loop.first), zoomable=true) }}
+                        {% endfor %}
+                        </div>
+                        </div>
+                        {% endif %}
+
+
+
+		        <h3> {{ product['product_name'] }}</h3>
+		        <span class="ow-card-facefit-badge" data-pid="{{ product['product_id'] }}">MATCHED</span>
+			{% if product.product_category == "Spectacles Frame" %}
+                        <span> <h5>Color: {{ product['product_color'] }} </h5>
+                        <span> <h5> Size: {{ product['product_size'] }} mm</h5> </span>
+                        <span> <h6 class="center-text">Face fit: {{ product['product_perception_value'] }} </h6>
+                        {% endif %}
+
+
+			<div class="heart" data-product-id="{{ product['product_id']	}}" onclick="toggleFavorite(this)">
+			  <svg class="heart-outline" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+			    <path d="M20.8 4.6a5.6 5.6 0 0 0-7.9 0L12 5.5l-.9-.9A5.6 5.6 0 0 0 3.2 12l8.8 8.8 8.8-8.8a5.6 5.6 0 0 0 0-7.9z"></path>
+  			 </svg>
+			 <svg class="heart-filled" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display: none;">
+                	<path d="M20.8 4.6a5.6 5.6 0 0 0-7.9 0L12 5.5l-.9-.9A5.6 5.6 0 0 0 3.2 12l8.8 8.8 8.8-8.8a5.6 5.6 0 0 0 0-7.9z"></path>
+            		</svg>
+
+			</div>
+
+		       <!--LOCK  <p> {{ product['product_details'] }}</p> -->
+		        <span style="text-decoration: line-through;"> <p> Market Price {% if is_india %}Rs {{ product['product_price'] }}{% else %}&euro;{{ product['product_price_eur'] }}{% endif %} </p> </span>
+			<span style="color: red;"> <p> Wholesale Price <b>{% if is_india %}Rs {{  product['product_special_price'] }}{% else %}&euro;{{ product['product_special_price_eur'] }}{% endif %} </b>  </p>
+		         <form action="{{ url_for('main.add_to_cart') }}" method="post">
+		            <input type="hidden" name="product_id" value="{{ product.product_id }}">
+		            <input type="hidden" name="product_name" value="{{ product.product_name }}">
+		            <input type="hidden" name="product_price" value="{% if is_india %}{{ product.product_price }}{% else %}{{ product.product_price_eur }}{% endif %}">
+			    <input type="hidden" name="product_special_price" value="{% if is_india %}{{ product.product_special_price }}{% else %}{{ product.product_special_price_eur }}{% endif %}">
+		            <input type="hidden" name="product_code" value="{{ product.product_code }}">
+		            <input type="hidden" name="product_category" value="{{ product.product_category }}">
+		            <button type="submit" > Buy Frame only  </button>
+		        </form>
+			
+		        <form action="{{ url_for('main.add_prescription') }}" method="post">
+		            <input type="hidden" name="product_id" value="{{ product.product_id }}">
+		            <input type="hidden" name="product_name" value="{{ product.product_name }}">
+		            <input type="hidden" name="product_price" value="{% if is_india %}{{ product.product_price }}{% else %}{{ product.product_price_eur }}{% endif %}">
+			    <input type="hidden" name="product_special_price" value="{% if is_india %}{{ product.product_special_price }}{% else %}{{ product.product_special_price_eur }}{% endif %}">
+		            <input type="hidden" name="product_code" value="{{ product.product_code }}">
+		            <input type="hidden" name="product_category" value="{{ product.product_category }}">
+
+		            <button type="submit" > Buy Frame with Special Made Lenses </button>
+		        </form>
+			
+		    </li>
+		    {% endfor %}
+		</ul>
+{% else %}
+ 	<h2>No Item to display - choose some products so we can save it for you </h2>
+{% endif %}
+{% endblock %}
+

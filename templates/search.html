@@ -1,0 +1,752 @@
+{% extends 'base.html' %}
+{% block title %} AI Assistant - OPTIWAR {% endblock %}
+{% block meta_description %}Optiwar AI Assistant — search products, upload prescriptions, get expert advice.{% endblock %}
+{% block meta_keywords %}optiwar search, AI eyewear assistant, prescription upload{% endblock %}
+
+{% block content %}
+<script>
+var owIsEur = {{ "true" if is_eur else "false" }};
+var owUserInfo = {{ user_info | tojson if user_info else 'null' }};
+var owChatTimeout = {{ chat_timeout_minutes }};
+</script>
+
+<div class="ow-srch">
+    <!-- Glass Header -->
+    <div class="ow-srch-head">
+        <div class="ow-srch-orb"></div>
+        <div class="ow-srch-orb ow-srch-orb2"></div>
+        <div class="ow-srch-head-inner">
+            <div class="ow-srch-logo-pulse">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            </div>
+            <div style="flex:1">
+                <h1 class="ow-srch-h1">Optiwar AI Assistant</h1>
+                <p class="ow-srch-sub">Search products, upload prescriptions, get expert advice</p>
+            </div>
+            <!-- Timer -->
+            <div id="chatTimer" class="ow-chat-timer" style="display:none;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                <span id="timerDisplay">10:00</span>
+            </div>
+        </div>
+        <!-- User info bar (shown when logged in) -->
+        <div id="userInfoBar" class="ow-user-bar" style="display:none;">
+            <span id="userName"></span>
+            <span id="userEmail"></span>
+            <span id="userPhone"></span>
+        </div>
+    </div>
+
+    <!-- Chat area -->
+    <div class="ow-srch-body" id="chatBody">
+        <div id="chatMessages">
+            <!-- Welcome state -->
+            <div class="ow-msg ow-msg-ai ow-anim-fadein">
+                <div class="ow-msg-ava"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>
+                <div class="ow-msg-glass ow-msg-glass-ai">
+                    <p>Hi! I'm your AI assistant. I can help you find frames, answer questions about lenses and policies, upload prescriptions, or connect you with our team.</p>
+                    <div class="ow-chips" id="defaultChips">
+                        <button class="ow-chip" onclick="doChat('Show me gold rimless frames')">&#10024; gold rimless frames</button>
+                        <button class="ow-chip" onclick="doChat('blue clubmaster')">&#128374; blue clubmaster</button>
+                        <button class="ow-chip" onclick="doChat('What lens types do you have?')">&#128083; lens types</button>
+                        <button class="ow-chip" onclick="doChat('round frame for kids')">&#128118; round frame for kids</button>
+                        <button class="ow-chip" onclick="doChat('What is your return policy?')">&#128230; return policy</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Login prompt (shown when not logged in and user tries to search) -->
+    <div id="loginPrompt" class="ow-login-prompt" style="display:none;">
+        <div class="ow-login-glass">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <h3>Please log in to continue</h3>
+            <p>Sign in to search products, upload prescriptions, and chat with our AI assistant.</p>
+            <a href="/auth/login?next=/search" class="ow-login-btn">Log In / Register</a>
+        </div>
+    </div>
+
+    <!-- Input bar -->
+    <div class="ow-srch-bar">
+        <form class="ow-srch-form" id="searchForm" onsubmit="return handleSubmit(event)">
+            <!-- Prescription upload button -->
+            <label for="rxUpload" class="ow-attach-btn" title="Upload Prescription">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+            </label>
+            <input type="file" id="rxUpload" accept=".png,.jpg,.jpeg,.pdf,.webp" style="display:none" onchange="handleRxUpload(this)">
+            <input type="text" id="searchInput" placeholder="Ask me anything about our products..." autocomplete="off">
+            <!-- Contact request button -->
+            <button type="button" class="ow-contact-btn" title="Request Callback" onclick="requestContact()">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z"/></svg>
+            </button>
+            <button type="submit" class="ow-srch-send" id="sendBtn">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            </button>
+        </form>
+    </div>
+</div>
+
+<style>
+/* ===== AI CHAT V3 — GLASSMORPHISM ===== */
+.ow-srch {
+    max-width: 880px;
+    margin: -24px auto 0;
+    display: flex;
+    flex-direction: column;
+    min-height: calc(100vh - 80px);
+    position: relative;
+}
+.ow-srch-head {
+    position: relative;
+    padding: 22px 20px 14px;
+    background: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(139,92,246,0.08));
+    border-radius: 18px 18px 0 0;
+    border: 1px solid rgba(99,102,241,0.15);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    overflow: hidden;
+}
+.ow-srch-orb {
+    position: absolute; width: 120px; height: 120px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(99,102,241,0.25), transparent 70%);
+    top: -30px; right: -20px;
+    animation: orbFloat 6s ease-in-out infinite;
+}
+.ow-srch-orb2 {
+    width: 80px; height: 80px;
+    background: radial-gradient(circle, rgba(139,92,246,0.2), transparent 70%);
+    top: auto; bottom: -20px; right: auto; left: 20px;
+    animation: orbFloat 8s ease-in-out infinite reverse;
+}
+@keyframes orbFloat {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(10px, -15px) scale(1.15); }
+}
+.ow-srch-head-inner {
+    display: flex; align-items: center; gap: 14px;
+    position: relative; z-index: 1;
+}
+.ow-srch-logo-pulse {
+    width: 48px; height: 48px; border-radius: 50%;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    display: flex; align-items: center; justify-content: center; color: #fff;
+    animation: logoPulse 2s ease-in-out infinite;
+    box-shadow: 0 4px 20px rgba(99,102,241,0.35);
+    flex-shrink: 0;
+}
+@keyframes logoPulse {
+    0%, 100% { box-shadow: 0 4px 20px rgba(99,102,241,0.35); }
+    50% { box-shadow: 0 4px 30px rgba(99,102,241,0.55), 0 0 60px rgba(99,102,241,0.15); }
+}
+.ow-srch-h1 { font-size: 20px; font-weight: 700; color: #1e293b; margin: 0; }
+.ow-srch-sub { font-size: 12px; color: #64748b; margin: 2px 0 0; }
+
+/* Timer */
+.ow-chat-timer {
+    display: flex; align-items: center; gap: 5px;
+    padding: 6px 12px; border-radius: 20px;
+    background: rgba(255,255,255,0.8); border: 1px solid rgba(99,102,241,0.15);
+    font-size: 13px; font-weight: 600; color: #6366f1;
+    backdrop-filter: blur(10px); flex-shrink: 0;
+}
+.ow-chat-timer.ow-timer-warn { color: #f59e0b; border-color: rgba(245,158,11,0.3); }
+.ow-chat-timer.ow-timer-danger { color: #ef4444; border-color: rgba(239,68,68,0.3); animation: timerBlink 1s infinite; }
+@keyframes timerBlink { 50% { opacity: 0.5; } }
+
+/* User info bar */
+.ow-user-bar {
+    display: flex; gap: 16px; flex-wrap: wrap;
+    margin-top: 10px; padding: 8px 14px;
+    background: rgba(255,255,255,0.5); border-radius: 10px;
+    font-size: 12px; color: #475569; position: relative; z-index: 1;
+}
+.ow-user-bar span { display: flex; align-items: center; gap: 4px; }
+
+/* Chat body */
+.ow-srch-body {
+    flex: 1; overflow-y: auto; padding: 18px 16px;
+    background: rgba(248,250,252,0.65);
+    border-left: 1px solid rgba(99,102,241,0.08);
+    border-right: 1px solid rgba(99,102,241,0.08);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    scroll-behavior: smooth;
+}
+
+/* Messages */
+.ow-msg { display: flex; gap: 8px; margin-bottom: 14px; }
+.ow-msg-user { justify-content: flex-end; }
+.ow-msg-ava {
+    width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    display: flex; align-items: center; justify-content: center; color: #fff;
+}
+.ow-msg-glass {
+    max-width: 80%; padding: 14px 18px; border-radius: 16px;
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    font-size: 14px; line-height: 1.55;
+}
+.ow-msg-glass p { margin: 0 0 6px; }
+.ow-msg-glass p:last-child { margin-bottom: 0; }
+.ow-msg-glass-ai {
+    background: rgba(255,255,255,0.75);
+    border: 1px solid rgba(99,102,241,0.1);
+    color: #1e293b;
+}
+.ow-msg-glass-user {
+    background: linear-gradient(135deg, rgba(99,102,241,0.9), rgba(139,92,246,0.9));
+    color: #fff; border: none;
+}
+.ow-anim-fadein { animation: fadeIn 0.4s ease-out; }
+.ow-anim-slideup { animation: slideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+
+/* System messages */
+.ow-msg-system .ow-msg-glass {
+    background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.2);
+    color: #92400e; font-size: 13px; max-width: 90%;
+}
+.ow-msg-system { justify-content: center; }
+
+/* Typing indicator */
+.ow-typing { display: flex; gap: 4px; padding: 8px 0; }
+.ow-typing span {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #6366f1; animation: typing 1.4s infinite;
+}
+.ow-typing span:nth-child(2) { animation-delay: 0.2s; }
+.ow-typing span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes typing { 0%, 60%, 100% { transform: translateY(0); opacity: 0.4; } 30% { transform: translateY(-6px); opacity: 1; } }
+
+/* Chips */
+.ow-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.ow-chip {
+    padding: 7px 14px; border-radius: 20px; border: 1px solid rgba(99,102,241,0.2);
+    background: rgba(255,255,255,0.7); color: #4338ca; font-size: 12px; font-weight: 500;
+    cursor: pointer; transition: all 0.2s; backdrop-filter: blur(8px);
+}
+.ow-chip:hover { background: rgba(99,102,241,0.1); border-color: #6366f1; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(99,102,241,0.15); }
+
+/* Product grid */
+.ow-srch-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 14px; width: 100%; margin-top: 12px;
+}
+.ow-pcard {
+    background: rgba(255,255,255,0.75); backdrop-filter: blur(10px);
+    border: 1px solid rgba(99,102,241,0.1); border-radius: 14px; overflow: hidden;
+    transition: all 0.3s; position: relative;
+}
+.ow-pcard:hover { transform: translateY(-3px); box-shadow: 0 8px 25px rgba(99,102,241,0.12); }
+.ow-pcard-img { height: 150px; display: flex; align-items: center; justify-content: center; background: rgba(248,250,252,0.5); position: relative; }
+.ow-pcard-img img { max-width: 100%; max-height: 100%; object-fit: contain; padding: 8px; transition: transform 0.4s ease; }
+.ow-pcard:hover .ow-pcard-img img { transform: scale(1.08); }
+.ow-pcard-info { padding: 12px 14px 8px; }
+.ow-pcard-name { font-size: 13px; font-weight: 600; color: #1e293b; margin: 0 0 5px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ow-pcard-cat { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 6px; background: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.1)); color: #6366f1; }
+.ow-pcard-meta { display: block; font-size: 11px; color: #64748b; margin-top: 3px; }
+.ow-pcard-bottom { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; border-top: 1px solid rgba(99,102,241,0.06); }
+.ow-pcard-mrp { font-size: 11px; color: #94a3b8; text-decoration: line-through; }
+.ow-pcard-sp { font-size: 15px; font-weight: 700; background: linear-gradient(135deg, #1e293b, #334155); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.ow-pcard-stock { font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 10px; }
+.ow-stock-in { background: rgba(22,163,106,0.1); color: #16a34a; }
+.ow-pcard-actions { padding: 0 14px 12px; }
+.ow-pcard-btn { width: 100%; padding: 9px 14px; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; border: none; border-radius: 10px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+.ow-pcard-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(99,102,241,0.35); }
+
+/* Login prompt overlay */
+.ow-login-prompt {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(248,250,252,0.92); backdrop-filter: blur(8px);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100; border-radius: 18px;
+}
+.ow-login-glass {
+    text-align: center; padding: 40px; max-width: 360px;
+    background: rgba(255,255,255,0.9); border-radius: 20px;
+    border: 1px solid rgba(99,102,241,0.15); box-shadow: 0 8px 30px rgba(99,102,241,0.1);
+}
+.ow-login-glass h3 { margin: 16px 0 8px; color: #1e293b; font-size: 18px; }
+.ow-login-glass p { color: #64748b; font-size: 13px; margin: 0 0 20px; }
+.ow-login-btn {
+    display: inline-block; padding: 12px 32px; border-radius: 12px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff;
+    font-weight: 600; text-decoration: none; font-size: 14px;
+    transition: all 0.3s;
+}
+.ow-login-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(99,102,241,0.4); }
+
+/* Attach & contact buttons */
+.ow-attach-btn, .ow-contact-btn {
+    width: 36px; height: 36px; border-radius: 50%; border: none;
+    background: rgba(99,102,241,0.08); color: #6366f1;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all 0.2s; flex-shrink: 0;
+}
+.ow-attach-btn:hover, .ow-contact-btn:hover { background: rgba(99,102,241,0.15); transform: scale(1.08); }
+
+/* Input bar */
+.ow-srch-bar {
+    padding: 14px 16px; background: rgba(255,255,255,0.85);
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border-top: 1px solid rgba(99,102,241,0.1);
+    border-radius: 0 0 18px 18px;
+    border-left: 1px solid rgba(99,102,241,0.08);
+    border-right: 1px solid rgba(99,102,241,0.08);
+    border-bottom: 1px solid rgba(99,102,241,0.08);
+    position: sticky; bottom: 0;
+}
+.ow-srch-form {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(248,250,252,0.8); border: 1.5px solid rgba(99,102,241,0.15);
+    border-radius: 28px; padding: 4px 6px 4px 10px;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); backdrop-filter: blur(8px);
+}
+.ow-srch-form:focus-within { border-color: #6366f1; box-shadow: 0 0 0 4px rgba(99,102,241,0.08), 0 4px 20px rgba(99,102,241,0.1); background: rgba(255,255,255,0.95); }
+.ow-srch-form input[type="text"] { flex: 1; border: none; background: none; font-size: 14px; color: #1e293b; padding: 10px 0; outline: none; font-family: inherit; min-width: 0; }
+.ow-srch-form input::placeholder { color: #94a3b8; }
+.ow-srch-send {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    border: none; color: #fff; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); flex-shrink: 0;
+}
+.ow-srch-send:hover { transform: scale(1.08); box-shadow: 0 4px 16px rgba(99,102,241,0.4); }
+.ow-srch-send:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.ow-srch-send.ow-sending { animation: sendSpin 1s linear infinite; }
+@keyframes sendSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* Prescription result */
+.ow-rx-result { background: rgba(22,163,106,0.05); border: 1px solid rgba(22,163,106,0.2); border-radius: 12px; padding: 14px; margin-top: 8px; }
+.ow-rx-result h4 { margin: 0 0 8px; color: #16a34a; font-size: 14px; }
+.ow-rx-table { width: 100%; font-size: 12px; border-collapse: collapse; }
+.ow-rx-table th, .ow-rx-table td { padding: 4px 8px; text-align: center; border: 1px solid rgba(0,0,0,0.06); }
+.ow-rx-table th { background: rgba(99,102,241,0.05); color: #6366f1; font-weight: 600; }
+
+/* Responsive */
+@media (max-width: 768px) {
+    .ow-srch { margin: -16px auto 0; }
+    .ow-srch-head { border-radius: 0; padding: 16px; }
+    .ow-srch-bar { border-radius: 0; }
+    .ow-srch-body { border: none; }
+    .ow-srch-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .ow-pcard-img { height: 120px; }
+    .ow-pcard-name { font-size: 12px; }
+    .ow-pcard-sp { font-size: 13px; }
+    .ow-msg-glass { max-width: 95%; padding: 12px 14px; }
+    .ow-srch-h1 { font-size: 17px; }
+    .ow-user-bar { gap: 8px; font-size: 11px; }
+}
+@media (max-width: 400px) { .ow-srch-grid { grid-template-columns: 1fr; } }
+</style>
+
+<script>
+const chatMessages = document.getElementById('chatMessages');
+const chatBody = document.getElementById('chatBody');
+const searchInput = document.getElementById('searchInput');
+const sendBtn = document.getElementById('sendBtn');
+const loginPrompt = document.getElementById('loginPrompt');
+const timerEl = document.getElementById('chatTimer');
+const timerDisplay = document.getElementById('timerDisplay');
+const userInfoBar = document.getElementById('userInfoBar');
+
+let chatStarted = false;
+let timerInterval = null;
+let remainingSeconds = owChatTimeout * 60;
+
+// Show user info if logged in
+if (owUserInfo) {
+    userInfoBar.style.display = 'flex';
+    document.getElementById('userName').innerHTML = '&#128100; ' + escHtml(owUserInfo.name || '');
+    document.getElementById('userEmail').innerHTML = '&#9993; ' + escHtml(owUserInfo.email || '');
+    document.getElementById('userPhone').innerHTML = '&#128222; ' + escHtml(owUserInfo.phone || '');
+}
+
+function escHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+}
+
+function scrollToBottom() {
+    setTimeout(() => { chatBody.scrollTop = chatBody.scrollHeight; }, 100);
+}
+
+function addUserMsg(text) {
+    const div = document.createElement('div');
+    div.className = 'ow-msg ow-msg-user ow-anim-slideup';
+    div.innerHTML = '<div class="ow-msg-glass ow-msg-glass-user"><p>' + escHtml(text) + '</p></div>';
+    chatMessages.appendChild(div);
+    scrollToBottom();
+}
+
+function addAiResponse(html) {
+    const div = document.createElement('div');
+    div.className = 'ow-msg ow-msg-ai ow-anim-fadein';
+    div.innerHTML = '<div class="ow-msg-ava"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div><div class="ow-msg-glass ow-msg-glass-ai">' + html + '</div>';
+    chatMessages.appendChild(div);
+    scrollToBottom();
+}
+
+function addSystemMsg(text) {
+    const div = document.createElement('div');
+    div.className = 'ow-msg ow-msg-system ow-anim-fadein';
+    div.innerHTML = '<div class="ow-msg-glass"><p>' + text + '</p></div>';
+    chatMessages.appendChild(div);
+    scrollToBottom();
+}
+
+function addTypingIndicator() {
+    const div = document.createElement('div');
+    div.className = 'ow-msg ow-msg-ai';
+    div.id = 'typingIndicator';
+    div.innerHTML = '<div class="ow-msg-ava"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div><div class="ow-msg-glass ow-msg-glass-ai"><div class="ow-typing"><span></span><span></span><span></span></div></div>';
+    chatMessages.appendChild(div);
+    scrollToBottom();
+}
+
+function removeTyping() {
+    const el = document.getElementById('typingIndicator');
+    if (el) el.remove();
+}
+
+function buildProductCard(p, idx) {
+    idx = idx || 0;
+    // .ow-pcard-img caps height at 150px (120 mobile); square art is height-bound
+    // so rendered width is ~150px desktop / ~120px mobile.
+    var owImgHtml;
+    // Eager only for the measured above-fold first row; no fetchpriority
+    // (single high-priority LCP candidate reserved for the PDP hero surface).
+    var owEager = idx < 3;
+    var owPicOpts = { alt: (p.product_name || ''), width: 200, height: 200,
+        sizes: '(max-width:768px) 120px, 150px', eager: owEager };
+    if (p.media && p.media.length && window.owPictureHTML) {
+        owImgHtml = window.owPictureHTML(p.media[0], owPicOpts);
+    } else {
+        const imgSrc = p.product_image ? '/static/' + p.product_image.split(',')[0].trim().replace(/^\.\//,'') : '';
+        owImgHtml = '<img src="' + imgSrc + '" alt="' + escHtml(p.product_name || '') + '" loading="' + (owEager ? 'eager' : 'lazy') + '" width="200" height="200">';
+    }
+    const stockHtml = p.product_quantity > 0
+        ? '<span class="ow-pcard-stock ow-stock-in">In Stock</span>'
+        : '<span class="ow-pcard-stock ow-stock-out">Out of Stock</span>';
+    const actionBtn = p.product_quantity > 0
+        ? '<div class="ow-pcard-actions"><form method="POST" action="/add_to_cart">' +
+            '<input type="hidden" name="product_id" value="' + p.product_id + '">' +
+            '<input type="hidden" name="product_name" value="' + escHtml(p.product_name || '') + '">' +
+            '<input type="hidden" name="product_code" value="' + escHtml(p.product_code || '') + '">' +
+            '<input type="hidden" name="product_price" value="' + (owIsEur ? (p.product_price_eur || 0) : (p.product_price || 0)) + '">' +
+            '<input type="hidden" name="product_special_price" value="' + (owIsEur ? (p.product_special_price_eur || 0) : (p.product_special_price || 0)) + '">' +
+            '<input type="hidden" name="product_category" value="' + escHtml(p.product_category || '') + '">' +
+            '<button type="submit" class="ow-pcard-btn">Add to Cart</button></form></div>'
+        : '';
+
+    var owCatSlug = (p.product_category || 'spectacles-frame').toString().toLowerCase().replace(/\s+/g, '-');
+    var owProdUrl = p.product_slug
+        ? ('/categories/' + owCatSlug + '/' + p.product_slug + '?pid=' + p.product_id)
+        : ('/categories/' + owCatSlug + '/p?pid=' + p.product_id);
+    return '<div class="ow-pcard">' +
+        '<a href="' + owProdUrl + '">' +
+        '<div class="ow-pcard-img">' + owImgHtml + '</div>' +
+        '</a>' +
+        '<div class="ow-pcard-info">' +
+        '<div class="ow-pcard-name">' + escHtml(p.product_name || '') + '</div>' +
+        (p.product_category ? '<span class="ow-pcard-cat">' + escHtml(p.product_category) + '</span>' : '') +
+        '<span class="ow-pcard-meta">' + escHtml(p.product_color || '') + ' &bull; ' + escHtml(p.product_size || '') + '</span>' +
+        '</div>' +
+        '<div class="ow-pcard-bottom">' +
+        '<div><span class="ow-pcard-mrp">' + (owIsEur ? '&euro;' + p.product_price_eur : 'Rs ' + p.product_price) + '</span> ' +
+        '<span class="ow-pcard-sp">' + (owIsEur ? '&euro;' + p.product_special_price_eur : 'Rs ' + p.product_special_price) + '</span></div>' +
+        stockHtml +
+        '</div>' +
+        actionBtn +
+        '</div>';
+}
+
+function buildRxTable(rx) {
+    let html = '<div class="ow-rx-result"><h4>&#9989; Prescription Extracted</h4>';
+    html += '<table class="ow-rx-table"><thead><tr><th>Eye</th><th>SPH</th><th>CYL</th><th>AXIS</th><th>ADD</th></tr></thead><tbody>';
+    html += '<tr><td><strong>Right</strong></td><td>' + (rx.right_sph || '-') + '</td><td>' + (rx.right_cyl || '-') + '</td><td>' + (rx.right_axis || '-') + '</td><td>' + (rx.right_add || '-') + '</td></tr>';
+    html += '<tr><td><strong>Left</strong></td><td>' + (rx.left_sph || '-') + '</td><td>' + (rx.left_cyl || '-') + '</td><td>' + (rx.left_axis || '-') + '</td><td>' + (rx.left_add || '-') + '</td></tr>';
+    html += '</tbody></table>';
+    if (rx.pd) html += '<p style="margin:8px 0 0;font-size:13px"><strong>PD:</strong> ' + rx.pd + 'mm</p>';
+    if (rx.notes) html += '<p style="margin:4px 0 0;font-size:12px;color:#64748b">' + escHtml(rx.notes) + '</p>';
+    html += '</div>';
+    return html;
+}
+
+// ─── Timer ───
+function startTimer() {
+    if (timerInterval) return;
+    timerEl.style.display = 'flex';
+    timerInterval = setInterval(function() {
+        remainingSeconds--;
+        if (remainingSeconds <= 0) {
+            clearInterval(timerInterval);
+            handleTimeout();
+            return;
+        }
+        var m = Math.floor(remainingSeconds / 60);
+        var s = remainingSeconds % 60;
+        timerDisplay.textContent = m + ':' + (s < 10 ? '0' : '') + s;
+
+        timerEl.classList.remove('ow-timer-warn', 'ow-timer-danger');
+        if (remainingSeconds <= 60) timerEl.classList.add('ow-timer-danger');
+        else if (remainingSeconds <= 180) timerEl.classList.add('ow-timer-warn');
+    }, 1000);
+}
+
+function handleTimeout() {
+    addSystemMsg('&#9200; Chat session has exceeded ' + owChatTimeout + ' minutes. Converting to support ticket...');
+    sendBtn.disabled = true;
+
+    fetch('/chat/api/end-session', { method: 'POST', headers: {'Content-Type': 'application/json'} })
+    .then(function(r) { return r.json(); })
+    .then(function() {
+        // Send one more message to trigger ticket creation
+        return fetch('/chat/api/message', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({message: '[TIMEOUT]'})
+        });
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.action === 'timeout' || data.ticket_id) {
+            addAiResponse('<p>' + data.reply + '</p>');
+        }
+    })
+    .catch(function() {
+        addSystemMsg('Session timed out. Please start a new chat or contact us at 9355380318.');
+    });
+}
+
+// ─── Login Gate ───
+function requireLogin() {
+    if (!owUserInfo) {
+        loginPrompt.style.display = 'flex';
+        return false;
+    }
+    return true;
+}
+
+// ─── Chat Handler ───
+function handleSubmit(e) {
+    e.preventDefault();
+    var q = searchInput.value.trim();
+    if (!q) return false;
+    doChat(q);
+    return false;
+}
+
+var lastUserMsg = ''; // Track user's last message for contact_request
+function owNewClientMsgId() {
+    try { if (window.crypto && crypto.randomUUID) return crypto.randomUUID(); } catch (e) {}
+    return 'cm_' + Date.now() + '_' + Math.random().toString(16).slice(2);
+}
+function doChat(message) {
+    if (!requireLogin()) return;
+    lastUserMsg = message; // Capture for contact request phone extraction
+
+    searchInput.value = '';
+    var dc = document.getElementById('defaultChips');
+    if (dc) dc.remove();
+
+    addUserMsg(message);
+    addTypingIndicator();
+    sendBtn.disabled = true;
+    sendBtn.classList.add('ow-sending');
+
+    if (!chatStarted) {
+        chatStarted = true;
+        startTimer();
+    }
+
+    history.replaceState(null, '', '/search?query=' + encodeURIComponent(message));
+
+    // Stable id reused on the single soft-retry so the backend does not
+    // duplicate the customer message.
+    var cmid = owNewClientMsgId();
+
+    function reenableSend() {
+        sendBtn.disabled = false;
+        sendBtn.classList.remove('ow-sending');
+    }
+
+    function handleSuccess(data) {
+        removeTyping();
+        reenableSend();
+
+        if (data.remaining_seconds !== undefined) {
+            remainingSeconds = data.remaining_seconds;
+        }
+
+        if (data.action === 'timeout') {
+            addAiResponse('<p>' + data.reply + '</p>');
+            sendBtn.disabled = true;
+            clearInterval(timerInterval);
+            return;
+        }
+
+        var html = '<p>' + (data.reply || "I couldn't process that. Please try again.") + '</p>';
+
+        if (data.products && data.products.length > 0) {
+            html += '<div class="ow-srch-grid">';
+            data.products.forEach(function(p, i) { html += buildProductCard(p, i); });
+            html += '</div>';
+        }
+
+        addAiResponse(html);
+
+        if (data.action === 'create_ticket') {
+            addSystemMsg('&#127915; A support ticket is being created. Our team will get in touch with you.');
+            fetch('/chat/api/contact-request', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({message: 'Customer requested support ticket via chat.'})
+            }).then(function(r) { return r.json(); }).then(function(d) {
+                if (d.ticket_id) addSystemMsg('Ticket #' + d.ticket_id + ' created. We will respond within 24 hours.');
+            });
+        }
+
+        if (data.action === 'contact_request') {
+            requestContact(lastUserMsg);
+        }
+
+        searchInput.focus();
+    }
+
+    function finalFailure(wasBusy) {
+        removeTyping();
+        reenableSend();
+        if (wasBusy) {
+            addSystemMsg('The assistant is still busy. Your message was kept&mdash;press search to try again.');
+        } else {
+            addAiResponse('<p>Sorry, something went wrong. Please try again or call our specialist at <strong>9355380318</strong>.</p>');
+        }
+        if (!searchInput.value) searchInput.value = message; // preserve typed text
+    }
+
+    function attemptSend(triesLeft) {
+        fetch('/chat/api/message', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({message: message, client_message_id: cmid})
+        })
+        .then(function(r) {
+            if (r.status === 401) {
+                removeTyping();
+                reenableSend();
+                owUserInfo = null;
+                requireLogin();
+                return null;
+            }
+            return r.json().catch(function() { return {}; }).then(function(data) {
+                return { status: r.status, ok: r.ok, data: data };
+            });
+        })
+        .then(function(res) {
+            if (!res) return; // 401 handled
+            var err = res.data && res.data.error;
+            var retryable = res.status === 503 && err && err.code === 'AI_TEMPORARILY_UNAVAILABLE' && err.retryable;
+            if (retryable && triesLeft > 0) {
+                var wait = Math.max(1, parseInt((err.retry_after_seconds || 3), 10)) * 1000;
+                addSystemMsg('Assistant is busy&mdash;retrying shortly&hellip;');
+                setTimeout(function() { attemptSend(triesLeft - 1); }, wait);
+                return;
+            }
+            if (!res.ok) { finalFailure(retryable); return; }
+            handleSuccess(res.data);
+        })
+        .catch(function(err) {
+            finalFailure(false);
+        });
+    }
+
+    attemptSend(1);
+}
+
+// ─── Contact Request ───
+function requestContact(userMsg) {
+    if (!requireLogin()) return;
+
+    addSystemMsg('&#128222; Creating a callback request...');
+    var contactMsg = userMsg || 'Customer requested a callback via AI chat assistant.';
+    fetch('/chat/api/contact-request', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({message: contactMsg})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.ticket_id) {
+            var contactAt = data.callback_phone || owUserInfo.phone || owUserInfo.email;
+            addAiResponse('<p>Your callback request has been created (Ticket #' + data.ticket_id + '). Our team will contact you at <strong>' + escHtml(contactAt) + '</strong> within 24 hours.</p>');
+        }
+    })
+    .catch(function() {
+        addAiResponse('<p>Sorry, we could not create a callback request right now. Please call us at <strong>9355380318</strong>.</p>');
+    });
+}
+
+// ─── Prescription Upload ───
+function handleRxUpload(input) {
+    if (!requireLogin()) { input.value = ''; return; }
+    if (!input.files || !input.files[0]) return;
+
+    var file = input.files[0];
+    if (file.size > 10 * 1024 * 1024) {
+        addSystemMsg('File too large. Maximum 10MB.');
+        input.value = '';
+        return;
+    }
+
+    addUserMsg('&#128203; Uploading prescription: ' + file.name);
+    addTypingIndicator();
+
+    var formData = new FormData();
+    formData.append('file', file);
+
+    fetch('/chat/api/upload-prescription', {
+        method: 'POST',
+        body: formData
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        removeTyping();
+        if (data.parsed && data.prescription) {
+            addAiResponse('<p>' + data.message + '</p>' + buildRxTable(data.prescription));
+        } else if (data.ticket_id) {
+            addAiResponse('<p>' + data.message + '</p>');
+        } else if (data.error) {
+            addAiResponse('<p>&#9888; ' + escHtml(data.error) + '</p>');
+        }
+    })
+    .catch(function() {
+        removeTyping();
+        addAiResponse('<p>Sorry, there was an error uploading your prescription. Please try again.</p>');
+    });
+
+    input.value = '';
+}
+
+// Save chat on page unload
+window.addEventListener('beforeunload', function() {
+    if (chatStarted && owUserInfo) {
+        navigator.sendBeacon('/chat/api/end-session', '');
+    }
+});
+
+// Handle pre-loaded query
+document.addEventListener('DOMContentLoaded', function() {
+    var params = new URLSearchParams(window.location.search);
+    var q = params.get('query');
+    if (q && q.trim()) {
+        if (owUserInfo) {
+            doChat(q.trim());
+        }
+    }
+    searchInput.focus();
+});
+</script>
+{% endblock %}

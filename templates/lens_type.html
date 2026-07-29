@@ -1,0 +1,606 @@
+{% extends 'base.html' %}
+{% block title %}{{ lens.name }} - Prescription Lens at Factory Outlet Price | Optiwar{% endblock %}
+{% block meta_description %}{{ lens.meta_description }}{% endblock %}
+{% block meta_keywords %}{{ lens.keywords }}{% endblock %}
+{% block og_title %}{{ lens.name }} | Optiwar Factory Outlet Lenses{% endblock %}
+{% block og_description %}{{ lens.meta_description }}{% endblock %}
+{% block og_url %}{{ site_url }}/lenses/{{ lens.slug }}{% endblock %}
+{% block canonical_url %}{{ site_url }}/lenses/{{ lens.slug }}{% endblock %}
+{% block hreflang_in %}https://optiwar.in/lenses/{{ lens.slug }}{% endblock %}
+{% block hreflang_default %}https://optiwar.com/lenses/{{ lens.slug }}{% endblock %}
+
+{% block jsonld_extra %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Product",
+  "name": "{{ lens.name }}",
+  "description": "{{ lens.meta_description }}",
+  "brand": {"@type": "Brand", "name": "Optiwar"},
+  "category": "Prescription Lenses",
+  "url": "{{ site_url }}/lenses/{{ lens.slug }}",
+  "image": "{{ site_url }}/static/favicon-512x512.png",
+  "offers": {
+    "@type": "Offer",
+    "price": "{% if is_india %}{{ lens.price }}{% else %}{{ lens.price_eur }}{% endif %}",
+    {% if is_india %}"priceCurrency": "INR"{% else %}"priceCurrency": "EUR"{% endif %},
+    "availability": "https://schema.org/InStock",
+    "priceValidUntil": "2027-12-31",
+    "seller": {"@type": "Organization", "name": "Optiwar"},
+    "description": "Add-on price when purchasing any spectacle frame. Base lenses are complimentary.",
+    "url": "{{ site_url }}/lenses/{{ lens.slug }}"
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {"@type": "ListItem", "position": 1, "name": "Home", "item": "{{ site_url }}/"},
+    {"@type": "ListItem", "position": 2, "name": "Lenses", "item": "{{ site_url }}/lenses"},
+    {"@type": "ListItem", "position": 3, "name": "{{ lens.name }}", "item": "{{ site_url }}/lenses/{{ lens.slug }}"}
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {% for faq in lens.faqs %}
+    {
+      "@type": "Question",
+      "name": "{{ faq.q }}",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "{{ faq.a }}"
+      }
+    }{% if not loop.last %},{% endif %}
+    {% endfor %}
+  ]
+}
+</script>
+{% endblock %}
+
+{% block content %}
+<style>
+.lens-page {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 30px 20px 60px;
+}
+.lens-breadcrumb {
+  font-size: 0.85rem;
+  color: #888;
+  margin-bottom: 20px;
+}
+.lens-breadcrumb a {
+  color: #4f46e5;
+  text-decoration: none;
+}
+.lens-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+.lens-header .lens-badge {
+  width: 80px;
+  height: 80px;
+  border-radius: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36px;
+  flex-shrink: 0;
+  color: #fff;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.18);
+  box-shadow: 0 10px 24px rgba(0,0,0,.14);
+}
+.lens-header .lens-badge::before {
+  content: "";
+  position: absolute;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.12);
+  top: -16px;
+  right: -16px;
+}
+.w-anti-glare { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
+.w-blue-cut { background: linear-gradient(135deg, #2563eb, #06b6d4); }
+.w-multi-glare { background: linear-gradient(135deg, #7c3aed, #ec4899); }
+.w-thin { background: linear-gradient(135deg, #10b981, #14b8a6); }
+.w-ultra-thin { background: linear-gradient(135deg, #0ea5e9, #6366f1); }
+.w-grey { background: linear-gradient(135deg, #4b5563, #9ca3af); }
+.w-brown { background: linear-gradient(135deg, #92400e, #d97706); }
+.w-polarized { background: linear-gradient(135deg, #111827, #374151); }
+.w-bifocal-round { background: linear-gradient(135deg, #db2777, #8b5cf6); }
+.w-bifocal-flat { background: linear-gradient(135deg, #f97316, #ef4444); }
+.w-progressive { background: linear-gradient(135deg, #0891b2, #4f46e5); }
+.lens-header h1 {
+  font-size: 1.8rem;
+  color: #1a1a2e;
+  margin: 0;
+}
+.lens-header .price-tag {
+  font-size: 1.1rem;
+  color: #4f46e5;
+  font-weight: 600;
+  margin-top: 4px;
+}
+.lens-section {
+  margin-bottom: 32px;
+}
+.lens-section h2 {
+  font-size: 1.3rem;
+  color: #1a1a2e;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #eee;
+}
+.lens-section p, .lens-section li {
+  font-size: 0.95rem;
+  color: #444;
+  line-height: 1.7;
+}
+.lens-section ul {
+  padding-left: 20px;
+}
+.lens-section ul li {
+  margin-bottom: 6px;
+}
+.lens-specs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 12px;
+}
+.lens-spec-item {
+  background: #f8f9ff;
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.lens-spec-item .label {
+  font-size: 0.8rem;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.lens-spec-item .value {
+  font-size: 1rem;
+  color: #1a1a2e;
+  font-weight: 600;
+  margin-top: 2px;
+}
+.faq-item {
+  margin-bottom: 16px;
+}
+.faq-item h3 {
+  font-size: 1rem;
+  color: #1a1a2e;
+  margin-bottom: 6px;
+}
+.faq-item p {
+  margin: 0;
+}
+.lens-cta {
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  color: white;
+  border-radius: 16px;
+  padding: 30px;
+  text-align: center;
+  margin-top: 32px;
+}
+.lens-cta h2 {
+  color: white;
+  border: none;
+  margin-bottom: 10px;
+}
+.lens-cta p {
+  color: rgba(255,255,255,0.9);
+  margin-bottom: 16px;
+}
+.lens-cta a {
+  display: inline-block;
+  background: white;
+  color: #4f46e5;
+  padding: 12px 32px;
+  border-radius: 8px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: transform 0.2s;
+}
+.lens-cta a:hover { transform: scale(1.05); }
+.other-lenses {
+  margin-top: 40px;
+}
+.other-lenses h2 {
+  text-align: center;
+}
+.other-lenses-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 16px;
+}
+.other-lens-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f8f9ff;
+  border-radius: 12px;
+  padding: 10px 16px;
+  text-decoration: none;
+  color: #1a1a2e;
+  font-weight: 500;
+  font-size: 0.9rem;
+  transition: background 0.2s, transform 0.2s;
+}
+.other-lens-chip:hover {
+  background: #e8eaff;
+  transform: translateY(-2px);
+}
+.other-lens-chip .chip-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: #fff;
+  flex-shrink: 0;
+}
+@media (max-width: 600px) {
+  .lens-header { flex-direction: column; text-align: center; }
+  .lens-specs { grid-template-columns: 1fr; }
+  .lens-header h1 { font-size: 1.4rem; }
+}
+</style>
+
+<div class="lens-page">
+  <div class="lens-breadcrumb">
+    <a href="/">Home</a> &rsaquo; <a href="/lenses">Lenses</a> &rsaquo; {{ lens.name }}
+  </div>
+
+  <div class="lens-header">
+    <div class="lens-badge w-{{ lens.widget_class }}">{{ lens.widget_icon }}</div>
+    <div>
+      <h1>{{ lens.name }}</h1>
+      <div class="price-tag">{{ lens.price_label }}</div>
+    </div>
+  </div>
+
+  <div class="lens-section">
+    <h2>What {{ lens.name_short }} Are</h2>
+    <p>{{ lens.what_are }}</p>
+  </div>
+
+  {% if lens.slug == "bifocal-flat-top-d-lenses" %}
+  <div class="lens-section">
+    <div class="ow-bf-widget">
+      <div class="ow-bf-card ow-bf-flatd">
+        <div class="ow-bf-badge">Most Common</div>
+        <h3 class="ow-bf-h3">Flat D Bifocal</h3>
+        <p class="ow-bf-p">Wide near reading area</p>
+        <div class="ow-bf-lens">
+          <div class="ow-bf-dist">DISTANCE</div>
+          <div class="ow-bf-flat-seg"><span>NEAR</span></div>
+          <div class="ow-bf-line-label">visible D line</div>
+        </div>
+        <div class="ow-bf-tip">Best for reading comfort</div>
+      </div>
+      <div class="ow-bf-card ow-bf-round">
+        <div class="ow-bf-badge">Classic</div>
+        <h3 class="ow-bf-h3">Round Top Bifocal</h3>
+        <p class="ow-bf-p">Softer round near segment</p>
+        <div class="ow-bf-lens">
+          <div class="ow-bf-dist">DISTANCE</div>
+          <div class="ow-bf-round-seg"><span>NEAR</span></div>
+          <div class="ow-bf-line-label">round segment</div>
+        </div>
+        <div class="ow-bf-tip">Smaller near zone look</div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if lens.slug == "progressive-lenses" %}
+  <div class="lens-section">
+    <div class="ow-prog-widget">
+      <div class="ow-prog-card ow-prog-progressive">
+        <div class="ow-prog-badge">Premium</div>
+        <h3 class="ow-prog-h3">Progressive Lens</h3>
+        <p class="ow-prog-p">All distances · no visible line</p>
+        <div class="ow-prog-round ow-prog-round-prog">
+          <div class="ow-prog-zone ow-prog-top">&#128301;<b>DISTANCE</b><small>Driving · TV</small></div>
+          <div class="ow-prog-zone ow-prog-mid">&#128187;<b>INTERMEDIATE</b><small>Computer</small></div>
+          <div class="ow-prog-zone ow-prog-bot">&#128241;<b>NEAR</b><small>Reading</small></div>
+          <div class="ow-prog-corridor"></div>
+          <div class="ow-prog-soft ow-prog-soft-l">Soft<br>Edge</div>
+          <div class="ow-prog-soft ow-prog-soft-r">Soft<br>Edge</div>
+        </div>
+        <div class="ow-prog-tip">Up far · Straight screen · Down reading</div>
+      </div>
+      <div class="ow-prog-card ow-prog-bifocal">
+        <div class="ow-prog-badge">Standard</div>
+        <h3 class="ow-prog-h3">Flat-Top Bifocal</h3>
+        <p class="ow-prog-p">Distance + near · visible line</p>
+        <div class="ow-prog-round ow-prog-round-bif">
+          <div class="ow-prog-zone ow-prog-top">&#128301;<b>DISTANCE</b><small>Driving · TV</small></div>
+          <div class="ow-prog-missing">&#10060;<br>No Intermediate</div>
+          <div class="ow-prog-zone ow-prog-bot">&#128241;<b>NEAR</b><small>Reading</small></div>
+          <div class="ow-prog-bifline"></div>
+          <div class="ow-prog-soft ow-prog-soft-l">Soft<br>Edge</div>
+          <div class="ow-prog-soft ow-prog-soft-r">Soft<br>Edge</div>
+        </div>
+        <div class="ow-prog-tip">Up far · Down reading only</div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if lens.slug == "photobrown-lenses" %}
+  <div class="lens-section">
+    <div class="ow-pb-widget">
+      <div class="ow-pb-card ow-pb-regular">
+        <div class="ow-pb-title">Regular Lens</div>
+        <div class="ow-pb-scene">
+          <div class="ow-pb-sun"></div>
+          <div class="ow-pb-lens ow-pb-clear"></div>
+          <div class="ow-pb-uv"></div>
+          <div class="ow-pb-label ow-pb-bad">No Sun Protection Tint</div>
+        </div>
+      </div>
+      <div class="ow-pb-card ow-pb-brown">
+        <div class="ow-pb-title">Photo Brown Lens</div>
+        <div class="ow-pb-scene">
+          <div class="ow-pb-sun ow-pb-sun-active"></div>
+          <div class="ow-pb-lens ow-pb-tinted">
+            <div class="ow-pb-transition"></div>
+          </div>
+          <div class="ow-pb-uv ow-pb-uv-active"></div>
+          <div class="ow-pb-label ow-pb-good">Turns Brown in Sunlight</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if lens.slug == "photogrey-lenses" %}
+  <div class="lens-section">
+    <div class="ow-pg-widget">
+      <div class="ow-pg-card ow-pg-regular">
+        <div class="ow-pg-title">Regular Lens</div>
+        <div class="ow-pg-scene">
+          <div class="ow-pg-sun"></div>
+          <div class="ow-pg-lens ow-pg-clear"></div>
+          <div class="ow-pg-uv"></div>
+          <div class="ow-pg-label ow-pg-bad">No Tint Change</div>
+        </div>
+      </div>
+      <div class="ow-pg-card ow-pg-grey">
+        <div class="ow-pg-title">Photo Grey Lens</div>
+        <div class="ow-pg-scene">
+          <div class="ow-pg-sun ow-pg-sun-active"></div>
+          <div class="ow-pg-lens ow-pg-tinted">
+            <div class="ow-pg-transition"></div>
+          </div>
+          <div class="ow-pg-uv ow-pg-uv-active"></div>
+          <div class="ow-pg-label ow-pg-good">Auto Darkens in Sunlight</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if lens.slug == "multi-anti-glare-lenses" %}
+  <div class="lens-section">
+    <div class="ow-mg-widget">
+      <div class="ow-mg-card ow-mg-regular">
+        <div class="ow-mg-title">Regular Lens</div>
+        <div class="ow-mg-scene">
+          <div class="ow-mg-lens ow-mg-normal">
+            <span class="ow-mg-glare ow-mg-g1"></span>
+            <span class="ow-mg-glare ow-mg-g2"></span>
+            <span class="ow-mg-glare ow-mg-g3"></span>
+            <span class="ow-mg-glare ow-mg-g4"></span>
+          </div>
+          <div class="ow-mg-note ow-mg-bad">Multiple glare reflections</div>
+        </div>
+      </div>
+      <div class="ow-mg-card ow-mg-protected">
+        <div class="ow-mg-title">Multi-Glare Protection</div>
+        <div class="ow-mg-scene">
+          <div class="ow-mg-lens ow-mg-coated">
+            <span class="ow-mg-glow"></span>
+            <span class="ow-mg-shield">✓</span>
+          </div>
+          <div class="ow-mg-note ow-mg-good">Clearer protected view</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if lens.slug == "blue-cut-lenses" %}
+  <div class="lens-section">
+    <div class="ow-bc-widget">
+      <div class="ow-bc-panel ow-bc-regular">
+        <div class="ow-bc-title">Regular Lens</div>
+        <div class="ow-bc-scene">
+          <div class="ow-bc-beam ow-bc-beam1"></div>
+          <div class="ow-bc-beam ow-bc-beam2"></div>
+          <div class="ow-bc-round ow-bc-clear"></div>
+          <div class="ow-bc-caption ow-bc-bad">Blue light passes</div>
+        </div>
+      </div>
+      <div class="ow-bc-panel ow-bc-coated">
+        <div class="ow-bc-title">Blue-Cut Lens</div>
+        <div class="ow-bc-scene">
+          <div class="ow-bc-beam ow-bc-beam1 ow-bc-blocked"></div>
+          <div class="ow-bc-beam ow-bc-beam2 ow-bc-blocked"></div>
+          <div class="ow-bc-round ow-bc-tinted"></div>
+          <div class="ow-bc-caption ow-bc-good">✓ Filters Blue Light</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if lens.slug == "anti-glare-lenses" %}
+  <div class="lens-section">
+    <div class="ow-ag-widget">
+      <div class="ow-ag-panel ow-ag-regular">
+        <div class="ow-ag-label">Regular Lens</div>
+        <div class="ow-ag-specs">
+          <div class="ow-ag-lens ow-ag-left">
+            <span class="ow-ag-glare ow-ag-g1"></span>
+            <span class="ow-ag-glare ow-ag-g2"></span>
+            <span class="ow-ag-glare ow-ag-g3"></span>
+          </div>
+          <div class="ow-ag-bridge"></div>
+          <div class="ow-ag-lens ow-ag-right">
+            <span class="ow-ag-glare ow-ag-g1"></span>
+            <span class="ow-ag-glare ow-ag-g2"></span>
+          </div>
+        </div>
+        <div class="ow-ag-caption ow-ag-bad">Strong reflections</div>
+      </div>
+      <div class="ow-ag-panel ow-ag-coated">
+        <div class="ow-ag-label">Anti-Glare Lens</div>
+        <div class="ow-ag-specs">
+          <div class="ow-ag-lens ow-ag-left">
+            <span class="ow-ag-soft"></span>
+          </div>
+          <div class="ow-ag-bridge"></div>
+          <div class="ow-ag-lens ow-ag-right">
+            <span class="ow-ag-soft"></span>
+          </div>
+        </div>
+        <div class="ow-ag-caption ow-ag-good">Clearer vision</div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if lens.slug == "ultra-thin-lenses" %}
+  <div class="lens-section">
+    <div class="ow-thin-widget">
+      <div class="ow-thin-card ow-thin-thick">
+        <div class="ow-thin-badge ow-thin-badge-normal">Normal Lens</div>
+        <div class="ow-thin-sideview">
+          <div class="ow-thin-face"></div>
+          <div class="ow-thin-temple ow-thin-temple-black"></div>
+          <div class="ow-thin-lens ow-thin-lens-thick"></div>
+          <div class="ow-thin-label">Thick</div>
+        </div>
+      </div>
+      <div class="ow-thin-card ow-thin-slim">
+        <div class="ow-thin-badge ow-thin-badge-ultra">Ultra Thin Lens</div>
+        <div class="ow-thin-sideview">
+          <div class="ow-thin-face"></div>
+          <div class="ow-thin-temple ow-thin-temple-gold"></div>
+          <div class="ow-thin-lens ow-thin-lens-slim"></div>
+          <div class="ow-thin-spark"></div>
+          <div class="ow-thin-label">Slim</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if lens.slug == "polarized-lenses" %}
+  <div class="lens-section">
+    <div class="ow-polar-widget">
+      <div class="ow-polar-card ow-polar-normal">
+        <div class="ow-polar-card-title">Normal Lens</div>
+        <div class="ow-polar-scene">
+          <div class="ow-polar-sun"></div>
+          <div class="ow-polar-road"></div>
+          <div class="ow-polar-glare ow-polar-glare-1"></div>
+          <div class="ow-polar-glare ow-polar-glare-2"></div>
+          <div class="ow-polar-glare ow-polar-glare-3"></div>
+        </div>
+      </div>
+      <div class="ow-polar-card ow-polar-polarized">
+        <div class="ow-polar-card-title">Polarized Lens</div>
+        <div class="ow-polar-scene">
+          <div class="ow-polar-sun"></div>
+          <div class="ow-polar-road"></div>
+          <div class="ow-polar-block"></div>
+          <div class="ow-polar-badge">✓ Reduced Glare</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="lens-section">
+    <h2>Key Benefits</h2>
+    <ul>
+      {% for b in lens.benefits %}
+      <li>{{ b }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <div class="lens-section">
+    <h2>Who Should Use {{ lens.name_short }}</h2>
+    <p>{{ lens.who_should_use }}</p>
+  </div>
+
+  <div class="lens-section">
+    <h2>Technical Specifications</h2>
+    <div class="lens-specs">
+      {% for spec in lens.specs %}
+      <div class="lens-spec-item">
+        <div class="label">{{ spec.label }}</div>
+        <div class="value">{{ spec.value }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="lens-section">
+    <h2>How It Works at Optiwar</h2>
+    <p>{{ lens.how_it_works }}</p>
+  </div>
+
+  <div class="lens-section">
+    <h2>Frequently Asked Questions</h2>
+    {% for faq in lens.faqs %}
+    <div class="faq-item">
+      <h3>{{ faq.q }}</h3>
+      <p>{{ faq.a }}</p>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="lens-cta">
+    <h2>Get {{ lens.name }} with Your Frame</h2>
+    <p>Choose any spectacle frame and select {{ lens.name_short }} during checkout. {% if is_india %}Free shipping across India.{% else %}Free worldwide shipping.{% endif %}</p>
+    <a href="/categories/Spectacles Frame">Browse Spectacle Frames</a>
+  </div>
+
+  <div class="other-lenses lens-section">
+    <h2>Explore Other Lens Types</h2>
+    <div class="other-lenses-grid">
+      {% for other in all_lenses %}
+      {% if other.slug != lens.slug %}
+      <a href="/lenses/{{ other.slug }}" class="other-lens-chip">
+        <div class="chip-icon w-{{ other.widget_class }}">{{ other.widget_icon }}</div>
+        {{ other.name }}
+      </a>
+      {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+{% endblock %}

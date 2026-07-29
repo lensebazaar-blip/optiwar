@@ -1,0 +1,151 @@
+{% extends 'base.html' %}
+{% block title %}Frame Shape Guide — How to Choose Spectacle Frames for Your Face | Optiwar{% endblock %}
+{% block meta_description %}Learn how to choose the right spectacle frame shape for your face. Guide covers round, rectangle, square, clubmaster, aviator, rimless, cat eye frames with face fit sizing chart.{% endblock %}
+{% block meta_keywords %}frame shape guide, spectacle frames for round face, glasses for oval face, how to choose eyeglasses, frame size guide, face fit spectacles{% endblock %}
+{% block og_title %}Frame Shape Guide — How to Choose Spectacle Frames for Your Face | Optiwar{% endblock %}
+{% block og_description %}Complete guide to choosing the right spectacle frame shape for your face. 700+ frames in stock at factory outlet prices.{% endblock %}
+{% block og_url %}{{ site_url }}/guides/frame-shapes{% endblock %}
+{% block canonical_url %}{{ site_url }}/guides/frame-shapes{% endblock %}
+
+{% block jsonld_extra %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "How to Choose the Right Frame Shape for Your Face",
+  "description": "Complete guide to choosing spectacle frame shapes based on face shape, with sizing chart and face fit guide.",
+  "url": "https://optiwar.com/guides/frame-shapes",
+  "author": {"@type": "Organization", "name": "Optiwar"},
+  "publisher": {"@type": "Organization", "name": "Optiwar", "logo": {"@type": "ImageObject", "url": "https://optiwar.com/static/favicon-512x512.png"}},
+  "datePublished": "2026-05-28",
+  "dateModified": "2026-05-28"
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {"@type": "ListItem", "position": 1, "name": "Home", "item": "https://optiwar.com/"},
+    {"@type": "ListItem", "position": 2, "name": "Guides", "item": "https://optiwar.com/guides/frame-shapes"},
+    {"@type": "ListItem", "position": 3, "name": "Frame Shape Guide"}
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {"@type": "Question", "name": "Can I order just the frame without lenses?", "acceptedAnswer": {"@type": "Answer", "text": "Yes — click Buy Frame Only on any product page. {% if is_india %}You get the frame at factory outlet price with free delivery across India.{% else %}You get the frame at factory outlet price with free worldwide delivery.{% endif %}"}},
+    {"@type": "Question", "name": "Do all frames include free lenses?", "acceptedAnswer": {"@type": "Answer", "text": "Yes — every frame at Optiwar includes complimentary single-vision prescription lenses at no extra charge. Premium lens upgrades (anti-glare, blue-cut, progressive) are available."}},
+    {"@type": "Question", "name": "What if the frame does not fit?", "acceptedAnswer": {"@type": "Answer", "text": "Optiwar offers a 7-day return policy. If the frame does not fit, you can return it by mail for a replacement or refund."}},
+    {"@type": "Question", "name": "How do I know my frame size?", "acceptedAnswer": {"@type": "Answer", "text": "Frame size is printed on the inner temple arm of your current glasses as lens width x bridge width x temple length in mm. Lens width 43-49mm is Small, 50-54mm is Medium, 55-58mm is Large, 59mm+ is Extra Large."}}
+  ]
+}
+</script>
+{% endblock %}
+
+{% block content %}
+<nav aria-label="Breadcrumb" class="ow-breadcrumb">
+  <ol>
+    <li><a href="/">Home</a></li>
+    <li>Guides</li>
+    <li>Frame Shape Guide</li>
+  </ol>
+</nav>
+
+<article class="guide-page">
+<h1>How to Choose the Right Frame Shape for Your Face</h1>
+<p>Choosing the right spectacle frame shape depends on your face shape. The goal is balance — angular frames soften round faces, and rounded frames soften angular faces.</p>
+
+<h2>Face Shapes &amp; Best Frame Matches</h2>
+<div class="guide-table-wrap">
+<table class="guide-table">
+  <thead><tr><th>Your Face Shape</th><th>Best Frame Styles</th><th>Why It Works</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Round Face</strong></td><td><a href="/categories/rectangle">Rectangle</a>, <a href="/categories/square">Square</a>, Wayfarer, <a href="/categories/clubmaster">Browline</a></td><td>Angular lines add definition and structure to soft features</td></tr>
+    <tr><td><strong>Oval Face</strong></td><td><a href="/categories/clubmaster">Clubmaster</a>, Aviator, <a href="/categories/round">Round</a>, <a href="/categories/rectangle">Rectangle</a></td><td>Balanced proportions suit almost every frame style</td></tr>
+    <tr><td><strong>Square Face</strong></td><td><a href="/categories/round">Round</a>, Cat Eye, Aviator, Oval</td><td>Curved lines soften angular jawlines and cheekbones</td></tr>
+    <tr><td><strong>Heart Face</strong></td><td>Aviator, <a href="/categories/round">Round</a>, <a href="/categories/rimless">Rimless</a>, <a href="/categories/clubmaster">Browline</a></td><td>Bottom-heavy or light frames balance a wider forehead</td></tr>
+    <tr><td><strong>Oblong Face</strong></td><td>Oversized, <a href="/categories/round">Round</a>, <a href="/categories/square">Square</a>, Wayfarer</td><td>Wider frames add width and break up face length</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>Frame Styles at Optiwar</h2>
+<div class="guide-table-wrap">
+<table class="guide-table">
+  <thead><tr><th>Style</th><th>In Stock</th><th>Starting Price</th><th>Best For</th></tr></thead>
+  <tbody>
+    {% for style in styles %}
+    <tr>
+      <td><strong><a href="/categories/{{ style.slug }}">{{ style.name }}</a></strong></td>
+      <td>{{ style.count }} frames</td>
+      <td>{% if is_india %}Rs {{ style.min_price }}{% else %}€{{ style.min_price_eur }}{% endif %}</td>
+      <td>{{ style.best_for }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<h2>How to Measure Your Frame Size</h2>
+<p>Frame size is written as <strong>lens width × bridge width × temple length</strong> (in mm). Check the inner temple arm of your current glasses — the numbers are printed there.</p>
+<ul>
+  <li><strong>Lens width:</strong> 43–58mm — the horizontal width of one lens</li>
+  <li><strong>Bridge width:</strong> 15–22mm — the nose piece between the two lenses</li>
+  <li><strong>Temple length:</strong> 130–150mm — the arm that goes over your ear (determines overall frame width on your face)</li>
+</ul>
+
+<h2>Face Fit Guide</h2>
+<div class="guide-table-wrap">
+<table class="guide-table">
+  <thead><tr><th>Fit</th><th>Lens Width</th><th>Temple Length</th><th>Best For</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Small</strong></td><td>43–49mm</td><td>130–135mm</td><td>Narrow faces, children</td></tr>
+    <tr><td><strong>Medium</strong></td><td>50–54mm</td><td>135–140mm</td><td>Average faces</td></tr>
+    <tr><td><strong>Large</strong></td><td>55–58mm</td><td>140–145mm</td><td>Wide faces</td></tr>
+    <tr><td><strong>Extra Large</strong></td><td>59mm+</td><td>145–150mm</td><td>Very wide faces</td></tr>
+  </tbody>
+</table>
+</div>
+<p><em>Temple length is important — it determines how the frame sits on your face width. Longer temples accommodate wider faces and ensure the arms reach comfortably behind your ears.</em></p>
+
+<h2>Frequently Asked Questions</h2>
+
+<h3>Can I order just the frame without lenses?</h3>
+<p>Yes — click "Buy Frame Only" on any product page. You'll get the frame at factory outlet price with free delivery across India.</p>
+
+<h3>Do all frames include free lenses?</h3>
+<p>Yes — every frame at Optiwar includes complimentary single-vision prescription lenses at no extra charge. Premium lens upgrades (anti-glare, blue-cut, progressive) are available.</p>
+
+<h3>What if the frame doesn't fit?</h3>
+<p>Optiwar offers a 7-day return policy. If the frame doesn't fit, you can return it by mail for a replacement or refund.</p>
+
+<h3>How do I know my frame size?</h3>
+<p>Frame size is printed on the inner temple arm of your current glasses as <strong>lens width × bridge width × temple length</strong> in mm. If you don't have glasses, use Optiwar's <a href="/tryon">face measurement tool</a> to find your ideal size.</p>
+</article>
+
+<style>
+.guide-page { max-width: 800px; margin: 0 auto; padding: 16px; line-height: 1.6; }
+.guide-page h1 { font-size: 1.6em; margin-bottom: 8px; }
+.guide-page h2 { font-size: 1.25em; margin-top: 28px; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
+.guide-page h3 { font-size: 1.05em; margin-top: 20px; margin-bottom: 4px; }
+.guide-page p { margin: 8px 0; color: #333; }
+.guide-page ul { padding-left: 20px; }
+.guide-page li { margin: 4px 0; }
+.guide-table-wrap { overflow-x: auto; margin: 12px 0; }
+.guide-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.guide-table th, .guide-table td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
+.guide-table th { background: #f8f8f8; font-weight: 600; }
+.guide-table tr:nth-child(even) { background: #fafafa; }
+.guide-table a { color: #0066cc; text-decoration: none; }
+.guide-table a:hover { text-decoration: underline; }
+@media (max-width: 600px) {
+  .guide-page { padding: 12px; }
+  .guide-table { font-size: 12px; }
+  .guide-table th, .guide-table td { padding: 6px 8px; }
+}
+</style>
+{% endblock %}

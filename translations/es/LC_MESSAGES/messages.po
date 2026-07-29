@@ -1,0 +1,404 @@
+# Spanish translations for PROJECT.
+# Copyright (C) 2026 ORGANIZATION
+# This file is distributed under the same license as the PROJECT project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: PROJECT VERSION\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2026-06-30 12:05+0530\n"
+"PO-Revision-Date: 2026-06-30 12:05+0530\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: es\n"
+"Language-Team: es <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: templates/all_frames.html:121
+msgid "All Spectacle Frames"
+msgstr "Todos los Armazones"
+
+#: templates/base.html:277
+msgid "Single Vision Lenses"
+msgstr "Lentes Monofocales"
+
+#: templates/base.html:279
+msgid "Browse Frames"
+msgstr "Explorar Armazones"
+
+#: templates/base.html:285
+msgid "Progressive Lenses"
+msgstr "Lentes Progresivos"
+
+#: templates/base.html:287
+msgid "Measure My Face"
+msgstr "Medir Mi Rostro"
+
+#: templates/base.html:294
+msgid "Bifocal Lenses"
+msgstr "Lentes Bifocales"
+
+#: templates/base.html:302
+msgid "Blue Cut Lenses"
+msgstr "Lentes Filtro Azul"
+
+#: templates/base.html:310
+msgid "Multi-Glare Protection"
+msgstr "Protección Multi-Antirreflejo"
+
+#: templates/base.html:318
+msgid "Photochromic Lenses"
+msgstr "Lentes Fotocromáticos"
+
+#: templates/base.html:326
+msgid "Polarized Lenses"
+msgstr "Lentes Polarizados"
+
+#: templates/base.html:334 templates/base.html:572
+msgid "UV Protection"
+msgstr "Protección UV"
+
+#: templates/base.html:342
+msgid "Anti-Glare Lenses"
+msgstr "Lentes Antirreflejo"
+
+#: templates/base.html:353
+msgid "Factory Outlet Opticals"
+msgstr "Óptica de Fábrica"
+
+#: templates/base.html:358
+msgid "Faces"
+msgstr "Rostros"
+
+#: templates/base.html:368
+msgid "Search"
+msgstr "Buscar"
+
+#: templates/base.html:374
+msgid "Favorites"
+msgstr "Favoritos"
+
+#: templates/base.html:379
+msgid "Cart"
+msgstr "Carrito"
+
+#: templates/base.html:384
+msgid "Account"
+msgstr "Cuenta"
+
+#: templates/base.html:388 templates/base.html:444
+msgid "Logout"
+msgstr "Cerrar Sesión"
+
+#: templates/base.html:393 templates/base.html:449 templates/login.html:38
+msgid "Login"
+msgstr "Iniciar Sesión"
+
+#: templates/base.html:399
+msgid "Select Language"
+msgstr "Seleccionar Idioma"
+
+#: templates/base.html:440
+msgid "My Profile"
+msgstr "Mi Perfil"
+
+#: templates/base.html:459
+msgid "Lens Types"
+msgstr "Tipos de Lentes"
+
+#: templates/base.html:487
+msgid "Anti-Glare"
+msgstr "Antirreflejo"
+
+#: templates/base.html:488
+msgid "Reduces reflections"
+msgstr "Reduce reflejos"
+
+#: templates/base.html:509
+msgid "Blue Cut"
+msgstr "Filtro Azul"
+
+#: templates/base.html:510
+msgid "Screen protection"
+msgstr "Protección de pantalla"
+
+#: templates/base.html:530
+msgid "Photochromic"
+msgstr "Fotocromático"
+
+#: templates/base.html:531
+msgid "Auto-tinting"
+msgstr "Auto-oscurecimiento"
+
+#: templates/base.html:552
+msgid "Polarized"
+msgstr "Polarizado"
+
+#: templates/base.html:553
+msgid "Glare elimination"
+msgstr "Elimina deslumbramientos"
+
+#: templates/base.html:573
+msgid "UV400 shield"
+msgstr "Escudo UV400"
+
+#: templates/base.html:588
+msgid "Filters"
+msgstr "Filtros"
+
+#: templates/base.html:611
+msgid "Select Frame Shape"
+msgstr "Seleccionar Forma del Armazón"
+
+#: templates/base.html:668
+msgid "Select Color"
+msgstr "Seleccionar Color"
+
+#: templates/base.html:700
+msgid "Categories"
+msgstr "Categorías"
+
+#: templates/base.html:702
+msgid "Half Frames Specs"
+msgstr "Especificaciones de Semiarmazón"
+
+#: templates/base.html:703
+msgid "Club Master Specs"
+msgstr "Especificaciones Club Master"
+
+#: templates/base.html:704
+msgid "Rounded-Glass Specs"
+msgstr "Especificaciones de Lentes Redondos"
+
+#: templates/base.html:705
+msgid "Rectangle Specs"
+msgstr "Especificaciones Rectangulares"
+
+#: templates/base.html:706
+msgid "Rimless Specs"
+msgstr "Especificaciones Sin Armazón"
+
+#: templates/base.html:707
+msgid "Square Specs"
+msgstr "Especificaciones Cuadradas"
+
+#: templates/base.html:734
+msgid "About Optiwar"
+msgstr "Acerca de Optiwar"
+
+#: templates/base.html:746
+msgid "Our Lenses"
+msgstr "Nuestros Lentes"
+
+#: templates/base.html:764
+msgid "Shop Categories"
+msgstr "Categorías de Tienda"
+
+#: templates/base.html:777
+msgid "Quick Links"
+msgstr "Enlaces Rápidos"
+
+#: templates/base.html:779
+msgid "All Lenses"
+msgstr "Todos los Lentes"
+
+#: templates/base.html:780
+msgid "AI Face Measurement"
+msgstr "Medición Facial con IA"
+
+#: templates/base.html:781
+msgid "Search Products"
+msgstr "Buscar productos"
+
+#: templates/base.html:782
+msgid "Terms & Conditions"
+msgstr "Términos y condiciones"
+
+#: templates/base.html:783
+msgid "Privacy Policy"
+msgstr "Política de privacidad"
+
+#: templates/base.html:784 templates/base.html:857
+msgid "Contact Us"
+msgstr "Contáctanos"
+
+#: templates/base.html:786
+msgid "Contact"
+msgstr "Contacto"
+
+#: templates/base.html:799
+msgid "Visit Global Site"
+msgstr "Visitar sitio global"
+
+#: templates/base.html:807
+msgid "Visit India Site"
+msgstr "Visitar sitio India"
+
+#: templates/base.html:814
+msgid "All rights reserved."
+msgstr "Todos los derechos reservados."
+
+#: templates/base.html:816
+msgid "Clear Cart"
+msgstr "Vaciar carrito"
+
+#: templates/base.html:857
+msgid "Raise a support ticket and our team will respond shortly."
+msgstr "Abre un ticket de soporte y nuestro equipo te responderá en breve."
+
+#: templates/base.html:857
+msgid "Name"
+msgstr "Nombre"
+
+#: templates/base.html:857
+msgid "Your name"
+msgstr "Tu nombre"
+
+#: templates/base.html:857
+msgid "Subject"
+msgstr "Asunto"
+
+#: templates/base.html:857
+msgid "Select a subject"
+msgstr "Selecciona un asunto"
+
+#: templates/base.html:857
+msgid "Description"
+msgstr "Descripción"
+
+#: templates/base.html:857
+msgid "Tell us how we can help..."
+msgstr "Cuéntanos cómo podemos ayudarte..."
+
+#: templates/base.html:857
+msgid "Mobile"
+msgstr "Teléfono móvil"
+
+#: templates/base.html:857
+msgid "Email"
+msgstr "Correo electrónico"
+
+#: templates/base.html:857
+msgid "Enter the text shown below:"
+msgstr "Ingresa el texto que se muestra a continuación:"
+
+#: templates/checkout.html:960
+msgid "Your Cart"
+msgstr "Tu carrito"
+
+#: templates/checkout.html:1065
+msgid "Qty"
+msgstr "Cant."
+
+#: templates/checkout.html:1237
+msgid "Delivery Address"
+msgstr "Dirección de entrega"
+
+#: templates/checkout.html:2440
+msgid "Your cart is empty"
+msgstr "Tu carrito está vacío"
+
+#: templates/forgot_password.html:2
+msgid "Reset Password"
+msgstr "Restablecer contraseña"
+
+#: templates/forgot_password.html:27
+msgid "Back to Login"
+msgstr "Volver a iniciar sesión"
+
+#: templates/login.html:6
+msgid "Login to Your Account"
+msgstr "Inicia sesión en tu cuenta"
+
+#: templates/login.html:16
+msgid "Sign in with Google"
+msgstr "Iniciar sesión con Google"
+
+#: templates/login.html:21 templates/register.html:21
+msgid "OR"
+msgstr "O"
+
+#: templates/login.html:26 templates/register.html:28
+msgid "Email Address"
+msgstr "Correo electrónico"
+
+#: templates/login.html:27
+msgid "your@email.com"
+msgstr "tu@correo.com"
+
+#: templates/login.html:29 templates/register.html:34
+msgid "Password"
+msgstr "Contraseña"
+
+#: templates/login.html:30
+msgid "Your password"
+msgstr "Tu contraseña"
+
+#: templates/login.html:42
+msgid "Don't have an account?"
+msgstr "¿No tienes cuenta?"
+
+#: templates/login.html:42
+msgid "Register here"
+msgstr "Regístrate aquí"
+
+#: templates/login.html:43
+msgid "Forgot your password? Click here"
+msgstr "¿Olvidaste tu contraseña? Haz clic aquí"
+
+#: templates/my_orders.html:66
+msgid "No orders found"
+msgstr "No se encontraron pedidos"
+
+#: templates/product_page.html:132
+msgid "Add to Cart"
+msgstr "Añadir al carrito"
+
+#: templates/product_page.html:373
+msgid "In Stock"
+msgstr "En stock"
+
+#: templates/product_page.html:377
+msgid "Out of Stock"
+msgstr "Agotado"
+
+#: templates/register.html:6
+msgid "Create Your Account"
+msgstr "Crea tu cuenta"
+
+#: templates/register.html:16
+msgid "Sign up with Google"
+msgstr "Regístrate con Google"
+
+#: templates/register.html:25
+msgid "Full Name"
+msgstr "Nombre completo"
+
+#: templates/register.html:26
+msgid "Your full name"
+msgstr "Tu nombre completo"
+
+#: templates/register.html:31
+msgid "Phone Number"
+msgstr "Número de teléfono"
+
+#: templates/register.html:37
+msgid "Confirm Password"
+msgstr "Confirmar contraseña"
+
+#: templates/register.html:50
+msgid "Already have an account?"
+msgstr "¿Ya tienes cuenta?"
+
+#: templates/register.html:50
+msgid "Login here"
+msgstr "Inicia sesión aquí"
+
+#: templates/terms-and-conditions.html:17
+msgid "Terms and Conditions"
+msgstr "Términos y condiciones"
+

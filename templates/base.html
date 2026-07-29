@@ -1,0 +1,1682 @@
+<!DOCTYPE html>
+<html lang="{{ current_lang }}" {% if is_rtl %}dir="rtl"{% endif %}>
+<head> 
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+         <!-- SEO Meta Tags -->
+        <meta name="description" content="{% block meta_description %} Factory Outlet Prices for Opticals and Audio aid products. See the difference in prices direct from factories and retail full prices will help you save upto 70% on most items  OPTIWAR {% endblock %}">
+        <meta name="keywords" content="{% block meta_keywords %}factory outlet eyewear, factory outlet spectacle frames, spectacle lenses, single vision, multifocal spectacle lenses glasses, factory outlet hearing aids {% endblock  %}">
+        <meta name="author" content="{% block meta_author %}OPTIWAR {% endblock %}">
+        <meta property="og:title" content="{% block og_title %}OPTIWAR - Factory Outlet Shops {% endblock %}">
+        <meta property="og:description" content="{% block og_description %}Factory Outlets for eyewear and audio aids {% endblock %}">
+        <meta property="og:image" content="{% block og_image %}{{ url_for('static', filename='catalog/new-logo.png') }}{% endblock %}">
+        <meta property="og:url" content="{% block og_url %}{{ site_url }}/{% endblock %}">
+	<meta property="og:type" content="{% block og_type %}website{% endblock %}">
+        <meta name="twitter:card" content="summary_large_image">
+        <meta name="twitter:title" content="{% block twitter_title %}OPTIWAR - Factory Outlet Eyewear{% endblock %}">
+        <meta name="twitter:description" content="{% block twitter_description %}Premium eyewear at factory outlet prices. Save up to 70%.{% endblock %}">
+        <meta name="twitter:image" content="{% block twitter_image %}{{ url_for('static', filename='favicon-512x512.png', _external=True) }}{% endblock %}">
+        <link rel="canonical" href="{% block canonical_url %}{{ request.url }}{% endblock %}">
+        <!-- hreflang for multi-region support -->
+        <link rel="alternate" hreflang="en-in" href="{% block hreflang_in %}{{ request.url|replace('in.optiwar.com', 'optiwar.in')|replace('www.optiwar.com', 'optiwar.in')|replace('optiwar.com', 'optiwar.in') }}{% endblock %}">
+        <link rel="alternate" hreflang="x-default" href="{% block hreflang_default %}{{ request.url|replace('in.optiwar.com', 'optiwar.com')|replace('www.optiwar.in', 'optiwar.com')|replace('optiwar.in', 'optiwar.com') }}{% endblock %}">
+        <title> {% block title %} OPTIWAR  {% endblock %} </title>
+        <!-- OPTIWAR Favicon Package (Final) - Global Device Coverage -->
+        <!-- Standard Favicons -->
+        <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+        <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+        <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='favicon-16x16.png') }}">
+        <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32x32.png') }}">
+        <link rel="icon" type="image/png" sizes="48x48" href="{{ url_for('static', filename='favicon-48x48.png') }}">
+        <link rel="icon" type="image/png" sizes="64x64" href="{{ url_for('static', filename='favicon-64x64.png') }}">
+        <link rel="icon" type="image/png" sizes="96x96" href="{{ url_for('static', filename='favicon-96x96.png') }}">
+        <link rel="icon" type="image/png" sizes="128x128" href="{{ url_for('static', filename='favicon-128x128.png') }}">
+        <link rel="icon" type="image/png" sizes="256x256" href="{{ url_for('static', filename='favicon-256x256.png') }}">
+        <!-- Apple Touch Icons (all iOS devices) -->
+        <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+        <link rel="apple-touch-icon" sizes="57x57" href="{{ url_for('static', filename='apple-touch-icon-57x57.png') }}">
+        <link rel="apple-touch-icon" sizes="60x60" href="{{ url_for('static', filename='apple-touch-icon-60x60.png') }}">
+        <link rel="apple-touch-icon" sizes="72x72" href="{{ url_for('static', filename='apple-touch-icon-72x72.png') }}">
+        <link rel="apple-touch-icon" sizes="76x76" href="{{ url_for('static', filename='apple-touch-icon-76x76.png') }}">
+        <link rel="apple-touch-icon" sizes="114x114" href="{{ url_for('static', filename='apple-touch-icon-114x114.png') }}">
+        <link rel="apple-touch-icon" sizes="120x120" href="{{ url_for('static', filename='apple-touch-icon-120x120.png') }}">
+        <link rel="apple-touch-icon" sizes="144x144" href="{{ url_for('static', filename='apple-touch-icon-144x144.png') }}">
+        <link rel="apple-touch-icon" sizes="152x152" href="{{ url_for('static', filename='apple-touch-icon-152x152.png') }}">
+        <link rel="apple-touch-icon" sizes="167x167" href="{{ url_for('static', filename='apple-touch-icon-167x167.png') }}">
+        <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='apple-touch-icon-180x180.png') }}">
+        <!-- Safari Pinned Tab -->
+        <link rel="mask-icon" href="{{ url_for('static', filename='safari-pinned-tab.svg') }}" color="#000000">
+        <!-- Android / Chrome Web Manifest -->
+        <link rel="manifest" href="{{ url_for('static', filename='site.webmanifest') }}">
+        <!-- Windows / Microsoft Tiles -->
+        <meta name="msapplication-TileColor" content="#ffffff">
+        <meta name="msapplication-TileImage" content="{{ url_for('static', filename='mstile-144x144.png') }}">
+        <meta name="msapplication-config" content="{{ url_for('static', filename='browserconfig.xml') }}">
+        <!-- Theme Color (browser address bar) -->
+        <meta name="theme-color" content="#ffffff">
+        <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#050505">
+        <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
+        <!-- Open Graph / Social Media -->
+        {% block og_image_meta %}
+        <meta property="og:image" content="{{ url_for('static', filename='android-chrome-512x512.png') }}">
+        <meta property="og:image:width" content="512">
+        <meta property="og:image:height" content="512">
+        <meta property="og:image:type" content="image/png">
+        {% endblock %}
+        <!-- SEO Meta ends -->
+    <!-- Language selector styles -->
+    <style>
+    .ow-lang-wrap{position:relative;display:inline-flex;align-items:center;}
+    .ow-lang-btn{display:inline-flex;align-items:center;gap:5px;background:none;border:none;cursor:pointer;padding:6px 8px;border-radius:8px;font-size:13px;font-weight:600;color:#334155;transition:background .2s;}
+    .ow-lang-btn:hover{background:rgba(99,102,241,.08);}
+    .ow-lang-btn svg{flex-shrink:0;}
+    .ow-lang-code{text-transform:uppercase;letter-spacing:.5px;}
+    .ow-lang-dd{display:none;position:absolute;top:100%;right:0;z-index:9999;background:#fff;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 12px 32px rgba(15,23,42,.12);min-width:160px;padding:6px 0;max-height:320px;overflow-y:auto;}
+    .ow-lang-dd.open{display:block;}
+    .ow-lang-opt{display:flex;align-items:center;gap:8px;width:100%;padding:8px 16px;border:none;background:none;cursor:pointer;font-size:13px;color:#334155;text-align:left;transition:background .15s;}
+    .ow-lang-opt:hover{background:#f1f5f9;}
+    .ow-lang-opt.active{background:#eef2ff;color:#4f46e5;font-weight:600;}
+    .ow-lang-opt .ow-lang-native{flex:1;}
+    .ow-lang-opt .ow-lang-check{color:#4f46e5;font-size:16px;}
+    </style>
+	<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=5">
+	<link rel="stylesheet" href="{{ url_for('static', filename='glassmorphism.css') }}?v=17">
+
+        <!-- JSON-LD Structured Data: Organization + WebSite -->
+        <script type="application/ld+json">
+        {
+            "@context": "https://schema.org",
+            "@type": "Organization",
+            "name": "Optiwar",
+            "url": "{{ site_url }}",
+            "logo": "{{ site_url }}/static/favicon-512x512.png",
+            "description": "{% if is_india %}Factory outlet eyewear store in India offering spectacle frames at wholesale prices starting Rs 499. Save up to 70% on premium eyewear.{% else %}Global factory outlet eyewear store offering spectacle frames at wholesale prices starting \u20ac34.99. Save up to 70% on premium eyewear. Free worldwide delivery.{% endif %}",
+            "sameAs": ["https://www.instagram.com/optiwar_"],
+            "contactPoint": {
+                "@type": "ContactPoint",
+                "contactType": "customer service",
+                "availableLanguage": ["English", "Hindi"]
+            },
+            {% if is_india %}"address": {
+                "@type": "PostalAddress",
+                "addressCountry": "IN"
+            },
+            "areaServed": {"@type": "Country", "name": "India"},
+            "priceRange": "Rs 499 - Rs 999",
+            "currenciesAccepted": "INR",
+            "paymentAccepted": "UPI, Credit Card, Debit Card, Net Banking, Paytm"
+            {% else %}"areaServed": "Global",
+            "priceRange": "\u20ac34.99 - \u20ac39.99",
+            "currenciesAccepted": "EUR",
+            "paymentAccepted": "Credit Card, Debit Card, PayPal, Visa, Mastercard"
+            {% endif %}
+        }
+        </script>
+        <script type="application/ld+json">
+        {
+            "@context": "https://schema.org",
+            "@type": "WebSite",
+            "name": "Optiwar",
+            "url": "{{ site_url }}",
+            "description": "{% if is_india %}Factory outlet eyewear in India - spectacle frames, prescription lenses at wholesale prices. Free delivery across India.{% else %}Global factory outlet eyewear - spectacle frames from \u20ac34.99 with free prescription lenses and worldwide delivery.{% endif %}",
+            "potentialAction": {
+                "@type": "SearchAction",
+                "target": {
+                    "@type": "EntryPoint",
+                    "urlTemplate": "{{ site_url }}/search?q={search_term_string}"
+                },
+                "query-input": "required name=search_term_string"
+            }
+        }
+        </script>
+        {% block jsonld_extra %}{% endblock %}
+
+
+    <style>
+    /* ═══ FOOTER GLOBAL LINK ═══ */
+    .ow-footer-global-link{
+      text-align:center;
+      padding:18px 0;
+      border-top:1px solid rgba(255,255,255,.15);
+      margin-top:12px;
+    }
+    .ow-footer-global-link a{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      color:#94a3b8;
+      font-size:14px;
+      font-weight:600;
+      text-decoration:none;
+      transition:color .2s;
+    }
+    .ow-footer-global-link a:hover{
+      color:#fff;
+    }
+    .ow-footer-global-link svg{
+      flex-shrink:0;
+    }
+    </style>
+
+<!-- optiwar.com hero design styles -->
+<style>
+/* Payment logos top bar */
+.ow-pay-logos-bar{
+  background:#fff;
+  border-bottom:1px solid #f1f5f9;
+  padding:6px 0;
+}
+.ow-pay-logos-inner{
+  max-width:1200px;
+  margin:0 auto;
+  display:flex;
+  justify-content:flex-end;
+  align-items:center;
+  gap:12px;
+  padding:0 24px;
+}
+.ow-pay-logo{
+  height:28px;
+  width:auto;
+  flex-shrink:0;
+}
+.ow-eu-flag{
+  font-size:24px;
+  line-height:1;
+  display:inline-flex;
+  align-items:center;
+}
+/* Header search bar */
+.ow-header-search{
+  flex:1;
+  max-width:420px;
+  margin:0 32px;
+  display:none; /* hidden on mobile by default */
+}
+.ow-header-search-form{
+  display:flex;
+  align-items:center;
+  background:#f8fafc;
+  border:1.5px solid #e2e8f0;
+  border-radius:12px;
+  overflow:hidden;
+  transition:border-color .2s;
+}
+.ow-header-search-form:focus-within{
+  border-color:#6366f1;
+}
+.ow-header-search-input{
+  flex:1;
+  border:0;
+  outline:0;
+  background:transparent;
+  padding:10px 16px;
+  font-size:14px;
+  color:#1e293b;
+}
+.ow-header-search-input::placeholder{
+  color:#94a3b8;
+}
+.ow-header-search-btn{
+  background:transparent;
+  border:0;
+  padding:8px 14px;
+  cursor:pointer;
+  color:#64748b;
+}
+.ow-header-search-btn:hover{
+  color:#6366f1;
+}
+/* Hero delivery line */
+.ow-hero-delivery{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  margin:16px 0 8px;
+  font-size:20px;
+  font-weight:600;
+  color:#1e293b;
+}
+.ow-hero-delivery .ow-gift-icon{
+  font-size:28px;
+  opacity:.7;
+}
+.ow-hero-delivery .ow-free{
+  color:#16a34a;
+  font-weight:700;
+}
+.ow-hero-delivery .ow-eu{
+  font-size:28px;
+}
+/* Desktop: show search bar */
+@media(min-width:769px){
+  .ow-header-search{ display:block; }
+}
+/* Mobile: smaller logos, hide search */
+@media(max-width:768px){
+  .ow-pay-logos-bar{ padding:4px 0; }
+  .ow-pay-logos-inner{ gap:8px; padding:0 16px; }
+  .ow-pay-logo{ height:22px; }
+  .ow-eu-flag{ font-size:20px; }
+  .ow-hero-delivery{ font-size:16px; margin:12px 0 4px; }
+  .ow-hero-delivery .ow-gift-icon{ font-size:22px; }
+  .ow-hero-delivery .ow-eu{ font-size:22px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Decorative blobs -->
+<div class="blob blob-1"></div>
+<div class="blob blob-2"></div>
+<div class="blob blob-3"></div>
+
+<!-- ═══ LENS TYPE POPUP OVERLAYS ═══ -->
+<div class="overlay" id="popup-sv">
+  <div class="overlay-box">
+    <button class="overlay-close" onclick="closePopup('popup-sv')">&times;</button>
+    <h2>{{ _('Single Vision Lenses') }}</h2>
+    <p>Single Vision Lenses are currently provided <strong>complimentary</strong> by Optiwar with every frame purchase. No extra charge — just pick your frame.</p>
+    <a href="/eyeglasses/all-spectacle-frames.html" class="overlay-btn" onclick="this.closest('.overlay').classList.remove('active');document.body.style.overflow=''">{{ _('Browse Frames') }} &rarr;</a>
+  </div>
+</div>
+<div class="overlay" id="popup-prog">
+  <div class="overlay-box">
+    <button class="overlay-close" onclick="closePopup('popup-prog')">&times;</button>
+    <h2>{{ _('Progressive Lenses') }}</h2>
+    <p>Progressive Lenses provided at a reasonable price of <strong>&#8377;1000</strong>. Seamless transitions between near, intermediate, and distance zones.</p>
+    <a href="/tryon" class="overlay-btn ghost">{{ _('Measure My Face') }}</a>
+    <a href="/eyeglasses/all-spectacle-frames.html" class="overlay-btn" onclick="this.closest('.overlay').classList.remove('active');document.body.style.overflow=''">Browse Frames &rarr;</a>
+  </div>
+</div>
+<div class="overlay" id="popup-bi">
+  <div class="overlay-box">
+    <button class="overlay-close" onclick="closePopup('popup-bi')">&times;</button>
+    <h2>{{ _('Bifocal Lenses') }}</h2>
+    <p>Bifocal — Flat Top or Round lenses provided at a reasonable price of <strong>&#8377;1200</strong>. Clear near and distance vision in a single lens.</p>
+    <a href="/eyeglasses/all-spectacle-frames.html" class="overlay-btn" onclick="this.closest('.overlay').classList.remove('active');document.body.style.overflow=''">Browse Frames &rarr;</a>
+  </div>
+</div>
+<div class="overlay" id="popup-bluecut">
+  <div class="overlay-box">
+    <button class="overlay-close" onclick="closePopup('popup-bluecut')">&times;</button>
+    <h2>{{ _('Blue Cut Lenses') }}</h2>
+    <p>Shield your eyes from harmful blue light emitted by digital screens. Reduces eye strain, prevents headaches, and improves sleep quality.</p>
+    <a href="/eyeglasses/all-spectacle-frames.html" class="overlay-btn" onclick="this.closest('.overlay').classList.remove('active');document.body.style.overflow=''">Browse Frames &rarr;</a>
+  </div>
+</div>
+<div class="overlay" id="popup-multiglare">
+  <div class="overlay-box">
+    <button class="overlay-close" onclick="closePopup('popup-multiglare')">&times;</button>
+    <h2>{{ _('Multi-Glare Protection') }}</h2>
+    <p>Advanced anti-reflective coating that eliminates glare from screens and bright lights. Crystal clear vision all day long.</p>
+    <a href="/eyeglasses/all-spectacle-frames.html" class="overlay-btn" onclick="this.closest('.overlay').classList.remove('active');document.body.style.overflow=''">Browse Frames &rarr;</a>
+  </div>
+</div>
+<div class="overlay" id="popup-photo">
+  <div class="overlay-box">
+    <button class="overlay-close" onclick="closePopup('popup-photo')">&times;</button>
+    <h2>{{ _('Photochromic Lenses') }}</h2>
+    <p>Lenses that automatically darken in sunlight and clear indoors. No need for separate sunglasses — UV protection built in.</p>
+    <a href="/eyeglasses/all-spectacle-frames.html" class="overlay-btn" onclick="this.closest('.overlay').classList.remove('active');document.body.style.overflow=''">Browse Frames &rarr;</a>
+  </div>
+</div>
+<div class="overlay" id="popup-polar">
+  <div class="overlay-box">
+    <button class="overlay-close" onclick="closePopup('popup-polar')">&times;</button>
+    <h2>{{ _('Polarized Lenses') }}</h2>
+    <p>Eliminate harsh horizontal glare from water, roads, and snow. Perfect for driving and outdoor activities. Enhanced contrast and clarity.</p>
+    <a href="/eyeglasses/all-spectacle-frames.html" class="overlay-btn" onclick="this.closest('.overlay').classList.remove('active');document.body.style.overflow=''">Browse Frames &rarr;</a>
+  </div>
+</div>
+<div class="overlay" id="popup-uv">
+  <div class="overlay-box">
+    <button class="overlay-close" onclick="closePopup('popup-uv')">&times;</button>
+    <h2>{{ _('UV Protection') }}</h2>
+    <p>100% UV400 protection blocks all harmful ultraviolet rays. Essential protection included with every Optiwar lens.</p>
+    <a href="/eyeglasses/all-spectacle-frames.html" class="overlay-btn" onclick="this.closest('.overlay').classList.remove('active');document.body.style.overflow=''">Browse Frames &rarr;</a>
+  </div>
+</div>
+<div class="overlay" id="popup-antiglare">
+  <div class="overlay-box">
+    <button class="overlay-close" onclick="closePopup('popup-antiglare')">&times;</button>
+    <h2>{{ _('Anti-Glare Lenses') }}</h2>
+    <p>Advanced multi-layer anti-reflective coating eliminates glare from screens, headlights, and bright lights. Crystal clear vision in all conditions — reduced eye strain for all-day comfort.</p>
+    <a href="/eyeglasses/all-spectacle-frames.html" class="overlay-btn" onclick="this.closest('.overlay').classList.remove('active');document.body.style.overflow=''">Browse Frames &rarr;</a>
+  </div>
+</div>
+
+<!-- ═══ HEADER ═══ -->
+
+<header class="header">
+  <div class="header-inner">
+    <a href="{{ url_for('main.index') }}" class="header-logo">
+      <span class="header-logo-text">OPTIWAR<span class="header-logo-sub">{{ _('Factory Outlet Opticals') }}</span></span>
+    </a>
+    <div class="header-actions">
+      <a href="/tryon" class="header-btn" title="Face Measure">
+        <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><circle cx="12" cy="10" r="3"/><path d="M2 17l3-3h14l3 3"/></svg>
+        <span class="btn-label">{{ _('Faces') }}</span>
+        <div class="ow-face-alert" id="owFaceAlert">
+          <div class="ow-fa-ring"></div>
+          <div class="ow-fa-core"><span>!</span></div>
+          <div class="ow-fa-pulse ow-fa-p1"></div>
+          <div class="ow-fa-pulse ow-fa-p2"></div>
+        </div>
+      </a>
+      <a href="{{ url_for('main.search_products') }}" class="header-btn" title="Search">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35" stroke-linecap="round"/></svg>
+        <span class="btn-label">{{ _('Search') }}</span>
+      </a>
+      <!-- Currency Widget -->
+
+            <a href="#" onclick="postFavorites(event)" class="header-btn" title="Favorites">
+        <svg viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21.3l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+        <span class="btn-label">{{ _('Favorites') }}</span>
+      </a>
+      <a href="{{ url_for('main.checkout') }}" class="header-btn" title="Cart">
+        <svg viewBox="0 0 24 24"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4H6zM3 6h18M16 10a4 4 0 01-8 0" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        {% if cart_count > 0 %}<span class="ow-cart-badge">{{ cart_count }}</span>{% endif %}
+        <span class="btn-label">{{ _('Cart') }}</span>
+      </a>
+      {% if logged_in %}
+      <a href="{{ url_for('profile.profile_page') }}" class="header-btn ow-desktop-only" title="My Account">
+        <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="btn-label">{{ current_user_name.split(' ')[0] if current_user_name else _('Account') }}</span>
+      </a>
+      <a href="{{ url_for('auth.logout') }}" class="header-btn ow-desktop-only" title="Logout">
+        <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        <span class="btn-label">{{ _('Logout') }}</span>
+      </a>
+      {% else %}
+      <a href="{{ url_for('auth.login') }}" class="header-btn ow-desktop-only" title="Login">
+        <svg viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+        <span class="btn-label">{{ _('Login') }}</span>
+      </a>
+      {% endif %}
+
+      <!-- Language Selector -->
+      <div class="ow-lang-wrap" id="owLangWrap">
+        <button class="ow-lang-btn" type="button" id="owLangBtn" aria-label="{{ _('Select Language') }}">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
+          <span class="ow-lang-code">{{ current_lang }}</span>
+        </button>
+        <div class="ow-lang-dd" id="owLangDD">
+          {% for code, name in available_languages.items() %}
+          <form action="/set-language" method="POST" style="margin:0;">
+            <input type="hidden" name="lang" value="{{ code }}">
+            <input type="hidden" name="next" value="{{ request.url }}">
+            <button type="submit" class="ow-lang-opt{% if code == current_lang %} active{% endif %}">
+              <span class="ow-lang-native">{{ name }}</span>
+              {% if code == current_lang %}<span class="ow-lang-check">&#10003;</span>{% endif %}
+            </button>
+          </form>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Mobile mega menu button -->
+      <button class="mega-menu-tab" id="owMegaMenuBtn" aria-label="Menu" type="button" onclick="document.getElementById('owMegaOverlay').classList.add('ow-overlay-open')">
+        <span></span><span></span><span></span><span></span><span></span><span></span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- Mobile full overlay menu -->
+<div class="ow-mega-overlay" id="owMegaOverlay">
+  <div class="ow-mega-overlay-inner">
+    <button class="ow-mega-close" onclick="document.getElementById('owMegaOverlay').classList.remove('ow-overlay-open')" aria-label="Close">&times;</button>
+    <div class="ow-mega-brand">
+      <span class="ow-mega-logo">OW</span>
+      <div>
+        <strong>OPTIWAR</strong>
+        <p>Factory Outlet Opticals</p>
+      </div>
+    </div>
+    <nav class="ow-mega-links">
+      {% if logged_in %}
+      <a href="{{ url_for('profile.profile_page') }}" class="ow-mega-link">
+        <svg viewBox="0 0 24 24" width="24" height="24" stroke="#334155" fill="none" stroke-width="1.8"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>{{ _('My Profile') }}</span>
+      </a>
+      <a href="{{ url_for('auth.logout') }}" class="ow-mega-link">
+        <svg viewBox="0 0 24 24" width="24" height="24" stroke="#334155" fill="none" stroke-width="1.8"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        <span>{{ _('Logout') }}</span>
+      </a>
+      {% else %}
+      <a href="{{ url_for('auth.login') }}" class="ow-mega-link">
+        <svg viewBox="0 0 24 24" width="24" height="24" stroke="#334155" fill="none" stroke-width="1.8"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+        <span>{{ _('Login') }}</span>
+      </a>
+      {% endif %}
+    </nav>
+  </div>
+</div>
+
+<!-- ═══ HEADER 2: LENS TYPES ═══ -->
+<nav class="header2">
+  <div class="header2-inner">
+    <span class="header2-label">{{ _('Lens Types') }}</span>
+
+    <!-- Anti-Glare Widget -->
+    <a class="lens-widget active" onclick="openPopup('popup-antiglare')">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <defs>
+          <linearGradient id="ag-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#7B2FBE;stop-opacity:0.9"/>
+            <stop offset="30%" style="stop-color:#4A90D9;stop-opacity:0.7"/>
+            <stop offset="50%" style="stop-color:#2ECC71;stop-opacity:0.5"/>
+            <stop offset="70%" style="stop-color:#4A90D9;stop-opacity:0.7"/>
+            <stop offset="100%" style="stop-color:#7B2FBE;stop-opacity:0.9"/>
+          </linearGradient>
+          <radialGradient id="ag-refl" cx="40%" cy="35%">
+            <stop offset="0%" style="stop-color:#ffffff;stop-opacity:0.4"/>
+            <stop offset="60%" style="stop-color:#ffffff;stop-opacity:0.05"/>
+            <stop offset="100%" style="stop-color:#ffffff;stop-opacity:0"/>
+          </radialGradient>
+        </defs>
+        <circle cx="50" cy="45" r="28" fill="none" stroke="url(#ag-grad)" stroke-width="5"/>
+        <circle cx="50" cy="45" r="28" fill="url(#ag-refl)"/>
+        <line x1="22" y1="30" x2="30" y2="35" stroke="#2ECC71" stroke-width="2" opacity="0.5"/>
+        <line x1="78" y1="30" x2="70" y2="35" stroke="#2ECC71" stroke-width="2" opacity="0.5"/>
+        <line x1="22" y1="60" x2="30" y2="55" stroke="#2ECC71" stroke-width="2" opacity="0.5"/>
+        <line x1="78" y1="60" x2="70" y2="55" stroke="#2ECC71" stroke-width="2" opacity="0.5"/>
+        <text x="50" y="85" text-anchor="middle" fill="#7B2FBE" font-size="9" font-weight="bold">ANTI-GLARE</text>
+      </svg>
+      <div class="lens-widget-info">
+        <span class="lens-widget-name">{{ _('Anti-Glare') }}</span>
+        <span class="lens-widget-tag">{{ _('Reduces reflections') }}</span>
+      </div>
+    </a>
+
+    <!-- Blue Cut Widget -->
+    <a class="lens-widget" onclick="openPopup('popup-bluecut')">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <defs>
+          <linearGradient id="bc-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#3498DB;stop-opacity:0.9"/>
+            <stop offset="50%" style="stop-color:#2980B9;stop-opacity:0.6"/>
+            <stop offset="100%" style="stop-color:#1ABC9C;stop-opacity:0.8"/>
+          </linearGradient>
+        </defs>
+        <circle cx="50" cy="45" r="28" fill="none" stroke="url(#bc-grad)" stroke-width="5"/>
+        <circle cx="50" cy="45" r="18" fill="none" stroke="#3498DB" stroke-width="1" opacity="0.3"/>
+        <path d="M35,45 L65,45" stroke="#3498DB" stroke-width="2" opacity="0.4"/>
+        <path d="M50,28 L50,62" stroke="#3498DB" stroke-width="2" opacity="0.4"/>
+        <text x="50" y="85" text-anchor="middle" fill="#3498DB" font-size="9" font-weight="bold">BLUE CUT</text>
+      </svg>
+      <div class="lens-widget-info">
+        <span class="lens-widget-name">{{ _('Blue Cut') }}</span>
+        <span class="lens-widget-tag">{{ _('Screen protection') }}</span>
+      </div>
+    </a>
+
+    <!-- Photochromic Widget -->
+    <a class="lens-widget" onclick="openPopup('popup-photo')">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <defs>
+          <linearGradient id="pc-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#F39C12;stop-opacity:0.9"/>
+            <stop offset="50%" style="stop-color:#E74C3C;stop-opacity:0.5"/>
+            <stop offset="100%" style="stop-color:#8E44AD;stop-opacity:0.8"/>
+          </linearGradient>
+        </defs>
+        <circle cx="50" cy="45" r="28" fill="none" stroke="url(#pc-grad)" stroke-width="5"/>
+        <circle cx="38" cy="35" r="8" fill="none" stroke="#F39C12" stroke-width="1.5" opacity="0.5"/>
+        <path d="M38,27 L38,23 M30,35 L26,35 M46,35 L50,35 M32,29 L29,26 M44,29 L47,26" stroke="#F39C12" stroke-width="1" opacity="0.4"/>
+        <text x="50" y="85" text-anchor="middle" fill="#F39C12" font-size="8" font-weight="bold">PHOTOCHROMIC</text>
+      </svg>
+      <div class="lens-widget-info">
+        <span class="lens-widget-name">{{ _('Photochromic') }}</span>
+        <span class="lens-widget-tag">{{ _('Auto-tinting') }}</span>
+      </div>
+    </a>
+
+    <!-- Polarized Widget -->
+    <a class="lens-widget" onclick="openPopup('popup-polar')">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <defs>
+          <linearGradient id="pl-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#1ABC9C;stop-opacity:0.9"/>
+            <stop offset="100%" style="stop-color:#16A085;stop-opacity:0.8"/>
+          </linearGradient>
+        </defs>
+        <circle cx="50" cy="45" r="28" fill="none" stroke="url(#pl-grad)" stroke-width="5"/>
+        <line x1="30" y1="35" x2="70" y2="35" stroke="#1ABC9C" stroke-width="1.5" opacity="0.4"/>
+        <line x1="30" y1="42" x2="70" y2="42" stroke="#1ABC9C" stroke-width="1.5" opacity="0.4"/>
+        <line x1="30" y1="49" x2="70" y2="49" stroke="#1ABC9C" stroke-width="1.5" opacity="0.4"/>
+        <line x1="30" y1="56" x2="70" y2="56" stroke="#1ABC9C" stroke-width="1.5" opacity="0.4"/>
+        <text x="50" y="85" text-anchor="middle" fill="#1ABC9C" font-size="9" font-weight="bold">POLARIZED</text>
+      </svg>
+      <div class="lens-widget-info">
+        <span class="lens-widget-name">{{ _('Polarized') }}</span>
+        <span class="lens-widget-tag">{{ _('Glare elimination') }}</span>
+      </div>
+    </a>
+
+    <!-- UV Protection Widget -->
+    <a class="lens-widget" onclick="openPopup('popup-uv')">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <defs>
+          <linearGradient id="uv-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#9B59B6;stop-opacity:0.9"/>
+            <stop offset="100%" style="stop-color:#8E44AD;stop-opacity:0.8"/>
+          </linearGradient>
+        </defs>
+        <circle cx="50" cy="45" r="28" fill="none" stroke="url(#uv-grad)" stroke-width="5"/>
+        <path d="M50,25 L50,17 M50,73 L50,65 M28,45 L20,45 M80,45 L72,45 M35,30 L30,25 M70,60 L65,55 M35,60 L30,65 M65,30 L70,25" stroke="#9B59B6" stroke-width="2" opacity="0.4"/>
+        <text x="50" y="50" text-anchor="middle" fill="#9B59B6" font-size="14" font-weight="bold">UV</text>
+        <text x="50" y="85" text-anchor="middle" fill="#9B59B6" font-size="9" font-weight="bold">UV400</text>
+      </svg>
+      <div class="lens-widget-info">
+        <span class="lens-widget-name">{{ _('UV Protection') }}</span>
+        <span class="lens-widget-tag">{{ _('UV400 shield') }}</span>
+      </div>
+    </a>
+  </div>
+</nav>
+
+<!-- ═══ STICKY FILTER BAR ═══ -->
+<div id="owFilterWidget" class="ow-filter-bar" style="display:none;">
+  <div class="ow-filter-bar-inner">
+    <button class="ow-fb-toggle" id="owFilterBtn" aria-label="Filter">
+      <span class="ow-fb-icon">
+        <span class="ow-fl-line ow-fl-l1"><span class="ow-fl-knob"></span></span>
+        <span class="ow-fl-line ow-fl-l2"><span class="ow-fl-knob"></span></span>
+        <span class="ow-fl-line ow-fl-l3"><span class="ow-fl-knob"></span></span>
+      </span>
+      <span class="ow-fb-label">{{ _('Filters') }}</span>
+    </button>
+    <div class="ow-fb-pills" id="owFilterPanel">
+      <button class="ow-fb-pill" data-filter="facematch" id="owFltFace">📐 Face Match</button>
+      <button class="ow-fb-pill" data-filter="price" id="owFltPrice">💰 Price: Low→High</button>
+      <span class="ow-fb-sep"></span>
+      <button class="ow-fb-pill ow-fb-size" data-size="small">S</button>
+      <button class="ow-fb-pill ow-fb-size" data-size="medium">M</button>
+      <button class="ow-fb-pill ow-fb-size" data-size="large">L</button>
+      <button class="ow-fb-pill ow-fb-size" data-size="extra large">XL</button>
+      <span class="ow-fb-sep"></span>
+      <button class="ow-fb-pill ow-fb-shape-trigger" id="owFltShapes"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><rect x="3" y="3" width="18" height="18" rx="4"/></svg><span class="ow-fb-shape-label">Shapes</span></button>
+      <button class="ow-fb-pill ow-fb-color-trigger" id="owFltColor"><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:conic-gradient(#ef4444,#f97316,#22c55e,#2563eb,#8b5cf6,#ef4444);vertical-align:-2px;margin-right:4px;border:1.5px solid #ccc;"></span><span class="ow-fb-color-label">Color</span></button>
+      <span class="ow-fb-sep"></span>
+      <button class="ow-fb-pill ow-fb-reset" data-filter="reset" id="owFltReset">✕ Clear</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SHAPES POPUP ═══ -->
+<div id="owShapesPopup" class="ow-shapes-overlay" style="display:none;">
+  <div class="ow-shapes-popup">
+    <div class="ow-shapes-header">
+      <h3>{{ _('Select Frame Shape') }}</h3>
+      <button class="ow-shapes-close" id="owShapesClose">&times;</button>
+    </div>
+    <div class="ow-shapes-grid">
+      <button class="ow-shape-btn" data-shape="rectangle">
+        <svg viewBox="0 0 60 36" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="56" height="28" rx="6"/></svg>
+        <span>Rectangle</span>
+      </button>
+      <button class="ow-shape-btn" data-shape="round">
+        <svg viewBox="0 0 60 60" fill="none" stroke="currentColor" stroke-width="2"><circle cx="30" cy="30" r="26"/></svg>
+        <span>Round</span>
+      </button>
+      <button class="ow-shape-btn" data-shape="oval">
+        <svg viewBox="0 0 60 44" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="30" cy="22" rx="26" ry="18"/></svg>
+        <span>Oval</span>
+      </button>
+      <button class="ow-shape-btn" data-shape="square">
+        <svg viewBox="0 0 52 52" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="48" height="48" rx="6"/></svg>
+        <span>Square</span>
+      </button>
+      <button class="ow-shape-btn" data-shape="aviator">
+        <svg viewBox="0 0 64 44" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 10c0-4 3-7 7-7h38c4 0 7 3 7 7v14c0 10-8 17-18 17H24C14 41 6 34 6 24V10z"/></svg>
+        <span>Aviator</span>
+      </button>
+      <button class="ow-shape-btn" data-shape="cateye">
+        <svg viewBox="0 0 64 44" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 28c0-12 10-24 28-24s28 12 28 24c0 8-6 14-14 14H18C10 42 4 36 4 28z"/><path d="M4 28L2 8M60 28l2-20" stroke-width="1.5"/></svg>
+        <span>Cat Eye</span>
+      </button>
+      <button class="ow-shape-btn" data-shape="wayfarer">
+        <svg viewBox="0 0 64 44" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8c0-3 2-5 5-5h46c3 0 5 2 5 5v22c0 6-4 11-10 11H14C8 41 4 36 4 30V8z"/></svg>
+        <span>Wayfarer</span>
+      </button>
+      <button class="ow-shape-btn" data-shape="clubmaster">
+        <svg viewBox="0 0 64 44" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h56v2H4z" stroke-width="3"/><rect x="4" y="8" width="56" height="28" rx="14"/></svg>
+        <span>Clubmaster</span>
+      </button>
+      <button class="ow-shape-btn" data-shape="panto">
+        <svg viewBox="0 0 56 56" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18c0-8 10-14 22-14s22 6 22 14v12c0 10-8 18-22 18S6 40 6 30V18z"/></svg>
+        <span>Panto</span>
+      </button>
+      <button class="ow-shape-btn" data-shape="kids">
+        <svg viewBox="0 0 64 44" fill="none" stroke="currentColor" stroke-width="2"><circle cx="20" cy="22" r="14"/><circle cx="44" cy="22" r="14"/><path d="M34 22h-4" stroke-width="2"/><path d="M6 16c-2-4 0-8 0-8M58 16c2-4 0-8 0-8" stroke-width="1.5"/></svg>
+        <span>Kids</span>
+      </button>
+      <button class="ow-shape-btn" data-shape="supra">
+        <svg viewBox="0 0 64 44" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 4h60v3H2z" stroke-width="3"/><rect x="6" y="7" width="22" height="30" rx="4"/><rect x="36" y="7" width="22" height="30" rx="4"/></svg>
+        <span>Supra</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══ COLOR POPUP ═══ -->
+<div id="owColorPopup" class="ow-shapes-overlay" style="display:none;">
+  <div class="ow-shapes-popup" style="max-width:420px;">
+    <div class="ow-shapes-header">
+      <h3>{{ _('Select Color') }}</h3>
+      <button class="ow-shapes-close" id="owColorClose">&times;</button>
+    </div>
+    <div class="color-select-widget" style="width:min(100%,420px);display:flex;flex-wrap:wrap;gap:clamp(8px,2vw,12px);padding:clamp(10px,3vw,14px);border-radius:clamp(18px,5vw,28px);background:linear-gradient(135deg,#ffffff,#f8fafc);border:1px solid #e5e7eb;box-shadow:0 14px 32px rgba(15,23,42,.1);font-family:Inter,Arial,sans-serif;">
+      <button class="color-chip" style="--c:#111827" data-colorname="black" aria-label="Black"></button>
+      <button class="color-chip" style="--c:#8b5cf6" data-colorname="purple" aria-label="Purple"></button>
+      <button class="color-chip" style="--c:#2563eb" data-colorname="blue" aria-label="Blue"></button>
+      <button class="color-chip" style="--c:#16a34a" data-colorname="green" aria-label="Green"></button>
+      <button class="color-chip" style="--c:#f97316" data-colorname="orange" aria-label="Orange"></button>
+      <button class="color-chip" style="--c:#ef4444" data-colorname="red" aria-label="Red"></button>
+      <button class="color-chip" style="--c:#ec4899" data-colorname="pink" aria-label="Pink"></button>
+      <button class="color-chip" style="--c:#92400e" data-colorname="brown" aria-label="Brown"></button>
+      <button class="color-chip" style="--c:#d4af37" data-colorname="gold" aria-label="Gold"></button>
+      <button class="color-chip" style="--c:#9ca3af" data-colorname="gray" aria-label="Gray"></button>
+      <button class="color-chip" style="--c:#c0c0c0" data-colorname="silver" aria-label="Silver"></button>
+      <button class="color-chip" style="--c:#f5f5f5;border:1.5px solid #d1d5db" data-colorname="white" aria-label="White"></button>
+      <button class="color-chip" style="--c:#eab308" data-colorname="yellow" aria-label="Yellow"></button>
+      <button class="color-chip gradient" data-colorname="multicolor" aria-label="Multicolor"></button>
+    </div>
+  </div>
+</div>
+<style>
+.color-chip{width:clamp(34px,9vw,48px);height:clamp(34px,9vw,48px);border:3px solid #fff;border-radius:50%;cursor:pointer;background:var(--c);box-shadow:0 6px 16px rgba(15,23,42,.18);transition:.22s ease;}
+.color-chip.gradient{background:conic-gradient(#ef4444,#f97316,#22c55e,#06b6d4,#8b5cf6,#ef4444);}
+.color-chip:hover{transform:translateY(-3px) scale(1.06);}
+.color-chip.active{outline:3px solid #2563eb;outline-offset:3px;transform:scale(1.08);}
+</style>
+
+<!-- ═══ CATEGORIES OVERLAY (from old base) ═══ -->
+<div id="categories-overlay" class="overlay">
+  <div class="overlay-box" style="max-width:500px;">
+    <button class="overlay-close" onclick="closeCategories()">&times;</button>
+    <h2>{{ _('Categories') }}</h2>
+    <div class="category-list">
+      <a href="{{ url_for('main.categories', category='supra') }}" class="category-item"><span>{{ _('Half Frames Specs') }}</span></a>
+      <a href="{{ url_for('main.categories', category='clubmaster') }}" class="category-item"><span>{{ _('Club Master Specs') }}</span></a>
+      <a href="{{ url_for('main.categories', category='round') }}" class="category-item"><span>{{ _('Rounded-Glass Specs') }}</span></a>
+      <a href="{{ url_for('main.categories', category='rectangle') }}" class="category-item"><span>{{ _('Rectangle Specs') }}</span></a>
+      <a href="{{ url_for('main.categories', category='rimless') }}" class="category-item"><span>{{ _('Rimless Specs') }}</span></a>
+      <a href="{{ url_for('main.categories', category='square') }}" class="category-item"><span>{{ _('Square Specs') }}</span></a>
+    </div>
+  </div>
+</div>
+
+
+<div class="container">
+	<main> 
+		{% with messages = get_flashed_messages() %}
+      			{% if messages %}
+			<ul class="flashes">
+			{% for message in messages %}
+			<li> {{ message|safe }}</li>
+			{% endfor %}
+			</ul>
+			{% endif %}
+		{% endwith %}
+		{% block content %} {% endblock %}
+	</main>
+</div>
+
+
+	<footer class="ow-footer">
+		<!-- Top section: 4-column grid -->
+		<div class="ow-footer-grid">
+			<!-- Col 1: About Us -->
+			<div class="ow-footer-col">
+				<h3 class="ow-footer-heading">{{ _('About Optiwar') }}</h3>
+				<p class="ow-footer-text">{% if is_india %}India's factory outlet eyewear platform. Every spectacle frame includes complimentary prescription lenses &mdash; just pick your frame and we handle the rest. Upgrades like anti-glare, blue-cut and progressive lenses available as affordable add-ons.{% else %}Global factory outlet eyewear platform. Every spectacle frame includes complimentary prescription lenses &mdash; just pick your frame and we handle the rest. Upgrades like anti-glare, blue-cut and progressive lenses available as affordable add-ons.{% endif %}</p>
+				<p class="ow-footer-text" style="margin-top:8px;">{% if is_india %}<strong>Free shipping</strong> across India. Prices include GST.{% else %}<strong>Free shipping</strong> worldwide. All taxes included.{% endif %}</p>
+				<div class="ow-footer-social">
+					<a href="https://www.instagram.com/optiwar_" target="_blank" rel="noopener" aria-label="Instagram" class="ow-footer-social-link">
+						<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
+					</a>
+				</div>
+			</div>
+
+			<!-- Col 2: Our Lenses -->
+			<div class="ow-footer-col">
+				<h3 class="ow-footer-heading">{{ _('Our Lenses') }}</h3>
+				<ul class="ow-footer-links">
+					<li><a href="/lenses/anti-glare-lenses">Anti-Glare Lenses</a></li>
+					<li><a href="/lenses/blue-cut-lenses">Blue-Cut Lenses</a></li>
+					<li><a href="/lenses/multi-anti-glare-lenses">Multi Anti-Glare</a></li>
+					<li><a href="/lenses/thin-lenses">Thin Lenses</a></li>
+					<li><a href="/lenses/ultra-thin-lenses">Ultra-Thin Lenses</a></li>
+					<li><a href="/lenses/photogrey-lenses">Photogrey Lenses</a></li>
+					<li><a href="/lenses/photobrown-lenses">Photobrown Lenses</a></li>
+					<li><a href="/lenses/polarized-lenses">Polarized Lenses</a></li>
+					<li><a href="/lenses/bifocal-round-lenses">Bifocal Round</a></li>
+					<li><a href="/lenses/bifocal-flat-top-d-lenses">Bifocal Flat-Top D</a></li>
+					<li><a href="/lenses/progressive-lenses">Progressive Lenses</a></li>
+				</ul>
+			</div>
+
+			<!-- Col 3: Shop By Category -->
+			<div class="ow-footer-col">
+				<h3 class="ow-footer-heading">{{ _('Shop Categories') }}</h3>
+				<ul class="ow-footer-links">
+					<li><a href="{{ url_for('main.categories', category='supra') }}">Half Frame Specs</a></li>
+					<li><a href="{{ url_for('main.categories', category='clubmaster') }}">Club Master Specs</a></li>
+					<li><a href="{{ url_for('main.categories', category='round') }}">Rounded-Glass Specs</a></li>
+					<li><a href="{{ url_for('main.categories', category='rectangle') }}">Rectangle Specs</a></li>
+					<li><a href="{{ url_for('main.categories', category='rimless') }}">Rimless Specs</a></li>
+					<li><a href="{{ url_for('main.categories', category='square') }}">Square Specs</a></li>
+				</ul>
+			</div>
+
+			<!-- Col 4: Quick Links + Contact -->
+			<div class="ow-footer-col">
+				<h3 class="ow-footer-heading">{{ _('Quick Links') }}</h3>
+				<ul class="ow-footer-links">
+					<li><a href="/lenses">{{ _('All Lenses') }}</a></li>
+					<li><a href="/tryon">{{ _('AI Face Measurement') }}</a></li>
+					<li><a href="{{ url_for('main.search_products') }}">{{ _('Search Products') }}</a></li>
+					<li><a href="{{ url_for('main.terms_and_conditions') }}">{{ _('Terms & Conditions') }}</a></li>
+					<li><a href="{{ url_for('main.privacy_policy') }}">{{ _('Privacy Policy') }}</a></li>
+					<li><a href="javascript:void(0)" onclick="openContactChoice()">{{ _('Contact Us') }}</a></li>
+				</ul>
+				<h3 class="ow-footer-heading" style="margin-top:18px;">{{ _('Contact') }}</h3>
+				<p class="ow-footer-text ow-footer-addr">
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+					Godown ,Village Fazilpur, Badshahpur Tethar(222), Badshahpur, Gurgaon-122101
+				</p>
+			</div>
+		</div>
+
+		{% if is_india %}
+		<!-- Regional site: cross-link -->
+		<div class="ow-footer-global-link">
+			<a href="https://optiwar.com" target="_blank" rel="noopener">
+				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
+				{{ _('Visit Global Site') }} &mdash; optiwar.com
+			</a>
+		</div>
+		{% else %}
+		<!-- Global site: cross-link to India -->
+		<div class="ow-footer-global-link">
+			<a href="https://optiwar.in" target="_blank" rel="noopener">
+				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="12" viewBox="0 0 900 600"><rect fill="#f93" width="900" height="200"/><rect fill="#fff" y="200" width="900" height="200"/><rect fill="#128807" y="400" width="900" height="200"/><circle fill="#008" cx="450" cy="300" r="60" fill-opacity=".8"/><circle fill="#fff" cx="450" cy="300" r="52"/><circle fill="#008" cx="450" cy="300" r="16"/></svg>
+				{{ _('Visit India Site') }} &mdash; optiwar.in
+			</a>
+		</div>
+		{% endif %}
+
+		<!-- Bottom bar -->
+		<div class="ow-footer-bottom">
+			<p>&copy; 2025 Optiwar. {{ _('All rights reserved.') }}</p>
+			<form action="{{ url_for('main.clear_the_cart') }}" method="post" class="ow-footer-clear-cart">
+				<button type="submit">{{ _('Clear Cart') }}</button>
+			</form>
+		</div>
+	</footer>
+	<!-- Single shared image-zoom modal (replaces per-card duplicate #zoomModal) -->
+	<div id="owZoomModal" class="zoom-modal" role="dialog" aria-modal="true" aria-label="Product image">
+		<button type="button" class="ow-zoom-close" aria-label="Close">&times;</button>
+		<button type="button" class="ow-zoom-nav ow-zoom-prev" aria-label="Previous image">&#8249;</button>
+		<img id="owZoomImg" class="zoomed-image" src="" alt="">
+		<button type="button" class="ow-zoom-nav ow-zoom-next" aria-label="Next image">&#8250;</button>
+	</div>
+	<script src="{{ url_for('static', filename='ow_picture.js') + '?v=3' }}"></script>
+	<script src="{{ url_for('static', filename='scripts.js') + '?v=22' }}"></script>
+<script>
+(function(){
+  var el = document.getElementById("owFaceAlert");
+  if(!el) return;
+  if(localStorage.getItem("ow_face_measured")){
+    el.style.display = "none";
+  }
+  fetch("/api/tryon/my-measurements",{credentials:"same-origin"})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(d.has_measurements){
+        el.style.display = "none";
+        localStorage.setItem("ow_face_measured","1");
+      } else if(!d.error){
+        el.style.display = "";
+        localStorage.removeItem("ow_face_measured");
+      }
+    })
+    .catch(function(){});
+})();
+</script>
+
+
+	{% with messages = get_flashed_messages() %}
+		{% if 'Cart has been cleared.' in messages  %}	
+	<script>
+		localStorage.removeItem('rightPwr');
+		localStorage.removeItem('leftPwr');
+		localStorage.removeItem('recommendation');
+		localStorage.removeItem('lensPrice');
+		localStorage.removeItem('totalPrice');
+		console.log("Local Storage is deleted");
+	</script>
+		{% endif %}
+	{% endwith %}
+
+<!-- Contact Us Popup Modal --><div id="contactModal" class="ow-contact-overlay" style="display:none;">  <div class="ow-contact-modal">    <button class="ow-contact-close" onclick="closeContactModal()">&times;</button>    <h2 class="ow-contact-title">{{ _('Contact Us') }}</h2>    <p class="ow-contact-subtitle">{{ _('Raise a support ticket and our team will respond shortly.') }}</p>    <form id="contactForm" class="ow-contact-form">      <div class="ow-contact-field">        <label for="cName">{{ _('Name') }}</label>        <input type="text" id="cName" name="name" placeholder="{{ _('Your name') }}" required>      </div>      <div class="ow-contact-field">        <label for="cSubject">{{ _('Subject') }}</label>        <select id="cSubject" name="subject" onchange="prefillContactDesc()" required>          <option value="">{{ _('Select a subject') }}</option>          <option value="I want to order frames with lenses">I want to order frames with lenses</option>          <option value="Requesting someone to call me before I order">Requesting callback before ordering</option>          <option value="Others">Something else</option>        </select>      </div>      <div class="ow-contact-field">        <label for="cDesc">{{ _('Description') }}</label>        <textarea id="cDesc" name="description" rows="3" placeholder="{{ _('Tell us how we can help...') }}" required></textarea>      </div>      <div class="ow-contact-row">        <div class="ow-contact-field">          <label for="cPhone">{{ _('Mobile') }}</label>          <input type="tel" id="cPhone" name="phone" placeholder="+91 ..." required>        </div>        <div class="ow-contact-field">          <label for="cEmail">{{ _('Email') }}</label>          <input type="email" id="cEmail" name="email" placeholder="you@email.com" required>        </div>      </div>      <div class="ow-contact-captcha">        <label>{{ _('Enter the text shown below:') }}</label>        <img id="captchaImg" src="" alt="CAPTCHA" class="ow-captcha-img">        <input type="text" id="cCaptcha" name="captcha" placeholder="Enter CAPTCHA" required>      </div>      <button type="submit" class="ow-contact-submit">Submit Ticket</button>      <p class="ow-contact-note" id="contactStatus"></p>    </form>  </div></div><script>function openContactChoice(){document.getElementById("contactChoiceModal").style.display="flex";document.body.style.overflow="hidden";}
+function openContactModal(orderId){  document.getElementById("contactModal").style.display="flex";  if(orderId){document.getElementById("cSubject").value="Others";document.getElementById("cDesc").value="Hi, I need help with my order #"+orderId;}  fetch("/contact_us/captcha?t="+Date.now(),{credentials:"same-origin"}).then(function(r){return r.json();}).then(function(d){document.getElementById("captchaImg").src="data:image/png;base64,"+d.captcha_image;}).catch(function(e){console.warn("Captcha load error",e);});}function closeContactModal(){  document.getElementById("contactModal").style.display="none";}function prefillContactDesc(){  var s=document.getElementById("cSubject").value;  var d=document.getElementById("cDesc");  if(s==="I want to order frames with lenses") d.value="Hi, I would like to order spectacle frames with lenses. Please assist.";  else if(s==="Requesting someone to call me before I order") d.value="Hi, please call me before I place my order. I have a few questions.";  else d.value="";}document.getElementById("contactForm").addEventListener("submit",function(e){  e.preventDefault();  var st=document.getElementById("contactStatus");  st.textContent="Submitting...";  st.style.color="#6366f1";  var fd=new FormData(this);  fetch("/contact_us/submit",{method:"POST",body:fd})    .then(function(r){return r.json();})    .then(function(d){      if(d.success){        st.textContent="Ticket submitted! We will respond shortly.";        st.style.color="#22c55e";        document.getElementById("contactForm").reset();      } else {        st.textContent=d.error||"Something went wrong. Please try again.";        st.style.color="#ef4444";        fetch("/contact_us/captcha?t="+Date.now(),{credentials:"same-origin"}).then(function(r){return r.json();}).then(function(d){document.getElementById("captchaImg").src="data:image/png;base64,"+d.captcha_image;});      }    })    .catch(function(){      st.textContent="Network error. Please try again.";      st.style.color="#ef4444";    });});</script>
+
+
+
+
+<script>
+(function(){
+  var applied = false;
+  if(!window.__owFaceIds) window.__owFaceIds = null;
+  function applyBadges(){
+    if(!window.__owFaceIds) return;
+    document.querySelectorAll(".ow-card-facefit-badge[data-pid]").forEach(function(el){
+      if(window.__owFaceIds.indexOf(el.getAttribute("data-pid")) !== -1){
+        el.classList.add("visible");
+      }
+    });
+  }
+  window.applyBadges = applyBadges;
+  /* If server-side IDs already set (from template), just apply badges */
+  if(window.__owFaceIds && window.__owFaceIds.length){
+    console.log("[FaceMatch] Using server-side IDs (" + window.__owFaceIds.length + " matches)");
+    applyBadges();
+    var obs = new MutationObserver(function(){ applyBadges(); });
+    var pl = document.getElementById("product-list") || (document.querySelector("main") && document.querySelector("main").querySelector("ul"));
+    if(pl) obs.observe(pl, {childList:true});
+  } else {
+    /* Fallback: fetch via AJAX */
+    fetch("/api/tryon/matching-frames",{credentials:"same-origin"})
+      .then(function(r){
+        if(!r.ok) throw new Error("API returned " + r.status);
+        return r.json();
+      })
+      .then(function(d){
+        var items = d.matching_products || d.frames;
+        if(!items || !items.length) return;
+        window.__owFaceIds = items.map(function(p){ return String(p.product_id || p.id); });
+        console.log("[FaceMatch] AJAX loaded " + window.__owFaceIds.length + " matching IDs");
+        applyBadges();
+        var obs = new MutationObserver(function(){ applyBadges(); });
+        var pl = document.getElementById("product-list") || (document.querySelector("main") && document.querySelector("main").querySelector("ul"));
+        if(pl) obs.observe(pl, {childList:true});
+      })
+      .catch(function(e){ console.warn("[FaceMatch] Error:", e); });
+  }
+})();
+</script>
+
+<!-- ═══ LENS GRID POPUP ═══ -->
+<div id="lens-grid-popup" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.5);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:20px;padding:32px;max-width:560px;width:92%;max-height:85vh;overflow-y:auto;position:relative;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+    <button onclick="document.getElementById('lens-grid-popup').style.display='none'" style="position:absolute;top:12px;right:16px;background:none;border:none;font-size:1.5rem;cursor:pointer;color:#666;">&times;</button>
+    <h3 style="text-align:center;font-size:1.3rem;margin-bottom:20px;color:#1a1a2e;">Browse Lens Collections</h3>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;">
+      <a href="/lenses/anti-glare-lenses" style="text-decoration:none;background:#f8f9fa;border-radius:16px;padding:20px 12px;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,0.06);transition:all 0.2s;border:1px solid rgba(0,0,0,0.04);">
+        <div style="font-size:1.5rem;margin-bottom:8px;">&#128083;</div>
+        <div style="font-weight:600;color:#1a1a2e;font-size:0.85rem;line-height:1.3;">Single Vision Lenses</div>
+      </a>
+      <a href="/lenses/multi-anti-glare-lenses" style="text-decoration:none;background:#f8f9fa;border-radius:16px;padding:20px 12px;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,0.06);transition:all 0.2s;border:1px solid rgba(0,0,0,0.04);">
+        <div style="font-size:1.5rem;margin-bottom:8px;">&#9728;&#65039;</div>
+        <div style="font-weight:600;color:#1a1a2e;font-size:0.85rem;line-height:1.3;">Multi-Glare Lenses</div>
+      </a>
+      <a href="/lenses/thin-lenses" style="text-decoration:none;background:#f8f9fa;border-radius:16px;padding:20px 12px;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,0.06);transition:all 0.2s;border:1px solid rgba(0,0,0,0.04);">
+        <div style="font-size:1.5rem;margin-bottom:8px;">&#128083;</div>
+        <div style="font-weight:600;color:#1a1a2e;font-size:0.85rem;line-height:1.3;">Thin Lenses</div>
+      </a>
+      <a href="/lenses/ultra-thin-lenses" style="text-decoration:none;background:#f8f9fa;border-radius:16px;padding:20px 12px;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,0.06);transition:all 0.2s;border:1px solid rgba(0,0,0,0.04);">
+        <div style="font-size:1.5rem;margin-bottom:8px;">&#128083;</div>
+        <div style="font-weight:600;color:#1a1a2e;font-size:0.85rem;line-height:1.3;">Ultra-thin Lenses</div>
+      </a>
+      <a href="/lenses/photobrown-lenses" style="text-decoration:none;background:#f8f9fa;border-radius:16px;padding:20px 12px;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,0.06);transition:all 0.2s;border:1px solid rgba(0,0,0,0.04);">
+        <div style="font-size:1.5rem;margin-bottom:8px;">&#128083;</div>
+        <div style="font-weight:600;color:#1a1a2e;font-size:0.85rem;line-height:1.3;">Photo-Brown Lenses</div>
+      </a>
+      <a href="/lenses/polarized-lenses" style="text-decoration:none;background:#f8f9fa;border-radius:16px;padding:20px 12px;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,0.06);transition:all 0.2s;border:1px solid rgba(0,0,0,0.04);">
+        <div style="font-size:1.5rem;margin-bottom:8px;">&#128083;</div>
+        <div style="font-weight:600;color:#1a1a2e;font-size:0.85rem;line-height:1.3;">Polarized Lenses</div>
+      </a>
+      <a href="/lenses/bifocal-flat-top-d-lenses" style="text-decoration:none;background:#f8f9fa;border-radius:16px;padding:20px 12px;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,0.06);transition:all 0.2s;border:1px solid rgba(0,0,0,0.04);">
+        <div style="font-size:1.5rem;margin-bottom:8px;">&#128083;</div>
+        <div style="font-weight:600;color:#1a1a2e;font-size:0.85rem;line-height:1.3;">Bifocal Flat Top D Lenses</div>
+      </a>
+      <a href="/lenses/bifocal-round-lenses" style="text-decoration:none;background:#f8f9fa;border-radius:16px;padding:20px 12px;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,0.06);transition:all 0.2s;border:1px solid rgba(0,0,0,0.04);">
+        <div style="font-size:1.5rem;margin-bottom:8px;">&#128083;</div>
+        <div style="font-weight:600;color:#1a1a2e;font-size:0.85rem;line-height:1.3;">Bifocal Round Top Lenses</div>
+      </a>
+      <a href="/lenses/progressive-lenses" style="text-decoration:none;background:#f8f9fa;border-radius:16px;padding:20px 12px;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,0.06);transition:all 0.2s;border:1px solid rgba(0,0,0,0.04);">
+        <div style="font-size:1.5rem;margin-bottom:8px;">&#128083;</div>
+        <div style="font-weight:600;color:#1a1a2e;font-size:0.85rem;line-height:1.3;">Progressive Lenses</div>
+      </a>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var widget = document.getElementById('owFilterWidget');
+  var btn = document.getElementById('owFilterBtn');
+  var panel = document.getElementById('owFilterPanel');
+  var productList = document.getElementById('product-list') || document.getElementById('frames-list');
+  var isCategoryPage = window.location.pathname.indexOf('/categories/') === 0 || window.location.pathname.indexOf('/eyeglasses/') === 0;
+  if(!isCategoryPage) { if(widget) widget.style.display='none'; return; }
+  widget.style.display = '';
+
+  // Auto-expand filters on category pages
+  var panelOpen = true;
+  panel.classList.add("ow-fb-open"); btn.classList.add("active");
+  btn.addEventListener('click', function(){
+    panelOpen = !panelOpen;
+    panel.classList.toggle('ow-fb-open', panelOpen);
+    btn.classList.toggle('active', panelOpen);
+  });
+
+  // ─── MULTI-SELECT FILTER STATE ───
+  var activeFilters = {
+    facematch: false,
+    price: false,
+    size: null,      // 'small', 'medium', 'large', 'extra large'
+    shape: null,     // 'rectangle', 'round', etc.
+    color: null      // 'black', 'blue', etc.
+  };
+  var originalOrder = null;
+
+  // Color matching — uses pre-computed color_filter column (lowercase bucket)
+  function matchesColor(productColorFilter, filterColor){
+    if(!filterColor) return true;
+    if(!productColorFilter) return false;
+    return productColorFilter.toLowerCase().trim() === filterColor.toLowerCase();
+  }
+
+  // ─── COMBINED FILTER APPLY (SERVER-SIDE) ───
+  var _filterXhr = null;
+  function applyAllFilters(){
+    // Build query params from active filters
+    var params = [];
+    if(activeFilters.size) params.push('facefit=' + encodeURIComponent(activeFilters.size));
+    if(activeFilters.color) params.push('color=' + encodeURIComponent(activeFilters.color));
+    if(activeFilters.shape) params.push('shape=' + encodeURIComponent(activeFilters.shape));
+    if(activeFilters.price) params.push('price_sort=asc');
+    if(activeFilters.facematch){
+      var faceIds = window.__owFaceIds || [];
+      if(faceIds.length > 0) params.push('facematch_ids=' + encodeURIComponent(faceIds.join(',')));
+    }
+    params.push('per_page=200');
+
+    // Abort previous request if still pending
+    if(_filterXhr && _filterXhr.readyState !== 4){
+      _filterXhr.abort();
+    }
+
+    var url = '/api/frames?' + params.join('&');
+    _filterXhr = new XMLHttpRequest();
+    _filterXhr.open('GET', url, true);
+    _filterXhr.onreadystatechange = function(){
+      if(_filterXhr.readyState !== 4) return;
+      if(_filterXhr.status !== 200){
+        showNoResults(true);
+        updateFilterStatus();
+        return;
+      }
+      var data;
+      try { data = JSON.parse(_filterXhr.responseText); } catch(e){ showNoResults(true); return; }
+
+      // Clear current product list
+      while(productList.firstChild) productList.removeChild(productList.firstChild);
+
+      // Render filtered products using buildCard from all_frames
+      var buildCard = window.owBuildCard;
+      if(buildCard && data.products && data.products.length > 0){
+        for(var i = 0; i < data.products.length; i++){
+          var card = buildCard(data.products[i]);
+          productList.appendChild(card);
+        }
+        showNoResults(false);
+      } else {
+        showNoResults(true);
+      }
+
+      // Disable infinite scroll while filtered
+      if(typeof window.owDisableScroll === 'function') window.owDisableScroll();
+
+      // Update status banner with server-returned total
+      updateFilterStatusWithCount(data.total || data.products.length);
+
+      // Re-init carousel
+      if(typeof window.owCarouselFilterApplied === 'function') window.owCarouselFilterApplied();
+      if(activeFilters.facematch && typeof window.applyBadges === 'function') window.applyBadges();
+
+      // Hide loading indicator
+      var loadingEl = document.getElementById('loading');
+      var allLoadedEl = document.getElementById('all-loaded');
+      if(loadingEl) loadingEl.style.display = 'none';
+      if(allLoadedEl) allLoadedEl.style.display = 'none';
+    };
+    _filterXhr.send();
+  }
+
+  function hasAnyFilter(){
+    return activeFilters.facematch || activeFilters.price || activeFilters.size || activeFilters.shape || activeFilters.color;
+  }
+
+  function updateFilterStatus(){
+    var el = document.getElementById('ow-filter-status');
+    if(!el) return;
+    if(!hasAnyFilter()){
+      el.style.display = 'none';
+      return;
+    }
+    var items = Array.from(productList.querySelectorAll(':scope > li'));
+    var count = items.length;
+    var parts = [];
+    if(activeFilters.color) parts.push(activeFilters.color);
+    if(activeFilters.size){
+      var sizeMap = {small:'Small',medium:'Medium',large:'Large','extra large':'XL'};
+      parts.push(sizeMap[activeFilters.size] || activeFilters.size);
+    }
+    if(activeFilters.shape) parts.push(activeFilters.shape.charAt(0).toUpperCase() + activeFilters.shape.slice(1));
+    if(activeFilters.facematch) parts.push('Face Match');
+    if(activeFilters.price) parts.push('Price: Low→High');
+    el.textContent = 'Showing ' + count + ' frames: ' + parts.join(' · ');
+    el.style.display = 'block';
+  }
+
+  function updateFilterStatusWithCount(count){
+    var el = document.getElementById('ow-filter-status');
+    if(!el) return;
+    if(!hasAnyFilter()){
+      el.style.display = 'none';
+      return;
+    }
+    var parts = [];
+    if(activeFilters.color) parts.push(activeFilters.color);
+    if(activeFilters.size){
+      var sizeMap = {small:'Small',medium:'Medium',large:'Large','extra large':'XL'};
+      parts.push(sizeMap[activeFilters.size] || activeFilters.size);
+    }
+    if(activeFilters.shape) parts.push(activeFilters.shape.charAt(0).toUpperCase() + activeFilters.shape.slice(1));
+    if(activeFilters.facematch) parts.push('Face Match');
+    if(activeFilters.price) parts.push('Price: Low→High');
+    el.textContent = 'Showing ' + count + ' frames: ' + parts.join(' · ');
+    el.style.display = 'block';
+  }
+
+  // Face Match
+  document.getElementById('owFltFace').addEventListener('click', function(){
+    if(this.classList.contains('active')){
+      this.classList.remove('active');
+      activeFilters.facematch = false;
+      if(!hasAnyFilter()) restoreOrder(); else applyAllFilters();
+    } else {
+      this.classList.add('active');
+      activeFilters.facematch = true;
+      if(window.__owFaceIds){
+        applyAllFilters();
+      } else {
+        window.location.href='/tryon';
+      }
+    }
+  });
+
+  // Price sort
+  document.getElementById('owFltPrice').addEventListener('click', function(){
+    if(this.classList.contains('active')){
+      this.classList.remove('active');
+      activeFilters.price = false;
+      if(!hasAnyFilter()) restoreOrder(); else applyAllFilters();
+    } else {
+      this.classList.add('active');
+      activeFilters.price = true;
+      applyAllFilters();
+    }
+  });
+
+  // Size filters (multi-select within sizes: only one size at a time)
+  document.querySelectorAll('.ow-fb-size').forEach(function(b){
+    b.addEventListener('click', function(){
+      var sz = this.getAttribute('data-size');
+      if(this.classList.contains('active')){
+        this.classList.remove('active');
+        activeFilters.size = null;
+        if(!hasAnyFilter()) restoreOrder(); else applyAllFilters();
+      } else {
+        // Deactivate other size buttons only
+        document.querySelectorAll('.ow-fb-size.active').forEach(function(el){ el.classList.remove('active'); });
+        this.classList.add('active');
+        activeFilters.size = sz;
+        applyAllFilters();
+      }
+    });
+  });
+
+  // Reset – clear all filters
+  document.getElementById('owFltReset').addEventListener('click', function(){
+    panel.querySelectorAll('.active').forEach(function(el){ el.classList.remove('active'); });
+    document.querySelectorAll('.ow-shape-btn.active').forEach(function(el){ el.classList.remove('active'); });
+    document.querySelectorAll('.color-chip.active').forEach(function(el){ el.classList.remove('active'); });
+    var shapeTrigger = document.getElementById('owFltShapes');
+    var colorTrigger = document.getElementById('owFltColor');
+    if(shapeTrigger) shapeTrigger.classList.remove('active');
+    if(colorTrigger) colorTrigger.classList.remove('active');
+    activeFilters = {facematch:false, price:false, size:null, shape:null, color:null};
+    showNoResults(false);
+    restoreOrder();
+  });
+
+  function restoreOrder(){
+    // Fetch fresh unfiltered products from server
+    var seed = (typeof window.owGetSeed === 'function') ? window.owGetSeed() : 0;
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/api/frames?page=1&per_page=20&seed=' + seed, true);
+    xhr.onreadystatechange = function(){
+      if(xhr.readyState !== 4 || xhr.status !== 200) return;
+      var data;
+      try { data = JSON.parse(xhr.responseText); } catch(e){ return; }
+      // Clear product list
+      while(productList.firstChild) productList.removeChild(productList.firstChild);
+      // Render cards
+      var buildCard = window.owBuildCard;
+      if(buildCard && data.products){
+        for(var i = 0; i < data.products.length; i++){
+          productList.appendChild(buildCard(data.products[i]));
+        }
+      }
+      // Re-enable infinite scroll
+      if(typeof window.owResetScroll === 'function') window.owResetScroll();
+      // Hide loading/status
+      var loadingEl = document.getElementById('loading');
+      var allLoadedEl = document.getElementById('all-loaded');
+      if(loadingEl) loadingEl.style.display = 'none';
+      if(allLoadedEl) allLoadedEl.style.display = 'none';
+      if(typeof window.owCarouselFilterCleared === 'function') window.owCarouselFilterCleared();
+      updateFilterStatus();
+      if(typeof initFavorites === 'function') initFavorites();
+    };
+    xhr.send();
+  }
+
+  function parsePrice(li){
+    var m = li.innerHTML.match(/Wholesale[^\u20b9\u20ac]*[\u20b9\u20ac]\s*([\d,\.]+)/i);
+    return m ? parseInt(m[1].replace(/,/g,''),10) : 99999;
+  }
+
+  // Expose active shape filter for loadMore re-apply
+  window.owGetActiveShapeFilter = function(){ return activeFilters.shape; };
+  window.owApplyAllFilters = applyAllFilters;
+  window.owHasAnyFilter = hasAnyFilter;
+
+  // No results message
+  function showNoResults(show){
+    var el = document.getElementById('owNoResults');
+    if(!el){
+      el = document.createElement('div');
+      el.id = 'owNoResults';
+      el.className = 'ow-no-results';
+      el.innerHTML = '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><path d="M8 11h6" stroke-linecap="round"/></svg><p>No frames found for these filters</p><p class="ow-no-results-sub">Try changing your filter combination</p>';
+      var carouselWrap = productList.closest('.ow-dsk-wrap');
+      var insertAfter = carouselWrap || productList;
+      insertAfter.parentNode.insertBefore(el, insertAfter.nextSibling);
+    }
+    el.style.display = show ? 'block' : 'none';
+    var carouselWrap = productList.closest('.ow-dsk-wrap');
+    if(carouselWrap) carouselWrap.style.display = show ? 'none' : '';
+  }
+
+  // Shapes popup
+  var shapesPopup = document.getElementById('owShapesPopup');
+  var shapesTrigger = document.getElementById('owFltShapes');
+  var shapesClose = document.getElementById('owShapesClose');
+
+  if(shapesTrigger && shapesPopup){
+    shapesTrigger.addEventListener('click', function(){
+      shapesPopup.style.display = 'flex';
+    });
+    shapesClose.addEventListener('click', function(){
+      shapesPopup.style.display = 'none';
+    });
+    shapesPopup.addEventListener('click', function(e){
+      if(e.target === shapesPopup) shapesPopup.style.display = 'none';
+    });
+
+    document.querySelectorAll('.ow-shape-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var shape = this.getAttribute('data-shape');
+        var wasActive = this.classList.contains('active');
+        document.querySelectorAll('.ow-shape-btn.active').forEach(function(el){ el.classList.remove('active'); });
+        if(wasActive){
+          shapesTrigger.classList.remove('active');
+          activeFilters.shape = null;
+          if(!hasAnyFilter()) restoreOrder(); else applyAllFilters();
+        } else {
+          this.classList.add('active');
+          shapesTrigger.classList.add('active');
+          activeFilters.shape = shape;
+          applyAllFilters();
+        }
+        shapesPopup.style.display = 'none';
+      });
+    });
+  }
+
+  // Color popup
+  var colorPopup = document.getElementById('owColorPopup');
+  var colorTrigger = document.getElementById('owFltColor');
+  var colorClose = document.getElementById('owColorClose');
+
+  if(colorTrigger && colorPopup){
+    colorTrigger.addEventListener('click', function(){
+      colorPopup.style.display = 'flex';
+    });
+    colorClose.addEventListener('click', function(){
+      colorPopup.style.display = 'none';
+    });
+    colorPopup.addEventListener('click', function(e){
+      if(e.target === colorPopup) colorPopup.style.display = 'none';
+    });
+
+    document.querySelectorAll('.color-chip').forEach(function(chip){
+      chip.addEventListener('click', function(){
+        var colorName = this.getAttribute('data-colorname');
+        var wasActive = this.classList.contains('active');
+        document.querySelectorAll('.color-chip.active').forEach(function(el){ el.classList.remove('active'); });
+        if(wasActive){
+          colorTrigger.classList.remove('active');
+          activeFilters.color = null;
+          if(!hasAnyFilter()) restoreOrder(); else applyAllFilters();
+        } else {
+          this.classList.add('active');
+          colorTrigger.classList.add('active');
+          activeFilters.color = colorName;
+          applyAllFilters();
+        }
+        colorPopup.style.display = 'none';
+      });
+    });
+  }
+
+  setTimeout(function(){
+    originalOrder = Array.from(productList.querySelectorAll(':scope > li'));
+  }, 2000);
+
+  // Auto-apply filters from URL params (e.g. ?color=red&facefit=large&shape=round)
+  (function(){
+    var params = new URLSearchParams(window.location.search);
+    var autoFilter = params.get('filter');
+    var urlColor = params.get('color');
+    var urlFacefit = params.get('facefit');
+    var urlShape = params.get('shape');
+
+    // Facematch filter (existing)
+    if(autoFilter === 'facematch'){
+      var faceBtn = document.getElementById('owFltFace');
+      if(faceBtn){
+        var attempts = 0;
+        var tryApply = function(){
+          if(window.__owFaceIds && window.__owFaceIds.length){
+            faceBtn.click();
+          } else if(attempts < 20){
+            attempts++;
+            setTimeout(tryApply, 300);
+          }
+        };
+        setTimeout(tryApply, 200);
+      }
+    }
+
+    // Color/Facefit/Shape filters from AI navigation
+    if(urlColor || urlFacefit || urlShape){
+      var tryAutoFilters = function(){
+        var applied = false;
+
+        // Apply facefit (size) filter
+        if(urlFacefit){
+          var sizeMap = {'small':'S','medium':'M','large':'L','extra large':'XL','extra+large':'XL'};
+          var sizeLabel = sizeMap[urlFacefit.toLowerCase()] || urlFacefit.toUpperCase();
+          var sizeButtons = document.querySelectorAll('[data-facefit]');
+          for(var i = 0; i < sizeButtons.length; i++){
+            if(sizeButtons[i].getAttribute('data-facefit') === sizeLabel || sizeButtons[i].textContent.trim() === sizeLabel){
+              sizeButtons[i].click();
+              applied = true;
+              break;
+            }
+          }
+          // Fallback: set activeFilters directly
+          if(!applied && typeof activeFilters !== 'undefined'){
+            activeFilters.size = urlFacefit.replace('+', ' ');
+            applied = true;
+          }
+        }
+
+        // Apply color filter
+        if(urlColor){
+          if(typeof activeFilters !== 'undefined'){
+            activeFilters.color = urlColor.toLowerCase();
+            applied = true;
+          }
+        }
+
+        // Apply shape filter
+        if(urlShape){
+          var shapeButtons = document.querySelectorAll('[data-shape]');
+          for(var j = 0; j < shapeButtons.length; j++){
+            if(shapeButtons[j].getAttribute('data-shape').toLowerCase() === urlShape.toLowerCase().replace('+', ' ')){
+              shapeButtons[j].click();
+              applied = true;
+              break;
+            }
+          }
+          if(!applied && typeof activeFilters !== 'undefined'){
+            activeFilters.shape = urlShape.replace('+', ' ');
+            applied = true;
+          }
+        }
+
+        // Trigger server-side filter
+        if(applied && typeof applyAllFilters === 'function'){
+          applyAllFilters();
+        } else if(applied && typeof window.owApplyAllFilters === 'function'){
+          window.owApplyAllFilters();
+        }
+      };
+      // Wait a moment for the page to fully initialize
+      setTimeout(tryAutoFilters, 500);
+    }
+  })();
+})();
+</script>
+
+
+
+
+
+
+
+
+
+
+<!-- Contact Us Choice: Manual vs AI -->
+<div id="contactChoiceModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9998;background:rgba(0,0,0,0.45);align-items:center;justify-content:center;" onclick="if(event.target===this){this.style.display='none';document.body.style.overflow='';}">
+  <div style="background:#fff;border-radius:20px;padding:32px 24px;max-width:380px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.25);text-align:center;">
+    <h3 style="margin:0 0 8px;font-size:20px;font-weight:700;color:#1e293b;">How would you like help?</h3>
+    <p style="margin:0 0 24px;font-size:14px;color:#64748b;">Choose your preferred support method</p>
+    <button onclick="document.getElementById('contactChoiceModal').style.display='none';openContactModal();" style="width:100%;padding:16px;border:2px solid #e2e8f0;border-radius:14px;background:#fff;cursor:pointer;margin-bottom:12px;text-align:left;transition:all 0.2s;" onmouseover="this.style.borderColor='#4f46e5';this.style.background='#f8fafc'" onmouseout="this.style.borderColor='#e2e8f0';this.style.background='#fff'">
+      <div style="font-weight:700;font-size:15px;color:#1e293b;margin-bottom:4px;">Contact Us — Manual</div>
+      <div style="font-size:13px;color:#64748b;">Fill out a form with your details and query</div>
+    </button>
+    <button onclick="document.getElementById('contactChoiceModal').style.display='none';document.body.style.overflow='';openAiChat();" style="width:100%;padding:16px;border:2px solid #e2e8f0;border-radius:14px;background:#fff;cursor:pointer;text-align:left;transition:all 0.2s;position:relative;overflow:hidden;" onmouseover="this.style.borderColor='#7c3aed';this.style.background='#faf5ff'" onmouseout="this.style.borderColor='#e2e8f0';this.style.background='#fff'">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div style="font-weight:700;font-size:15px;color:#1e293b;">Contact Us — AI Enabled</div>
+        <span style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;">NEW</span>
+      </div>
+      <div style="font-size:13px;color:#64748b;margin-top:4px;">Chat with AI to quickly create your support ticket</div>
+    </button>
+  </div>
+</div>
+
+
+<!-- AI Chat Support Widget -->
+<div id="aiChatModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(0,0,0,0.5);align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:20px;width:95%;max-width:420px;height:85vh;max-height:600px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+    <!-- Header -->
+    <div style="background:linear-gradient(135deg,#4f46e5,#7c3aed);padding:16px 20px;display:flex;align-items:center;justify-content:space-between;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </div>
+        <div>
+          <div style="color:#fff;font-weight:700;font-size:15px;">Optiwar AI Support</div>
+          <div style="color:rgba(255,255,255,0.7);font-size:11px;">Typically replies instantly</div>
+        </div>
+      </div>
+      <button onclick="closeAiChat()" style="background:none;border:none;color:#fff;font-size:24px;cursor:pointer;padding:4px 8px;">&times;</button>
+    </div>
+    <!-- Chat Messages -->
+    <div id="aiChatMessages" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;background:#f8fafc;">
+    </div>
+    <!-- Input -->
+    <div style="padding:12px 16px;border-top:1px solid #e2e8f0;background:#fff;display:flex;gap:8px;">
+      <input type="text" id="aiChatInput" placeholder="Type your message..." style="flex:1;border:1.5px solid #e2e8f0;border-radius:12px;padding:10px 14px;font-size:14px;outline:none;transition:border-color 0.2s;" onfocus="this.style.borderColor='#4f46e5'" onblur="this.style.borderColor='#e2e8f0'" onkeydown="if(event.key==='Enter')sendAiMsg()">
+      <button onclick="sendAiMsg()" style="background:#4f46e5;color:#fff;border:none;border-radius:12px;padding:10px 16px;cursor:pointer;font-weight:600;font-size:14px;">Send</button>
+    </div>
+    <!-- Timer -->
+    <div id="aiChatTimer" style="padding:6px 16px 10px;text-align:center;font-size:11px;color:#94a3b8;background:#fff;">Session: <span id="aiTimerDisplay">4:00</span> remaining</div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var aiHistory = [];
+  var aiTimer = null;
+  var aiSecondsLeft = 240; // 4 minutes
+  var aiTicketSubmitted = false;
+
+  window.openAiChat = function(){
+    document.getElementById("aiChatModal").style.display = "flex";
+    document.body.style.overflow = "hidden";
+    aiHistory = [];
+    aiTicketSubmitted = false;
+    aiSecondsLeft = 240;
+    document.getElementById("aiChatMessages").innerHTML = "";
+    // Start timer
+    updateTimerDisplay();
+    if(aiTimer) clearInterval(aiTimer);
+    aiTimer = setInterval(function(){
+      aiSecondsLeft--;
+      updateTimerDisplay();
+      if(aiSecondsLeft <= 0){
+        clearInterval(aiTimer);
+        addBotMsg("Time's up! Let me switch you to the manual form so you can submit your request.");
+        setTimeout(function(){ closeAiChat(); openContactModal(); }, 3000);
+      }
+    }, 1000);
+    // Send initial greeting
+    addBotMsg("Hi there! I'm Optiwar's AI support assistant. How can I help you today?");
+  };
+
+  window.closeAiChat = function(){
+    document.getElementById("aiChatModal").style.display = "none";
+    document.body.style.overflow = "";
+    if(aiTimer) clearInterval(aiTimer);
+  };
+
+  function updateTimerDisplay(){
+    var m = Math.floor(aiSecondsLeft/60);
+    var s = aiSecondsLeft % 60;
+    document.getElementById("aiTimerDisplay").textContent = m + ":" + (s<10?"0":"") + s;
+  }
+
+  function addBotMsg(text){
+    var div = document.createElement("div");
+    div.style.cssText = "align-self:flex-start;background:#fff;border:1px solid #e2e8f0;border-radius:14px 14px 14px 4px;padding:10px 14px;max-width:85%;font-size:14px;color:#1e293b;line-height:1.5;box-shadow:0 1px 3px rgba(0,0,0,0.05);";
+    div.textContent = text;
+    document.getElementById("aiChatMessages").appendChild(div);
+    scrollChat();
+  }
+
+  function addUserMsg(text){
+    var div = document.createElement("div");
+    div.style.cssText = "align-self:flex-end;background:#4f46e5;border-radius:14px 14px 4px 14px;padding:10px 14px;max-width:85%;font-size:14px;color:#fff;line-height:1.5;";
+    div.textContent = text;
+    document.getElementById("aiChatMessages").appendChild(div);
+    scrollChat();
+  }
+
+  function addSystemMsg(text){
+    var div = document.createElement("div");
+    div.style.cssText = "align-self:center;background:#dcfce7;border-radius:10px;padding:8px 14px;font-size:13px;color:#166534;font-weight:500;text-align:center;";
+    div.textContent = text;
+    document.getElementById("aiChatMessages").appendChild(div);
+    scrollChat();
+  }
+
+  function scrollChat(){
+    var c = document.getElementById("aiChatMessages");
+    c.scrollTop = c.scrollHeight;
+  }
+
+  function showTyping(){
+    var div = document.createElement("div");
+    div.id = "aiTyping";
+    div.style.cssText = "align-self:flex-start;background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:10px 14px;font-size:13px;color:#94a3b8;";
+    div.textContent = "Typing...";
+    document.getElementById("aiChatMessages").appendChild(div);
+    scrollChat();
+  }
+
+  function hideTyping(){
+    var t = document.getElementById("aiTyping");
+    if(t) t.remove();
+  }
+
+  window.sendAiMsg = function(){
+    var input = document.getElementById("aiChatInput");
+    var msg = input.value.trim();
+    if(!msg || aiTicketSubmitted) return;
+    input.value = "";
+    addUserMsg(msg);
+    aiHistory.push({role:"user", content:msg});
+    showTyping();
+
+    fetch("/contact_us/ai_chat", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      credentials: "same-origin",
+      body: JSON.stringify({message: msg, history: aiHistory})
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      hideTyping();
+      if(d.error){
+        addBotMsg("Sorry, I'm having trouble. " + d.error);
+        return;
+      }
+      addBotMsg(d.reply);
+      aiHistory.push({role:"assistant", content:d.reply});
+
+      if(d.done && d.ticket_data){
+        aiTicketSubmitted = true;
+        submitAiTicket(d.ticket_data);
+      }
+    })
+    .catch(function(e){
+      hideTyping();
+      addBotMsg("Connection error. Please try again or use the manual form.");
+    });
+  };
+
+  function submitAiTicket(ticketData){
+    addSystemMsg("Creating your support ticket...");
+    fetch("/contact_us/ai_submit", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      credentials: "same-origin",
+      body: JSON.stringify({
+        name: ticketData.name || "",
+        email: ticketData.email || "",
+        phone: ticketData.phone || "",
+        subject: ticketData.subject || "Others",
+        description: ticketData.description || "",
+        chat_history: aiHistory
+      })
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(d.success){
+        addSystemMsg("Ticket #" + d.ticket_id + " created! Our team will respond shortly.");
+        if(aiTimer) clearInterval(aiTimer);
+        document.getElementById("aiTimerDisplay").textContent = "Done!";
+      } else {
+        addBotMsg("I couldn't create the ticket: " + (d.error||"Unknown error") + ". Please try the manual form.");
+      }
+    })
+    .catch(function(){
+      addBotMsg("Failed to submit. Please try the manual form.");
+    });
+  }
+})();
+</script>
+
+<!-- Optiwar AI Chat Widget -->
+{% if logged_in %}
+<script>
+window.__optiwarChat = {
+  email: "{{ current_user_email }}",
+  name: "{{ current_user_name }}",
+  customerId: {{ current_user_id if current_user_id else 'null' }}
+};
+</script>
+<script src="{{ url_for('static', filename='js/chat-widget.js') + '?v=13' }}"></script>
+<script src="{{ url_for('static', filename='js/voice-widget.js') + '?v=10' }}"></script>
+{% else %}
+<style>
+.ow-login-btn{position:fixed;bottom:20px;right:20px;z-index:9999;width:clamp(60px,12vw,80px);height:clamp(60px,12vw,80px);border-radius:50%;border:none;background:radial-gradient(circle at center,#0f172a,#020617);cursor:pointer;box-shadow:0 4px 20px rgba(14,165,233,0.4),0 0 40px rgba(56,189,248,0.15);display:grid;place-items:center;overflow:hidden;padding:0;transition:transform .2s}
+.ow-login-btn:hover{transform:scale(1.1)}
+.ow-login-btn .ec-circle{position:absolute;border-radius:50%;border:2px solid rgba(56,189,248,.18)}
+.ow-login-btn .ec-c1{width:38%;height:38%;animation:ecRingSpin 16s linear infinite}
+.ow-login-btn .ec-c2{width:64%;height:64%;animation:ecRingSpinR 20s linear infinite}
+.ow-login-btn .ec-c3{width:90%;height:90%;animation:ecRingSpin 24s linear infinite}
+.ow-login-btn .ec-energy{position:absolute;inset:0;display:grid;place-items:center}
+.ow-login-btn .ec-energy span{position:absolute;width:8px;height:8px;border-radius:50%;background:#fff;box-shadow:0 0 6px #67e8f9,0 0 12px #38bdf8,0 0 18px #0ea5e9}
+.ow-login-btn .ec-orbit1{animation:ecOrbit 8s linear infinite}
+.ow-login-btn .ec-orbit1 span{transform:translateY(-12px)}
+.ow-login-btn .ec-orbit2{animation:ecOrbit 8s linear infinite 2.6s}
+.ow-login-btn .ec-orbit2 span{transform:translateY(-20px)}
+.ow-login-btn .ec-orbit3{animation:ecOrbit 8s linear infinite 5.2s}
+.ow-login-btn .ec-orbit3 span{transform:translateY(-28px)}
+@keyframes ecRingSpin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@keyframes ecRingSpinR{from{transform:rotate(360deg)}to{transform:rotate(0deg)}}
+@keyframes ecOrbit{0%{opacity:0;transform:rotate(0deg)}10%{opacity:1}40%{opacity:1}50%{opacity:0}100%{opacity:0;transform:rotate(360deg)}}
+</style>
+<script>
+(function() {
+  if (window.location.pathname === "/search") return;
+  var btn = document.createElement("button");
+  btn.className = "ow-login-btn";
+  btn.title = "Chat with us";
+  btn.setAttribute("aria-label", "Chat with us");
+  btn.innerHTML = '<div class="ec-circle ec-c1"></div><div class="ec-circle ec-c2"></div><div class="ec-circle ec-c3"></div><div class="ec-energy ec-orbit1"><span></span></div><div class="ec-energy ec-orbit2"><span></span></div><div class="ec-energy ec-orbit3"><span></span></div>';
+  // Choice menu for non-logged-in users
+  var choiceMenu = document.createElement("div");
+  choiceMenu.style.cssText = "position:fixed;bottom:90px;right:20px;z-index:9999;display:none;flex-direction:column;gap:10px;animation:owMenuFadeIn .2s ease";
+  choiceMenu.innerHTML = '<div id="ow-login-text" style="display:flex;align-items:center;gap:12px;padding:14px 20px;background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;cursor:pointer;transition:all .2s;box-shadow:0 4px 16px rgba(0,0,0,0.08);min-width:180px"><div style="width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#6366f1,#4f46e5)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></div><div><div style="font-size:14px;font-weight:600;color:#1e293b">Text Chat</div><div style="font-size:11px;color:#64748b">Type your questions</div></div></div><div id="ow-login-voice" style="display:flex;align-items:center;gap:12px;padding:14px 20px;background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;cursor:pointer;transition:all .2s;box-shadow:0 4px 16px rgba(0,0,0,0.08);min-width:180px"><div style="width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0ea5e9,#0284c7)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></div><div><div style="font-size:14px;font-weight:600;color:#1e293b">Voice Chat</div><div style="font-size:11px;color:#64748b">Talk with AI assistant</div></div></div>';
+  document.body.appendChild(choiceMenu);
+  document.body.appendChild(btn);
+
+  var menuOpen = false;
+  btn.onclick = function() {
+    menuOpen = !menuOpen;
+    choiceMenu.style.display = menuOpen ? "flex" : "none";
+  };
+  document.getElementById("ow-login-text").onclick = function() {
+    var returnUrl = encodeURIComponent(window.location.href);
+    window.location.href = "/auth/login?next=" + returnUrl;
+  };
+  document.getElementById("ow-login-voice").onclick = function() {
+    var returnUrl = encodeURIComponent(window.location.href);
+    window.location.href = "/auth/login?next=" + returnUrl;
+  };
+  document.addEventListener("click", function(e) {
+    if (menuOpen && !btn.contains(e.target) && !choiceMenu.contains(e.target)) {
+      menuOpen = false;
+      choiceMenu.style.display = "none";
+    }
+  });
+})();
+</script>
+{% endif %}
+<script>
+(function(){
+  var btn=document.getElementById('owLangBtn'),dd=document.getElementById('owLangDD');
+  if(!btn||!dd)return;
+  btn.addEventListener('click',function(e){e.stopPropagation();dd.classList.toggle('open');});
+  document.addEventListener('click',function(e){if(!dd.contains(e.target)&&e.target!==btn)dd.classList.remove('open');});
+})();
+</script>
+</body>
+</html>

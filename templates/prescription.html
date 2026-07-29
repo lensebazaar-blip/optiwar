@@ -1,0 +1,1186 @@
+{% extends 'base.html' %}
+{% block title %} Prescription for lenses - Optiwar {% endblock %}
+{% block content %}
+
+<div class="rx-page">
+    <!-- Header -->
+    <div class="rx-head">
+        <div class="rx-head-orb"></div>
+        <div class="rx-head-orb rx-head-orb2"></div>
+        <div class="rx-head-inner">
+            <svg class="rx-head-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="12" r="4"/><circle cx="18" cy="12" r="4"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+            <div>
+                <h1 class="rx-title">{{ product_name }}</h1>
+                <p class="rx-sub">Lenses are Complimentary &bull; Base Price {{ currency_symbol }} {{ product_special_price }}</p>
+            </div>
+        </div>
+    </div>
+
+    <form action="{{ url_for('main.add_to_cart_with_lenses') }}" method="post" id="rxForm" >
+        <!-- Hidden fields -->
+        <input type="hidden" name="product_id" value="{{ product_id }}">
+        <input type="hidden" name="product_name" value="{{ product_name }}">
+        <input type="hidden" name="product_code" value="{{ product_code }}">
+        <input type="hidden" name="product_special_price" value="{{ product_special_price }}" id="basePrice">
+        <input type="hidden" name="product_price" value="{{ product_price }}">
+        <input type="hidden" name="product_category" value="{{ product_category }}">
+        <input type="hidden" name="order_quantity" value="{{ order_quantity }}">
+        <input type="hidden" name="total_price" id="totalPrice" value="0">
+        <input type="hidden" id="hiddenAddon1" name="add_selections" value="">
+        <input type="hidden" id="hiddenAddon2" name="add_selections2" value="">
+        <input type="hidden" id="hiddenAddon3" name="addon_3" value="">
+        <input type="hidden" id="hiddenLensPrice" name="lens_price" value="0">
+        <input type="hidden" id="hiddenCylPrice" name="cyl_price_increase" value="0">
+        <input type="hidden" id="hiddenAddPrice" name="add_price_increase" value="0">
+
+        <!-- STEP 1: Prescription -->
+        <div class="rx-card rx-anim-in">
+            <div class="rx-card-head">
+                <span class="rx-step-badge">1</span>
+                <h2 class="rx-card-title">Your Prescription</h2>
+            </div>
+            <div class="rx-card-body">
+                <!-- RIGHT EYE -->
+                <div class="rx-eye-label">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M2 12s4-8 10-8 10 8 10 8-4 8-10 8-10-8-10-8z"/></svg>
+                    RIGHT EYE (OD)
+                </div>
+                <div class="rx-row">
+                    <div class="rx-field">
+                        <label>PWR</label>
+                        <select name="right_pwr" id="right_pwr">
+                            {% for option in pwr_range %}
+                            <option value="{{ option }}">{{ '+' if option|float > 0 else ''}}{{ '%.2f'|format(option|float) }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="rx-field">
+                        <label>CYL</label>
+                        <select name="right_cyl" id="right_cyl">
+                            {% for option in cyl_range %}
+                            <option value="{{ option }}">{{ option }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="rx-field">
+                        <label>AXIS</label>
+                        <select name="right_axis" id="right_axis">
+                            {% for option in axis_range %}
+                            <option value="{{ option }}">{{ option }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <!-- LEFT EYE -->
+                <div class="rx-eye-label" style="margin-top:16px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M2 12s4-8 10-8 10 8 10 8-4 8-10 8-10-8-10-8z"/></svg>
+                    LEFT EYE (OS)
+                </div>
+                <div class="rx-row">
+                    <div class="rx-field">
+                        <label>PWR</label>
+                        <select name="left_pwr" id="left_pwr">
+                            {% for option in pwr_range %}
+                            <option value="{{ option }}">{{ '+' if option|float > 0 else ''}}{{ '%.2f'|format(option|float) }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="rx-field">
+                        <label>CYL</label>
+                        <select name="left_cyl" id="left_cyl">
+                            {% for option in cyl_range %}
+                            <option value="{{ option }}">{{ option }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="rx-field">
+                        <label>AXIS</label>
+                        <select name="left_axis" id="left_axis">
+                            {% for option in axis_range %}
+                            <option value="{{ option }}">{{ option }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <!-- ADD (Reading Addition) -->
+                <div id="addSection" style="margin-top:14px;">
+                    <button type="button" class="rx-add-toggle" id="addToggleBtn" onclick="showAddDropdowns()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Add Reading/Bifocal Power (ADD)
+                    </button>
+                    <div id="addFields" class="rx-add-fields" style="display:none;">
+                        <div class="rx-row">
+                            <div class="rx-field">
+                                <label>Right ADD</label>
+                                <select name="right_add" id="right_add">
+                                    <option value="">Select</option>
+                                    {% for option in add_range %}
+                                    <option value="{{ option }}">{{ '+' if option|float > 0 else ''}}{{ '%.2f'|format(option|float) }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="rx-field">
+                                <label>Left ADD</label>
+                                <select name="left_add" id="left_add">
+                                    <option value="">Select</option>
+                                    {% for option in add_range %}
+                                    <option value="{{ option }}">{{ '+' if option|float > 0 else ''}}{{ '%.2f'|format(option|float) }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- STEP 2: Lens Options Cards -->
+        <div class="rx-card rx-anim-in" style="animation-delay:0.1s;">
+            <div class="rx-card-head">
+                <span class="rx-step-badge">2</span>
+                <h2 class="rx-card-title">Lens Options</h2>
+                <span class="rx-optional">Optional upgrades</span>
+            </div>
+            <div class="rx-card-body">
+                <div class="rx-options-grid">
+                    <!-- Coating Option -->
+                    <button type="button" class="rx-opt-card" onclick="openModal('coatingModal')">
+                        <div class="rx-opt-icon" style="background:linear-gradient(135deg,#6366f1,#818cf8);">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12z"/><path d="M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>
+                        </div>
+                        <span class="rx-opt-name">Lens Coating</span>
+                        <span class="rx-opt-desc">Anti-Glare, Blue Cut, Multi</span>
+                        <span class="rx-opt-sel" id="coatingSelected">Not selected</span>
+                    </button>
+
+                    <!-- Thickness Option -->
+                    <button type="button" class="rx-opt-card" onclick="openModal('thicknessModal')">
+                        <div class="rx-opt-icon" style="background:linear-gradient(135deg,#8b5cf6,#a78bfa);">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M4 4h16v16H4z"/><line x1="4" y1="12" x2="20" y2="12"/></svg>
+                        </div>
+                        <span class="rx-opt-name">Lens Thickness</span>
+                        <span class="rx-opt-desc">Thin, Extra-Thin, Photochromic</span>
+                        <span class="rx-opt-sel" id="thicknessSelected">Not selected</span>
+                    </button>
+
+                    <!-- Bifocal/Progressive (shown if ADD is active) -->
+                    <button type="button" class="rx-opt-card" id="bifocalCard" style="display:none;" onclick="openModal('bifocalModal')">
+                        <div class="rx-opt-icon" style="background:linear-gradient(135deg,#f59e0b,#fbbf24);">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="2" x2="12" y2="22"/></svg>
+                        </div>
+                        <span class="rx-opt-name">Bifocal / Progressive</span>
+                        <span class="rx-opt-desc">KT, D-Type, Progressive</span>
+                        <span class="rx-opt-sel" id="bifocalSelected">Not selected</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- STEP 3: Summary & Checkout -->
+        <div class="rx-card rx-anim-in" style="animation-delay:0.2s;">
+            <div class="rx-card-head">
+                <span class="rx-step-badge">3</span>
+                <h2 class="rx-card-title">Summary</h2>
+            </div>
+            <div class="rx-card-body">
+                <div id="lensRecommendation" class="rx-summary">
+                    <p>Start building your specs</p>
+                </div>
+                <div class="rx-actions">
+                    <input type="submit" id="checkoutButton" class="rx-btn-primary" value="Checkout frames with lenses now">
+                    <button type="button" class="rx-btn-secondary" onclick="resetForm()">Re-build</button>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- ========== COATING MODAL ========== -->
+<div class="rx-modal-overlay" id="coatingModal" onclick="closeModalOverlay(event, 'coatingModal')">
+    <div class="rx-modal rx-anim-modal">
+        <div class="rx-modal-head">
+            <h3>Choose Lens Coating</h3>
+            <button type="button" class="rx-modal-close" onclick="closeModal('coatingModal')">&times;</button>
+        </div>
+        <div class="rx-modal-body">
+            <label class="rx-modal-opt">
+                <input type="radio" name="add_selections" value="arc01" data-price="{% if is_india %}50{% else %}5{% endif %}">
+                <div class="rx-modal-opt-body">
+                    <div class="rx-modal-opt-icon" style="background:green;">
+                        <span>AG</span>
+                    </div>
+                    <div class="rx-modal-opt-info">
+                        <strong>Anti-Glare</strong>
+                        {% if is_india %}<span class="rx-modal-opt-price">Rs 50</span>{% else %}<span class="rx-modal-opt-price">&euro;5</span>{% endif %}
+                        <span class="rx-modal-opt-desc">Reduces reflections on lens surface</span>
+                    </div>
+                </div>
+            </label>
+            <label class="rx-modal-opt">
+                <input type="radio" name="add_selections" value="bcm02" data-price="{% if is_india %}100{% else %}7{% endif %}">
+                <div class="rx-modal-opt-body">
+                    <div class="rx-modal-opt-icon" style="background:#2563eb;">
+                        <span>BC</span>
+                    </div>
+                    <div class="rx-modal-opt-info">
+                        <strong>Blue Cut</strong>
+                        {% if is_india %}<span class="rx-modal-opt-price">Rs 100</span>{% else %}<span class="rx-modal-opt-price">&euro;7</span>{% endif %}
+                        <span class="rx-modal-opt-desc">Blocks harmful blue light from screens</span>
+                    </div>
+                </div>
+            </label>
+            <label class="rx-modal-opt">
+                <input type="radio" name="add_selections" value="arcmat03" data-price="{% if is_india %}200{% else %}7{% endif %}">
+                <div class="rx-modal-opt-body">
+                    <div class="rx-modal-opt-icon" style="background:linear-gradient(135deg,#6366f1,#ec4899);">
+                        <span>MA</span>
+                    </div>
+                    <div class="rx-modal-opt-info">
+                        <strong>Multi Anti-Glare</strong>
+                        {% if is_india %}<span class="rx-modal-opt-price">Rs 200</span>{% else %}<span class="rx-modal-opt-price">&euro;7</span>{% endif %}
+                        <span class="rx-modal-opt-desc">Premium multi-layer anti-reflective coating</span>
+                    </div>
+                </div>
+            </label>
+        </div>
+            <label class="rx-modal-opt">
+                <input type="radio" name="add_selections" value="polarized04" data-price="{% if is_india %}800{% else %}10{% endif %}">
+                <div class="rx-modal-opt-body">
+                    <div class="rx-modal-opt-icon" style="background:linear-gradient(135deg,#0ea5e9,#06b6d4);">
+                        <span>PL</span>
+                    </div>
+                    <div class="rx-modal-opt-info">
+                        <strong>Polarized</strong>
+                        {% if is_india %}<span class="rx-modal-opt-price">Rs 800</span>{% else %}<span class="rx-modal-opt-price">&euro;10</span>{% endif %}
+                        <span class="rx-modal-opt-desc">Eliminates glare from reflective surfaces</span>
+                    </div>
+                </div>
+            </label>
+        <div class="rx-modal-foot">
+            <button type="button" class="rx-modal-btn-skip" onclick="clearCoating(); closeModal('coatingModal');">Skip Coating</button>
+            <button type="button" class="rx-modal-btn-ok" onclick="applyCoating(); closeModal('coatingModal');">Apply Selection</button>
+        </div>
+    </div>
+</div>
+
+<!-- ========== THICKNESS MODAL ========== -->
+<div class="rx-modal-overlay" id="thicknessModal" onclick="closeModalOverlay(event, 'thicknessModal')">
+    <div class="rx-modal rx-anim-modal">
+        <div class="rx-modal-head">
+            <h3>Choose Lens Type</h3>
+            <button type="button" class="rx-modal-close" onclick="closeModal('thicknessModal')">&times;</button>
+        </div>
+        <div class="rx-modal-body">
+            <label class="rx-modal-opt">
+                <input type="radio" name="add_selections2" value="opsix1" data-price="{% if is_india %}100{% else %}10{% endif %}">
+                <div class="rx-modal-opt-body">
+                    <div class="rx-modal-opt-icon" style="background:#0891b2;">
+                        <span>TN</span>
+                    </div>
+                    <div class="rx-modal-opt-info">
+                        <strong>Thin Lenses</strong>
+                        {% if is_india %}<span class="rx-modal-opt-price">Rs 100</span>{% else %}<span class="rx-modal-opt-price">&euro;10</span>{% endif %}
+                        <span class="rx-modal-opt-desc">Slimmer profile for medium prescriptions</span>
+                    </div>
+                </div>
+            </label>
+            <label class="rx-modal-opt">
+                <input type="radio" name="add_selections2" value="ops672" data-price="{% if is_india %}350{% else %}7{% endif %}">
+                <div class="rx-modal-opt-body">
+                    <div class="rx-modal-opt-icon" style="background:#7c3aed;">
+                        <span>XT</span>
+                    </div>
+                    <div class="rx-modal-opt-info">
+                        <strong>Extra-Thin</strong>
+                        {% if is_india %}<span class="rx-modal-opt-price">Rs 350</span>{% else %}<span class="rx-modal-opt-price">&euro;7</span>{% endif %}
+                        <span class="rx-modal-opt-desc">Ultra-slim for high prescriptions</span>
+                    </div>
+                </div>
+            </label>
+            <label class="rx-modal-opt">
+                <input type="radio" name="add_selections2" value="pcgreystyle" data-price="{% if is_india %}350{% else %}10{% endif %}">
+                <div class="rx-modal-opt-body">
+                    <div class="rx-modal-opt-icon" style="background:#6b7280;">
+                        <span>PG</span>
+                    </div>
+                    <div class="rx-modal-opt-info">
+                        <strong>Photo-Grey</strong>
+                        {% if is_india %}<span class="rx-modal-opt-price">Rs 350</span>{% else %}<span class="rx-modal-opt-price">&euro;10</span>{% endif %}
+                        <span class="rx-modal-opt-desc">Darkens in sunlight, clears indoors</span>
+                    </div>
+                </div>
+            </label>
+            <label class="rx-modal-opt">
+                <input type="radio" name="add_selections2" value="pcbostyle" data-price="{% if is_india %}650{% else %}10{% endif %}">
+                <div class="rx-modal-opt-body">
+                    <div class="rx-modal-opt-icon" style="background:#92400e;">
+                        <span>PB</span>
+                    </div>
+                    <div class="rx-modal-opt-info">
+                        <strong>Photo-Brown</strong>
+                        {% if is_india %}<span class="rx-modal-opt-price">Rs 650</span>{% else %}<span class="rx-modal-opt-price">&euro;10</span>{% endif %}
+                        <span class="rx-modal-opt-desc">Brown tint in sunlight, premium finish</span>
+                    </div>
+                </div>
+            </label>
+        </div>
+        <div class="rx-modal-foot">
+            <button type="button" class="rx-modal-btn-skip" onclick="clearThickness(); closeModal('thicknessModal');">Skip</button>
+            <button type="button" class="rx-modal-btn-ok" onclick="applyThickness(); closeModal('thicknessModal');">Apply Selection</button>
+        </div>
+    </div>
+</div>
+
+<!-- ========== BIFOCAL MODAL ========== -->
+<div class="rx-modal-overlay" id="bifocalModal" onclick="closeModalOverlay(event, 'bifocalModal')">
+    <div class="rx-modal rx-anim-modal">
+        <div class="rx-modal-head">
+            <h3>Choose Bifocal / Progressive</h3>
+            <button type="button" class="rx-modal-close" onclick="closeModal('bifocalModal')">&times;</button>
+        </div>
+        <div class="rx-modal-body">
+            <label class="rx-modal-opt">
+                <input type="radio" name="addon_3" value="crkt" data-price="{% if is_india %}250{% else %}8{% endif %}">
+                <div class="rx-modal-opt-body">
+                    <div class="rx-modal-opt-icon" style="background:#f59e0b;">
+                        <span>KT</span>
+                    </div>
+                    <div class="rx-modal-opt-info">
+                        <strong>Biofocal Round KT</strong>
+                        {% if is_india %}<span class="rx-modal-opt-price">Rs 250</span>{% else %}<span class="rx-modal-opt-price">&euro;8</span>{% endif %}
+                        <span class="rx-modal-opt-desc">Round Kryptok style bifocal</span>
+                    </div>
+                </div>
+            </label>
+            <label class="rx-modal-opt">
+                <input type="radio" name="addon_3" value="crd" data-price="{% if is_india %}500{% else %}8{% endif %}">
+                <div class="rx-modal-opt-body">
+                    <div class="rx-modal-opt-icon" style="background:#ea580c;">
+                        <span>FT</span>
+                    </div>
+                    <div class="rx-modal-opt-info">
+                        <strong>Biofocal Flat-top D</strong>
+                        {% if is_india %}<span class="rx-modal-opt-price">Rs 500</span>{% else %}<span class="rx-modal-opt-price">&euro;8</span>{% endif %}
+                        <span class="rx-modal-opt-desc">D-segment flat-top — most popular</span>
+                    </div>
+                </div>
+            </label>
+            <label class="rx-modal-opt">
+                <input type="radio" name="addon_3" value="prog01" data-price="{% if is_india %}1000{% else %}10{% endif %}">
+                <div class="rx-modal-opt-body">
+                    <div class="rx-modal-opt-icon" style="background:linear-gradient(135deg,#dc2626,#f59e0b);">
+                        <span>PR</span>
+                    </div>
+                    <div class="rx-modal-opt-info">
+                        <strong>Progressive Lenses</strong>
+                        {% if is_india %}<span class="rx-modal-opt-price">Rs 1000</span>{% else %}<span class="rx-modal-opt-price">&euro;10</span>{% endif %}
+                        <span class="rx-modal-opt-desc">No visible line, smooth transition</span>
+                    </div>
+                </div>
+            </label>
+        </div>
+        <div class="rx-modal-foot">
+            <button type="button" class="rx-modal-btn-skip" onclick="clearBifocal(); closeModal('bifocalModal');">Remove Bifocal</button>
+            <button type="button" class="rx-modal-btn-ok" onclick="applyBifocal(); closeModal('bifocalModal');">Apply Selection</button>
+        </div>
+    </div>
+</div>
+
+<style>
+/* ===== PRESCRIPTION V2 — GLASSMORPHISM + MODALS ===== */
+.rx-page { max-width: 600px; margin: -20px auto 30px; padding: 0 12px; }
+
+/* Header */
+.rx-head {
+    position: relative;
+    padding: 20px 18px;
+    background: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.07));
+    border-radius: 16px 16px 0 0;
+    border: 1px solid rgba(99,102,241,0.12);
+    backdrop-filter: blur(16px);
+    overflow: hidden;
+}
+.rx-head-orb {
+    position: absolute; width: 100px; height: 100px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(99,102,241,0.2), transparent 70%);
+    top: -30px; right: -15px; animation: rxOrb 6s ease-in-out infinite;
+}
+.rx-head-orb2 {
+    width: 70px; height: 70px;
+    background: radial-gradient(circle, rgba(139,92,246,0.15), transparent 70%);
+    top: auto; bottom: -15px; right: auto; left: 15px;
+    animation: rxOrb 8s ease-in-out infinite reverse;
+}
+@keyframes rxOrb { 0%,100%{transform:translate(0,0) scale(1)} 50%{transform:translate(8px,-12px) scale(1.12)} }
+.rx-head-inner { display: flex; align-items: center; gap: 12px; position: relative; z-index: 1; }
+.rx-head-icon { color: #6366f1; }
+.rx-title { font-size: 18px; font-weight: 700; color: #1e293b; margin: 0; line-height: 1.2; }
+.rx-sub { font-size: 13px; color: #6366f1; margin: 3px 0 0; font-weight: 500; }
+
+/* Cards */
+.rx-card {
+    background: rgba(255,255,255,0.8);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(99,102,241,0.1);
+    border-top: none;
+    padding: 0;
+}
+.rx-card:last-of-type { border-radius: 0 0 16px 16px; }
+.rx-card-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 18px;
+    border-bottom: 1px solid rgba(99,102,241,0.08);
+}
+.rx-step-badge {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff; font-size: 13px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+}
+.rx-card-title { font-size: 15px; font-weight: 600; color: #1e293b; margin: 0; }
+.rx-optional { font-size: 11px; color: #94a3b8; margin-left: auto; }
+.rx-card-body { padding: 16px 18px; }
+
+/* Prescription fields */
+.rx-eye-label {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600; color: #6366f1;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    margin-bottom: 8px;
+}
+.rx-row { display: flex; gap: 10px; }
+.rx-field { flex: 1; }
+.rx-field label {
+    display: block; font-size: 10px; font-weight: 600;
+    color: #64748b; text-transform: uppercase;
+    letter-spacing: 0.5px; margin-bottom: 4px;
+}
+.rx-field select {
+    width: 100%; padding: 10px 8px;
+    border: 1.5px solid rgba(99,102,241,0.15);
+    border-radius: 10px; font-size: 14px;
+    background: rgba(248,250,252,0.8);
+    color: #1e293b; outline: none;
+    transition: all 0.2s;
+    -webkit-appearance: none;
+    appearance: none;
+}
+.rx-field select:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
+}
+
+/* ADD toggle */
+.rx-add-toggle {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 16px; width: 100%;
+    background: rgba(99,102,241,0.05);
+    border: 1.5px dashed rgba(99,102,241,0.25);
+    border-radius: 10px; cursor: pointer;
+    color: #6366f1; font-size: 13px; font-weight: 500;
+    transition: all 0.2s;
+}
+.rx-add-toggle:hover { background: rgba(99,102,241,0.1); border-style: solid; }
+.rx-add-fields { margin-top: 12px; }
+
+/* Options grid */
+.rx-options-grid { display: flex; flex-direction: column; gap: 10px; }
+.rx-opt-card {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 16px; width: 100%;
+    background: rgba(248,250,252,0.8);
+    border: 1.5px solid rgba(99,102,241,0.1);
+    border-radius: 12px; cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.16,1,0.3,1);
+    text-align: left;
+}
+.rx-opt-card:hover {
+    border-color: #6366f1;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(99,102,241,0.12);
+}
+.rx-opt-card:active { transform: scale(0.98); }
+.rx-opt-icon {
+    width: 42px; height: 42px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+}
+.rx-opt-name { font-size: 14px; font-weight: 600; color: #1e293b; }
+.rx-opt-desc { font-size: 11px; color: #64748b; display: block; margin-top: 1px; }
+.rx-opt-sel {
+    margin-left: auto; font-size: 11px; font-weight: 500;
+    padding: 3px 8px; border-radius: 8px;
+    background: rgba(99,102,241,0.06); color: #94a3b8;
+    white-space: nowrap;
+}
+.rx-opt-sel.active { background: rgba(22,163,74,0.1); color: #16a34a; }
+
+/* Summary */
+.rx-summary {
+    padding: 12px 16px; border-radius: 10px;
+    background: rgba(99,102,241,0.04);
+    border: 1px solid rgba(99,102,241,0.08);
+    font-size: 14px; color: #334155;
+    min-height: 44px;
+}
+.rx-summary p { margin: 0; }
+.rx-actions { display: flex; gap: 10px; margin-top: 14px; }
+.rx-btn-primary {
+    flex: 1; padding: 14px 20px; border: none;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff; font-size: 14px; font-weight: 600;
+    border-radius: 12px; cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.16,1,0.3,1);
+    box-shadow: 0 4px 16px rgba(99,102,241,0.25);
+}
+.rx-btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(99,102,241,0.35); }
+.rx-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.rx-btn-secondary {
+    padding: 14px 20px; border: 1.5px solid rgba(99,102,241,0.2);
+    background: transparent; color: #6366f1;
+    font-size: 14px; font-weight: 600;
+    border-radius: 12px; cursor: pointer;
+    transition: all 0.2s;
+}
+.rx-btn-secondary:hover { background: rgba(99,102,241,0.05); }
+
+/* Animation */
+.rx-anim-in {
+    animation: rxSlideIn 0.5s cubic-bezier(0.16,1,0.3,1) forwards;
+    opacity: 0;
+}
+@keyframes rxSlideIn { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
+
+/* ===== MODAL ===== */
+.rx-modal-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.4);
+    backdrop-filter: blur(4px);
+    z-index: 9999;
+    align-items: flex-end;
+    justify-content: center;
+    padding: 0;
+}
+.rx-modal-overlay.open { display: flex; }
+.rx-modal {
+    width: 100%; max-width: 500px;
+    max-height: 80vh;
+    background: rgba(255,255,255,0.95);
+    backdrop-filter: blur(20px);
+    border-radius: 20px 20px 0 0;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+}
+.rx-modal-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 20px;
+    border-bottom: 1px solid rgba(99,102,241,0.1);
+}
+.rx-modal-head h3 { font-size: 17px; font-weight: 700; color: #1e293b; margin: 0; }
+.rx-modal-close {
+    width: 32px; height: 32px; border-radius: 50%;
+    border: none; background: rgba(99,102,241,0.06);
+    font-size: 20px; color: #64748b; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.2s;
+}
+.rx-modal-close:hover { background: rgba(99,102,241,0.15); }
+.rx-modal-body {
+    padding: 16px 20px;
+    overflow-y: auto; flex: 1;
+    display: flex; flex-direction: column; gap: 10px;
+}
+.rx-modal-opt {
+    display: block; cursor: pointer;
+}
+.rx-modal-opt input[type="radio"] { display: none; }
+.rx-modal-opt-body {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 16px;
+    border: 1.5px solid rgba(99,102,241,0.1);
+    border-radius: 14px;
+    transition: all 0.25s cubic-bezier(0.16,1,0.3,1);
+    background: rgba(248,250,252,0.8);
+}
+.rx-modal-opt input:checked + .rx-modal-opt-body {
+    border-color: #6366f1;
+    background: rgba(99,102,241,0.06);
+    box-shadow: 0 2px 12px rgba(99,102,241,0.12);
+}
+.rx-modal-opt-icon {
+    width: 42px; height: 42px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+}
+.rx-modal-opt-icon span {
+    color: #fff; font-size: 14px; font-weight: 700;
+}
+.rx-modal-opt-info { flex: 1; }
+.rx-modal-opt-info strong { display: block; font-size: 14px; color: #1e293b; }
+.rx-modal-opt-price {
+    display: inline-block; font-size: 13px; font-weight: 700;
+    color: #6366f1; margin-top: 2px;
+}
+.rx-modal-opt-desc {
+    display: block; font-size: 11px; color: #64748b; margin-top: 2px;
+}
+.rx-modal-foot {
+    display: flex; gap: 10px;
+    padding: 14px 20px;
+    border-top: 1px solid rgba(99,102,241,0.08);
+}
+.rx-modal-btn-skip {
+    flex: 1; padding: 12px; border: 1.5px solid rgba(99,102,241,0.15);
+    background: transparent; color: #64748b;
+    font-size: 13px; font-weight: 600;
+    border-radius: 12px; cursor: pointer;
+    transition: all 0.2s;
+}
+.rx-modal-btn-skip:hover { background: rgba(99,102,241,0.04); }
+.rx-modal-btn-ok {
+    flex: 1; padding: 12px; border: none;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff; font-size: 13px; font-weight: 600;
+    border-radius: 12px; cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.16,1,0.3,1);
+}
+.rx-modal-btn-ok:hover { box-shadow: 0 4px 16px rgba(99,102,241,0.3); }
+
+/* Modal animation */
+.rx-anim-modal {
+    animation: rxModalSlide 0.35s cubic-bezier(0.16,1,0.3,1) forwards;
+}
+@keyframes rxModalSlide { from{transform:translateY(100%)} to{transform:translateY(0)} }
+
+/* Desktop modal - centered */
+@media (min-width: 600px) {
+    .rx-modal-overlay { align-items: center; padding: 20px; }
+    .rx-modal { border-radius: 20px; max-height: 70vh; }
+    @keyframes rxModalSlide { from{opacity:0;transform:scale(0.95)} to{opacity:1;transform:scale(1)} }
+}
+
+/* Mobile tweaks — full-width edge-to-edge stretch */
+@media (max-width: 767px) {
+    /* Hide header and lens-types ribbon on mobile for prescription page */
+    .header { display: none !important; }
+    .header2 { display: none !important; }
+
+    .container:has(.rx-page) { padding: 0 !important; }
+    main:has(.rx-page) { padding: 0 !important; }
+    .rx-page { max-width: 100%; width: 100%; margin: 0; padding: 0; box-sizing: border-box; }
+    .rx-head { padding: 16px 16px; border-radius: 0; margin: 0; }
+    .rx-card { border-radius: 0; border-left: none; border-right: none; margin: 0; }
+    .rx-card:last-of-type { border-radius: 0; }
+    .rx-title { font-size: 16px; }
+    .rx-card-head { padding: 18px 16px; }
+    .rx-card-body { padding: 14px 16px; }
+    .rx-row { gap: 6px; }
+    .rx-field select { padding: 9px 6px; font-size: 13px; }
+    .rx-summary-msg { padding: 12px 16px; }
+    .rx-summary-actions { padding: 12px 16px; gap: 8px; }
+    .rx-btn-checkout { padding: 14px 16px; font-size: 14px; width: 100%; }
+    .rx-btn-rebuild { padding: 14px 16px; width: 100%; }
+
+    /* Make step badges bigger and more prominent on mobile */
+    .rx-step-badge {
+        width: 36px; height: 36px;
+        font-size: 17px; font-weight: 800;
+        box-shadow: 0 2px 8px rgba(99,102,241,0.3);
+    }
+    .rx-card-title { font-size: 17px; font-weight: 700; }
+}
+@media (max-width: 380px) {
+    .rx-head { padding: 14px 12px; }
+    .rx-card-head { padding: 12px 12px; }
+    .rx-card-body { padding: 12px 12px; }
+    .rx-field select { padding: 8px 4px; font-size: 12px; }
+    .rx-summary-msg { padding: 10px 12px; }
+    .rx-summary-actions { padding: 10px 12px; }
+}
+
+/* ===== LARGE SCREEN / DESKTOP / SMART TV ===== */
+
+/* Tablet landscape & small desktop */
+@media (min-width: 768px) {
+    .rx-page { max-width: 700px; padding: 0 24px; }
+    .rx-head { padding: 24px 24px; }
+    .rx-title { font-size: 20px; }
+    .rx-sub { font-size: 14px; }
+    .rx-card-body { padding: 20px 24px; }
+    .rx-card-head { padding: 16px 24px; }
+    .rx-field select { padding: 12px 10px; font-size: 15px; }
+    .rx-eye-label { font-size: 13px; }
+    .rx-opt-card { padding: 16px 20px; }
+    .rx-opt-name { font-size: 15px; }
+    .rx-opt-desc { font-size: 12px; }
+    .rx-btn-primary { padding: 16px 24px; font-size: 15px; }
+    .rx-btn-secondary { padding: 16px 24px; font-size: 15px; }
+    .rx-summary { font-size: 15px; padding: 14px 20px; }
+    .rx-modal { max-width: 560px; }
+}
+
+/* Standard desktop */
+@media (min-width: 1024px) {
+    .rx-page { max-width: 780px; padding: 0 32px; margin-top: 0; }
+    .rx-head { padding: 28px 32px; border-radius: 20px 20px 0 0; }
+    .rx-title { font-size: 22px; }
+    .rx-sub { font-size: 15px; }
+    .rx-card-body { padding: 24px 32px; }
+    .rx-card-head { padding: 18px 32px; }
+    .rx-step-badge { width: 30px; height: 30px; font-size: 14px; }
+    .rx-card-title { font-size: 17px; }
+    .rx-field select { padding: 13px 12px; font-size: 16px; border-radius: 12px; }
+    .rx-field label { font-size: 11px; }
+    .rx-eye-label { font-size: 13px; margin-bottom: 10px; }
+    .rx-row { gap: 14px; }
+    .rx-opt-card { padding: 18px 22px; border-radius: 14px; }
+    .rx-opt-icon { width: 48px; height: 48px; border-radius: 14px; }
+    .rx-opt-name { font-size: 16px; }
+    .rx-opt-desc { font-size: 13px; }
+    .rx-opt-sel { font-size: 12px; padding: 4px 10px; }
+    .rx-btn-primary { padding: 18px 28px; font-size: 16px; border-radius: 14px; }
+    .rx-btn-secondary { padding: 18px 28px; font-size: 16px; border-radius: 14px; }
+    .rx-summary { font-size: 16px; padding: 16px 24px; border-radius: 12px; }
+    .rx-actions { gap: 14px; margin-top: 18px; }
+    .rx-add-toggle { padding: 12px 20px; font-size: 14px; }
+    .rx-modal { max-width: 620px; }
+    .rx-modal-head h3 { font-size: 19px; }
+    .rx-modal-opt-body { padding: 16px 20px; gap: 16px; }
+    .rx-modal-opt-info strong { font-size: 15px; }
+    .rx-modal-opt-price { font-size: 14px; }
+    .rx-modal-opt-desc { font-size: 12px; }
+}
+
+/* Large desktop / wide monitors */
+@media (min-width: 1400px) {
+    .rx-page { max-width: 860px; }
+    .rx-head { padding: 32px 36px; }
+    .rx-title { font-size: 24px; }
+    .rx-sub { font-size: 16px; }
+    .rx-card-body { padding: 28px 36px; }
+    .rx-card-head { padding: 20px 36px; }
+    .rx-step-badge { width: 32px; height: 32px; font-size: 15px; }
+    .rx-card-title { font-size: 18px; }
+    .rx-field select { padding: 14px 14px; font-size: 17px; }
+    .rx-field label { font-size: 12px; }
+    .rx-row { gap: 16px; }
+    .rx-opt-card { padding: 20px 24px; }
+    .rx-opt-icon { width: 52px; height: 52px; }
+    .rx-opt-name { font-size: 17px; }
+    .rx-opt-desc { font-size: 13px; }
+    .rx-btn-primary { padding: 20px 32px; font-size: 17px; }
+    .rx-btn-secondary { padding: 20px 32px; font-size: 17px; }
+    .rx-summary { font-size: 17px; padding: 18px 28px; }
+}
+
+/* Smart TV / 4K displays (1920px+) */
+@media (min-width: 1920px) {
+    .rx-page { max-width: 1000px; padding: 0 40px; margin-top: 20px; }
+    .rx-head { padding: 36px 40px; border-radius: 24px 24px 0 0; }
+    .rx-head-orb { width: 140px; height: 140px; }
+    .rx-head-orb2 { width: 100px; height: 100px; }
+    .rx-title { font-size: 28px; }
+    .rx-sub { font-size: 18px; }
+    .rx-head-icon { width: 36px; height: 36px; }
+    .rx-head-inner { gap: 16px; }
+    .rx-card-body { padding: 32px 40px; }
+    .rx-card-head { padding: 22px 40px; }
+    .rx-step-badge { width: 36px; height: 36px; font-size: 17px; }
+    .rx-card-title { font-size: 20px; }
+    .rx-field select { padding: 16px 16px; font-size: 18px; border-radius: 14px; }
+    .rx-field label { font-size: 13px; margin-bottom: 6px; }
+    .rx-eye-label { font-size: 14px; margin-bottom: 12px; }
+    .rx-row { gap: 20px; }
+    .rx-opt-card { padding: 22px 28px; border-radius: 16px; gap: 16px; }
+    .rx-opt-icon { width: 56px; height: 56px; border-radius: 16px; }
+    .rx-opt-name { font-size: 18px; }
+    .rx-opt-desc { font-size: 14px; margin-top: 2px; }
+    .rx-opt-sel { font-size: 13px; padding: 5px 12px; }
+    .rx-btn-primary { padding: 22px 36px; font-size: 18px; border-radius: 16px; }
+    .rx-btn-secondary { padding: 22px 36px; font-size: 18px; border-radius: 16px; }
+    .rx-summary { font-size: 18px; padding: 20px 32px; border-radius: 14px; }
+    .rx-actions { gap: 16px; margin-top: 22px; }
+    .rx-add-toggle { padding: 14px 24px; font-size: 16px; border-radius: 14px; }
+    .rx-card:last-of-type { border-radius: 0 0 24px 24px; }
+    .rx-modal { max-width: 700px; }
+    .rx-modal-head { padding: 22px 28px; }
+    .rx-modal-head h3 { font-size: 22px; }
+    .rx-modal-close { width: 40px; height: 40px; font-size: 24px; }
+    .rx-modal-body { padding: 20px 28px; gap: 14px; }
+    .rx-modal-opt-body { padding: 20px 24px; gap: 18px; border-radius: 16px; }
+    .rx-modal-opt-icon { width: 52px; height: 52px; border-radius: 14px; }
+    .rx-modal-opt-info strong { font-size: 17px; }
+    .rx-modal-opt-price { font-size: 16px; }
+    .rx-modal-opt-desc { font-size: 13px; }
+    .rx-modal-foot { padding: 18px 28px; gap: 14px; }
+    .rx-modal-btn-skip, .rx-modal-btn-ok { padding: 16px; font-size: 15px; border-radius: 14px; }
+}
+
+/* Ultra-wide / very large smart TVs (2560px+) */
+@media (min-width: 2560px) {
+    .rx-page { max-width: 1200px; padding: 0 48px; margin-top: 40px; }
+    .rx-head { padding: 44px 48px; }
+    .rx-title { font-size: 34px; }
+    .rx-sub { font-size: 20px; }
+    .rx-card-body { padding: 40px 48px; }
+    .rx-card-head { padding: 28px 48px; }
+    .rx-step-badge { width: 42px; height: 42px; font-size: 20px; }
+    .rx-card-title { font-size: 24px; }
+    .rx-field select { padding: 18px 18px; font-size: 22px; border-radius: 16px; }
+    .rx-field label { font-size: 15px; margin-bottom: 8px; }
+    .rx-eye-label { font-size: 16px; margin-bottom: 14px; }
+    .rx-row { gap: 24px; }
+    .rx-opt-card { padding: 28px 32px; border-radius: 20px; gap: 20px; }
+    .rx-opt-icon { width: 64px; height: 64px; border-radius: 18px; }
+    .rx-opt-name { font-size: 22px; }
+    .rx-opt-desc { font-size: 16px; }
+    .rx-btn-primary { padding: 26px 44px; font-size: 22px; border-radius: 18px; }
+    .rx-btn-secondary { padding: 26px 44px; font-size: 22px; border-radius: 18px; }
+    .rx-summary { font-size: 22px; padding: 24px 36px; }
+    .rx-add-toggle { padding: 18px 28px; font-size: 18px; }
+}
+
+</style>
+
+<script>var owIsIndia = {{ "true" if is_india else "false" }};</script>
+<script>
+/* ===== MODAL CONTROL ===== */
+function openModal(id) {
+    document.getElementById(id).classList.add('open');
+    document.body.style.overflow = 'hidden';
+}
+function closeModal(id) {
+    document.getElementById(id).classList.remove('open');
+    document.body.style.overflow = '';
+}
+function closeModalOverlay(e, id) {
+    if (e.target === e.currentTarget) closeModal(id);
+}
+
+/* ===== LENS OPTION APPLY/CLEAR ===== */
+function applyCoating() {
+    const sel = document.querySelector('input[name="add_selections"]:checked');
+    const el = document.getElementById('coatingSelected');
+    if (sel) {
+        el.textContent = sel.closest('.rx-modal-opt').querySelector('strong').textContent + ' ' + fmtPrice(parseInt(sel.dataset.price));
+        el.className = 'rx-opt-sel active';
+        document.getElementById('hiddenAddon1').value = sel.value;
+    }
+    calculateLensRecommendation();
+}
+function clearCoating() {
+    document.querySelectorAll('input[name="add_selections"]').forEach(r => r.checked = false);
+    const el = document.getElementById('coatingSelected');
+    el.textContent = 'Not selected'; el.className = 'rx-opt-sel';
+    document.getElementById('hiddenAddon1').value = '';
+    calculateLensRecommendation();
+}
+function applyThickness() {
+    const sel = document.querySelector('input[name="add_selections2"]:checked');
+    const el = document.getElementById('thicknessSelected');
+    if (sel) {
+        el.textContent = sel.closest('.rx-modal-opt').querySelector('strong').textContent + ' ' + fmtPrice(parseInt(sel.dataset.price));
+        el.className = 'rx-opt-sel active';
+        document.getElementById('hiddenAddon2').value = sel.value;
+    }
+    calculateLensRecommendation();
+}
+function clearThickness() {
+    document.querySelectorAll('input[name="add_selections2"]').forEach(r => r.checked = false);
+    const el = document.getElementById('thicknessSelected');
+    el.textContent = 'Not selected'; el.className = 'rx-opt-sel';
+    document.getElementById('hiddenAddon2').value = '';
+    calculateLensRecommendation();
+}
+function applyBifocal() {
+    const sel = document.querySelector('input[name="addon_3"]:checked');
+    const el = document.getElementById('bifocalSelected');
+    if (sel) {
+        el.textContent = sel.closest('.rx-modal-opt').querySelector('strong').textContent + ' ' + fmtPrice(parseInt(sel.dataset.price));
+        el.className = 'rx-opt-sel active';
+        document.getElementById('hiddenAddon3').value = sel.value;
+    }
+    calculateLensRecommendation();
+}
+function clearBifocal() {
+    document.querySelectorAll('input[name="addon_3"]').forEach(r => r.checked = false);
+    const el = document.getElementById('bifocalSelected');
+    el.textContent = 'Not selected'; el.className = 'rx-opt-sel';
+    document.getElementById('hiddenAddon3').value = '';
+    calculateLensRecommendation();
+}
+
+/* ===== ADD (Reading) TOGGLE ===== */
+function showAddDropdowns() {
+    const btn = document.getElementById('addToggleBtn');
+    const fields = document.getElementById('addFields');
+    const bCard = document.getElementById('bifocalCard');
+
+    if (fields.style.display === 'none') {
+        fields.style.display = 'block';
+        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/></svg> Remove ADD Power';
+        bCard.style.display = 'flex';
+        // Auto-set ADD defaults
+        document.getElementById('right_add').value = '1.00';
+        document.getElementById('left_add').value = '1.00';
+        // Auto-open bifocal modal and pre-select CRD
+        const crd = document.querySelector('input[name="addon_3"][value="crd"]');
+        if (crd) { crd.checked = true; applyBifocal(); }
+    } else {
+        fields.style.display = 'none';
+        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add Reading/Bifocal Power (ADD)';
+        bCard.style.display = 'none';
+        document.getElementById('right_add').value = '';
+        document.getElementById('left_add').value = '';
+        clearBifocal();
+    }
+    calculateLensRecommendation();
+}
+
+/* ===== RESET ===== */
+function resetForm() {
+    document.getElementById('right_pwr').value = '0.00';
+    document.getElementById('left_pwr').value = '0.00';
+    document.getElementById('right_cyl').value = '0.00';
+    document.getElementById('left_cyl').value = '0.00';
+    document.getElementById('right_axis').value = '0';
+    document.getElementById('left_axis').value = '0';
+    document.getElementById('right_add').value = '';
+    document.getElementById('left_add').value = '';
+    document.getElementById('addFields').style.display = 'none';
+    document.getElementById('bifocalCard').style.display = 'none';
+    document.getElementById('addToggleBtn').innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add Reading/Bifocal Power (ADD)';
+    clearCoating();
+    clearThickness();
+    clearBifocal();
+    document.getElementById('hiddenAddon1').value = '';
+    document.getElementById('hiddenAddon2').value = '';
+    document.getElementById('hiddenAddon3').value = '';
+    document.getElementById('hiddenLensPrice').value = '0';
+    document.getElementById('hiddenCylPrice').value = '0';
+    document.getElementById('hiddenAddPrice').value = '0';
+    document.getElementById('lensRecommendation').innerHTML = '<p>Ok lets rebuild your lenses again</p>';
+    document.getElementById('checkoutButton').value = 'Checkout frames with lenses now';
+    document.getElementById('checkoutButton').disabled = false;
+    localStorage.clear();
+}
+
+/* ===== CURRENCY FORMATTING ===== */
+
+var owCurrencySymbol = (typeof owIsIndia !== 'undefined' && !owIsIndia) ? '€' : 'Rs';
+
+function fmtPrice(amount) {
+    return (typeof owIsIndia !== 'undefined' && !owIsIndia) ? '€' + amount : 'Rs ' + amount;
+}
+
+/* ===== PRICE CALCULATOR (mirrors original logic exactly) ===== */
+function calculateLensRecommendation() {
+    const rightPwr = parseFloat(document.getElementById('right_pwr').value);
+    const leftPwr = parseFloat(document.getElementById('left_pwr').value);
+    const rightCyl = parseFloat(document.getElementById('right_cyl').value);
+    const leftCyl = parseFloat(document.getElementById('left_cyl').value);
+    const rightAxis = document.getElementById('right_axis').value;
+    const leftAxis = document.getElementById('left_axis').value;
+    const rightAdd = document.getElementById('right_add').value;
+    const leftAdd = document.getElementById('left_add').value;
+    const basePrice = parseFloat(document.getElementById('basePrice').value);
+    const fieldset_1 = document.querySelector('input[name="add_selections"]:checked');
+    const fieldset_2 = document.querySelector('input[name="add_selections2"]:checked');
+    const add_fieldset_1 = fieldset_1 ? parseInt(fieldset_1.dataset.price || 0) : 0;
+    const add_fieldset_2 = fieldset_2 ? parseInt(fieldset_2.dataset.price || 0) : 0;
+    const selectedAddon = document.querySelector('input[name="addon_3"]:checked');
+    const biofocalVisible = document.getElementById('addFields').style.display !== 'none';
+
+
+    // Validation
+    if (biofocalVisible) {
+        const addon_3 = document.querySelector('input[name="addon_3"]:checked');
+        if (!addon_3) {
+            document.getElementById('lensRecommendation').innerHTML = '<p style="color:#dc2626;">Select Biofocal Type or click Re-build</p>';
+            document.getElementById('checkoutButton').disabled = true;
+            return;
+        }
+        if (isNaN(parseFloat(rightAdd)) || parseFloat(rightAdd) <= 0 ||
+            isNaN(parseFloat(leftAdd)) || parseFloat(leftAdd) <= 0) {
+            document.getElementById('lensRecommendation').innerHTML = '<p style="color:#dc2626;">Enter Addition Power like +1.00 etc</p>';
+            document.getElementById('checkoutButton').disabled = true;
+            return;
+        }
+    }
+    if (rightCyl !== 0.00 && rightAxis === '0') {
+        document.getElementById('lensRecommendation').innerHTML = '<p style="color:#dc2626;">Please enter Right Axis for Right Cylinder.</p>';
+        document.getElementById('checkoutButton').disabled = true;
+        return;
+    }
+    if (leftCyl !== 0.00 && leftAxis === '0') {
+        document.getElementById('lensRecommendation').innerHTML = '<p style="color:#dc2626;">Please enter Left Axis for Left Cylinder.</p>';
+        document.getElementById('checkoutButton').disabled = true;
+        return;
+    }
+    document.getElementById('checkoutButton').disabled = false;
+
+    let recommendation = '';
+    let lensPrice = 0;
+    let cylPriceIncrease = 0;
+    let addPriceIncrease = 0;
+
+    if (rightAdd !== '' || leftAdd !== '') {
+        if (selectedAddon) {
+            const addonPrice = selectedAddon.dataset.price;
+            const addonLabel = selectedAddon.closest('.rx-modal-opt').querySelector('strong').textContent;
+            recommendation = addonLabel + ' ' + fmtPrice(parseInt(addonPrice));
+            lensPrice = parseInt(addonPrice);
+        } else {
+            recommendation = 'Choose Biofocals or Progressive Lenses';
+        }
+    } else {
+        const highestPwr = Math.max(Math.abs(rightPwr || 0), Math.abs(leftPwr || 0));
+        if (!isNaN(rightPwr) || !isNaN(leftPwr)) {
+            if (highestPwr >= 8) {
+                recommendation = 'High Power Charges ' + fmtPrice(400);
+                lensPrice = 400;
+            } else {
+                recommendation = 'Lenses included in this price';
+                lensPrice = 0;
+            }
+        } else {
+            recommendation = 'Please enter your prescription';
+        }
+    }
+
+    const highestCyl = Math.max(Math.abs(rightCyl || 0), Math.abs(leftCyl || 0));
+    if (!isNaN(highestCyl) && highestCyl > 4) {
+        cylPriceIncrease = 1000;
+        recommendation += ' + cylinder adjustment ' + fmtPrice(1000);
+    } else if (!isNaN(highestCyl) && highestCyl >= 2) {
+        cylPriceIncrease = 400;
+        recommendation += ' + cylinder adjustment ' + fmtPrice(400);
+    }
+
+    const totalPrice = basePrice + lensPrice + cylPriceIncrease + addPriceIncrease + add_fieldset_1 + add_fieldset_2;
+    document.getElementById('totalPrice').value = totalPrice;
+    document.getElementById('hiddenLensPrice').value = lensPrice;
+    document.getElementById('hiddenCylPrice').value = cylPriceIncrease;
+    document.getElementById('hiddenAddPrice').value = addPriceIncrease;
+
+    // Build summary
+    let summary = '<p><strong>' + recommendation + '</strong></p>';
+    if (add_fieldset_1 > 0) summary += '<p style="font-size:12px;color:#6366f1;">+ Coating ' + fmtPrice(add_fieldset_1) + '</p>';
+    if (add_fieldset_2 > 0) summary += '<p style="font-size:12px;color:#8b5cf6;">+ Lens upgrade ' + fmtPrice(add_fieldset_2) + '</p>';
+    document.getElementById('lensRecommendation').innerHTML = summary;
+    document.getElementById('checkoutButton').value = 'Checkout with lenses — Total ' + fmtPrice(totalPrice);
+
+    // Save to localStorage
+    localStorage.setItem('rightPwr', rightPwr);
+    localStorage.setItem('leftPwr', leftPwr);
+    localStorage.setItem('rightCyl', rightCyl);
+    localStorage.setItem('rightAxis', rightAxis);
+    localStorage.setItem('leftCyl', leftCyl);
+    localStorage.setItem('leftAxis', leftAxis);
+    localStorage.setItem('rightAdd', rightAdd);
+    localStorage.setItem('leftAdd', leftAdd);
+    localStorage.setItem('recommendation', recommendation);
+    localStorage.setItem('lensPrice', lensPrice);
+    localStorage.setItem('cylPriceIncrease', cylPriceIncrease);
+    localStorage.setItem('addPriceIncrease', addPriceIncrease);
+    localStorage.setItem('totalPrice', totalPrice);
+    localStorage.setItem('add_fieldset_1', add_fieldset_1);
+    localStorage.setItem('add_fieldset_2', add_fieldset_2);
+}
+
+/* ===== EVENT LISTENERS ===== */
+['right_pwr','left_pwr','right_cyl','left_cyl','right_axis','left_axis','right_add','left_add'].forEach(id => {
+    document.getElementById(id).addEventListener('change', calculateLensRecommendation);
+});
+
+/* ===== RESTORE FROM LOCALSTORAGE ===== */
+
+/* ===== DYNAMIC PRICING FROM BACKEND CONFIG ===== */
+var LENS_PRICING = null;
+
+function loadPricingConfig() {
+    fetch("/api/lens-pricing")
+    .then(function(r){return r.json()})
+    .then(function(data){
+        LENS_PRICING = data;
+        updatePricesForContext("default");
+    })
+    .catch(function(e){console.log("Pricing config load error", e)});
+}
+
+function updatePricesForContext(context) {
+    if (!LENS_PRICING || !LENS_PRICING[context]) return;
+    var ctx = LENS_PRICING[context];
+
+    // Update coating prices
+    if (ctx.coatings) {
+        Object.keys(ctx.coatings).forEach(function(code) {
+            var inp = document.querySelector('input[name=add_selections][value=' + code + ']');
+            if (inp) {
+                var isGlobal = (typeof owIsIndia !== "undefined" && !owIsIndia);
+                var displayPrice = isGlobal && ctx.coatings[code].price_eur ? ctx.coatings[code].price_eur : ctx.coatings[code].price;
+                inp.dataset.price = displayPrice;
+                var priceEl = inp.closest(".rx-modal-opt").querySelector(".rx-modal-opt-price");
+                if (priceEl) priceEl.textContent = (isGlobal ? "€" : "Rs ") + displayPrice;
+            }
+        });
+    }
+
+    // Update thickness prices
+    if (ctx.thickness) {
+        Object.keys(ctx.thickness).forEach(function(code) {
+            var inp = document.querySelector('input[name=add_selections2][value=' + code + ']');
+            if (inp) {
+                var isGlobal = (typeof owIsIndia !== "undefined" && !owIsIndia);
+                var displayPrice = isGlobal && ctx.thickness[code].price_eur ? ctx.thickness[code].price_eur : ctx.thickness[code].price;
+                inp.dataset.price = displayPrice;
+                var priceEl = inp.closest(".rx-modal-opt").querySelector(".rx-modal-opt-price");
+                if (priceEl) priceEl.textContent = (isGlobal ? "€" : "Rs ") + displayPrice;
+            }
+        });
+    }
+}
+
+// Hook into bifocal selection to switch pricing context
+var _origApplyBifocal = applyBifocal;
+applyBifocal = function() {
+    _origApplyBifocal();
+    var sel = document.querySelector('input[name=addon_3]:checked');
+    if (sel) {
+        if (sel.value === "prog01") {
+            updatePricesForContext("when_progressive");
+        } else {
+            updatePricesForContext("when_bifocal");
+        }
+    }
+};
+
+var _origClearBifocal = clearBifocal;
+clearBifocal = function() {
+    _origClearBifocal();
+    updatePricesForContext("default");
+};
+
+// Load pricing config on page load
+loadPricingConfig();
+
+window.onload = function() {
+    const sp = localStorage.getItem('rightPwr');
+    const slp = localStorage.getItem('leftPwr');
+    const sr = localStorage.getItem('recommendation');
+    const stp = parseFloat(localStorage.getItem('totalPrice'));
+    if (sp && slp) {
+        document.getElementById('right_pwr').value = sp;
+        document.getElementById('left_pwr').value = slp;
+        if (sr) document.getElementById('lensRecommendation').innerHTML = '<p>' + sr + '</p>';
+        if (stp) document.getElementById('checkoutButton').value = 'Checkout Now — Total ' + fmtPrice(stp);
+    }
+    // Always sync hidden fields on load so form values are never empty
+    calculateLensRecommendation();
+};
+</script>
+{% endblock %}

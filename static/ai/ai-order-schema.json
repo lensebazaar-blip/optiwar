@@ -1,0 +1,335 @@
+{
+  "version": "1.0",
+  "last_updated": "2026-05-28",
+  "provider": "Optiwar — Krishna Ecommerce Technologies Private Limited",
+  "order_schema": {
+    "required_for_order": [
+      {
+        "field": "frame_id",
+        "type": "integer",
+        "description": "Product ID of the selected frame from the Optiwar catalog",
+        "api": "GET /api/v1/products"
+      },
+      {
+        "field": "frame_color",
+        "type": "string",
+        "description": "Selected color variant of the frame"
+      },
+      {
+        "field": "lens_type",
+        "type": "string",
+        "description": "Base lens selection — complimentary single-vision is default",
+        "options": ["complimentary", "anti-glare", "blue-cut", "multi-anti-glare", "polarized", "thin", "extra-thin", "photo-grey", "photo-brown", "bifocal-kt", "bifocal-d", "progressive"]
+      },
+      {
+        "field": "right_eye_sph",
+        "type": "float",
+        "description": "Sphere power for right eye (negative = myopia, positive = hyperopia)",
+        "unit": "diopter"
+      },
+      {
+        "field": "left_eye_sph",
+        "type": "float",
+        "description": "Sphere power for left eye",
+        "unit": "diopter"
+      },
+      {
+        "field": "customer_name",
+        "type": "string",
+        "description": "Full name of the customer"
+      },
+      {
+        "field": "phone",
+        "type": "string",
+        "description": "Phone number with country code (e.g. +49 9810113801)"
+      },
+      {
+        "field": "email",
+        "type": "string",
+        "description": "Delivery email address for order confirmations"
+      },
+      {
+        "field": "shipping_address",
+        "type": "object",
+        "fields": {
+          "address": "Street address line 1",
+          "address2": "Apartment / unit / floor (optional)",
+          "state": "State or province",
+          "zipcode": "Postal / ZIP code",
+          "country": "Country name (must not be 'United States' for optiwar.com)"
+        }
+      },
+      {
+        "field": "payment_authorization",
+        "type": "string",
+        "description": "Customer must authorize payment directly — AI agents cannot bypass this step",
+        "note": "Payment is processed via Razorpay (global) or Paytm (India)"
+      }
+    ],
+    "optional_fields": [
+      {
+        "field": "right_eye_cyl",
+        "type": "float",
+        "description": "Cylinder power for right eye (astigmatism correction)",
+        "unit": "diopter"
+      },
+      {
+        "field": "right_eye_axis",
+        "type": "integer",
+        "description": "Axis for right eye (0-180 degrees). Required if right_eye_cyl is present",
+        "range": [0, 180]
+      },
+      {
+        "field": "left_eye_cyl",
+        "type": "float",
+        "description": "Cylinder power for left eye",
+        "unit": "diopter"
+      },
+      {
+        "field": "left_eye_axis",
+        "type": "integer",
+        "description": "Axis for left eye (0-180 degrees). Required if left_eye_cyl is present",
+        "range": [0, 180]
+      },
+      {
+        "field": "add_power",
+        "type": "float",
+        "description": "Addition power for bifocal/progressive lenses. Typically +0.75 to +3.00",
+        "note": "Required when lens_type is bifocal-kt, bifocal-d, or progressive"
+      },
+      {
+        "field": "pd",
+        "type": "float",
+        "description": "Pupillary distance in mm. Not mandatory but strongly recommended for optimal fit",
+        "typical_range": [58, 68],
+        "tool": "https://optiwar.com/tryon"
+      },
+      {
+        "field": "near_pd",
+        "type": "float",
+        "description": "Near pupillary distance for bifocal/progressive lenses"
+      },
+      {
+        "field": "prescription_upload",
+        "type": "file",
+        "description": "Image/scan of prescription — team will read values from it",
+        "formats": ["jpg", "png", "pdf"]
+      }
+    ],
+    "must_verify_before_order": [
+      {
+        "check": "missing_axis_when_cyl_present",
+        "description": "If CYL value is entered, AXIS is mandatory. System validates this automatically.",
+        "action": "block_order"
+      },
+      {
+        "check": "progressive_or_bifocal_needs_add",
+        "description": "Bifocal and Progressive lenses require ADD power in the prescription.",
+        "action": "prompt_customer"
+      },
+      {
+        "check": "international_shipping_no_usa",
+        "description": "optiwar.com does not ship to the United States due to FDA regulations.",
+        "action": "block_order"
+      },
+      {
+        "check": "india_must_use_in_site",
+        "description": "Indian customers should use optiwar.in for INR pricing and India shipping.",
+        "action": "redirect_customer"
+      },
+      {
+        "check": "high_power_review",
+        "description": "Extremely high powers may require additional manufacturing charges and team review.",
+        "action": "flag_for_review"
+      },
+      {
+        "check": "missing_pd_warning",
+        "description": "PD not provided — recommend customer use face measurement tool at /tryon for better fit.",
+        "action": "warn_customer"
+      }
+    ]
+  },
+  "lens_catalog": {
+    "coatings": {
+      "anti-glare": {
+        "name": "Anti-Glare",
+        "price_inr": 50,
+        "price_eur": 5,
+        "index": "standard",
+        "description": "Multi-layer AR coating, 99.5% light transmission, reduces reflections"
+      },
+      "blue-cut": {
+        "name": "Blue Cut",
+        "price_inr": 100,
+        "price_eur": 7,
+        "index": "standard",
+        "description": "Blocks 380-450nm blue-violet light from screens and LED"
+      },
+      "multi-anti-glare": {
+        "name": "Multi Anti-Glare",
+        "price_inr": 200,
+        "price_eur": 7,
+        "index": "standard",
+        "description": "Premium multi-layer anti-reflective coating with enhanced durability"
+      },
+      "polarized": {
+        "name": "Polarized",
+        "price_inr": 800,
+        "price_eur": 10,
+        "price_inr_with_bifocal": 2000,
+        "price_eur_with_bifocal": 20,
+        "description": "Eliminates glare from reflective surfaces — ideal for outdoor/driving"
+      }
+    },
+    "thickness": {
+      "thin": {
+        "name": "Thin Lenses",
+        "price_inr": 100,
+        "price_eur": 10,
+        "lens_index": "1.56 - 1.61",
+        "description": "Slimmer profile for medium prescriptions"
+      },
+      "extra-thin": {
+        "name": "Extra-Thin",
+        "price_inr": 350,
+        "price_eur": 7,
+        "lens_index": "1.67+",
+        "description": "Ultra-slim for high prescriptions — recommended for power above ±4"
+      },
+      "photo-grey": {
+        "name": "Photo-Grey",
+        "price_inr": 350,
+        "price_eur": 10,
+        "description": "Photochromic — darkens to grey in sunlight, clears indoors"
+      },
+      "photo-brown": {
+        "name": "Photo-Brown",
+        "price_inr": 650,
+        "price_eur": 10,
+        "description": "Photochromic — darkens to brown in sunlight, premium finish"
+      }
+    },
+    "multifocal": {
+      "bifocal-kt": {
+        "name": "Bifocal Round KT (Kryptok)",
+        "price_inr": 250,
+        "price_eur": 8,
+        "description": "Round-segment bifocal — reading zone blends into distance"
+      },
+      "bifocal-d": {
+        "name": "Bifocal Flat-top D",
+        "price_inr": 500,
+        "price_eur": 8,
+        "description": "D-segment flat-top bifocal — clear line between zones"
+      },
+      "progressive": {
+        "name": "Progressive Lenses",
+        "price_inr": 1000,
+        "price_eur": 10,
+        "description": "Seamless no-line multifocal — distance, intermediate, and near in one lens"
+      }
+    }
+  },
+  "decision_rules": [
+    {
+      "intent": "recommend_lens_coating",
+      "rules": [
+        {
+          "condition": "customer_uses_computer_or_phone_heavily",
+          "recommended_lenses": ["Blue Cut"],
+          "reason": "Blue Cut blocks harmful blue-violet light (380-450nm) from screens. Better designed than traditional anti-glare for digital eye strain."
+        },
+        {
+          "condition": "customer_drives_frequently",
+          "recommended_lenses": ["Anti-Glare", "Polarized"],
+          "reason": "Anti-Glare reduces headlight reflections for night driving. Polarized eliminates road glare for daytime driving."
+        },
+        {
+          "condition": "customer_spends_time_outdoors",
+          "recommended_lenses": ["Polarized", "Photo-Grey", "Photo-Brown"],
+          "reason": "Polarized eliminates surface glare. Photochromic lenses adapt to changing light conditions automatically."
+        },
+        {
+          "condition": "customer_wants_basic_upgrade",
+          "recommended_lenses": ["Anti-Glare"],
+          "reason": "Most cost-effective upgrade at Rs 50/€5. Reduces reflections and improves lens appearance."
+        },
+        {
+          "condition": "customer_wants_premium_clarity",
+          "recommended_lenses": ["Multi Anti-Glare"],
+          "reason": "Premium multi-layer coating with better scratch resistance and easier cleaning than standard Anti-Glare."
+        }
+      ]
+    },
+    {
+      "intent": "recommend_lens_thickness",
+      "rules": [
+        {
+          "condition": "standard_prescription_under_plus_minus_4",
+          "recommended_lenses": ["Thin"],
+          "reason": "Thin lenses (1.56-1.61 index) provide good slimming for moderate prescriptions."
+        },
+        {
+          "condition": "higher_prescription_above_plus_minus_4",
+          "recommended_lenses": ["Extra-Thin"],
+          "reason": "Extra-Thin (1.67+ index) significantly reduces edge thickness for high powers. Better aesthetics."
+        },
+        {
+          "condition": "any_prescription",
+          "recommended_lenses": ["complimentary"],
+          "reason": "Standard complimentary lenses work for all prescriptions. Optiwar team may upgrade at their own cost if higher index is needed."
+        }
+      ]
+    },
+    {
+      "intent": "recommend_multifocal",
+      "rules": [
+        {
+          "condition": "needs_distance_and_near_correction",
+          "recommended_lenses": ["Progressive"],
+          "reason": "Progressive lenses are the modern, advanced multifocal option with seamless no-line design. Recommended over bifocals."
+        },
+        {
+          "condition": "prefers_traditional_bifocal",
+          "recommended_lenses": ["Bifocal Flat-top D", "Bifocal Round KT"],
+          "reason": "Traditional two-zone lenses available for customers who prefer them. KT (Rs 250) is more affordable than D (Rs 500)."
+        },
+        {
+          "condition": "customer_over_40_with_reading_difficulty",
+          "recommended_lenses": ["Progressive"],
+          "reason": "Presbyopia (age-related near vision loss) is best corrected with progressive lenses for seamless multi-distance vision."
+        }
+      ]
+    },
+    {
+      "intent": "escalation",
+      "rules": [
+        {
+          "condition": "complex_prescription_query",
+          "action": "escalate_to_human",
+          "reason": "Specialized optical expertise required — create support ticket."
+        },
+        {
+          "condition": "order_cancellation_or_modification",
+          "action": "escalate_to_human",
+          "reason": "All order changes must be approved by human team."
+        },
+        {
+          "condition": "complaint_or_dispute",
+          "action": "escalate_to_human",
+          "reason": "Customer complaints require human judgment and resolution."
+        },
+        {
+          "condition": "customs_or_shipping_issue",
+          "action": "escalate_to_human",
+          "reason": "Specific order shipping issues need tracking investigation."
+        },
+        {
+          "condition": "quality_concern",
+          "action": "escalate_to_human",
+          "reason": "Product quality issues handled case-by-case by support team."
+        }
+      ]
+    }
+  ]
+}

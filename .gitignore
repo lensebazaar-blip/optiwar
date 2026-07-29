@@ -1,0 +1,51 @@
+# Secrets / credentials
+.env
+.env.*
+*.pem
+*.key
+*.crt
+*.p12
+secrets/
+credentials*.json
+service-account*.json
+
+# Backups (never commit source backups)
+*.bak
+*.bak[0-9]
+*.bak_*
+*.pre_*
+*.pre_*backup
+*.orig
+*~
+
+# Data / dumps / logs
+*.log
+*.sql
+*.dump
+*.db
+*.sqlite
+*.sqlite3
+
+# Runtime / session / uploads
+flask_session/
+instance/
+uploads/
+static/uploads/
+nohup.out
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# systemd env drop-ins (contain env secrets)
+gunicorn.service.d/
+
+# OS / editor
+.DS_Store
+*.swp
+*.save
+*.task

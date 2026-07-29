@@ -1,0 +1,234 @@
+{% extends 'base.html' %}
+{% set cat_names = {'supra': 'Half Frame Spectacles', 'clubmaster': 'Clubmaster Spectacles', 'round': 'Round Spectacles', 'rounded': 'Rounded Spectacles', 'rectangle': 'Rectangle Spectacles', 'rimless': 'Rimless / 3-Piece Spectacles', 'square': 'Square Spectacles', 'Contact Lenses': 'Contact Lenses', 'Hearing Aids': 'Hearing Aids'} %}
+{% set cat_display = cat_names.get(category, category|default('All Categories', true)) %}
+{% block title %}{{ cat_display }} - Buy Online at Factory Outlet Prices | Optiwar{% endblock %}
+{% block meta_description %}{% if is_india %}Shop {{ cat_display }} at Optiwar factory outlet. {{ products|length }} styles in stock from Rs 499. Free prescription lenses and free delivery.{% else %}Shop {{ cat_display }} at Optiwar factory outlet. {{ products|length }} styles in stock from €34.99. Free prescription lenses and free worldwide delivery.{% endif %}{% endblock %}
+{% block meta_keywords %}{% if is_india %}{{ cat_display }}, buy {{ cat_display|lower }} online India, Optiwar {{ cat_display|lower }}, factory outlet eyewear, cheap spectacle frames{% else %}{{ cat_display }}, buy {{ cat_display|lower }} online Europe, Optiwar {{ cat_display|lower }}, factory outlet eyewear, affordable spectacle frames{% endif %}{% endblock %}
+{% block og_title %}{{ cat_display }} | Optiwar Factory Outlet{% endblock %}
+{% block og_description %}{% if is_india %}Browse {{ products|length }} {{ cat_display|lower }} styles at factory outlet prices starting Rs 499. Free prescription lenses included.{% else %}Browse {{ products|length }} {{ cat_display|lower }} styles at factory outlet prices starting €34.99. Free prescription lenses included.{% endif %}{% endblock %}
+{% block og_url %}{{ site_url }}/categories/{{ category }}{% endblock %}
+{% block canonical_url %}{{ site_url }}/categories/{{ category }}{% endblock %}
+
+{% block hreflang_in %}https://optiwar.in/categories/{{ category }}{% endblock %}
+{% block hreflang_default %}https://optiwar.com/categories/{{ category }}{% endblock %}
+
+{% block jsonld_extra %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "CollectionPage",
+  "name": "{{ cat_display }} - Optiwar",
+  {% if is_india %}"description": "Browse {{ products|length }} {{ cat_display|lower }} at factory outlet wholesale prices starting Rs 499. Free prescription lenses included with every frame."{% else %}"description": "Browse {{ products|length }} {{ cat_display|lower }} at factory outlet wholesale prices starting €34.99. Free prescription lenses included with every frame."{% endif %},
+  "url": "{{ site_url }}/categories/{{ category }}",
+  "mainEntity": {
+    "@type": "ItemList",
+    "name": "{{ cat_display }}",
+    "numberOfItems": {{ products|length }},
+    "itemListOrder": "https://schema.org/ItemListUnordered"
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {"@type": "ListItem", "position": 1, "name": "Home", "item": "{{ site_url }}/"},
+    {"@type": "ListItem", "position": 2, "name": "{{ cat_display }}", "item": "{{ site_url }}/categories/{{ category }}"}
+  ]
+}
+</script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {% if category == 'supra' %}
+    {"@type": "Question", "name": "What are half-rim spectacle frames?", "acceptedAnswer": {"@type": "Answer", "text": "Half-rim (supra) frames have a rim only on the top half of the lens, held at the bottom by a nylon cord. They offer a lightweight, minimalist look and are one of the most popular frame styles for everyday wear."}},
+    {"@type": "Question", "name": "Are half-rim frames durable?", "acceptedAnswer": {"@type": "Answer", "text": "Yes, half-rim frames are durable for daily use. The nylon cord holding the bottom of the lens is strong and replaceable. Metal supra frames are especially long-lasting."}},
+    {"@type": "Question", "name": "How much do half-rim frames cost at Optiwar?", "acceptedAnswer": {"@type": "Answer", "text": "{% if is_india %}Half-rim spectacle frames at Optiwar start from Rs 499 at factory outlet wholesale prices. Free complimentary prescription lenses and free delivery are included with every frame.{% else %}Half-rim spectacle frames at Optiwar start from €34.99 at factory outlet wholesale prices. Free complimentary prescription lenses and free worldwide delivery are included with every frame.{% endif %}"}}
+    {% elif category == 'clubmaster' %}
+    {"@type": "Question", "name": "What are clubmaster spectacle frames?", "acceptedAnswer": {"@type": "Answer", "text": "Clubmaster frames have a bold upper brow line with a thinner metal rim on the lower half. Made famous in the 1950s, they are a retro-classic style that works for both men and women."}},
+    {"@type": "Question", "name": "Who should wear clubmaster frames?", "acceptedAnswer": {"@type": "Answer", "text": "Clubmaster frames suit oval, round, and heart-shaped faces. They add definition to softer features and are ideal for both formal and casual looks."}},
+    {"@type": "Question", "name": "How much do clubmaster frames cost at Optiwar?", "acceptedAnswer": {"@type": "Answer", "text": "{% if is_india %}Clubmaster frames at Optiwar start from Rs 499 at factory outlet pricing. Every frame includes free prescription lenses and free shipping across India.{% else %}Clubmaster frames at Optiwar start from €34.99 at factory outlet pricing. Every frame includes free prescription lenses and free worldwide shipping.{% endif %}"}}
+    {% elif category == 'round' %}
+    {"@type": "Question", "name": "What are round spectacle frames?", "acceptedAnswer": {"@type": "Answer", "text": "Round frames have circular lenses and are one of the oldest eyewear styles. They offer a vintage, intellectual aesthetic and come in metal, acetate, and TR90 materials."}},
+    {"@type": "Question", "name": "Which face shape suits round frames?", "acceptedAnswer": {"@type": "Answer", "text": "Round frames work best on square, rectangular, and angular face shapes. They soften sharp features. They are less recommended for already-round faces."}},
+    {"@type": "Question", "name": "How much do round frames cost at Optiwar?", "acceptedAnswer": {"@type": "Answer", "text": "{% if is_india %}Round spectacle frames at Optiwar start from Rs 499. All frames include free prescription lenses (single vision) and free delivery across India.{% else %}Round spectacle frames at Optiwar start from €34.99. All frames include free prescription lenses (single vision) and free worldwide delivery.{% endif %}"}}
+    {% elif category == 'rectangle' %}
+    {"@type": "Question", "name": "What are rectangle spectacle frames?", "acceptedAnswer": {"@type": "Answer", "text": "Rectangle frames have wider-than-tall rectangular lenses. They are the most common frame shape for professional and everyday use, offering a clean and structured look."}},
+    {"@type": "Question", "name": "Who should wear rectangle frames?", "acceptedAnswer": {"@type": "Answer", "text": "Rectangle frames complement round and oval face shapes by adding angular definition. They are versatile enough for both work and casual settings."}},
+    {"@type": "Question", "name": "How much do rectangle frames cost at Optiwar?", "acceptedAnswer": {"@type": "Answer", "text": "{% if is_india %}Rectangle spectacle frames at Optiwar start from Rs 499 at factory outlet wholesale prices with free lenses and free delivery.{% else %}Rectangle spectacle frames at Optiwar start from €34.99 at factory outlet wholesale prices with free lenses and free worldwide delivery.{% endif %}"}}
+    {% elif category == 'rimless' %}
+    {"@type": "Question", "name": "What are rimless spectacle frames?", "acceptedAnswer": {"@type": "Answer", "text": "Rimless (3-piece) frames have no frame around the lenses — the temples and bridge attach directly to drilled lenses. They are the lightest and most minimal frame style."}},
+    {"@type": "Question", "name": "Are rimless frames fragile?", "acceptedAnswer": {"@type": "Answer", "text": "Rimless frames are lighter but require careful handling. Using polycarbonate or Trivex lenses (instead of glass) makes them much more durable. The mounting screws may need occasional tightening."}},
+    {"@type": "Question", "name": "How much do rimless frames cost at Optiwar?", "acceptedAnswer": {"@type": "Answer", "text": "{% if is_india %}Rimless frames at Optiwar start from Rs 499. All frames include complimentary prescription lenses and free shipping.{% else %}Rimless frames at Optiwar start from €34.99. All frames include complimentary prescription lenses and free worldwide shipping.{% endif %}"}}
+    {% elif category == 'square' %}
+    {"@type": "Question", "name": "What are square spectacle frames?", "acceptedAnswer": {"@type": "Answer", "text": "Square frames have equal-width and equal-height lenses with angular corners. They offer a bold, modern look and are popular in both metal and acetate materials."}},
+    {"@type": "Question", "name": "Which face shape suits square frames?", "acceptedAnswer": {"@type": "Answer", "text": "Square frames work best on round and oval faces, adding structure and definition. They are not ideal for already-angular square faces."}},
+    {"@type": "Question", "name": "How much do square frames cost at Optiwar?", "acceptedAnswer": {"@type": "Answer", "text": "{% if is_india %}Square spectacle frames at Optiwar start from Rs 499 at factory outlet prices with free prescription lenses and free delivery.{% else %}Square spectacle frames at Optiwar start from €34.99 at factory outlet prices with free prescription lenses and free worldwide delivery.{% endif %}"}}
+    {% else %}
+    {"@type": "Question", "name": "What types of spectacle frames does Optiwar sell?", "acceptedAnswer": {"@type": "Answer", "text": "Optiwar offers 700+ spectacle frames across 6 categories: half-rim (supra), clubmaster, round, rectangle, rimless, and square. All frames come with free prescription lenses."}},
+    {"@type": "Question", "name": "Are Optiwar prices wholesale?", "acceptedAnswer": {"@type": "Answer", "text": "Yes, Optiwar sells at factory outlet wholesale prices — up to 70% cheaper than retail optical stores. Every frame includes free single-vision lenses and free delivery."}}
+    {% endif %}
+  ]
+}
+</script>
+{% endblock %}
+
+
+{% block content %}
+<!-- Visible Breadcrumbs -->
+<nav aria-label="Breadcrumb" class="ow-breadcrumb">
+  <ol>
+    <li><a href="/">Home</a></li>
+    <li>{{ cat_display }}</li>
+  </ol>
+</nav>
+{% if products|length > 0 %}
+<h2>{{ cat_display }} ({{ products|length }} styles)</h2>
+{% else %}
+<h2>{{ cat_display }}</h2>
+<div style="text-align:center;padding:60px 20px 40px;">
+  <div style="width:80px;height:80px;margin:0 auto 20px;border-radius:50%;background:#fef2f2;display:flex;align-items:center;justify-content:center;">
+    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+  </div>
+  <h3 style="font-size:22px;font-weight:800;color:#1e293b;margin:0 0 8px;">Currently Sold Out</h3>
+  <p style="font-size:14px;color:#64748b;max-width:340px;margin:0 auto 24px;line-height:1.6;">All <strong>{{ cat_display }}</strong> frames are currently out of stock. We restock regularly — check back soon or browse other categories below.</p>
+  <div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center;">
+    <a href="/eyeglasses/all-spectacle-frames.html" style="display:inline-flex;align-items:center;gap:6px;padding:12px 24px;background:#4f46e5;color:#fff;border-radius:10px;font-size:14px;font-weight:600;text-decoration:none;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      Browse All Frames
+    </a>
+    <a href="/" style="display:inline-flex;align-items:center;gap:6px;padding:12px 24px;background:#fff;color:#4f46e5;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;font-weight:600;text-decoration:none;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      Home
+    </a>
+  </div>
+</div>
+{% endif %}
+
+<ul> 
+ {% for product in products %}
+		    <li data-price="{{ product.product_special_price }}" data-facefit="{{ product.product_perception_value|default('', true)|lower }}" data-shapes="{% if product.product_category_rectangle|default(0)|int == 1 %}rectangle {% endif %}{% if product.product_category_oval|default(0)|int == 1 %}oval {% endif %}{% if product.product_category_round|default(0)|int == 1 %}round {% endif %}{% if product.product_category_square|default(0)|int == 1 %}square {% endif %}{% if product.product_category_wayfarer|default(0)|int == 1 %}wayfarer {% endif %}{% if product.product_category_aviator|default(0)|int == 1 %}aviator {% endif %}{% if product.product_category_cateye|default(0)|int == 1 %}cateye {% endif %}{% if product.product_category_clubmaster|default(0)|int == 1 %}clubmaster {% endif %}{% if product.product_category_panto|default(0)|int == 1 %}panto {% endif %}{% if product.product_category_kids|default(0)|int == 1 %}kids {% endif %}{% if product.product_category_supra|default(0)|int == 1 %}supra {% endif %}">
+			{% if product['product_image'] %}
+                        {% set image_paths = product['product_image'].split(',')  %}
+                        <div class="scrolling-image-container">
+                        <div class="scrolling-track">
+                        {% for image in image_paths %}
+                        <img src="{{ url_for('static', filename=image.strip()) }}" alt="{{ product.product_name }} {{ product.product_code }} - {{ product.product_category }}" class="zoomable-image" onclick="openZoom(this)" width="400" height="400" loading="lazy">
+                        {% endfor %}
+                        </div>
+                        </div>
+                        {% endif %}
+{% set disc_pct = (((product.product_price|int - product.product_special_price|int) / product.product_price|int) * 100)|round|int %}
+<div class="ow-title-row"><a href="{{ url_for('main.product_page', category=product['product_category']|lower|replace(' ', '-'), product_slug=product['product_slug'], pid=product['product_id']) }}" class="product_link"><h3>{{ product['product_name'] }}</h3></a><div class="heart" data-product-id="{{ product['product_id']}}" onclick="toggleFavorite(this)"><svg class="heart-outline" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.6 5.6 0 0 0-7.9 0L12 5.5l-.9-.9A5.6 5.6 0 0 0 3.2 12l8.8 8.8 8.8-8.8a5.6 5.6 0 0 0 0-7.9z"/></svg><svg class="heart-filled" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display: none;"><path d="M20.8 4.6a5.6 5.6 0 0 0-7.9 0L12 5.5l-.9-.9A5.6 5.6 0 0 0 3.2 12l8.8 8.8 8.8-8.8a5.6 5.6 0 0 0 0-7.9z"/></svg></div><span class="ow-card-facefit-badge" data-pid="{{ product['product_id'] }}">MATCHED</span>{% if disc_pct > 0 %}<div class="ow-card-discount ow-disc-inline"><span class="ow-disc-particle ow-disc-p1"></span><span class="ow-disc-particle ow-disc-p2"></span><span class="ow-disc-particle ow-disc-p3"></span><span class="ow-disc-particle ow-disc-p4"></span><div class="ow-disc-glow"></div><div class="ow-disc-badge"><div class="ow-disc-shimmer"></div><div class="ow-disc-ring ow-disc-ring1"></div><div class="ow-disc-ring ow-disc-ring2"></div><div class="ow-disc-content"><span class="ow-disc-num">{{ disc_pct }}%</span><span class="ow-disc-off">OFF</span></div><div class="ow-disc-blight"></div></div></div>{% endif %}</div>
+                        {% if product.product_category == "Spectacles Frame" %}
+			<span> <h5>Color: {{ product['product_color'] }} </h5>
+			<span> <h5> Size: {{ product['product_size'] }} mm</h5> </span>
+                	<span> <h6 class="center-text">Face fit: {{ product['product_perception_value'] }} </h6>
+			{% endif %}
+
+
+		       <!--LOCK  <p> {{ product['product_details'] }}</p> -->
+		
+        <div class="ow-card-pricing">
+          <div class="ow-card-market">
+            <span class="ow-market-price">Market Price  {% if is_india %}Rs {{ product["product_price"] }}{% else %}&euro;{{ product["product_price_eur"] }}{% endif %}</span>
+
+          </div>
+          <div class="ow-card-wholesale">
+            <span class="ow-wh-label">Wholesale Price</span>
+            <span class="ow-wh-price">{% if is_india %}Rs {{ product["product_special_price"] }}{% else %}&euro;{{ product["product_special_price_eur"] }}{% endif %}</span>
+          </div>
+
+          <div class="ow-card-includes">
+            <span class="ow-inc-icon"><svg viewBox="0 0 24 24"><path d="M12 4.5C7 4.5 2.7 7.6 1 12c1.7 4.4 6 7.5 11 7.5s9.3-3.1 11-7.5c-1.7-4.4-6-7.5-11-7.5zm0 12.5c-2.8 0-5-2.2-5-5s2.2-5 5-5 5 2.2 5 5-2.2 5-5 5zm0-8c-1.7 0-3 1.3-3 3s1.3 3 3 3 3-1.3 3-3-1.3-3-3-3z"/></svg></span>
+            <span class="ow-inc-text">INCLUDES FREE <span>| Plano Anti-Glare Lenses ✨</span></span>
+          </div>
+          <div class="ow-card-shipping">
+            <svg viewBox="0 0 24 24"><path d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.7 1.3 3 3 3s3-1.3 3-3h6c0 1.7 1.3 3 3 3s3-1.3 3-3h2v-5l-3-4zM6 18.5c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5z"/></svg>
+            Free Shipping
+          </div>
+        </div>
+
+			{% if category == "Hearing Aids" %} <div> <details style="direction: color: purple;"> 
+									 <span id="form-factor"> {{ product['form_factor'] }}  </span>
+									 <span id="warranty"> {{ product['warranty'] }} Warranty </span>
+									 <span id="fitting_range"> {{ product['fitting_range'] }} Fitting range in dB</span>
+									 <span id="channels"> {{ product['channels'] }} Channels </span>
+								  </details> 
+							</div> 
+	                    <form action="{{ url_for('main.add_to_cart') }}" method="post">
+                            <input type="hidden" name="product_id" value="{{ product.product_id }}">
+                            <input type="hidden" name="product_code" value="{{ product.product_code}}">
+                            <input type="hidden" name="product_name" value="{{ product.product_name }}">
+                            <input type="hidden" name="product_price" value="{% if is_india %}{{ product.product_price }}{% else %}{{ product.product_price_eur }}{% endif %}">
+                            <input type="hidden" name="product_special_price" value="{% if is_india %}{{ product.product_special_price }}{% else %}{{ product.product_special_price_eur }}{% endif %}">
+	                    <input type="hidden" name="product_category" value="{{ product.product_category }}">
+			    <button type="submit"> Fast Checkout Now </button>
+			    </form>
+
+			{% elif category == "Contact Lenses" %}
+                             <form action="{{ url_for('cl_range.add_prescription_of_cl') }}" method="post">
+                            <input type="hidden" name="product_id" value="{{ product.product_id }}">
+                            <input type="hidden" name="product_code" value="{{ product.product_code}}">
+                            <input type="hidden" name="product_name" value="{{ product.product_name }}">
+                            <input type="hidden" name="product_price" value="{% if is_india %}{{ product.product_price }}{% else %}{{ product.product_price_eur }}{% endif %}">
+                            <input type="hidden" name="product_special_price" value="{% if is_india %}{{ product.product_special_price }}{% else %}{{ product.product_special_price_eur }}{% endif %}">
+                            <input type="hidden" name="product_category" value="{{ product.product_category }}">
+                            <button type="submit"> Buy Contact Lenses </button>
+			    </form>
+
+			   {% elif category != "Spectacles Frame" %}
+    <div class="ow-btn-stack">
+			    <form action="{{ url_for('main.add_to_cart') }}" method="post">
+                            <input type="hidden" name="product_id" value="{{ product.product_id }}">
+                            <input type="hidden" name="product_code" value="{{ product.product_code}}">
+                            <input type="hidden" name="product_name" value="{{ product.product_name }}">
+                            <input type="hidden" name="product_price" value="{% if is_india %}{{ product.product_price }}{% else %}{{ product.product_price_eur }}{% endif %}">
+                            <input type="hidden" name="product_special_price" value="{% if is_india %}{{ product.product_special_price }}{% else %}{{ product.product_special_price_eur }}{% endif %}">
+                            <input type="hidden" name="product_category" value="{{ product.product_category }}">
+                            <button type="submit" class="ow-lens-btn ow-plano"><span class="ow-spark"></span><span class="ow-spark"></span><span class="ow-spark"></span><div class="ow-btn-left"><div class="ow-btn-icon">✨</div><div class="ow-btn-text"><h3>Buy Frame Only</h3><p>Zero power lenses with premium anti-glare coating</p></div></div><div class="ow-btn-arrow">→</div></button>
+                            </form>
+
+			     <form action="{{ url_for('main.add_prescription') }}" method="post">
+                            <input type="hidden" name="product_id" value="{{ product.product_id }}">
+                            <input type="hidden" name="product_code" value="{{ product.product_code}}">
+                            <input type="hidden" name="product_name" value="{{ product.product_name }}">
+                            <input type="hidden" name="product_price" value="{% if is_india %}{{ product.product_price }}{% else %}{{ product.product_price_eur }}{% endif %}">
+                            <input type="hidden" name="product_special_price" value="{% if is_india %}{{ product.product_special_price }}{% else %}{{ product.product_special_price_eur }}{% endif %}">
+                             <input type="hidden" name="product_category" value="{{ product.product_category }}">
+
+                            <button type="submit" class="ow-lens-btn ow-special"><span class="ow-spark"></span><span class="ow-spark"></span><span class="ow-spark"></span><div class="ow-btn-left"><div class="ow-btn-icon">👓</div><div class="ow-btn-text"><h3>Buy Frame My Lenses</h3><p>Prescription, blue-cut & progressive lens options</p></div></div><div class="ow-btn-arrow">→</div></button>
+                        </form>
+    </div>
+
+
+
+		        {% elif category == "Hearing Aids" %}
+			    <form action="{{ url_for('main.add_to_cart') }}" method="post">
+                            <input type="hidden" name="product_id" value="{{ product.product_id }}">
+                            <input type="hidden" name="product_name" value="{{ product.product_name }}">
+                            <input type="hidden" name="product_code" value="{{ product.product_code}}">
+                            <input type="hidden" name="product_price" value="{% if is_india %}{{ product.product_price }}{% else %}{{ product.product_price_eur }}{% endif %}">
+                            <input type="hidden" name="product_special_price" value="{% if is_india %}{{ product.product_special_price }}{% else %}{{ product.product_special_price_eur }}{% endif %}">
+                            <input type="hidden" name="product_category" value="{{ product.product_category }}">
+	        	    <button type ="submit"> Fast Checkout now </button>
+
+			{% elif category == "Contact Lenses" %}
+	                     <form action="{{ url_for('cl_range.add_prescription_of_cl') }}" method="post">
+                            <input type="hidden" name="product_id" value="{{ product.product_id }}">
+                            <input type="hidden" name="product_code" value="{{ product.product_code}}">
+                            <input type="hidden" name="product_name" value="{{ product.product_name }}">
+                            <input type="hidden" name="product_price" value="{% if is_india %}{{ product.product_price }}{% else %}{{ product.product_price_eur }}{% endif %}">
+                            <input type="hidden" name="product_special_price" value="{% if is_india %}{{ product.product_special_price }}{% else %}{{ product.product_special_price_eur }}{% endif %}">
+                            <input type="hidden" name="product_category" value="{{ product.product_category }}">
+          		    <button type="submit"> Buy Contact Lenses </button>
+			    </form>
+			  {% endif %}
+		    </li>
+		    {% endfor %}
+</ul>
+{% endblock %}

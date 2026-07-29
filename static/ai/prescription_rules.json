@@ -1,0 +1,262 @@
+{
+  "version": "1.0",
+  "last_updated": "2026-06-16",
+  "description": "Structured prescription validation and interpretation rules for Optiwar ordering system. Enables AI agents to validate prescriptions before order placement.",
+  "field_definitions": {
+    "sph": {
+      "full_name": "Sphere",
+      "abbreviations": [
+        "SPH",
+        "Sphere",
+        "S",
+        "Sph."
+      ],
+      "description": "Main lens power correcting near-sightedness (negative) or far-sightedness (positive)",
+      "unit": "dioptres (D)",
+      "step": 0.25,
+      "typical_range": {
+        "min": -20.0,
+        "max": 20.0
+      },
+      "common_range": {
+        "min": -6.0,
+        "max": 6.0
+      },
+      "required": true,
+      "per_eye": true,
+      "zero_notation": [
+        "0.00",
+        "Plano",
+        "Pl",
+        "Plan",
+        "∞"
+      ]
+    },
+    "cyl": {
+      "full_name": "Cylinder",
+      "abbreviations": [
+        "CYL",
+        "Cylinder",
+        "Cyl.",
+        "C"
+      ],
+      "description": "Corrects astigmatism — uneven curvature of cornea causing blurred vision",
+      "unit": "dioptres (D)",
+      "step": 0.25,
+      "typical_range": {
+        "min": -6.0,
+        "max": 6.0
+      },
+      "common_range": {
+        "min": -2.0,
+        "max": 2.0
+      },
+      "required": false,
+      "per_eye": true,
+      "dependency": "If CYL is present, AXIS is required"
+    },
+    "axis": {
+      "full_name": "Axis",
+      "abbreviations": [
+        "AXIS",
+        "Ax",
+        "Ax.",
+        "X"
+      ],
+      "description": "Angle (0–180°) at which cylindrical correction is applied",
+      "unit": "degrees",
+      "step": 1,
+      "range": {
+        "min": 0,
+        "max": 180
+      },
+      "required": "Only when CYL is present",
+      "per_eye": true,
+      "dependency": "Required if and only if CYL is present for the same eye"
+    },
+    "add": {
+      "full_name": "Addition",
+      "abbreviations": [
+        "ADD",
+        "Add",
+        "Near Add",
+        "NV Add"
+      ],
+      "description": "Extra magnification for near/reading vision, used in bifocal and progressive lenses",
+      "unit": "dioptres (D)",
+      "step": 0.25,
+      "typical_range": {
+        "min": 0.5,
+        "max": 3.5
+      },
+      "common_range": {
+        "min": 1.0,
+        "max": 2.5
+      },
+      "required": false,
+      "per_eye": false,
+      "note": "ADD is usually the same for both eyes. Required for bifocal and progressive lens orders.",
+      "dependency": "If ADD is present, lens_type must be bifocal or progressive"
+    },
+    "pd": {
+      "full_name": "Pupillary Distance",
+      "abbreviations": [
+        "PD",
+        "P.D.",
+        "IPD"
+      ],
+      "description": "Distance between pupil centres, critical for optical centering",
+      "unit": "millimetres (mm)",
+      "step": 0.5,
+      "typical_adult_range": {
+        "min": 54,
+        "max": 74
+      },
+      "typical_child_range": {
+        "min": 43,
+        "max": 58
+      },
+      "required": "Recommended but not mandatory",
+      "formats": {
+        "single": "One number (e.g. 63) — total distance between both pupils",
+        "dual": "Two numbers (e.g. R:31.5 L:32.0) — per-eye distance from nose center"
+      }
+    },
+    "prism": {
+      "full_name": "Prism",
+      "abbreviations": [
+        "Prism",
+        "P",
+        "Pr"
+      ],
+      "description": "Corrects eye alignment issues (strabismus)",
+      "unit": "prism dioptres (Δ or PD)",
+      "step": 0.25,
+      "typical_range": {
+        "min": 0.25,
+        "max": 10.0
+      },
+      "required": false,
+      "per_eye": true,
+      "additional_field": "base_direction",
+      "base_directions": [
+        "Base Up (BU)",
+        "Base Down (BD)",
+        "Base In (BI)",
+        "Base Out (BO)"
+      ],
+      "note": "Prism prescriptions are uncommon. Upload prescription image for team verification."
+    }
+  },
+  "validation_rules": [
+    {
+      "rule_id": "V001",
+      "description": "SPH is required for both eyes",
+      "condition": "sph_right IS NULL OR sph_left IS NULL",
+      "severity": "error",
+      "message": "Both Right Eye SPH and Left Eye SPH are required to place an order."
+    },
+    {
+      "rule_id": "V002",
+      "description": "CYL present requires AXIS",
+      "condition": "cyl IS NOT NULL AND cyl != 0 AND axis IS NULL",
+      "severity": "error",
+      "message": "AXIS is required when CYL (Cylinder) is present. Please check your prescription — AXIS should be a number between 0 and 180."
+    },
+    {
+      "rule_id": "V003",
+      "description": "AXIS without CYL is invalid",
+      "condition": "axis IS NOT NULL AND (cyl IS NULL OR cyl == 0)",
+      "severity": "warning",
+      "message": "AXIS is specified but CYL is empty or zero. AXIS is only meaningful with a CYL value. Please verify your prescription."
+    },
+    {
+      "rule_id": "V004",
+      "description": "AXIS must be 0-180",
+      "condition": "axis < 0 OR axis > 180",
+      "severity": "error",
+      "message": "AXIS must be between 0 and 180 degrees. Please check your prescription."
+    },
+    {
+      "rule_id": "V005",
+      "description": "SPH should be in 0.25 increments",
+      "condition": "sph % 0.25 != 0",
+      "severity": "warning",
+      "message": "SPH is usually in 0.25 increments (e.g. -1.25, -1.50, -1.75). Please verify the value."
+    },
+    {
+      "rule_id": "V006",
+      "description": "ADD required for bifocal/progressive",
+      "condition": "lens_type IN (bifocal, progressive) AND add IS NULL",
+      "severity": "error",
+      "message": "ADD power is required for bifocal and progressive lenses. This value should be on your prescription, typically between +0.50 and +3.50."
+    },
+    {
+      "rule_id": "V007",
+      "description": "ADD present but not ordering bifocal/progressive",
+      "condition": "add IS NOT NULL AND lens_type NOT IN (bifocal, progressive)",
+      "severity": "info",
+      "message": "Your prescription includes ADD power. You may want to consider bifocal or progressive lenses for near vision correction."
+    },
+    {
+      "rule_id": "V008",
+      "description": "High SPH power warning",
+      "condition": "abs(sph) > 6.0",
+      "severity": "info",
+      "message": "High prescription detected. We recommend Extra-Thin (1.67 index) lenses for better aesthetics and comfort. A surcharge may apply for specialized manufacturing."
+    },
+    {
+      "rule_id": "V009",
+      "description": "High CYL power warning",
+      "condition": "abs(cyl) > 4.0",
+      "severity": "info",
+      "message": "High cylinder detected. Our team will review the order to ensure optimal lens manufacturing. A surcharge may apply."
+    },
+    {
+      "rule_id": "V010",
+      "description": "PD out of normal range",
+      "condition": "pd < 50 OR pd > 80",
+      "severity": "warning",
+      "message": "PD value appears outside the normal adult range (54-74mm). Please verify the measurement."
+    },
+    {
+      "rule_id": "V011",
+      "description": "Left and right eye significantly different",
+      "condition": "abs(sph_right - sph_left) > 4.0",
+      "severity": "warning",
+      "message": "Significant difference between right and left eye prescriptions (anisometropia). Our team will verify this order to ensure proper lens manufacturing."
+    },
+    {
+      "rule_id": "V012",
+      "description": "Prism requires image upload",
+      "condition": "prism IS NOT NULL",
+      "severity": "info",
+      "message": "Your prescription includes prism correction. Please upload your prescription image so our team can verify the prism parameters."
+    }
+  ],
+  "eye_notation": {
+    "right_eye": [
+      "OD",
+      "R",
+      "RE",
+      "Right",
+      "D"
+    ],
+    "left_eye": [
+      "OS",
+      "L",
+      "LE",
+      "Left",
+      "S"
+    ],
+    "both_eyes": [
+      "OU"
+    ]
+  },
+  "sign_convention": {
+    "description": "Prescriptions can be written in minus-cylinder or plus-cylinder format. Both are valid.",
+    "minus_cylinder": "Most common in optometry. CYL is negative.",
+    "plus_cylinder": "Used by some ophthalmologists. CYL is positive.",
+    "transposition": "To convert between formats: (1) Add SPH + CYL to get new SPH, (2) Change CYL sign, (3) Add or subtract 90 from AXIS"
+  }
+}

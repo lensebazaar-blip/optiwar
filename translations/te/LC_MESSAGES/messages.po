@@ -1,0 +1,404 @@
+# Telugu translations for PROJECT.
+# Copyright (C) 2026 ORGANIZATION
+# This file is distributed under the same license as the PROJECT project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: PROJECT VERSION\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2026-06-30 12:05+0530\n"
+"PO-Revision-Date: 2026-06-30 12:05+0530\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: te\n"
+"Language-Team: te <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: templates/all_frames.html:121
+msgid "All Spectacle Frames"
+msgstr "అన్ని స్పెక్టకిల్ ఫ్రేమ్లు"
+
+#: templates/base.html:277
+msgid "Single Vision Lenses"
+msgstr "సింగిల్ విజన్ లెన్స్లు"
+
+#: templates/base.html:279
+msgid "Browse Frames"
+msgstr "ఫ్రేమ్లు బ్రౌజ్ చేయండి"
+
+#: templates/base.html:285
+msgid "Progressive Lenses"
+msgstr "ప్రోగ్రెసివ్ లెన్స్లు"
+
+#: templates/base.html:287
+msgid "Measure My Face"
+msgstr "నా ముఖాన్ని కొలవండి"
+
+#: templates/base.html:294
+msgid "Bifocal Lenses"
+msgstr "బైఫోకల్ లెన్స్లు"
+
+#: templates/base.html:302
+msgid "Blue Cut Lenses"
+msgstr "బ్లూ కట్ లెన్స్లు"
+
+#: templates/base.html:310
+msgid "Multi-Glare Protection"
+msgstr "మల్టీ-గ్లేర్ ప్రొటెక్షన్"
+
+#: templates/base.html:318
+msgid "Photochromic Lenses"
+msgstr "ఫోటోక్రోమిక్ లెన్స్లు"
+
+#: templates/base.html:326
+msgid "Polarized Lenses"
+msgstr "పోలరైజ్డ్ లెన్స్లు"
+
+#: templates/base.html:334 templates/base.html:572
+msgid "UV Protection"
+msgstr "యువి ప్రొటెక్షన్"
+
+#: templates/base.html:342
+msgid "Anti-Glare Lenses"
+msgstr "యాంటీ-గ్లేర్ లెన్స్లు"
+
+#: templates/base.html:353
+msgid "Factory Outlet Opticals"
+msgstr "ఫ్యాక్టరీ అవుట్లెట్ ఆప్టికల్స్"
+
+#: templates/base.html:358
+msgid "Faces"
+msgstr "ముఖాలు"
+
+#: templates/base.html:368
+msgid "Search"
+msgstr "శోధించండి"
+
+#: templates/base.html:374
+msgid "Favorites"
+msgstr "ఇష్టమైనవి"
+
+#: templates/base.html:379
+msgid "Cart"
+msgstr "కార్ట్"
+
+#: templates/base.html:384
+msgid "Account"
+msgstr "ఖాతా"
+
+#: templates/base.html:388 templates/base.html:444
+msgid "Logout"
+msgstr "లాగ్అవుట్"
+
+#: templates/base.html:393 templates/base.html:449 templates/login.html:38
+msgid "Login"
+msgstr "లాగిన్"
+
+#: templates/base.html:399
+msgid "Select Language"
+msgstr "భాషను ఎంచుకోండి"
+
+#: templates/base.html:440
+msgid "My Profile"
+msgstr "నా ప్రొఫైల్"
+
+#: templates/base.html:459
+msgid "Lens Types"
+msgstr "లెన్స్ రకాలు"
+
+#: templates/base.html:487
+msgid "Anti-Glare"
+msgstr "యాంటీ-గ్లేర్"
+
+#: templates/base.html:488
+msgid "Reduces reflections"
+msgstr "ప్రతిబింబాలను తగ్గిస్తుంది"
+
+#: templates/base.html:509
+msgid "Blue Cut"
+msgstr "బ్లూ కట్"
+
+#: templates/base.html:510
+msgid "Screen protection"
+msgstr "స్క్రీన్ రక్షణ"
+
+#: templates/base.html:530
+msgid "Photochromic"
+msgstr "ఫోటోక్రోమిక్"
+
+#: templates/base.html:531
+msgid "Auto-tinting"
+msgstr "ఆటో-టింటింగ్"
+
+#: templates/base.html:552
+msgid "Polarized"
+msgstr "పోలరైజ్డ్"
+
+#: templates/base.html:553
+msgid "Glare elimination"
+msgstr "గ్లేర్ తొలగింపు"
+
+#: templates/base.html:573
+msgid "UV400 shield"
+msgstr "యువి400 షీల్డ్"
+
+#: templates/base.html:588
+msgid "Filters"
+msgstr "ఫిల్టర్లు"
+
+#: templates/base.html:611
+msgid "Select Frame Shape"
+msgstr "ఫ్రేమ్ ఆకారాన్ని ఎంచుకోండి"
+
+#: templates/base.html:668
+msgid "Select Color"
+msgstr "రంగును ఎంచుకోండి"
+
+#: templates/base.html:700
+msgid "Categories"
+msgstr "వర్గాలు"
+
+#: templates/base.html:702
+msgid "Half Frames Specs"
+msgstr "హాఫ్ ఫ్రేమ్స్ స్పెక్స్"
+
+#: templates/base.html:703
+msgid "Club Master Specs"
+msgstr "క్లబ్ మాస్టర్ స్పెక్స్"
+
+#: templates/base.html:704
+msgid "Rounded-Glass Specs"
+msgstr "గుండ్రని గ్లాస్ స్పెక్స్"
+
+#: templates/base.html:705
+msgid "Rectangle Specs"
+msgstr "దీర్ఘచతురస్రం స్పెక్స్"
+
+#: templates/base.html:706
+msgid "Rimless Specs"
+msgstr "రిమ్లెస్ స్పెక్స్"
+
+#: templates/base.html:707
+msgid "Square Specs"
+msgstr "చతురస్రం స్పెక్స్"
+
+#: templates/base.html:734
+msgid "About Optiwar"
+msgstr "ఆప్టివార్ గురించి"
+
+#: templates/base.html:746
+msgid "Our Lenses"
+msgstr "మా లెన్స్లు"
+
+#: templates/base.html:764
+msgid "Shop Categories"
+msgstr "షాప్ వర్గాలు"
+
+#: templates/base.html:777
+msgid "Quick Links"
+msgstr "త్వరిత లింక్లు"
+
+#: templates/base.html:779
+msgid "All Lenses"
+msgstr "అన్ని లెన్స్లు"
+
+#: templates/base.html:780
+msgid "AI Face Measurement"
+msgstr "ఏఐ ఫేస్ మెజర్మెంట్"
+
+#: templates/base.html:781
+msgid "Search Products"
+msgstr "ఉత్పత్తులను శోధించండి"
+
+#: templates/base.html:782
+msgid "Terms & Conditions"
+msgstr "నిబంధనలు & షరతులు"
+
+#: templates/base.html:783
+msgid "Privacy Policy"
+msgstr "గోప్యతా విధానం"
+
+#: templates/base.html:784 templates/base.html:857
+msgid "Contact Us"
+msgstr "మమ్మల్ని సంప్రదించండి"
+
+#: templates/base.html:786
+msgid "Contact"
+msgstr "సంప్రదించండి"
+
+#: templates/base.html:799
+msgid "Visit Global Site"
+msgstr "గ్లోబల్ సైట్‌ను సందర్శించండి"
+
+#: templates/base.html:807
+msgid "Visit India Site"
+msgstr "ఇండియా సైట్‌ను సందర్శించండి"
+
+#: templates/base.html:814
+msgid "All rights reserved."
+msgstr "అన్ని హక్కులు రిజర్వ్ చేయబడ్డాయి."
+
+#: templates/base.html:816
+msgid "Clear Cart"
+msgstr "కార్ట్ ఖాళీ చేయండి"
+
+#: templates/base.html:857
+msgid "Raise a support ticket and our team will respond shortly."
+msgstr "సపోర్ట్ టికెట్ తెరవండి, మా బృందం త్వరలో స్పందిస్తుంది."
+
+#: templates/base.html:857
+msgid "Name"
+msgstr "పేరు"
+
+#: templates/base.html:857
+msgid "Your name"
+msgstr "మీ పేరు"
+
+#: templates/base.html:857
+msgid "Subject"
+msgstr "విషయం"
+
+#: templates/base.html:857
+msgid "Select a subject"
+msgstr "విషయాన్ని ఎంచుకోండి"
+
+#: templates/base.html:857
+msgid "Description"
+msgstr "వివరణ"
+
+#: templates/base.html:857
+msgid "Tell us how we can help..."
+msgstr "మేము ఎలా సహాయం చేయగలమో చెప్పండి..."
+
+#: templates/base.html:857
+msgid "Mobile"
+msgstr "మొబైల్"
+
+#: templates/base.html:857
+msgid "Email"
+msgstr "ఇమెయిల్"
+
+#: templates/base.html:857
+msgid "Enter the text shown below:"
+msgstr "కింద చూపిన టెక్స్ట్ నమోదు చేయండి:"
+
+#: templates/checkout.html:960
+msgid "Your Cart"
+msgstr "మీ కార్ట్"
+
+#: templates/checkout.html:1065
+msgid "Qty"
+msgstr "పరిమాణం"
+
+#: templates/checkout.html:1237
+msgid "Delivery Address"
+msgstr "డెలివరీ చిరునామా"
+
+#: templates/checkout.html:2440
+msgid "Your cart is empty"
+msgstr "మీ కార్ట్ ఖాళీగా ఉంది"
+
+#: templates/forgot_password.html:2
+msgid "Reset Password"
+msgstr "పాస్‌వర్డ్ రీసెట్ చేయండి"
+
+#: templates/forgot_password.html:27
+msgid "Back to Login"
+msgstr "లాగిన్‌కు తిరిగి వెళ్ళండి"
+
+#: templates/login.html:6
+msgid "Login to Your Account"
+msgstr "మీ ఖాతాలో లాగిన్ అవ్వండి"
+
+#: templates/login.html:16
+msgid "Sign in with Google"
+msgstr "Googleతో సైన్ ఇన్ చేయండి"
+
+#: templates/login.html:21 templates/register.html:21
+msgid "OR"
+msgstr "లేదా"
+
+#: templates/login.html:26 templates/register.html:28
+msgid "Email Address"
+msgstr "ఇమెయిల్ చిరునామా"
+
+#: templates/login.html:27
+msgid "your@email.com"
+msgstr "మీ@ఇమెయిల్.కామ్"
+
+#: templates/login.html:29 templates/register.html:34
+msgid "Password"
+msgstr "పాస్‌వర్డ్"
+
+#: templates/login.html:30
+msgid "Your password"
+msgstr "మీ పాస్‌వర్డ్"
+
+#: templates/login.html:42
+msgid "Don't have an account?"
+msgstr "ఖాతా లేదా?"
+
+#: templates/login.html:42
+msgid "Register here"
+msgstr "ఇక్కడ నమోదు చేసుకోండి"
+
+#: templates/login.html:43
+msgid "Forgot your password? Click here"
+msgstr "పాస్‌వర్డ్ మర్చిపోయారా? ఇక్కడ క్లిక్ చేయండి"
+
+#: templates/my_orders.html:66
+msgid "No orders found"
+msgstr "ఆర్డర్లు ఏవీ కనుగొనబడలేదు"
+
+#: templates/product_page.html:132
+msgid "Add to Cart"
+msgstr "కార్ట్‌లో చేర్చండి"
+
+#: templates/product_page.html:373
+msgid "In Stock"
+msgstr "స్టాక్‌లో ఉంది"
+
+#: templates/product_page.html:377
+msgid "Out of Stock"
+msgstr "స్టాక్ అయిపోయింది"
+
+#: templates/register.html:6
+msgid "Create Your Account"
+msgstr "మీ ఖాతాను సృష్టించండి"
+
+#: templates/register.html:16
+msgid "Sign up with Google"
+msgstr "Googleతో సైన్ అప్ చేయండి"
+
+#: templates/register.html:25
+msgid "Full Name"
+msgstr "పూర్తి పేరు"
+
+#: templates/register.html:26
+msgid "Your full name"
+msgstr "మీ పూర్తి పేరు"
+
+#: templates/register.html:31
+msgid "Phone Number"
+msgstr "ఫోన్ నంబర్"
+
+#: templates/register.html:37
+msgid "Confirm Password"
+msgstr "పాస్‌వర్డ్ నిర్ధారించండి"
+
+#: templates/register.html:50
+msgid "Already have an account?"
+msgstr "ఇప్పటికే ఖాతా ఉందా?"
+
+#: templates/register.html:50
+msgid "Login here"
+msgstr "ఇక్కడ లాగిన్ చేయండి"
+
+#: templates/terms-and-conditions.html:17
+msgid "Terms and Conditions"
+msgstr "నిబంధనలు మరియు షరతులు"
+

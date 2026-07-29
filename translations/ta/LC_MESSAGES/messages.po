@@ -1,0 +1,404 @@
+# Tamil translations for PROJECT.
+# Copyright (C) 2026 ORGANIZATION
+# This file is distributed under the same license as the PROJECT project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: PROJECT VERSION\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2026-06-30 12:05+0530\n"
+"PO-Revision-Date: 2026-06-30 12:05+0530\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: ta\n"
+"Language-Team: ta <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: templates/all_frames.html:121
+msgid "All Spectacle Frames"
+msgstr "அனைத்து கண்ணாடி ஃப்ரேம்கள்"
+
+#: templates/base.html:277
+msgid "Single Vision Lenses"
+msgstr "சிங்கிள் விஷன் லென்ஸ்கள்"
+
+#: templates/base.html:279
+msgid "Browse Frames"
+msgstr "ஃப்ரேம்களை பாருங்கள்"
+
+#: templates/base.html:285
+msgid "Progressive Lenses"
+msgstr "ப்ரோக்ரசிவ் லென்ஸ்கள்"
+
+#: templates/base.html:287
+msgid "Measure My Face"
+msgstr "என் முகத்தை அளவிடு"
+
+#: templates/base.html:294
+msgid "Bifocal Lenses"
+msgstr "பைஃபோகல் லென்ஸ்கள்"
+
+#: templates/base.html:302
+msgid "Blue Cut Lenses"
+msgstr "ப்ளூ கட் லென்ஸ்கள்"
+
+#: templates/base.html:310
+msgid "Multi-Glare Protection"
+msgstr "மல்டி-க்ளேர் ப்ரொடெக்ஷன்"
+
+#: templates/base.html:318
+msgid "Photochromic Lenses"
+msgstr "ஃபோட்டோக்ரோமிக் லென்ஸ்கள்"
+
+#: templates/base.html:326
+msgid "Polarized Lenses"
+msgstr "போலரைஸ்டு லென்ஸ்கள்"
+
+#: templates/base.html:334 templates/base.html:572
+msgid "UV Protection"
+msgstr "யூவி ப்ரொடெக்ஷன்"
+
+#: templates/base.html:342
+msgid "Anti-Glare Lenses"
+msgstr "ஆன்டி-க்ளேர் லென்ஸ்கள்"
+
+#: templates/base.html:353
+msgid "Factory Outlet Opticals"
+msgstr "ஃபேக்டரி அவுட்லெட் ஆப்டிகல்ஸ்"
+
+#: templates/base.html:358
+msgid "Faces"
+msgstr "முகங்கள்"
+
+#: templates/base.html:368
+msgid "Search"
+msgstr "தேடு"
+
+#: templates/base.html:374
+msgid "Favorites"
+msgstr "விருப்பங்கள்"
+
+#: templates/base.html:379
+msgid "Cart"
+msgstr "கார்ட்"
+
+#: templates/base.html:384
+msgid "Account"
+msgstr "கணக்கு"
+
+#: templates/base.html:388 templates/base.html:444
+msgid "Logout"
+msgstr "வெளியேறு"
+
+#: templates/base.html:393 templates/base.html:449 templates/login.html:38
+msgid "Login"
+msgstr "உள்நுழை"
+
+#: templates/base.html:399
+msgid "Select Language"
+msgstr "மொழியை தேர்ந்தெடு"
+
+#: templates/base.html:440
+msgid "My Profile"
+msgstr "என் சுயவிவரம்"
+
+#: templates/base.html:459
+msgid "Lens Types"
+msgstr "லென்ஸ் வகைகள்"
+
+#: templates/base.html:487
+msgid "Anti-Glare"
+msgstr "ஆன்டி-க்ளேர்"
+
+#: templates/base.html:488
+msgid "Reduces reflections"
+msgstr "பிரதிபலிப்புகளை குறைக்கிறது"
+
+#: templates/base.html:509
+msgid "Blue Cut"
+msgstr "ப்ளூ கட்"
+
+#: templates/base.html:510
+msgid "Screen protection"
+msgstr "திரை பாதுகாப்பு"
+
+#: templates/base.html:530
+msgid "Photochromic"
+msgstr "ஃபோட்டோக்ரோமிக்"
+
+#: templates/base.html:531
+msgid "Auto-tinting"
+msgstr "தானியங்கி நிறமாற்றம்"
+
+#: templates/base.html:552
+msgid "Polarized"
+msgstr "போலரைஸ்டு"
+
+#: templates/base.html:553
+msgid "Glare elimination"
+msgstr "க்ளேரை நீக்குகிறது"
+
+#: templates/base.html:573
+msgid "UV400 shield"
+msgstr "யூவி400 கவசம்"
+
+#: templates/base.html:588
+msgid "Filters"
+msgstr "வடிப்பான்கள்"
+
+#: templates/base.html:611
+msgid "Select Frame Shape"
+msgstr "ஃப்ரேம் வடிவத்தை தேர்ந்தெடு"
+
+#: templates/base.html:668
+msgid "Select Color"
+msgstr "நிறத்தை தேர்ந்தெடு"
+
+#: templates/base.html:700
+msgid "Categories"
+msgstr "வகைகள்"
+
+#: templates/base.html:702
+msgid "Half Frames Specs"
+msgstr "ஹாஃப் ஃப்ரேம்கள் ஸ்பெக்ஸ்"
+
+#: templates/base.html:703
+msgid "Club Master Specs"
+msgstr "கிளப் மாஸ்டர் ஸ்பெக்ஸ்"
+
+#: templates/base.html:704
+msgid "Rounded-Glass Specs"
+msgstr "ரவுண்டட்-கிளாஸ் ஸ்பெக்ஸ்"
+
+#: templates/base.html:705
+msgid "Rectangle Specs"
+msgstr "ரெக்டாங்கிள் ஸ்பெக்ஸ்"
+
+#: templates/base.html:706
+msgid "Rimless Specs"
+msgstr "ரிம்லெஸ் ஸ்பெக்ஸ்"
+
+#: templates/base.html:707
+msgid "Square Specs"
+msgstr "ஸ்கொயர் ஸ்பெக்ஸ்"
+
+#: templates/base.html:734
+msgid "About Optiwar"
+msgstr "ஆப்டிவார் பற்றி"
+
+#: templates/base.html:746
+msgid "Our Lenses"
+msgstr "எங்கள் லென்ஸ்கள்"
+
+#: templates/base.html:764
+msgid "Shop Categories"
+msgstr "கடை வகைகள்"
+
+#: templates/base.html:777
+msgid "Quick Links"
+msgstr "விரைவு இணைப்புகள்"
+
+#: templates/base.html:779
+msgid "All Lenses"
+msgstr "அனைத்து லென்ஸ்கள்"
+
+#: templates/base.html:780
+msgid "AI Face Measurement"
+msgstr "ஏஐ முக அளவீடு"
+
+#: templates/base.html:781
+msgid "Search Products"
+msgstr "தயாரிப்புகளைத் தேடுங்கள்"
+
+#: templates/base.html:782
+msgid "Terms & Conditions"
+msgstr "விதிமுறைகள் மற்றும் நிபந்தனைகள்"
+
+#: templates/base.html:783
+msgid "Privacy Policy"
+msgstr "தனியுரிமைக் கொள்கை"
+
+#: templates/base.html:784 templates/base.html:857
+msgid "Contact Us"
+msgstr "எங்களைத் தொடர்பு கொள்ளுங்கள்"
+
+#: templates/base.html:786
+msgid "Contact"
+msgstr "தொடர்பு"
+
+#: templates/base.html:799
+msgid "Visit Global Site"
+msgstr "உலகளாவிய தளத்தைப் பார்வையிடவும்"
+
+#: templates/base.html:807
+msgid "Visit India Site"
+msgstr "இந்திய தளத்தைப் பார்வையிடவும்"
+
+#: templates/base.html:814
+msgid "All rights reserved."
+msgstr "அனைத்து உரிமைகளும் பாதுகாக்கப்பட்டவை."
+
+#: templates/base.html:816
+msgid "Clear Cart"
+msgstr "கார்ட்டை அழிக்கவும்"
+
+#: templates/base.html:857
+msgid "Raise a support ticket and our team will respond shortly."
+msgstr "ஆதரவு டிக்கெட்டை எழுப்புங்கள், எங்கள் குழு விரைவில் பதிலளிக்கும்."
+
+#: templates/base.html:857
+msgid "Name"
+msgstr "பெயர்"
+
+#: templates/base.html:857
+msgid "Your name"
+msgstr "உங்கள் பெயர்"
+
+#: templates/base.html:857
+msgid "Subject"
+msgstr "பொருள்"
+
+#: templates/base.html:857
+msgid "Select a subject"
+msgstr "ஒரு பொருளைத் தேர்ந்தெடுக்கவும்"
+
+#: templates/base.html:857
+msgid "Description"
+msgstr "விளக்கம்"
+
+#: templates/base.html:857
+msgid "Tell us how we can help..."
+msgstr "நாங்கள் எப்படி உதவ முடியும் என்பதைச் சொல்லுங்கள்..."
+
+#: templates/base.html:857
+msgid "Mobile"
+msgstr "மொபைல்"
+
+#: templates/base.html:857
+msgid "Email"
+msgstr "மின்னஞ்சல்"
+
+#: templates/base.html:857
+msgid "Enter the text shown below:"
+msgstr "கீழே காட்டப்பட்டுள்ள உரையை உள்ளிடவும்:"
+
+#: templates/checkout.html:960
+msgid "Your Cart"
+msgstr "உங்கள் கார்ட்"
+
+#: templates/checkout.html:1065
+msgid "Qty"
+msgstr "அளவு"
+
+#: templates/checkout.html:1237
+msgid "Delivery Address"
+msgstr "விநியோக முகவரி"
+
+#: templates/checkout.html:2440
+msgid "Your cart is empty"
+msgstr "உங்கள் கார்ட் காலியாக உள்ளது"
+
+#: templates/forgot_password.html:2
+msgid "Reset Password"
+msgstr "கடவுச்சொல்லை மீட்டமைக்கவும்"
+
+#: templates/forgot_password.html:27
+msgid "Back to Login"
+msgstr "உள்நுழைவுக்குத் திரும்பு"
+
+#: templates/login.html:6
+msgid "Login to Your Account"
+msgstr "உங்கள் கணக்கில் உள்நுழையவும்"
+
+#: templates/login.html:16
+msgid "Sign in with Google"
+msgstr "Google மூலம் உள்நுழையவும்"
+
+#: templates/login.html:21 templates/register.html:21
+msgid "OR"
+msgstr "அல்லது"
+
+#: templates/login.html:26 templates/register.html:28
+msgid "Email Address"
+msgstr "மின்னஞ்சல் முகவரி"
+
+#: templates/login.html:27
+msgid "your@email.com"
+msgstr "your@email.com"
+
+#: templates/login.html:29 templates/register.html:34
+msgid "Password"
+msgstr "கடவுச்சொல்"
+
+#: templates/login.html:30
+msgid "Your password"
+msgstr "உங்கள் கடவுச்சொல்"
+
+#: templates/login.html:42
+msgid "Don't have an account?"
+msgstr "கணக்கு இல்லையா?"
+
+#: templates/login.html:42
+msgid "Register here"
+msgstr "இங்கே பதிவு செய்யவும்"
+
+#: templates/login.html:43
+msgid "Forgot your password? Click here"
+msgstr "கடவுச்சொல் மறந்துவிட்டதா? இங்கே கிளிக் செய்யவும்"
+
+#: templates/my_orders.html:66
+msgid "No orders found"
+msgstr "ஆர்டர்கள் எதுவும் கிடைக்கவில்லை"
+
+#: templates/product_page.html:132
+msgid "Add to Cart"
+msgstr "கார்ட்டில் சேர்க்கவும்"
+
+#: templates/product_page.html:373
+msgid "In Stock"
+msgstr "ஸ்டாக்கில் உள்ளது"
+
+#: templates/product_page.html:377
+msgid "Out of Stock"
+msgstr "ஸ்டாக் இல்லை"
+
+#: templates/register.html:6
+msgid "Create Your Account"
+msgstr "உங்கள் கணக்கை உருவாக்கவும்"
+
+#: templates/register.html:16
+msgid "Sign up with Google"
+msgstr "Google மூலம் பதிவு செய்யவும்"
+
+#: templates/register.html:25
+msgid "Full Name"
+msgstr "முழு பெயர்"
+
+#: templates/register.html:26
+msgid "Your full name"
+msgstr "உங்கள் முழு பெயர்"
+
+#: templates/register.html:31
+msgid "Phone Number"
+msgstr "தொலைபேசி எண்"
+
+#: templates/register.html:37
+msgid "Confirm Password"
+msgstr "கடவுச்சொல்லை உறுதிப்படுத்தவும்"
+
+#: templates/register.html:50
+msgid "Already have an account?"
+msgstr "ஏற்கனவே கணக்கு உள்ளதா?"
+
+#: templates/register.html:50
+msgid "Login here"
+msgstr "இங்கே உள்நுழையவும்"
+
+#: templates/terms-and-conditions.html:17
+msgid "Terms and Conditions"
+msgstr "விதிமுறைகள் மற்றும் நிபந்தனைகள்"
+

@@ -1,0 +1,332 @@
+{
+  "version": "1.0",
+  "last_updated": "2026-06-16",
+  "description": "Structured lens recommendation decision tree for Optiwar eyewear. Maps customer use cases to optimal lens types.",
+  "lens_types": {
+    "complimentary": {
+      "name": "Complimentary Single Vision",
+      "description": "Standard single-vision prescription lens included free with every frame",
+      "price_inr": 0,
+      "price_eur": 0,
+      "coating": "Hard coat",
+      "index": "1.50 standard"
+    },
+    "anti_glare": {
+      "name": "Anti-Glare",
+      "description": "Reduces reflections and glare from surfaces and lights",
+      "price_inr": 50,
+      "price_eur": 5,
+      "coating": "Anti-reflective multi-layer",
+      "index": "1.56",
+      "best_for": [
+        "general_use",
+        "night_driving",
+        "photography"
+      ]
+    },
+    "blue_cut": {
+      "name": "Blue Cut",
+      "description": "Filters harmful blue light from screens and digital devices",
+      "price_inr": 100,
+      "price_eur": 7,
+      "coating": "Blue light filter + anti-reflective",
+      "index": "1.56",
+      "best_for": [
+        "computer_use",
+        "mobile_heavy_use",
+        "gaming",
+        "office_work"
+      ]
+    },
+    "multi_anti_glare": {
+      "name": "Multi Anti-Glare",
+      "description": "Premium anti-reflective coating with enhanced clarity and durability",
+      "price_inr": 200,
+      "price_eur": 7,
+      "coating": "Multi-layer super anti-reflective",
+      "index": "1.56",
+      "best_for": [
+        "computer_use",
+        "professional_use",
+        "all_day_wear"
+      ]
+    },
+    "thin": {
+      "name": "Thin",
+      "description": "Thinner and lighter lens for moderate prescriptions",
+      "price_inr": 100,
+      "price_eur": 10,
+      "coating": "Anti-reflective",
+      "index": "1.61",
+      "best_for": [
+        "moderate_prescription",
+        "comfort",
+        "aesthetics"
+      ],
+      "recommended_power_range": {
+        "sph_min": -4.0,
+        "sph_max": 4.0
+      }
+    },
+    "extra_thin": {
+      "name": "Extra-Thin",
+      "description": "Thinnest and lightest lens for high prescriptions",
+      "price_inr": 350,
+      "price_eur": 7,
+      "coating": "Anti-reflective",
+      "index": "1.67",
+      "best_for": [
+        "high_prescription",
+        "aesthetics",
+        "rimless_frames"
+      ],
+      "recommended_power_range": {
+        "sph_min": -8.0,
+        "sph_max": 8.0
+      }
+    },
+    "photo_grey": {
+      "name": "Photo-Grey (Photochromic)",
+      "description": "Lenses that darken to grey in sunlight and clear indoors",
+      "price_inr": 350,
+      "price_eur": 10,
+      "coating": "Photochromic + anti-reflective",
+      "index": "1.56",
+      "best_for": [
+        "outdoor_indoor_transition",
+        "driving",
+        "light_sensitivity"
+      ],
+      "tint_color": "grey"
+    },
+    "photo_brown": {
+      "name": "Photo-Brown (Photochromic)",
+      "description": "Lenses that darken to brown in sunlight and clear indoors",
+      "price_inr": 650,
+      "price_eur": 10,
+      "coating": "Photochromic + anti-reflective",
+      "index": "1.56",
+      "best_for": [
+        "outdoor_indoor_transition",
+        "warm_tint_preference",
+        "contrast_enhancement"
+      ],
+      "tint_color": "brown"
+    },
+    "polarized": {
+      "name": "Polarized",
+      "description": "Eliminates horizontal glare from water, snow, roads",
+      "price_inr": 800,
+      "price_eur": 10,
+      "coating": "Polarization filter",
+      "index": "1.56",
+      "best_for": [
+        "driving",
+        "fishing",
+        "water_sports",
+        "snow_sports",
+        "outdoor_activities"
+      ]
+    },
+    "bifocal_kt": {
+      "name": "Bifocal KT",
+      "description": "Kryptok (round segment) bifocal for distance and reading",
+      "price_inr": 250,
+      "price_eur": 8,
+      "best_for": [
+        "presbyopia",
+        "reading_and_distance"
+      ],
+      "requires": [
+        "add_power"
+      ],
+      "segment_type": "round"
+    },
+    "bifocal_d": {
+      "name": "Bifocal D-Segment",
+      "description": "D-segment (flat top) bifocal for distance and reading with wider reading area",
+      "price_inr": 500,
+      "price_eur": 8,
+      "best_for": [
+        "presbyopia",
+        "reading_and_distance",
+        "wider_reading_area"
+      ],
+      "requires": [
+        "add_power"
+      ],
+      "segment_type": "flat_top"
+    },
+    "progressive": {
+      "name": "Progressive",
+      "description": "No-line multifocal lens with smooth transition from distance to near",
+      "price_inr": 1000,
+      "price_eur": 10,
+      "best_for": [
+        "presbyopia",
+        "all_distance_vision",
+        "no_visible_line"
+      ],
+      "requires": [
+        "add_power"
+      ],
+      "segment_type": "progressive"
+    }
+  },
+  "decision_tree": [
+    {
+      "condition": "customer_uses_computer_4plus_hours",
+      "description": "Heavy screen/computer use (4+ hours daily)",
+      "recommended": [
+        "blue_cut",
+        "multi_anti_glare"
+      ],
+      "explanation": "Blue Cut filters harmful blue light reducing eye strain; Multi Anti-Glare provides superior clarity for screen viewing"
+    },
+    {
+      "condition": "customer_drives_frequently",
+      "description": "Regular driving, especially at night",
+      "recommended": [
+        "anti_glare",
+        "polarized"
+      ],
+      "explanation": "Anti-Glare reduces headlight and streetlight reflections at night; Polarized eliminates road glare during daytime"
+    },
+    {
+      "condition": "customer_outdoor_indoor_transition",
+      "description": "Moves frequently between indoor and outdoor environments",
+      "recommended": [
+        "photo_grey",
+        "photo_brown"
+      ],
+      "explanation": "Photochromic lenses auto-darken outdoors and clear indoors, eliminating need for separate sunglasses"
+    },
+    {
+      "condition": "customer_outdoor_sports",
+      "description": "Outdoor activities, water sports, fishing, snow sports",
+      "recommended": [
+        "polarized"
+      ],
+      "explanation": "Polarized lenses eliminate horizontal glare from water, snow, and flat surfaces"
+    },
+    {
+      "condition": "customer_high_prescription",
+      "description": "SPH power >= ±4.00 or CYL >= ±2.00",
+      "recommended": [
+        "extra_thin",
+        "thin"
+      ],
+      "explanation": "Higher index lenses (1.61/1.67) produce significantly thinner and lighter lenses for strong prescriptions, improving aesthetics and comfort"
+    },
+    {
+      "condition": "customer_moderate_prescription",
+      "description": "SPH power between ±2.00 and ±4.00",
+      "recommended": [
+        "thin"
+      ],
+      "explanation": "Thin lenses (1.61 index) provide a noticeable improvement in thickness and weight over standard lenses"
+    },
+    {
+      "condition": "customer_needs_reading_and_distance",
+      "description": "Age 40+ with presbyopia, needs both distance and near correction",
+      "recommended": [
+        "progressive",
+        "bifocal_d",
+        "bifocal_kt"
+      ],
+      "explanation": "Progressive provides seamless all-distance vision with no visible line; Bifocal D-segment offers wider reading area; Bifocal KT is most affordable"
+    },
+    {
+      "condition": "customer_uses_rimless_frame",
+      "description": "Rimless or semi-rimless frame with high prescription",
+      "recommended": [
+        "extra_thin"
+      ],
+      "explanation": "Rimless frames expose lens edges — thinner lenses (1.67 index) look significantly better"
+    },
+    {
+      "condition": "customer_light_sensitive",
+      "description": "Sensitive to bright light or photophobia",
+      "recommended": [
+        "photo_grey",
+        "polarized"
+      ],
+      "explanation": "Photochromic adapts to light conditions automatically; Polarized blocks intense glare"
+    },
+    {
+      "condition": "customer_general_everyday_use",
+      "description": "General everyday wear, no specific heavy use case",
+      "recommended": [
+        "anti_glare",
+        "complimentary"
+      ],
+      "explanation": "Anti-Glare is the most versatile upgrade; complimentary lens is perfectly adequate for light use"
+    },
+    {
+      "condition": "customer_prefers_warm_tint_outdoors",
+      "description": "Prefers warmer tint and enhanced contrast outdoors",
+      "recommended": [
+        "photo_brown"
+      ],
+      "explanation": "Photo-Brown provides warmer tint with better contrast enhancement than Photo-Grey"
+    },
+    {
+      "condition": "customer_prefers_neutral_tint_outdoors",
+      "description": "Prefers neutral tint outdoors, true colour perception",
+      "recommended": [
+        "photo_grey"
+      ],
+      "explanation": "Photo-Grey provides neutral colour perception without colour distortion"
+    }
+  ],
+  "combination_rules": [
+    {
+      "base": "blue_cut",
+      "compatible_with": [
+        "thin",
+        "extra_thin"
+      ],
+      "note": "Blue Cut can be combined with thinner lens indices for high prescriptions + screen protection"
+    },
+    {
+      "base": "anti_glare",
+      "compatible_with": [
+        "thin",
+        "extra_thin"
+      ],
+      "note": "Anti-Glare coating applies to all lens indices"
+    },
+    {
+      "base": "progressive",
+      "compatible_with": [
+        "anti_glare",
+        "blue_cut",
+        "multi_anti_glare",
+        "photo_grey",
+        "photo_brown"
+      ],
+      "note": "Progressive lenses can have additional coatings/treatments"
+    },
+    {
+      "base": "bifocal_kt",
+      "compatible_with": [
+        "anti_glare"
+      ],
+      "note": "Bifocal lenses support standard coatings"
+    }
+  ],
+  "surcharge_rules": [
+    {
+      "condition": "sph_abs_gt_6",
+      "description": "SPH power exceeds ±6.00",
+      "surcharge": "High-power manufacturing surcharge may apply",
+      "action": "team_review"
+    },
+    {
+      "condition": "cyl_abs_gt_4",
+      "description": "CYL power exceeds ±4.00",
+      "surcharge": "High-cylinder surcharge may apply",
+      "action": "team_review"
+    }
+  ]
+}

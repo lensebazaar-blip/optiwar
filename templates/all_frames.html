@@ -1,0 +1,691 @@
+{% extends 'base.html' %}
+{% block title %}All Spectacle Frames - Buy Online at Factory Outlet Prices | Optiwar{% endblock %}
+{% block meta_description %}{% if is_india %}Browse {{ total_count }}+ spectacle frames at Optiwar factory outlet prices starting Rs 499. Free prescription lenses and free delivery across India. Half Frame, Clubmaster, Round, Rectangle, Rimless, Square styles.{% else %}Browse {{ total_count }}+ spectacle frames at Optiwar factory outlet prices starting €34.99. Free prescription lenses and free worldwide delivery. Half Frame, Clubmaster, Round, Rectangle, Rimless, Square styles.{% endif %}{% endblock %}
+{% block meta_keywords %}{% if is_india %}spectacle frames online India, buy eyeglasses online, Optiwar frames, factory outlet spectacles, cheap spectacle frames, prescription glasses{% else %}spectacle frames online Europe, buy eyeglasses online, Optiwar frames, factory outlet spectacles, affordable spectacle frames, prescription glasses{% endif %}{% endblock %}
+{% block og_title %}All Spectacle Frames | Optiwar Factory Outlet{% endblock %}
+{% block og_description %}{% if is_india %}Browse {{ total_count }}+ spectacle frame styles at factory outlet prices starting Rs 499. Free prescription lenses included.{% else %}Browse {{ total_count }}+ spectacle frame styles at factory outlet prices starting €34.99. Free prescription lenses included.{% endif %}{% endblock %}
+{% block og_url %}{{ site_url }}/eyeglasses/all-spectacle-frames.html{% endblock %}
+{% block canonical_url %}{{ site_url }}/eyeglasses/all-spectacle-frames.html{% endblock %}
+
+{% block jsonld_extra %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "CollectionPage",
+  "name": "All Spectacle Frames - Optiwar",
+  {% if is_india %}"description": "Browse {{ total_count }}+ spectacle frames at factory outlet wholesale prices starting Rs 499. Free prescription lenses included with every frame."{% else %}"description": "Browse {{ total_count }}+ spectacle frames at factory outlet wholesale prices starting €34.99. Free prescription lenses included with every frame."{% endif %},
+  "url": "https://optiwar.com/eyeglasses/all-spectacle-frames.html",
+  "mainEntity": {
+    "@type": "ItemList",
+    "name": "All Spectacle Frames",
+    "numberOfItems": {{ total_count }},
+    "itemListOrder": "https://schema.org/ItemListUnordered"
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {"@type": "ListItem", "position": 1, "name": "Home", "item": "https://optiwar.com/"},
+    {"@type": "ListItem", "position": 2, "name": "All Spectacle Frames", "item": "https://optiwar.com/eyeglasses/all-spectacle-frames.html"}
+  ]
+}
+</script>
+{% endblock %}
+
+{% block content %}
+{% from '_picture.html' import product_picture %}
+<!-- Desktop Carousel CSS (≥1024px only) -->
+<style>
+/* responsive <picture> must not become the flex item; keep <img> as the flex child */
+#frames-list picture{display:contents;}
+@media(min-width:1024px){
+  .ow-dsk-wrap{position:relative;max-width:1400px;margin:0 auto;padding:40px 0 60px;overflow:visible;}
+  .ow-dsk-viewport{overflow:hidden;position:relative;padding:20px 0;}
+  #frames-list.ow-carousel-mode{display:flex!important;transition:transform 0.5s cubic-bezier(.4,0,.2,1);list-style:none;padding:0;margin:0;will-change:transform;}
+  #frames-list.ow-carousel-mode>li{flex:0 0 720px;max-width:720px;margin:0 30px;background:#fff;border-radius:24px;box-shadow:0 4px 24px rgba(0,0,0,0.06);padding:0 0 28px;transform:scale(0.82);opacity:0.45;transition:transform 0.5s cubic-bezier(.4,0,.2,1),opacity 0.5s ease,filter 0.5s ease;filter:blur(1.5px);overflow:hidden;position:relative;}
+  #frames-list.ow-carousel-mode>li.ow-active{transform:scale(1);opacity:1;filter:blur(0);box-shadow:0 16px 60px rgba(79,70,229,0.12);}
+  /* Image area with checkered bg */
+  #frames-list.ow-carousel-mode>li .scrolling-image-container{overflow:hidden;position:relative;border-radius:24px 24px 0 0;background-image:linear-gradient(45deg,#f0f0f0 25%,transparent 25%),linear-gradient(-45deg,#f0f0f0 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#f0f0f0 75%),linear-gradient(-45deg,transparent 75%,#f0f0f0 75%);background-size:20px 20px;background-position:0 0,0 10px,10px -10px,-10px 0px;}
+  #frames-list.ow-carousel-mode>li .scrolling-track{display:flex!important;transition:transform 0.35s ease;width:max-content!important;flex-wrap:nowrap!important;}
+  #frames-list.ow-carousel-mode>li .scrolling-image-container .scrolling-track img{flex:0 0 718px!important;width:718px!important;min-width:718px!important;max-width:718px!important;height:480px!important;object-fit:contain!important;transform:scale(1.8);pointer-events:auto;}
+  /* Image dots */
+  .ow-img-dots{display:none;}
+  #frames-list.ow-carousel-mode .ow-img-dots{display:flex;justify-content:center;gap:8px;padding:14px 0 8px;position:absolute;bottom:8px;left:0;right:0;z-index:2;}
+  .ow-img-dots .ow-img-dot{width:10px;height:10px;border-radius:50%;background:rgba(0,0,0,0.15);border:none;cursor:pointer;padding:0;transition:background 0.2s,transform 0.2s;}
+  .ow-img-dots .ow-img-dot.active{background:#2563eb;transform:scale(1.4);}
+  /* Heart icon top-left */
+  #frames-list.ow-carousel-mode .ow-title-row .heart{position:absolute;top:18px;left:18px;z-index:3;width:40px;height:40px;background:rgba(255,255,255,0.9);border-radius:50%;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);box-shadow:0 2px 8px rgba(0,0,0,0.08);}
+  #frames-list.ow-carousel-mode .ow-title-row .heart svg{width:22px;height:22px;}
+  /* Discount badge centered */
+  #frames-list.ow-carousel-mode .ow-card-discount{position:absolute!important;top:14px;left:50%;transform:translateX(-50%);right:auto;z-index:3;}
+  /* Product info section */
+  #frames-list.ow-carousel-mode .ow-title-row{padding:0 28px;margin-top:14px;}
+  #frames-list.ow-carousel-mode .ow-title-row h3{font-size:22px;font-weight:700;margin:0;color:#1e293b;}
+  #frames-list.ow-carousel-mode>li>span{padding:0 28px;display:block;}
+  #frames-list.ow-carousel-mode>li h5{margin:4px 0;font-size:14px;color:#64748b;font-weight:400;}
+  #frames-list.ow-carousel-mode>li h6{font-size:14px;color:#475569;margin:4px 0;}
+  /* Face fit badge */
+  #frames-list.ow-carousel-mode>li h6.center-text{display:inline-block;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:8px;padding:4px 14px;font-size:13px;font-weight:600;color:#334155;float:right;margin-top:-36px;}
+  /* Pricing row */
+  #frames-list.ow-carousel-mode .ow-card-pricing{padding:16px 28px 0;margin:12px 0 0;border-top:1px solid #f1f5f9;}
+  #frames-list.ow-carousel-mode .ow-card-wholesale{display:flex;align-items:baseline;gap:10px;}
+  #frames-list.ow-carousel-mode .ow-wh-price{font-size:32px;font-weight:800;color:#16a34a;}
+  #frames-list.ow-carousel-mode .ow-card-includes{display:inline-flex;margin-right:16px;}
+  #frames-list.ow-carousel-mode .ow-card-shipping{display:inline-flex;float:right;}
+  /* CTA buttons side by side */
+  #frames-list.ow-carousel-mode .ow-btn-stack{display:flex!important;flex-direction:row!important;gap:16px;padding:20px 28px 0;}
+  #frames-list.ow-carousel-mode .ow-btn-stack form{flex:1;}
+  #frames-list.ow-carousel-mode .ow-lens-btn{width:100%;border-radius:16px;padding:18px 20px;text-align:center;justify-content:center;}
+  #frames-list.ow-carousel-mode .ow-lens-btn .ow-btn-left{flex-direction:column;align-items:center;}
+  #frames-list.ow-carousel-mode .ow-lens-btn .ow-btn-text h3{font-size:15px;text-align:center;}
+  #frames-list.ow-carousel-mode .ow-lens-btn .ow-btn-text p{display:none;}
+  #frames-list.ow-carousel-mode .ow-lens-btn .ow-btn-arrow{display:none;}
+  #frames-list.ow-carousel-mode .ow-lens-btn .ow-btn-icon{font-size:20px;margin-bottom:4px;}
+  /* Navigation arrows */
+  .ow-dsk-arr{display:none;position:absolute;top:50%;transform:translateY(-60%);z-index:10;width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,0.97);border:1px solid #e2e8f0;box-shadow:0 4px 24px rgba(0,0,0,0.12);cursor:pointer;font-size:26px;color:#334155;align-items:center;justify-content:center;transition:all 0.2s;}
+  .ow-dsk-arr:hover{background:#fff;box-shadow:0 8px 32px rgba(0,0,0,0.18);transform:translateY(-60%) scale(1.08);}
+  .ow-dsk-prev{left:-28px;}
+  .ow-dsk-next{right:-28px;}
+  .ow-dsk-wrap .ow-dsk-arr{display:flex;}
+  /* Pagination dots */
+  .ow-dsk-dots{display:none;justify-content:center;gap:10px;padding:28px 0 0;}
+  .ow-dsk-wrap .ow-dsk-dots{display:flex;}
+  .ow-dsk-dot{width:12px;height:12px;border-radius:50%;background:#cbd5e1;border:none;cursor:pointer;padding:0;transition:all 0.25s;}
+  .ow-dsk-dot.active{background:#2563eb;transform:scale(1.4);}
+  /* Hide zoom modal on carousel */
+  #frames-list.ow-carousel-mode .zoom-modal{display:none!important;}
+  /* MATCHED badge - prominent red styling in carousel */
+  #frames-list.ow-carousel-mode .ow-card-facefit-badge{position:absolute;top:18px;right:18px;z-index:3;font-size:13px;font-weight:800;color:#fff;background:#ef4444;border:none;padding:6px 14px;border-radius:6px;box-shadow:0 2px 8px rgba(239,68,68,0.4);letter-spacing:.5px;}
+  #frames-list.ow-carousel-mode .ow-card-facefit-badge.visible{display:inline-block!important;}
+  /* Filter-active: remove blur/opacity from all visible items */
+  #frames-list.ow-carousel-mode.ow-filter-active>li{filter:none!important;opacity:1!important;transform:scale(0.88)!important;}
+  #frames-list.ow-carousel-mode.ow-filter-active>li.ow-active{transform:scale(1)!important;box-shadow:0 16px 60px rgba(79,70,229,0.12);}
+}
+/* Extra large screens: wider cards */
+@media(min-width:1440px){
+  .ow-dsk-wrap{max-width:1800px;}
+  #frames-list.ow-carousel-mode>li{flex:0 0 900px;max-width:900px;margin:0 40px;}
+  #frames-list.ow-carousel-mode>li .scrolling-image-container .scrolling-track img{flex:0 0 898px!important;width:898px!important;min-width:898px!important;max-width:898px!important;height:560px!important;transform:scale(1.8);}
+}
+@media(min-width:1800px){
+  .ow-dsk-wrap{max-width:2100px;}
+  #frames-list.ow-carousel-mode>li{flex:0 0 1040px;max-width:1040px;margin:0 50px;}
+  #frames-list.ow-carousel-mode>li .scrolling-image-container .scrolling-track img{flex:0 0 1038px!important;width:1038px!important;min-width:1038px!important;max-width:1038px!important;height:620px!important;transform:scale(1.8);}
+}
+@media(max-width:1023px){
+  .ow-dsk-wrap{display:contents!important;}
+  .ow-dsk-arr,.ow-dsk-dots{display:none!important;}
+}
+</style>
+
+<h2>{{ _('All Spectacle Frames') }}</h2>
+<div id="ow-filter-status" style="display:none;text-align:center;padding:10px 16px;margin:8px auto 4px;font-family:Inter,Arial,sans-serif;font-size:15px;font-weight:500;color:#6366f1;background:linear-gradient(135deg,#f0f0ff,#faf5ff);border:1px solid #e0e7ff;border-radius:12px;max-width:600px;"></div>
+
+<ul id="frames-list">
+ {% for product in products %}
+    {% set card_index = loop.index %}
+    <li data-price="{{ product.product_special_price }}" data-facefit="{{ product.product_perception_value|default('', true)|lower }}" data-color="{{ product.color_filter|default('', true) }}" data-shapes="{% if product.product_category_rectangle|default(0)|int == 1 %}rectangle {% endif %}{% if product.product_category_oval|default(0)|int == 1 %}oval {% endif %}{% if product.product_category_round|default(0)|int == 1 %}round {% endif %}{% if product.product_category_square|default(0)|int == 1 %}square {% endif %}{% if product.product_category_wayfarer|default(0)|int == 1 %}wayfarer {% endif %}{% if product.product_category_aviator|default(0)|int == 1 %}aviator {% endif %}{% if product.product_category_cateye|default(0)|int == 1 %}cateye {% endif %}{% if product.product_category_clubmaster|default(0)|int == 1 %}clubmaster {% endif %}{% if product.product_category_panto|default(0)|int == 1 %}panto {% endif %}{% if product.product_category_kids|default(0)|int == 1 %}kids {% endif %}{% if product.product_category_supra|default(0)|int == 1 %}supra {% endif %}">
+{% if product['product_image'] %}
+                        {% set image_paths = product['product_image'].split(',')  %}
+                        <div class="scrolling-image-container">
+                        <div class="scrolling-track">
+                        {% set card_alt = product.product_name ~ ' ' ~ product.product_code ~ ' ' ~ product.product_category ~ (' in ' ~ product.color_display if product.color_display else (' in ' ~ product.product_color if product.product_color else '')) %}
+                        {% for image in image_paths %}
+                        {{ product_picture(image.strip(), card_alt ~ ' — view ' ~ loop.index, cls='zoomable-image', width=400, height=400, sizes='(max-width:767px) 150px, (max-width:1023px) 170px, 1200px', eager=(card_index == 1 and loop.first), priority=(card_index == 1 and loop.first), zoomable=true) }}
+                        {% endfor %}
+                        </div>
+                        </div>
+                        {% endif %}
+{% set disc_pct = (((product.product_price|int - product.product_special_price|int) / product.product_price|int) * 100)|round|int %}
+<div class="ow-title-row"><a href="{{ url_for('main.product_page', category=product['product_category']|lower|replace(' ', '-'), product_slug=product['product_slug'], pid=product['product_id']) }}" class="product_link"><h3>{{ product['product_name'] }}</h3></a><div class="heart" data-product-id="{{ product['product_id']}}" onclick="toggleFavorite(this)"><svg class="heart-outline" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.6 5.6 0 0 0-7.9 0L12 5.5l-.9-.9A5.6 5.6 0 0 0 3.2 12l8.8 8.8 8.8-8.8a5.6 5.6 0 0 0 0-7.9z"/></svg><svg class="heart-filled" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display: none;"><path d="M20.8 4.6a5.6 5.6 0 0 0-7.9 0L12 5.5l-.9-.9A5.6 5.6 0 0 0 3.2 12l8.8 8.8 8.8-8.8a5.6 5.6 0 0 0 0-7.9z"/></svg></div><span class="ow-card-facefit-badge" data-pid="{{ product['product_id'] }}">MATCHED</span>{% if disc_pct > 0 %}<div class="ow-card-discount ow-disc-inline"><span class="ow-disc-particle ow-disc-p1"></span><span class="ow-disc-particle ow-disc-p2"></span><span class="ow-disc-particle ow-disc-p3"></span><span class="ow-disc-particle ow-disc-p4"></span><div class="ow-disc-glow"></div><div class="ow-disc-badge"><div class="ow-disc-shimmer"></div><div class="ow-disc-ring ow-disc-ring1"></div><div class="ow-disc-ring ow-disc-ring2"></div><div class="ow-disc-content"><span class="ow-disc-num">{{ disc_pct }}%</span><span class="ow-disc-off">OFF</span></div><div class="ow-disc-blight"></div></div></div>{% endif %}</div>
+                        {% if product.product_category == "Spectacles Frame" %}
+<span> <h5>Color: {{ product['color_display'] or product['product_color'] }} </h5>
+<span> <h5> Size: {{ product['product_size'] }} mm</h5> </span>
+                <span> <h6 class="center-text">Face fit: {{ product['product_perception_value'] }} </h6>
+{% endif %}
+
+       <!--LOCK  <p> {{ product['product_details'] }}</p> -->
+
+        <div class="ow-card-pricing">
+          <div class="ow-card-market">
+            <span class="ow-market-price">Market Price  {% if is_india %}Rs {{ product["product_price"] }}{% else %}&euro;{{ product["product_price_eur"] }}{% endif %}</span>
+
+          </div>
+          <div class="ow-card-wholesale">
+            <span class="ow-wh-label">Wholesale Price</span>
+            <span class="ow-wh-price">{% if is_india %}Rs {{ product["product_special_price"] }}{% else %}&euro;{{ product["product_special_price_eur"] }}{% endif %}</span>
+          </div>
+
+          <div class="ow-card-includes">
+            <span class="ow-inc-icon"><svg viewBox="0 0 24 24"><path d="M12 4.5C7 4.5 2.7 7.6 1 12c1.7 4.4 6 7.5 11 7.5s9.3-3.1 11-7.5c-1.7-4.4-6-7.5-11-7.5zm0 12.5c-2.8 0-5-2.2-5-5s2.2-5 5-5 5 2.2 5 5-2.2 5-5 5zm0-8c-1.7 0-3 1.3-3 3s1.3 3 3 3 3-1.3 3-3-1.3-3-3-3z"/></svg></span>
+            <span class="ow-inc-text">INCLUDES FREE <span>| Plano Anti-Glare Lenses ✨</span></span>
+          </div>
+          <div class="ow-card-shipping">
+            <svg viewBox="0 0 24 24"><path d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.7 1.3 3 3 3s3-1.3 3-3h6c0 1.7 1.3 3 3 3s3-1.3 3-3h2v-5l-3-4zM6 18.5c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5z"/></svg>
+            Free Shipping
+          </div>
+        </div>
+
+    <div class="ow-btn-stack">
+    <form action="{{ url_for('main.add_to_cart') }}" method="post">
+                            <input type="hidden" name="product_id" value="{{ product.product_id }}">
+                            <input type="hidden" name="product_code" value="{{ product.product_code}}">
+                            <input type="hidden" name="product_name" value="{{ product.product_name }}">
+                            <input type="hidden" name="product_price" value="{% if is_india %}{{ product.product_price }}{% else %}{{ product.product_price_eur }}{% endif %}">
+                            <input type="hidden" name="product_special_price" value="{% if is_india %}{{ product.product_special_price }}{% else %}{{ product.product_special_price_eur }}{% endif %}">
+                            <input type="hidden" name="product_category" value="{{ product.product_category }}">
+                            <button type="submit" class="ow-lens-btn ow-plano"><span class="ow-spark"></span><span class="ow-spark"></span><span class="ow-spark"></span><div class="ow-btn-left"><div class="ow-btn-icon">✨</div><div class="ow-btn-text"><h3>Buy Frame Only</h3><p>Zero power lenses with premium anti-glare coating</p></div></div><div class="ow-btn-arrow">→</div></button>
+                            </form>
+
+     <form action="{{ url_for('main.add_prescription') }}" method="post">
+                            <input type="hidden" name="product_id" value="{{ product.product_id }}">
+                            <input type="hidden" name="product_code" value="{{ product.product_code}}">
+                            <input type="hidden" name="product_name" value="{{ product.product_name }}">
+                            <input type="hidden" name="product_price" value="{% if is_india %}{{ product.product_price }}{% else %}{{ product.product_price_eur }}{% endif %}">
+                            <input type="hidden" name="product_special_price" value="{% if is_india %}{{ product.product_special_price }}{% else %}{{ product.product_special_price_eur }}{% endif %}">
+                             <input type="hidden" name="product_category" value="{{ product.product_category }}">
+
+                            <button type="submit" class="ow-lens-btn ow-special"><span class="ow-spark"></span><span class="ow-spark"></span><span class="ow-spark"></span><div class="ow-btn-left"><div class="ow-btn-icon">👓</div><div class="ow-btn-text"><h3>Buy Frame with My Lenses</h3><p>Prescription, blue-cut & progressive lens options</p></div></div><div class="ow-btn-arrow">→</div></button>
+                        </form>
+    </div>
+
+    </li>
+    {% endfor %}
+</ul>
+
+<div id="scroll-sentinel" style="height:1px;"></div>
+<div id="loading-indicator" style="text-align:center;padding:30px 0;display:none;">
+  <div style="display:inline-block;width:36px;height:36px;border:3px solid rgba(120,80,200,0.2);border-top-color:#7850c8;border-radius:50%;animation:owSpin 0.7s linear infinite;"></div>
+  <p style="margin:10px 0 0;color:#7850c8;font-size:14px;">Loading more frames...</p>
+</div>
+<div id="all-loaded" style="text-align:center;padding:20px 0;display:none;">
+  <p style="color:#666;font-size:14px;">All {{ total_count }} frames loaded</p>
+</div>
+<style>@keyframes owSpin{to{transform:rotate(360deg)}}</style>
+
+<script>
+(function(){
+  var owIsEur = {{ "true" if is_eur else "false" }};
+  var currentPage = 1;
+  var randSeed = {{ rand_seed }};
+  var loading = false;
+  var hasMore = {{ 'true' if products|length >= 20 else 'false' }};
+  var framesList = document.getElementById('frames-list');
+  var sentinel = document.getElementById('scroll-sentinel');
+  var loadingEl = document.getElementById('loading-indicator');
+  var allLoadedEl = document.getElementById('all-loaded');
+
+  function escHtml(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function buildCard(p) {
+    var imgHtml = '';
+    // JS cards are appended after the server-rendered first batch, so they are
+    // always "later" content: lazy, never the LCP candidate.
+    var picOpts = {
+      cls: 'zoomable-image',
+      alt: (p.product_name || 'Optiwar Frame'),
+      width: 400, height: 400,
+      sizes: '(max-width:767px) 150px, (max-width:1023px) 170px, 1200px',
+      eager: false,
+      zoom: true
+    };
+    if (p.media && p.media.length && window.owPictureList) {
+      imgHtml = window.owPictureList(p.media, picOpts);
+    } else {
+      var imgs = (p.product_image || '').split(',').filter(function(s) { return s.trim() !== ''; });
+      for (var i = 0; i < imgs.length; i++) {
+        var src = '/static/' + imgs[i].trim();
+        if (src && src !== '/static/' && src !== '/static/undefined') {
+          imgHtml += '<img src="' + escHtml(src) + '" alt="' + escHtml(p.product_name || 'Optiwar Frame') + '" class="zoomable-image" onclick="openZoom(this)" loading="lazy" width="400" height="400">';
+        }
+      }
+    }
+
+    var discHtml = '';
+    if (p.discount_pct > 0) {
+      discHtml = '<div class="ow-card-discount ow-disc-inline">'
+        + '<span class="ow-disc-particle ow-disc-p1"></span>'
+        + '<span class="ow-disc-particle ow-disc-p2"></span>'
+        + '<span class="ow-disc-particle ow-disc-p3"></span>'
+        + '<span class="ow-disc-particle ow-disc-p4"></span>'
+        + '<div class="ow-disc-glow"></div>'
+        + '<div class="ow-disc-badge">'
+        + '<div class="ow-disc-shimmer"></div>'
+        + '<div class="ow-disc-ring ow-disc-ring1"></div>'
+        + '<div class="ow-disc-ring ow-disc-ring2"></div>'
+        + '<div class="ow-disc-content"><span class="ow-disc-num">' + p.discount_pct + '%</span><span class="ow-disc-off">OFF</span></div>'
+        + '<div class="ow-disc-blight"></div>'
+        + '</div></div>';
+    }
+
+    var catInfo = '';
+    if (p.product_category === 'Spectacles Frame') {
+      catInfo = '<span><h5>Color: ' + escHtml(p.color_display || p.product_color) + '</h5>'
+        + '<span><h5>Size: ' + escHtml(p.product_size) + ' mm</h5></span>'
+        + '<span><h6 class="center-text">Face fit: ' + escHtml(p.product_perception_value) + '</h6>';
+    }
+
+    var li = document.createElement('li');
+    li.setAttribute('data-price', p.product_special_price);
+    li.setAttribute('data-facefit', (p.product_perception_value || '').toLowerCase());
+    var shapeList = [];
+    var shapeMap = {rectangle:p.product_category_rectangle, oval:p.product_category_oval, round:p.product_category_round, square:p.product_category_square, wayfarer:p.product_category_wayfarer, aviator:p.product_category_aviator, cateye:p.product_category_cateye, clubmaster:p.product_category_clubmaster, panto:p.product_category_panto, kids:p.product_category_kids, supra:p.product_category_supra};
+    for(var sk in shapeMap){if(shapeMap[sk] && parseInt(shapeMap[sk])===1) shapeList.push(sk);}
+    li.setAttribute('data-shapes', shapeList.join(' '));
+    li.setAttribute('data-color', (p.color_filter || ''));
+
+    li.innerHTML = '<div class="scrolling-image-container"><div class="scrolling-track">' + imgHtml + '</div></div>'
+      + '<div class="ow-title-row">'
+      + '<a href="' + escHtml(p.product_url) + '" class="product_link"><h3>' + escHtml(p.product_name) + '</h3></a>'
+      + '<div class="heart" data-product-id="' + p.product_id + '" onclick="toggleFavorite(this)">'
+      + '<svg class="heart-outline" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.6 5.6 0 0 0-7.9 0L12 5.5l-.9-.9A5.6 5.6 0 0 0 3.2 12l8.8 8.8 8.8-8.8a5.6 5.6 0 0 0 0-7.9z"/></svg>'
+      + '<svg class="heart-filled" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><path d="M20.8 4.6a5.6 5.6 0 0 0-7.9 0L12 5.5l-.9-.9A5.6 5.6 0 0 0 3.2 12l8.8 8.8 8.8-8.8a5.6 5.6 0 0 0 0-7.9z"/></svg>'
+      + '</div><span class="ow-card-facefit-badge" data-pid="' + p.product_id + '">MATCHED</span>' + discHtml + '</div>'
+      + catInfo
+      + '<div class="ow-card-pricing">'
+      + '<div class="ow-card-market"><span class="ow-market-price">Market Price  ' + ((typeof owIsEur !== 'undefined' && owIsEur && p.product_price_eur) ? '€' + p.product_price_eur : 'Rs ' + escHtml(p.product_price)) + '</span>'
+      + '</div>'
+      + '<div class="ow-card-wholesale"><span class="ow-wh-label">Wholesale Price</span><span class="ow-wh-price">' + ((typeof owIsEur !== 'undefined' && owIsEur && p.product_special_price_eur) ? '€' + p.product_special_price_eur : 'Rs ' + escHtml(p.product_special_price)) + '</span></div>'
+      + '<div class="ow-card-includes"><span class="ow-inc-icon"><svg viewBox="0 0 24 24"><path d="M12 4.5C7 4.5 2.7 7.6 1 12c1.7 4.4 6 7.5 11 7.5s9.3-3.1 11-7.5c-1.7-4.4-6-7.5-11-7.5zm0 12.5c-2.8 0-5-2.2-5-5s2.2-5 5-5 5 2.2 5 5-2.2 5-5 5zm0-8c-1.7 0-3 1.3-3 3s1.3 3 3 3 3-1.3 3-3-1.3-3-3-3z"/></svg></span>'
+      + '<span class="ow-inc-text">INCLUDES FREE <span>| Plano Anti-Glare Lenses \u2728</span></span></div>'
+      + '<div class="ow-card-shipping"><svg viewBox="0 0 24 24"><path d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.7 1.3 3 3 3s3-1.3 3-3h6c0 1.7 1.3 3 3 3s3-1.3 3-3h2v-5l-3-4zM6 18.5c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5z"/></svg>Free Shipping</div>'
+      + '</div>'
+      + '<div class="ow-btn-stack">'
+      + '<form action="/add_to_cart" method="post">'
+      + '<input type="hidden" name="product_id" value="' + p.product_id + '">'
+      + '<input type="hidden" name="product_code" value="' + escHtml(p.product_code) + '">'
+      + '<input type="hidden" name="product_name" value="' + escHtml(p.product_name) + '">'
+      + '<input type="hidden" name="product_price" value="' + escHtml(p.product_price) + '">'
+      + '<input type="hidden" name="product_special_price" value="' + escHtml(p.product_special_price) + '">'
+      + '<input type="hidden" name="product_category" value="' + escHtml(p.product_category) + '">'
+      + '<button type="submit" class="ow-lens-btn ow-plano"><span class="ow-spark"></span><span class="ow-spark"></span><span class="ow-spark"></span><div class="ow-btn-left"><div class="ow-btn-icon">\u2728</div><div class="ow-btn-text"><h3>Buy Frame Only</h3><p>Zero power lenses with premium anti-glare coating</p></div></div><div class="ow-btn-arrow">\u2192</div></button>'
+      + '</form>'
+      + '<form action="/add_prescription" method="post">'
+      + '<input type="hidden" name="product_id" value="' + p.product_id + '">'
+      + '<input type="hidden" name="product_code" value="' + escHtml(p.product_code) + '">'
+      + '<input type="hidden" name="product_name" value="' + escHtml(p.product_name) + '">'
+      + '<input type="hidden" name="product_price" value="' + escHtml(p.product_price) + '">'
+      + '<input type="hidden" name="product_special_price" value="' + escHtml(p.product_special_price) + '">'
+      + '<input type="hidden" name="product_category" value="' + escHtml(p.product_category) + '">'
+      + '<button type="submit" class="ow-lens-btn ow-special"><span class="ow-spark"></span><span class="ow-spark"></span><span class="ow-spark"></span><div class="ow-btn-left"><div class="ow-btn-icon">\uD83D\uDC53</div><div class="ow-btn-text"><h3>Buy Frame with My Lenses</h3><p>Prescription, blue-cut &amp; progressive lens options</p></div></div><div class="ow-btn-arrow">\u2192</div></button>'
+      + '</form>'
+      + '</div>';
+
+    return li;
+  }
+
+  function loadMore() {
+    if (loading || !hasMore) return;
+    loading = true;
+    loadingEl.style.display = 'block';
+    currentPage++;
+
+    fetch('/api/frames?page=' + currentPage + '&per_page=20&seed=' + randSeed)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var activeShape = (typeof window.owGetActiveShapeFilter === 'function') ? window.owGetActiveShapeFilter() : null;
+        data.products.forEach(function(p) {
+          var card = buildCard(p);
+          if(activeShape){
+            var shapes = (card.getAttribute('data-shapes') || '').toLowerCase();
+            if(shapes.indexOf(activeShape) === -1) card.style.display = 'none';
+          }
+          framesList.appendChild(card);
+        });
+        hasMore = data.has_more;
+        loading = false;
+        loadingEl.style.display = 'none';
+        if (!hasMore) {
+          allLoadedEl.style.display = 'block';
+          window.removeEventListener('scroll', checkScroll);
+        }
+        if (typeof initFavorites === 'function') initFavorites();
+        // Re-init carousel: use filter-aware reinit if shape filter is active
+        if (activeShape && typeof window.owCarouselFilterApplied === 'function') {
+          window.owCarouselFilterApplied(true);
+        } else if (typeof window.owCarouselReinit === 'function') {
+          window.owCarouselReinit();
+        }
+      })
+      .catch(function(err) {
+        console.error('Failed to load frames:', err);
+        loading = false;
+        loadingEl.style.display = 'none';
+      });
+  }
+
+  function checkScroll() {
+    if (!hasMore || loading) return;
+    var sentinelRect = sentinel.getBoundingClientRect();
+    if (sentinelRect.top < window.innerHeight + 600) {
+      loadMore();
+    }
+  }
+
+  window.addEventListener('scroll', checkScroll, { passive: true });
+  checkScroll();
+
+  // Expose loadMore for carousel proximity trigger
+  window.owLoadMore=function(){ if(!loading && hasMore) loadMore(); };
+  window.owHasMore=function(){ return hasMore; };
+  window.owBuildCard=buildCard;
+  window.owResetScroll=function(){ currentPage=1; hasMore=true; loading=false; window.addEventListener('scroll', checkScroll, {passive:true}); };
+  window.owDisableScroll=function(){ hasMore=false; window.removeEventListener('scroll', checkScroll); };
+  window.owGetSeed=function(){ return randSeed; };
+})();
+</script>
+
+<!-- Desktop Carousel JS (≥1024px only) -->
+<script>
+(function(){
+  if(window.innerWidth<1024) return;
+
+  var list=document.getElementById('frames-list');
+  if(!list) return;
+
+  // Responsive card width based on viewport
+  var CARD_W=(function(){
+    var w=window.innerWidth;
+    if(w>=1800) return 1140; // 1040 + 100
+    if(w>=1440) return 980;  // 900 + 80
+    return 780; // 720 + 60
+  })();
+  var curIdx=0;
+
+  // Wrap list in carousel structure
+  var wrap=document.createElement('div');
+  wrap.className='ow-dsk-wrap';
+  var viewport=document.createElement('div');
+  viewport.className='ow-dsk-viewport';
+  var prevBtn=document.createElement('button');
+  prevBtn.className='ow-dsk-arr ow-dsk-prev';
+  prevBtn.innerHTML='<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
+  var nextBtn=document.createElement('button');
+  nextBtn.className='ow-dsk-arr ow-dsk-next';
+  nextBtn.innerHTML='<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+  var dotsWrap=document.createElement('div');
+  dotsWrap.className='ow-dsk-dots';
+
+  list.parentNode.insertBefore(wrap,list);
+  wrap.appendChild(prevBtn);
+  wrap.appendChild(viewport);
+  viewport.appendChild(list);
+  wrap.appendChild(nextBtn);
+  wrap.appendChild(dotsWrap);
+
+  list.classList.add('ow-carousel-mode');
+
+  // Setup per-card image dots
+  function setupImageDots(li){
+    var container=li.querySelector('.scrolling-image-container');
+    if(!container || container.querySelector('.ow-img-dots')) return;
+    var track=container.querySelector('.scrolling-track');
+    if(!track) return;
+    var imgs=track.querySelectorAll('img');
+    if(imgs.length<=1) return;
+
+    var dotsDiv=document.createElement('div');
+    dotsDiv.className='ow-img-dots';
+    var imgIdx=0;
+
+    for(var i=0;i<imgs.length;i++){
+      var dot=document.createElement('button');
+      dot.className='ow-img-dot'+(i===0?' active':'');
+      dot.setAttribute('data-idx',i);
+      dot.onclick=(function(idx){
+        return function(e){
+          e.stopPropagation();
+          imgIdx=idx;
+          var imgW=container.offsetWidth||((window.innerWidth>=1800)?1038:(window.innerWidth>=1440)?898:718);
+          track.style.transform='translateX(-'+(idx*imgW)+'px)';
+          var allD=dotsDiv.querySelectorAll('.ow-img-dot');
+          for(var j=0;j<allD.length;j++) allD[j].classList.toggle('active',j===idx);
+        };
+      })(i);
+      dotsDiv.appendChild(dot);
+    }
+    container.appendChild(dotsDiv);
+    container.style.overflow='hidden';
+    track.style.overflow='visible';
+  }
+
+  // Build nav dots
+  function buildDots(){
+    dotsWrap.innerHTML='';
+    var items=list.querySelectorAll(':scope > li');
+    var maxDots=Math.min(items.length,20);
+    for(var i=0;i<maxDots;i++){
+      var d=document.createElement('button');
+      d.className='ow-dsk-dot'+(i===curIdx?' active':'');
+      d.setAttribute('data-idx',i);
+      d.onclick=(function(idx){return function(){goTo(idx);};})(i);
+      dotsWrap.appendChild(d);
+    }
+  }
+
+  function updateActive(){
+    var items=list.querySelectorAll(':scope > li');
+    for(var i=0;i<items.length;i++){
+      items[i].classList.toggle('ow-active',i===curIdx);
+    }
+    var dots=dotsWrap.querySelectorAll('.ow-dsk-dot');
+    for(var i=0;i<dots.length;i++){
+      dots[i].classList.toggle('active',i===curIdx);
+    }
+  }
+
+  // Get only visible items (not hidden by filters)
+  function getVisibleItems(){
+    var all=list.querySelectorAll(':scope > li');
+    var vis=[];
+    for(var i=0;i<all.length;i++){
+      if(all[i].style.display!=='none') vis.push({el:all[i],idx:i});
+    }
+    return vis;
+  }
+
+  function goTo(idx){
+    var items=list.querySelectorAll(':scope > li');
+    var visItems=getVisibleItems();
+    var isFiltered=list.classList.contains('ow-filter-active');
+
+    if(isFiltered && visItems.length>0){
+      // Navigate only among visible items
+      if(idx<0) idx=0;
+      if(idx>=visItems.length) idx=visItems.length-1;
+      curIdx=idx;
+      // Hidden items have zero width in flex, so use visible index for offset
+      var vpW=viewport.offsetWidth;
+      var offset=curIdx*CARD_W - (vpW/2 - CARD_W/2);
+      if(offset<0) offset=0;
+      list.style.transform='translateX(-'+offset+'px)';
+      // Update active class on the visible item
+      for(var i=0;i<items.length;i++) items[i].classList.remove('ow-active');
+      visItems[curIdx].el.classList.add('ow-active');
+      // Update dots
+      var dots=dotsWrap.querySelectorAll('.ow-dsk-dot');
+      for(var i=0;i<dots.length;i++) dots[i].classList.toggle('active',i===curIdx);
+    } else {
+      if(idx<0) idx=0;
+      if(idx>=items.length) idx=items.length-1;
+      curIdx=idx;
+      // Center the active card in the viewport
+      var vpW=viewport.offsetWidth;
+      var offset=curIdx*CARD_W - (vpW/2 - CARD_W/2);
+      list.style.transform='translateX(-'+offset+'px)';
+      updateActive();
+    }
+
+    // Auto-load more frames when near end
+    var totalItems=isFiltered?visItems.length:items.length;
+    if(curIdx>=totalItems-4 && typeof window.owLoadMore==='function'){
+      window.owLoadMore();
+    }
+  }
+
+  prevBtn.onclick=function(){goTo(curIdx-1);};
+  nextBtn.onclick=function(){goTo(curIdx+1);};
+
+  // Keyboard navigation
+  document.addEventListener('keydown',function(e){
+    if(e.key==='ArrowLeft') goTo(curIdx-1);
+    if(e.key==='ArrowRight') goTo(curIdx+1);
+  });
+
+  // Initialize
+  function init(){
+    var items=list.querySelectorAll(':scope > li');
+    for(var i=0;i<items.length;i++){
+      setupImageDots(items[i]);
+    }
+    buildDots();
+    goTo(0);
+  }
+
+  // Re-init when new items loaded
+  window.owCarouselReinit=function(){
+    var items=list.querySelectorAll(':scope > li');
+    for(var i=0;i<items.length;i++){
+      setupImageDots(items[i]);
+    }
+    buildDots();
+    updateActive();
+  };
+
+  // Called by filter code to notify carousel that a filter was applied/removed
+  window.owCarouselFilterApplied=function(keepPos){
+    list.classList.add('ow-filter-active');
+    var vis=getVisibleItems();
+    // Rebuild dots for visible items only
+    dotsWrap.innerHTML='';
+    var maxDots=Math.min(vis.length,20);
+    var idx=keepPos?Math.min(curIdx,vis.length-1):0;
+    if(idx<0) idx=0;
+    for(var i=0;i<maxDots;i++){
+      var d=document.createElement('button');
+      d.className='ow-dsk-dot'+(i===idx?' active':'');
+      d.setAttribute('data-idx',i);
+      d.onclick=(function(ii){return function(){goTo(ii);};})(i);
+      dotsWrap.appendChild(d);
+    }
+    curIdx=idx;
+    goTo(idx);
+  };
+  window.owCarouselFilterCleared=function(){
+    list.classList.remove('ow-filter-active');
+    curIdx=0;
+    buildDots();
+    goTo(0);
+  };
+
+  // Observe mutations for dynamic content
+  var observer=new MutationObserver(function(mutations){
+    var added=false;
+    mutations.forEach(function(m){
+      for(var i=0;i<m.addedNodes.length;i++){
+        if(m.addedNodes[i].tagName==='LI'){
+          setupImageDots(m.addedNodes[i]);
+          added=true;
+        }
+      }
+    });
+    if(added) buildDots();
+  });
+  observer.observe(list,{childList:true});
+
+  init();
+})();
+</script>
+
+{% if matching_ids %}
+<script>
+/* Server-side matching IDs - bypasses session-dependent AJAX */
+(function(){
+  var ids = {{ matching_ids | tojson }};
+  if(ids && ids.length){
+    window.__owFaceIds = ids;
+    console.log("[FaceMatch] Server-side loaded " + ids.length + " matching IDs");
+    if(typeof window.applyBadges === 'function') window.applyBadges();
+  }
+})();
+</script>
+{% endif %}
+
+{% if face_meas %}
+<script>window.__owFaceMeas = {{ face_meas | tojson }};</script>
+{% endif %}
+
+<!-- Face Match Popup Overlay -->
+<div id="owFacePopup" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.45);align-items:center;justify-content:center;" onclick="closeFacePopup(event)">
+  <div id="owFacePopupCard" style="background:#fff;border-radius:20px;padding:28px 24px 24px;max-width:380px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.25);position:relative;text-align:center;animation:owPopIn 0.3s ease;">
+    <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#22c55e,#16a34a);margin:0 auto 16px;display:flex;align-items:center;justify-content:center;">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+    </div>
+    <h3 style="margin:0 0 8px;font-size:20px;font-weight:700;color:#1e293b;">Perfect Match!</h3>
+    <p style="margin:0 0 18px;font-size:14px;color:#64748b;line-height:1.6;">This frame matches your face measurements and you can choose it with confidence.</p>
+    <div style="background:#f8fafc;border-radius:12px;padding:16px;margin-bottom:18px;">
+      <div style="display:flex;justify-content:space-around;gap:12px;flex-wrap:wrap;">
+        <div style="text-align:center;min-width:80px;">
+          <div style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">PD</div>
+          <div id="owPopPD" style="font-size:22px;font-weight:800;color:#4f46e5;margin-top:2px;">--</div>
+          <div style="font-size:11px;color:#94a3b8;">mm</div>
+        </div>
+        <div style="width:1px;background:#e2e8f0;"></div>
+        <div style="text-align:center;min-width:80px;">
+          <div style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Face Width</div>
+          <div id="owPopFW" style="font-size:22px;font-weight:800;color:#4f46e5;margin-top:2px;">--</div>
+          <div style="font-size:11px;color:#94a3b8;">mm</div>
+        </div>
+        <div style="width:1px;background:#e2e8f0;"></div>
+        <div style="text-align:center;min-width:80px;">
+          <div style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Temple</div>
+          <div id="owPopTL" style="font-size:22px;font-weight:800;color:#4f46e5;margin-top:2px;">--</div>
+          <div style="font-size:11px;color:#94a3b8;">mm</div>
+        </div>
+      </div>
+    </div>
+    <button onclick="closeFacePopupBtn()" style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;border:none;border-radius:12px;padding:12px 32px;font-size:15px;font-weight:600;cursor:pointer;width:100%;transition:opacity 0.2s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">Got it!</button>
+  </div>
+</div>
+<style>
+@keyframes owPopIn{from{opacity:0;transform:scale(0.85);}to{opacity:1;transform:scale(1);}}
+#owFacePopup[style*="flex"]{display:flex!important;}
+</style>
+<script>
+function openFacePopup(){
+  var m = window.__owFaceMeas;
+  if(m){
+    document.getElementById("owPopPD").textContent = m.pd || "--";
+    document.getElementById("owPopFW").textContent = m.face_width || "--";
+    document.getElementById("owPopTL").textContent = m.temple_length || "--";
+  }
+  document.getElementById("owFacePopup").style.display = "flex";
+  document.body.style.overflow = "hidden";
+}
+function closeFacePopup(e){
+  if(e && e.target.id !== "owFacePopup") return;
+  document.getElementById("owFacePopup").style.display = "none";
+  document.body.style.overflow = "";
+}
+function closeFacePopupBtn(){
+  document.getElementById("owFacePopup").style.display = "none";
+  document.body.style.overflow = "";
+}
+/* Attach click handlers to all MATCHED badges */
+document.addEventListener("click", function(e){
+  var badge = e.target.closest(".ow-card-facefit-badge.visible");
+  if(badge && window.__owFaceMeas){
+    e.preventDefault();
+    e.stopPropagation();
+    openFacePopup();
+  }
+}, true);
+</script>
+{% endblock %}
