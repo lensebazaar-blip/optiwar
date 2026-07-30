@@ -686,46 +686,127 @@ def support_status():
         return jsonify({"ai_available": False, "components": {}, "checked_at": int(time.time())})
 
 
+# KET lifecycle events Optiwar acts on today -> the WhatsApp notify function.
+# Unknown/future events (waiting_customer, closed, ...) are logged and ignored
+# with 200 so KET can expand the lifecycle without breaking anything.
+_KET_EVENT_HANDLERS = {
+    'resolved': 'notify_support_ticket_resolved',
+    'reopened': 'notify_support_ticket_reopened',
+}
+
+
+def _ket_event_already_seen(event_id):
+    """Idempotency: record event_id; return True if it was already processed.
+
+    Depends on KET sending a stable per-event `event_id` across retries. When
+    absent we cannot dedupe (returns False + logs) — see the KET brief request.
+    """
+    if not event_id:
+        return False
+    try:
+        from .db import get_db
+        db = get_db()
+        cur = db.cursor()
+        cur.execute(
+            """CREATE TABLE IF NOT EXISTS ket_webhook_events (
+                   event_id VARCHAR(191) PRIMARY KEY,
+                   event VARCHAR(64),
+                   ticket_ref VARCHAR(191),
+                   received_at DATETIME DEFAULT CURRENT_TIMESTAMP
+               ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
+        )
+        cur.execute("SELECT 1 FROM ket_webhook_events WHERE event_id = %s", (event_id,))
+        if cur.fetchone():
+            cur.close()
+            return True
+        cur.close()
+        return False
+    except Exception as e:  # noqa: BLE001 - never let dedupe break delivery
+        current_app.logger.error(f"[KET-EVENT] dedupe check failed event_id={event_id}: {e}")
+        return False
+
+
+def _ket_event_record(event_id, event, ticket_ref):
+    """Persist a processed event_id (best-effort)."""
+    if not event_id:
+        return
+    try:
+        from .db import get_db
+        db = get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT IGNORE INTO ket_webhook_events (event_id, event, ticket_ref) VALUES (%s, %s, %s)",
+            (event_id, event, ticket_ref),
+        )
+        db.commit()
+        cur.close()
+    except Exception as e:  # noqa: BLE001
+        current_app.logger.error(f"[KET-EVENT] dedupe record failed event_id={event_id}: {e}")
+
+
 @bp.route('/support/ticket_event', methods=['POST'])
 def ket_ticket_event():
-    """Inbound KET ticket-lifecycle webhook (currently: resolved).
+    """Inbound KET ticket-lifecycle webhook (resolved / reopened).
 
-    KET is the system of record for the ticket lifecycle; when an agent resolves
-    a ticket KET calls this endpoint so Optiwar can send the WhatsApp update from
-    its own MSG91 number (Optiwar owns WhatsApp; KET owns only the support email).
+    KET is the system of record for the ticket lifecycle; when an agent
+    resolves/reopens a ticket KET calls this endpoint so Optiwar can send the
+    WhatsApp update from its own MSG91 number (Optiwar owns WhatsApp; KET owns
+    only the support email).
 
     Auth: HMAC-SHA256 over "<X-KET-Timestamp>:<raw_body>" with OPTIWAR_WEBHOOK_SECRET.
-    Expected JSON: {event: "resolved", ticket_ref, name, phone, email}
-    Best-effort: always returns 200 to a valid signer so KET does not retry-storm;
-    the WhatsApp send itself is non-fatal.
+    JSON: {event, ticket_ref, name, phone, email, event_id?}
+    - Unknown events -> 200 + log + ignore (seamless future expansion).
+    - Duplicate event_id -> 200 duplicate (idempotent).
+    - Valid signer always gets 2xx; the WhatsApp send itself is non-fatal.
     """
-    from flask import jsonify
+    from flask import jsonify, g
     raw_body = request.get_data(as_text=True)
     if not _verify_ket_signature(
         raw_body,
         request.headers.get('X-KET-Timestamp'),
         request.headers.get('X-KET-Signature'),
     ):
+        current_app.logger.warning("[KET-EVENT] rejected: invalid signature")
         return jsonify({"error": "invalid signature"}), 401
 
-    data = request.get_json(force=True, silent=True) or {}
+    data = request.get_json(force=True, silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "invalid json body"}), 400
+
     event = (data.get('event') or '').strip().lower()
     ticket_ref = str(data.get('ticket_ref') or data.get('ticket_id') or '').strip()
     name = (data.get('name') or '').strip()
     phone = (data.get('phone') or '').strip()
     email = (data.get('email') or '').strip()
+    event_id = str(data.get('event_id') or '').strip()
+    rid = getattr(g, 'request_id', '-')
 
-    if event != 'resolved':
-        # Only 'resolved' is in scope today; ack others without action.
-        current_app.logger.info(f"[KET-EVENT] ignored event={event} ticket={ticket_ref}")
+    current_app.logger.info(
+        f"[KET-EVENT] recv event={event or '-'} ticket={ticket_ref or '-'} "
+        f"event_id={event_id or '-'} has_phone={bool(phone)} rid={rid}"
+    )
+
+    if not event:
+        return jsonify({"error": "event required"}), 400
+
+    handler_name = _KET_EVENT_HANDLERS.get(event)
+    if not handler_name:
+        # Future lifecycle stages: ack without action so KET can expand freely.
+        current_app.logger.info(f"[KET-EVENT] ignored (unhandled) event={event} ticket={ticket_ref} rid={rid}")
         return jsonify({"status": "ignored", "event": event})
 
     if not ticket_ref:
         return jsonify({"error": "ticket_ref required"}), 400
 
+    if _ket_event_already_seen(event_id):
+        current_app.logger.info(f"[KET-EVENT] duplicate event_id={event_id} event={event} ticket={ticket_ref}")
+        return jsonify({"status": "duplicate", "event": event, "ticket_ref": ticket_ref})
+    if not event_id:
+        current_app.logger.warning(f"[KET-EVENT] no event_id supplied; cannot dedupe event={event} ticket={ticket_ref}")
+
     try:
-        from .notifications import notify_support_ticket_resolved
-        notify_support_ticket_resolved(
+        import flaskr.notifications as _notif
+        getattr(_notif, handler_name)(
             customer_email=email,
             customer_phone=phone,
             customer_name=name,
@@ -733,6 +814,7 @@ def ket_ticket_event():
             site_host=request.host,
         )
     except Exception as e:  # noqa: BLE001 - notification is best-effort
-        current_app.logger.error(f"[KET-EVENT] resolved notify failed ticket={ticket_ref}: {e}")
+        current_app.logger.error(f"[KET-EVENT] {event} notify failed ticket={ticket_ref}: {e}")
 
-    return jsonify({"status": "ok", "event": "resolved", "ticket_ref": ticket_ref})
+    _ket_event_record(event_id, event, ticket_ref)
+    return jsonify({"status": "ok", "event": event, "ticket_ref": ticket_ref})

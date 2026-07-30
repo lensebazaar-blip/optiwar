@@ -503,3 +503,41 @@ def notify_support_ticket_resolved(customer_email, customer_phone, customer_name
 
     _log(f"RESULT:TICKET_RESOLVED ticket={ticket_id} email={results['email']} whatsapp={results['whatsapp']} sms={results['sms']}")
     return results
+
+
+def notify_support_ticket_reopened(customer_email, customer_phone, customer_name, ticket_id, site_host, profile_email=None):
+    """Trigger EWS when a support ticket is reopened (KET lifecycle webhook)."""
+    _log(f"TRIGGER:TICKET_REOPENED ticket={ticket_id} email={customer_email} phone={customer_phone}")
+
+    results = {'email': False, 'whatsapp': False, 'sms': False}
+
+    subject = f"Ticket #{ticket_id} Reopened"
+    body_html = f"""
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+        <h2 style="color:#d97706;">Your Ticket Has Been Reopened</h2>
+        <p>Hi {customer_name or 'there'},</p>
+        <p>Your support ticket <strong>#{ticket_id}</strong> has been reopened and our team is looking into it again.</p>
+        <p style="color:#64748b;font-size:13px;margin-top:30px;">&mdash; Optiwar Support</p>
+    </div>
+    """
+    # Support email is owned by KET (sole sender); Optiwar sends only WhatsApp for support.
+    if current_app.config.get('SUPPORT_TICKET_EMAIL_ENABLED', False):
+        results['email'] = send_email(customer_email, subject, body_html, cc_emails=[profile_email])
+    else:
+        _log(f"TICKET_EMAIL:SKIPPED ticket={ticket_id} reason=ket_is_sole_support_email_sender")
+
+    if customer_phone:
+        phone = customer_phone.replace('+', '').replace(' ', '').replace('-', '')
+        components = {
+            "body_1": {"type": "text", "value": customer_name or "Customer"},
+            "body_2": {"type": "text", "value": str(ticket_id)},
+            "body_3": {"type": "text", "value": site_host}
+        }
+        results['whatsapp'] = send_whatsapp(phone, "support_ticket_reopened", components)
+
+        sms_flow = current_app.config.get('MSG91_TICKET_REOPENED_SMS_FLOW', '')
+        if sms_flow:
+            results['sms'] = send_sms(phone, sms_flow, variables={'ticket_id': str(ticket_id)})
+
+    _log(f"RESULT:TICKET_REOPENED ticket={ticket_id} email={results['email']} whatsapp={results['whatsapp']} sms={results['sms']}")
+    return results
