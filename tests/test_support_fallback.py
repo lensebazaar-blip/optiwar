@@ -95,5 +95,51 @@ class SupportFallbackTests(unittest.TestCase):
         self.assertIsInstance(detail, str)
 
 
+class KetTicketEventAuthTests(unittest.TestCase):
+    """HMAC verification for the inbound KET ticket-lifecycle webhook."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.crm = _load_crm()
+        import hashlib as _h
+        import hmac as _hm
+        cls._h, cls._hm = _h, _hm
+        from flask import Flask
+        cls.app = Flask(__name__)
+        cls.app.config["OPTIWAR_WEBHOOK_SECRET"] = "test-secret"
+
+    def _sign(self, ts, body, secret="test-secret"):
+        return self._hm.new(secret.encode(), f"{ts}:{body}".encode(), self._h.sha256).hexdigest()
+
+    def test_valid_signature_accepted(self):
+        import time as _t
+        with self.app.app_context():
+            ts = str(int(_t.time()))
+            body = '{"event":"resolved","ticket_ref":"42"}'
+            self.assertTrue(self.crm._verify_ket_signature(body, ts, self._sign(ts, body)))
+
+    def test_wrong_signature_rejected(self):
+        import time as _t
+        with self.app.app_context():
+            ts = str(int(_t.time()))
+            body = '{"event":"resolved"}'
+            self.assertFalse(self.crm._verify_ket_signature(body, ts, "deadbeef"))
+
+    def test_stale_timestamp_rejected(self):
+        with self.app.app_context():
+            ts = "1000000000"  # far in the past
+            body = "{}"
+            self.assertFalse(self.crm._verify_ket_signature(body, ts, self._sign(ts, body)))
+
+    def test_missing_secret_fails_closed(self):
+        import time as _t
+        from flask import Flask
+        app = Flask(__name__)
+        app.config["OPTIWAR_WEBHOOK_SECRET"] = ""
+        with app.app_context():
+            ts = str(int(_t.time()))
+            self.assertFalse(self.crm._verify_ket_signature("{}", ts, self._sign(ts, "{}")))
+
+
 if __name__ == "__main__":
     unittest.main()

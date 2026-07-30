@@ -12,11 +12,59 @@ import time
 import json as json_mod
 import smtplib
 import socket
+import hmac
+import hashlib
 
 bp = Blueprint('crm', __name__)
 captcha_generator = CaptchaGenerator()
 
 KET_API_URL = os.environ.get("KET_SUPPORT_URL", "https://support.ket.ltd/new/api/v1/external/messages")
+
+# KET pushes ticket-lifecycle events (resolved) to this app, HMAC-SHA256 signed
+# over "<timestamp>:<raw_body>" with the shared OPTIWAR_WEBHOOK_SECRET.
+KET_SIGNATURE_MAX_SKEW = 300  # seconds; reject stale/replayed timestamps
+
+
+def _verify_ket_signature(raw_body, timestamp, signature):
+    """Verify a KET webhook HMAC-SHA256 signature. Fails closed on any problem."""
+    secret = current_app.config.get('OPTIWAR_WEBHOOK_SECRET', '')
+    if not secret or not timestamp or not signature:
+        return False
+    try:
+        ts = int(timestamp)
+    except (TypeError, ValueError):
+        return False
+    if abs(int(time.time()) - ts) > KET_SIGNATURE_MAX_SKEW:
+        return False
+    if isinstance(raw_body, bytes):
+        raw_body = raw_body.decode('utf-8', 'replace')
+    expected = hmac.new(
+        secret.encode('utf-8'),
+        f"{timestamp}:{raw_body}".encode('utf-8'),
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(expected, str(signature))
+
+
+def _notify_ticket_created(name, email, phone, ticket_id, subject):
+    """Best-effort WhatsApp ack on ticket creation. Never breaks ticket creation.
+
+    Optiwar owns WhatsApp directly (MSG91); KET only sends the customer email.
+    Runs after KET forward + customer success so a notification hiccup cannot
+    abort the ticket. Skips silently when no phone is available (anonymous).
+    """
+    try:
+        from .notifications import notify_support_ticket_created
+        notify_support_ticket_created(
+            customer_email=email,
+            customer_phone=phone,
+            customer_name=name,
+            ticket_id=ticket_id,
+            subject_text=subject or "Support request",
+            site_host=request.host,
+        )
+    except Exception as e:  # noqa: BLE001 - notification is best-effort
+        current_app.logger.error(f"[TICKET-WA] created notify failed ticket={ticket_id}: {e}")
 
 # Customer-facing message shown when the AI provider is unavailable. The
 # customer never sees a raw "AI unavailable" error; instead the same support
@@ -290,6 +338,9 @@ def create_ticket():
             )
             # --- End KET Support ---
 
+            # WhatsApp ack (Optiwar-owned, best-effort, after KET forward)
+            _notify_ticket_created(requester_name, requester_email, phone, ticket_id, subject)
+
             session['ticket_id'] = ticket_id
             logging.debug(f"Session contents: %s ", dict(session))
             return render_template('contact_us.html', ticket_id=ticket_id)
@@ -378,6 +429,9 @@ def submit_ticket_ajax():
             source="web_form"
         )
         # --- End KET Support ---
+
+        # WhatsApp ack (Optiwar-owned, best-effort, after KET forward)
+        _notify_ticket_created(requester_name, requester_email, phone, ticket_id, subject)
 
         session['ticket_id'] = ticket_id
         return jsonify({'success': True, 'ticket_id': ticket_id, 'message': f'Support ticket #{ticket_id} created successfully! Our team will respond shortly.'})
@@ -585,6 +639,9 @@ def ai_submit_ticket():
         )
         # --- End KET Support ---
 
+        # WhatsApp ack (Optiwar-owned, best-effort, after KET forward)
+        _notify_ticket_created(name, email, phone, ticket_id, subject)
+
         # Log AI chat to ai_chat_logs table
         try:
             db = get_db()
@@ -627,3 +684,55 @@ def support_status():
         current_app.logger.error(f"[SUPPORT-STATUS] {e}", exc_info=True)
         # Fail safe: assume AI is down so support degrades to direct capture.
         return jsonify({"ai_available": False, "components": {}, "checked_at": int(time.time())})
+
+
+@bp.route('/support/ticket_event', methods=['POST'])
+def ket_ticket_event():
+    """Inbound KET ticket-lifecycle webhook (currently: resolved).
+
+    KET is the system of record for the ticket lifecycle; when an agent resolves
+    a ticket KET calls this endpoint so Optiwar can send the WhatsApp update from
+    its own MSG91 number (Optiwar owns WhatsApp; KET owns only the support email).
+
+    Auth: HMAC-SHA256 over "<X-KET-Timestamp>:<raw_body>" with OPTIWAR_WEBHOOK_SECRET.
+    Expected JSON: {event: "resolved", ticket_ref, name, phone, email}
+    Best-effort: always returns 200 to a valid signer so KET does not retry-storm;
+    the WhatsApp send itself is non-fatal.
+    """
+    from flask import jsonify
+    raw_body = request.get_data(as_text=True)
+    if not _verify_ket_signature(
+        raw_body,
+        request.headers.get('X-KET-Timestamp'),
+        request.headers.get('X-KET-Signature'),
+    ):
+        return jsonify({"error": "invalid signature"}), 401
+
+    data = request.get_json(force=True, silent=True) or {}
+    event = (data.get('event') or '').strip().lower()
+    ticket_ref = str(data.get('ticket_ref') or data.get('ticket_id') or '').strip()
+    name = (data.get('name') or '').strip()
+    phone = (data.get('phone') or '').strip()
+    email = (data.get('email') or '').strip()
+
+    if event != 'resolved':
+        # Only 'resolved' is in scope today; ack others without action.
+        current_app.logger.info(f"[KET-EVENT] ignored event={event} ticket={ticket_ref}")
+        return jsonify({"status": "ignored", "event": event})
+
+    if not ticket_ref:
+        return jsonify({"error": "ticket_ref required"}), 400
+
+    try:
+        from .notifications import notify_support_ticket_resolved
+        notify_support_ticket_resolved(
+            customer_email=email,
+            customer_phone=phone,
+            customer_name=name,
+            ticket_id=ticket_ref,
+            site_host=request.host,
+        )
+    except Exception as e:  # noqa: BLE001 - notification is best-effort
+        current_app.logger.error(f"[KET-EVENT] resolved notify failed ticket={ticket_ref}: {e}")
+
+    return jsonify({"status": "ok", "event": "resolved", "ticket_ref": ticket_ref})

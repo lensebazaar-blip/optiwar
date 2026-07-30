@@ -39,6 +39,7 @@ CSRF_EXEMPT_ENDPOINTS = {
     "main.payment_callback",           # Paytm /payment/callbackurl  (checksum + idempotency)
     "chat_gateway.chat_agent_reply",   # KET agent reply push  (HMAC)
     "chat_gateway.chat_resolve",       # KET resolve push  (HMAC; widget path uses cookie ownership)
+    "crm.ket_ticket_event",            # KET ticket-lifecycle push (resolved)  (HMAC)
 }
 
 

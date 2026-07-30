@@ -68,8 +68,10 @@ def create_app(test_config=None):
     app.config['MSG91_SMS_SENDER'] = 'OPTWAR'
 
     # KET comms-hub event emission (payment/order events -> support.ket.ltd/external/events)
+    # KET is email-ticketing only; Optiwar owns WhatsApp directly (MSG91) and SMS is off,
+    # so the event channel allow-list is empty by default to prevent any duplicate delivery.
     app.config['KET_EVENTS_ENABLED'] = os.environ.get('KET_EVENTS_ENABLED', 'true').lower() == 'true'
-    app.config['KET_EVENT_CHANNELS'] = os.environ.get('KET_EVENT_CHANNELS', 'whatsapp,sms')
+    app.config['KET_EVENT_CHANNELS'] = os.environ.get('KET_EVENT_CHANNELS', '')
     # Support-ticket customer email is owned by KET (sole sender); Optiwar sends only WhatsApp for support
     app.config['SUPPORT_TICKET_EMAIL_ENABLED'] = os.environ.get('SUPPORT_TICKET_EMAIL_ENABLED', 'false').lower() == 'true'
 
