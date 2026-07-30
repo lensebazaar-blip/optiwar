@@ -75,6 +75,10 @@ def create_app(test_config=None):
     # Support-ticket customer email is owned by KET (sole sender); Optiwar sends only WhatsApp for support
     app.config['SUPPORT_TICKET_EMAIL_ENABLED'] = os.environ.get('SUPPORT_TICKET_EMAIL_ENABLED', 'false').lower() == 'true'
 
+    # ticket_created WhatsApp stays OFF until the resolved/reopened lifecycle
+    # webhook passes joint acceptance (per KET direction).
+    app.config['TICKET_CREATED_WHATSAPP_ENABLED'] = os.environ.get('TICKET_CREATED_WHATSAPP_ENABLED', 'false').lower() == 'true'
+
     # Admin address for internal-only notices (e.g. payment_attempted)
     app.config['ADMIN_NOTIFY_EMAIL'] = os.environ.get('ADMIN_NOTIFY_EMAIL', 'admin@optiwar.com')
 

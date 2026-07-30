@@ -139,25 +139,44 @@ def send_email(to_email, subject, body_html, body_text=None, cc_emails=None):
         return False
 
 
-def send_whatsapp(to_phone, template_name, components=None):
-    """Send WhatsApp message via MSG91 API."""
+def _extract_msg91_request_id(resp):
+    """Best-effort pull of MSG91's request/message id from a bulk-API response."""
+    try:
+        body = resp.json()
+    except Exception:  # noqa: BLE001 - non-JSON body
+        return ''
+    if not isinstance(body, dict):
+        return ''
+    for key in ('request_id', 'requestId', 'message_id'):
+        if body.get(key):
+            return str(body[key])
+    data = body.get('data')
+    if isinstance(data, dict):
+        for key in ('request_id', 'requestId', 'message_id'):
+            if data.get(key):
+                return str(data[key])
+    return ''
+
+
+def send_whatsapp_tracked(to_phone, template_name, components=None):
+    """Send WhatsApp via MSG91 and return delivery details for the audit log.
+
+    Returns {ok, request_id, status, error}. request_id is MSG91's returned id
+    when present. Used by the KET lifecycle worker for per-channel idempotency.
+    """
     auth_key = current_app.config.get('MSG91_AUTH_KEY', '')
     wa_number = current_app.config.get('MSG91_WHATSAPP_NUMBER', '')
 
     if not auth_key:
         _log(f"WHATSAPP:SKIPPED to={to_phone} template={template_name} reason=no_auth_key")
-        return False
-
+        return {"ok": False, "request_id": "", "status": "skipped", "error": "no_auth_key"}
     if not wa_number:
         _log(f"WHATSAPP:SKIPPED to={to_phone} template={template_name} reason=no_wa_number")
-        return False
+        return {"ok": False, "request_id": "", "status": "skipped", "error": "no_wa_number"}
 
     try:
         url = "https://control.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/bulk/"
-        headers = {
-            'Content-Type': 'application/json',
-            'authkey': auth_key
-        }
+        headers = {'Content-Type': 'application/json', 'authkey': auth_key}
         payload = {
             "integrated_number": wa_number,
             "content_type": "template",
@@ -166,29 +185,28 @@ def send_whatsapp(to_phone, template_name, components=None):
                 "type": "template",
                 "template": {
                     "name": template_name,
-                    "language": {
-                        "code": "en",
-                        "policy": "deterministic"
-                    },
+                    "language": {"code": "en", "policy": "deterministic"},
                     "to_and_components": [
-                        {
-                            "to": [to_phone],
-                            "components": components or {}
-                        }
+                        {"to": [to_phone], "components": components or {}}
                     ]
                 }
             }
         }
         resp = http_requests.post(url, json=payload, headers=headers, timeout=10)
+        rid = _extract_msg91_request_id(resp)
         if resp.status_code in (200, 201):
-            _log(f"WHATSAPP:SUCCESS to={to_phone} template={template_name} status={resp.status_code}")
-            return True
-        else:
-            _log(f"WHATSAPP:FAILED to={to_phone} template={template_name} status={resp.status_code} body={resp.text[:200]}")
-            return False
-    except Exception as e:
+            _log(f"WHATSAPP:SUCCESS to={to_phone} template={template_name} status={resp.status_code} rid={rid or '-'}")
+            return {"ok": True, "request_id": rid, "status": "sent", "error": ""}
+        _log(f"WHATSAPP:FAILED to={to_phone} template={template_name} status={resp.status_code} body={resp.text[:200]}")
+        return {"ok": False, "request_id": rid, "status": "failed", "error": f"http_{resp.status_code}"}
+    except Exception as e:  # noqa: BLE001
         _log(f"WHATSAPP:FAILED to={to_phone} template={template_name} error={e}")
-        return False
+        return {"ok": False, "request_id": "", "status": "failed", "error": str(e)[:200]}
+
+
+def send_whatsapp(to_phone, template_name, components=None):
+    """Send WhatsApp message via MSG91 API. Returns bool (legacy callers)."""
+    return send_whatsapp_tracked(to_phone, template_name, components)["ok"]
 
 
 def send_sms(to_phone, flow_id, variables=None):

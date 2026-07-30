@@ -14,6 +14,7 @@ import smtplib
 import socket
 import hmac
 import hashlib
+import threading
 
 bp = Blueprint('crm', __name__)
 captcha_generator = CaptchaGenerator()
@@ -52,7 +53,12 @@ def _notify_ticket_created(name, email, phone, ticket_id, subject):
     Optiwar owns WhatsApp directly (MSG91); KET only sends the customer email.
     Runs after KET forward + customer success so a notification hiccup cannot
     abort the ticket. Skips silently when no phone is available (anonymous).
+
+    Gated OFF by default until resolved/reopened lifecycle acceptance passes
+    (TICKET_CREATED_WHATSAPP_ENABLED).
     """
+    if not current_app.config.get('TICKET_CREATED_WHATSAPP_ENABLED', False):
+        return
     try:
         from .notifications import notify_support_ticket_created
         notify_support_ticket_created(
@@ -686,78 +692,207 @@ def support_status():
         return jsonify({"ai_available": False, "components": {}, "checked_at": int(time.time())})
 
 
-# KET lifecycle events Optiwar acts on today -> the WhatsApp notify function.
-# Unknown/future events (waiting_customer, closed, ...) are logged and ignored
-# with 200 so KET can expand the lifecycle without breaking anything.
-_KET_EVENT_HANDLERS = {
-    'resolved': 'notify_support_ticket_resolved',
-    'reopened': 'notify_support_ticket_reopened',
+# ---------------------------------------------------------------------------
+# KET lifecycle webhook v3 (schema version 1)
+#
+# Contract: persist-first-then-ack, dedupe strictly on event_id, MSG91 sent
+# asynchronously so a slow provider never consumes KET's webhook timeout, and a
+# separate per-channel key (ket:<event_id>:whatsapp) guarantees the customer is
+# never messaged twice across KET retries / worker restarts.
+# ---------------------------------------------------------------------------
+KET_SCHEMA_VERSION = 1
+
+# Actioned events -> the MSG91 template Optiwar sends from its own number.
+# Unknown/future events (waiting_customer, closed, ...) are logged + 200-ignored
+# so KET can expand the lifecycle without breaking anything.
+_KET_EVENT_TEMPLATES = {
+    'resolved': 'support_ticket_resolved',
+    'reopened': 'support_ticket_reopened',
 }
 
-
-def _ket_event_already_seen(event_id):
-    """Idempotency: record event_id; return True if it was already processed.
-
-    Depends on KET sending a stable per-event `event_id` across retries. When
-    absent we cannot dedupe (returns False + logs) — see the KET brief request.
-    """
-    if not event_id:
-        return False
-    try:
-        from .db import get_db
-        db = get_db()
-        cur = db.cursor()
-        cur.execute(
-            """CREATE TABLE IF NOT EXISTS ket_webhook_events (
-                   event_id VARCHAR(191) PRIMARY KEY,
-                   event VARCHAR(64),
-                   ticket_ref VARCHAR(191),
-                   received_at DATETIME DEFAULT CURRENT_TIMESTAMP
-               ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
-        )
-        cur.execute("SELECT 1 FROM ket_webhook_events WHERE event_id = %s", (event_id,))
-        if cur.fetchone():
-            cur.close()
-            return True
-        cur.close()
-        return False
-    except Exception as e:  # noqa: BLE001 - never let dedupe break delivery
-        current_app.logger.error(f"[KET-EVENT] dedupe check failed event_id={event_id}: {e}")
-        return False
+_KET_SCHEMA_READY = False
 
 
-def _ket_event_record(event_id, event, ticket_ref):
-    """Persist a processed event_id (best-effort)."""
-    if not event_id:
+def _ensure_ket_schema(cur):
+    """Create the lifecycle + WhatsApp-delivery tables once per process."""
+    global _KET_SCHEMA_READY
+    if _KET_SCHEMA_READY:
         return
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS ket_lifecycle_events (
+               event_id           VARCHAR(191) NOT NULL,
+               version            INT DEFAULT 1,
+               event              VARCHAR(64),
+               ticket_id          VARCHAR(191),
+               ticket_ref         VARCHAR(191),
+               request_id         VARCHAR(191),
+               name               VARCHAR(191),
+               phone              VARCHAR(64),
+               email              VARCHAR(191),
+               signature_verified TINYINT(1) DEFAULT 0,
+               processing_status  VARCHAR(32) DEFAULT 'stored',
+               received_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+               PRIMARY KEY (event_id)
+           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS whatsapp_delivery_log (
+               dedupe_key       VARCHAR(255) NOT NULL,
+               event_id         VARCHAR(191),
+               ticket_ref       VARCHAR(191),
+               template_name    VARCHAR(64),
+               recipient        VARCHAR(64),
+               msg91_request_id VARCHAR(191),
+               status           VARCHAR(32) DEFAULT 'pending',
+               attempt_count    INT DEFAULT 0,
+               last_error       TEXT,
+               sent_at          DATETIME NULL,
+               delivered_at     DATETIME NULL,
+               created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+               PRIMARY KEY (dedupe_key)
+           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
+    )
+    _KET_SCHEMA_READY = True
+
+
+def _store_lifecycle_event(event_id, version, event, ticket_id, ticket_ref,
+                           request_id, name, phone, email, signature_verified):
+    """Atomically claim + durably store a lifecycle event, keyed on event_id.
+
+    Returns 'claimed' (first time), 'duplicate' (event_id already stored), or
+    'error' (could not persist -> caller must NOT ack; KET should retry).
+    INSERT IGNORE makes the claim race-safe: rowcount 1 == we own this event.
+    """
+    from .db import get_db
     try:
-        from .db import get_db
+        db = get_db()
+        cur = db.cursor()
+        _ensure_ket_schema(cur)
+        cur.execute(
+            """INSERT IGNORE INTO ket_lifecycle_events
+                 (event_id, version, event, ticket_id, ticket_ref, request_id,
+                  name, phone, email, signature_verified)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (event_id, version, event, ticket_id, ticket_ref, request_id,
+             name, phone, email, 1 if signature_verified else 0),
+        )
+        claimed = cur.rowcount == 1
+        db.commit()
+        cur.close()
+        return 'claimed' if claimed else 'duplicate'
+    except Exception as e:  # noqa: BLE001 - durable store failed
+        current_app.logger.error(f"[KET-EVENT] store failed event_id={event_id}: {e}")
+        return 'error'
+
+
+def _set_lifecycle_status(event_id, status):
+    """Best-effort update of a lifecycle event's processing_status."""
+    from .db import get_db
+    try:
         db = get_db()
         cur = db.cursor()
         cur.execute(
-            "INSERT IGNORE INTO ket_webhook_events (event_id, event, ticket_ref) VALUES (%s, %s, %s)",
-            (event_id, event, ticket_ref),
+            "UPDATE ket_lifecycle_events SET processing_status=%s WHERE event_id=%s",
+            (status, event_id),
         )
         db.commit()
         cur.close()
     except Exception as e:  # noqa: BLE001
-        current_app.logger.error(f"[KET-EVENT] dedupe record failed event_id={event_id}: {e}")
+        current_app.logger.error(f"[KET-EVENT] status update failed event_id={event_id}: {e}")
+
+
+def _claim_whatsapp_send(dedupe_key, event_id, ticket_ref, template_name, recipient):
+    """Per-channel idempotency claim. True only the first time for this key."""
+    from .db import get_db
+    try:
+        db = get_db()
+        cur = db.cursor()
+        cur.execute(
+            """INSERT IGNORE INTO whatsapp_delivery_log
+                 (dedupe_key, event_id, ticket_ref, template_name, recipient,
+                  status, attempt_count)
+               VALUES (%s,%s,%s,%s,%s,'pending',1)""",
+            (dedupe_key, event_id, ticket_ref, template_name, recipient),
+        )
+        claimed = cur.rowcount == 1
+        db.commit()
+        cur.close()
+        return claimed
+    except Exception as e:  # noqa: BLE001
+        current_app.logger.error(f"[KET-EVENT] whatsapp claim failed key={dedupe_key}: {e}")
+        return False
+
+
+def _record_whatsapp_result(dedupe_key, result):
+    """Persist the MSG91 outcome (request id / status / error) for the audit log."""
+    from .db import get_db
+    try:
+        db = get_db()
+        cur = db.cursor()
+        cur.execute(
+            """UPDATE whatsapp_delivery_log
+                 SET msg91_request_id=%s, status=%s, last_error=%s,
+                     sent_at=CASE WHEN %s='sent' THEN NOW() ELSE sent_at END
+               WHERE dedupe_key=%s""",
+            (result.get('request_id', ''), result.get('status', ''),
+             result.get('error', ''), result.get('status', ''), dedupe_key),
+        )
+        db.commit()
+        cur.close()
+    except Exception as e:  # noqa: BLE001
+        current_app.logger.error(f"[KET-EVENT] whatsapp result record failed key={dedupe_key}: {e}")
+
+
+def _process_lifecycle_whatsapp(app, event, event_id, ticket_ref, name, phone, email, site_host):
+    """Async worker: send the lifecycle WhatsApp exactly once via MSG91.
+
+    Runs after the webhook has already acked KET, so MSG91 latency/failure never
+    affects the webhook response. Idempotent on ket:<event_id>:whatsapp.
+    """
+    with app.app_context():
+        try:
+            if not phone:
+                _set_lifecycle_status(event_id, 'skipped_no_phone')
+                app.logger.info(f"[KET-EVENT] {event} no phone; skipped event_id={event_id} ticket={ticket_ref}")
+                return
+            template_name = _KET_EVENT_TEMPLATES[event]
+            recipient = phone.replace('+', '').replace(' ', '').replace('-', '')
+            dedupe_key = f"ket:{event_id}:whatsapp"
+            if not _claim_whatsapp_send(dedupe_key, event_id, ticket_ref, template_name, recipient):
+                app.logger.info(f"[KET-EVENT] whatsapp already claimed key={dedupe_key}; not resending")
+                return
+            from .notifications import send_whatsapp_tracked
+            components = {
+                "body_1": {"type": "text", "value": name or "Customer"},
+                "body_2": {"type": "text", "value": str(ticket_ref)},
+                "body_3": {"type": "text", "value": site_host},
+            }
+            result = send_whatsapp_tracked(recipient, template_name, components)
+            _record_whatsapp_result(dedupe_key, result)
+            _set_lifecycle_status(event_id, 'notified' if result.get('ok') else 'notify_failed')
+            app.logger.info(
+                f"[KET-EVENT] {event} whatsapp event_id={event_id} ticket={ticket_ref} "
+                f"ok={result.get('ok')} rid={result.get('request_id') or '-'}"
+            )
+        except Exception as e:  # noqa: BLE001 - worker must never crash the process
+            app.logger.error(f"[KET-EVENT] worker failed event_id={event_id}: {e}")
 
 
 @bp.route('/support/ticket_event', methods=['POST'])
 def ket_ticket_event():
-    """Inbound KET ticket-lifecycle webhook (resolved / reopened).
+    """Inbound KET ticket-lifecycle webhook (schema v1: resolved / reopened).
 
-    KET is the system of record for the ticket lifecycle; when an agent
-    resolves/reopens a ticket KET calls this endpoint so Optiwar can send the
-    WhatsApp update from its own MSG91 number (Optiwar owns WhatsApp; KET owns
-    only the support email).
+    KET is the system of record for the lifecycle; when an agent resolves/reopens
+    a ticket KET calls this endpoint so Optiwar sends the WhatsApp update from its
+    own MSG91 number (Optiwar owns WhatsApp; KET owns only the support email).
 
     Auth: HMAC-SHA256 over "<X-KET-Timestamp>:<raw_body>" with OPTIWAR_WEBHOOK_SECRET.
-    JSON: {event, ticket_ref, name, phone, email, event_id?}
-    - Unknown events -> 200 + log + ignore (seamless future expansion).
-    - Duplicate event_id -> 200 duplicate (idempotent).
-    - Valid signer always gets 2xx; the WhatsApp send itself is non-fatal.
+    JSON: {version?, event, event_id, ticket_ref, ticket_id?, request_id?, name, phone, email}
+
+    Flow: verify signature -> validate schema -> durably store (atomic claim on
+    event_id) -> ack -> process MSG91 asynchronously.
+    Codes: 401 bad signature; 400 invalid schema; 200 accepted/duplicate/ignored;
+    503 when the event could not be durably stored (KET should retry).
     """
     from flask import jsonify, g
     raw_body = request.get_data(as_text=True)
@@ -773,48 +908,62 @@ def ket_ticket_event():
     if not isinstance(data, dict):
         return jsonify({"error": "invalid json body"}), 400
 
+    try:
+        version = int(data.get('version', KET_SCHEMA_VERSION))
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid version"}), 400
+
     event = (data.get('event') or '').strip().lower()
+    event_id = str(data.get('event_id') or '').strip()
     ticket_ref = str(data.get('ticket_ref') or data.get('ticket_id') or '').strip()
+    ticket_id = str(data.get('ticket_id') or '').strip()
+    request_id = str(data.get('request_id') or '').strip()
     name = (data.get('name') or '').strip()
     phone = (data.get('phone') or '').strip()
     email = (data.get('email') or '').strip()
-    event_id = str(data.get('event_id') or '').strip()
     rid = getattr(g, 'request_id', '-')
 
     current_app.logger.info(
-        f"[KET-EVENT] recv event={event or '-'} ticket={ticket_ref or '-'} "
-        f"event_id={event_id or '-'} has_phone={bool(phone)} rid={rid}"
+        f"[KET-EVENT] recv v={version} event={event or '-'} ticket_ref={ticket_ref or '-'} "
+        f"ticket_id={ticket_id or '-'} event_id={event_id or '-'} req_id={request_id or '-'} "
+        f"has_phone={bool(phone)} rid={rid}"
     )
+
+    if version > KET_SCHEMA_VERSION:
+        current_app.logger.warning(f"[KET-EVENT] newer schema v={version} (max {KET_SCHEMA_VERSION}); processing leniently")
 
     if not event:
         return jsonify({"error": "event required"}), 400
 
-    handler_name = _KET_EVENT_HANDLERS.get(event)
-    if not handler_name:
+    if event not in _KET_EVENT_TEMPLATES:
         # Future lifecycle stages: ack without action so KET can expand freely.
-        current_app.logger.info(f"[KET-EVENT] ignored (unhandled) event={event} ticket={ticket_ref} rid={rid}")
+        current_app.logger.info(f"[KET-EVENT] ignored (unhandled) event={event} ticket_ref={ticket_ref} rid={rid}")
         return jsonify({"status": "ignored", "event": event})
 
+    # Schema validation for actioned events.
+    if not event_id:
+        return jsonify({"error": "event_id required"}), 400
     if not ticket_ref:
         return jsonify({"error": "ticket_ref required"}), 400
 
-    if _ket_event_already_seen(event_id):
-        current_app.logger.info(f"[KET-EVENT] duplicate event_id={event_id} event={event} ticket={ticket_ref}")
+    # Persist first (atomic claim on event_id), THEN ack.
+    outcome = _store_lifecycle_event(
+        event_id, version, event, ticket_id, ticket_ref, request_id,
+        name, phone, email, signature_verified=True,
+    )
+    if outcome == 'error':
+        # Could not durably store -> do not ack; KET should retry.
+        return jsonify({"error": "temporary storage failure"}), 503
+    if outcome == 'duplicate':
+        current_app.logger.info(f"[KET-EVENT] duplicate event_id={event_id} event={event} ticket_ref={ticket_ref}")
         return jsonify({"status": "duplicate", "event": event, "ticket_ref": ticket_ref})
-    if not event_id:
-        current_app.logger.warning(f"[KET-EVENT] no event_id supplied; cannot dedupe event={event} ticket={ticket_ref}")
 
-    try:
-        import flaskr.notifications as _notif
-        getattr(_notif, handler_name)(
-            customer_email=email,
-            customer_phone=phone,
-            customer_name=name,
-            ticket_id=ticket_ref,
-            site_host=request.host,
-        )
-    except Exception as e:  # noqa: BLE001 - notification is best-effort
-        current_app.logger.error(f"[KET-EVENT] {event} notify failed ticket={ticket_ref}: {e}")
+    # Stored & claimed -> ack immediately, process MSG91 out of band.
+    app_obj = current_app._get_current_object()
+    threading.Thread(
+        target=_process_lifecycle_whatsapp,
+        args=(app_obj, event, event_id, ticket_ref, name, phone, email, request.host),
+        daemon=True,
+    ).start()
 
-    _ket_event_record(event_id, event, ticket_ref)
-    return jsonify({"status": "ok", "event": event, "ticket_ref": ticket_ref})
+    return jsonify({"status": "accepted", "event": event, "ticket_ref": ticket_ref, "event_id": event_id}), 200

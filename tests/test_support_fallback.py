@@ -140,16 +140,14 @@ class KetTicketEventAuthTests(unittest.TestCase):
             ts = str(int(_t.time()))
             self.assertFalse(self.crm._verify_ket_signature("{}", ts, self._sign(ts, "{}")))
 
-    def test_event_handler_map(self):
-        # Only resolved + reopened are actioned; both map to a real notify fn.
-        self.assertEqual(set(self.crm._KET_EVENT_HANDLERS), {"resolved", "reopened"})
-        self.assertEqual(self.crm._KET_EVENT_HANDLERS["resolved"], "notify_support_ticket_resolved")
-        self.assertEqual(self.crm._KET_EVENT_HANDLERS["reopened"], "notify_support_ticket_reopened")
+    def test_event_template_map(self):
+        # Only resolved + reopened are actioned; both map to their MSG91 template.
+        self.assertEqual(set(self.crm._KET_EVENT_TEMPLATES), {"resolved", "reopened"})
+        self.assertEqual(self.crm._KET_EVENT_TEMPLATES["resolved"], "support_ticket_resolved")
+        self.assertEqual(self.crm._KET_EVENT_TEMPLATES["reopened"], "support_ticket_reopened")
 
-    def test_dedupe_noops_without_event_id(self):
-        # No event_id -> cannot dedupe -> must not raise and must return False.
-        self.assertFalse(self.crm._ket_event_already_seen(""))
-        self.crm._ket_event_record("", "resolved", "42")  # no-op, must not raise
+    def test_schema_version(self):
+        self.assertEqual(self.crm.KET_SCHEMA_VERSION, 1)
 
 
 if __name__ == "__main__":
