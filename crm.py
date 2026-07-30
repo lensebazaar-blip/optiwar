@@ -10,11 +10,109 @@ from flask_mail import Message
 import os
 import time
 import json as json_mod
+import smtplib
+import socket
 
 bp = Blueprint('crm', __name__)
 captcha_generator = CaptchaGenerator()
 
 KET_API_URL = os.environ.get("KET_SUPPORT_URL", "https://support.ket.ltd/new/api/v1/external/messages")
+
+# Customer-facing message shown when the AI provider is unavailable. The
+# customer never sees a raw "AI unavailable" error; instead the same support
+# interface transparently switches to direct ticket capture.
+AI_FALLBACK_MESSAGE = (
+    "We're temporarily experiencing high demand. I've already prepared your "
+    "support request and our support team will continue assisting you. Please "
+    "describe your issue below and we'll create a support ticket right away."
+)
+
+# Lightweight in-process health cache so the support entry can react to
+# provider/backend outages without hammering dependencies on every request.
+_HEALTH_CACHE = {"ts": 0.0, "data": None}
+_HEALTH_TTL = 60  # seconds
+
+
+def _check_ai_health():
+    """Cheap AI-provider liveness probe. Returns (ok: bool, detail: str)."""
+    key = os.environ.get('OPENAI_API_KEY', '')
+    if not key:
+        return False, "no_api_key"
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=key, timeout=4.0, max_retries=0)
+        client.models.list()
+        return True, "ok"
+    except Exception as e:  # noqa: BLE001 - health probe must never raise
+        return False, type(e).__name__
+
+
+def _check_tcp_health(host, port, timeout=4.0):
+    """Return (ok, detail) for a plain TCP reachability check."""
+    if not host:
+        return False, "not_configured"
+    try:
+        with socket.create_connection((host, int(port)), timeout=timeout):
+            return True, "ok"
+    except Exception as e:  # noqa: BLE001
+        return False, type(e).__name__
+
+
+def _check_smtp_health():
+    """STARTTLS reachability check (no login) for the mail server."""
+    host = current_app.config.get('MAIL_SERVER', '')
+    port = current_app.config.get('MAIL_PORT', 587)
+    if not host:
+        return False, "not_configured"
+    try:
+        with smtplib.SMTP(host, int(port), timeout=5.0) as s:
+            s.ehlo()
+            if current_app.config.get('MAIL_USE_TLS'):
+                s.starttls()
+            return True, "ok"
+    except Exception as e:  # noqa: BLE001
+        return False, type(e).__name__
+
+
+def _check_ket_health():
+    """Reachability check for the KET support backend."""
+    try:
+        from urllib.parse import urlsplit
+        parts = urlsplit(KET_API_URL)
+        host = parts.hostname
+        port = parts.port or (443 if parts.scheme == 'https' else 80)
+        return _check_tcp_health(host, port)
+    except Exception as e:  # noqa: BLE001
+        return False, type(e).__name__
+
+
+def _support_health(force=False):
+    """Return cached support-pipeline health. AI availability drives the UI."""
+    now = time.time()
+    if not force and _HEALTH_CACHE["data"] and (now - _HEALTH_CACHE["ts"]) < _HEALTH_TTL:
+        return _HEALTH_CACHE["data"]
+
+    ai_ok, ai_detail = _check_ai_health()
+    ket_ok, ket_detail = _check_ket_health()
+    smtp_ok, smtp_detail = _check_smtp_health()
+
+    wa_configured = bool(os.environ.get('WHATSAPP_API_URL') or os.environ.get('WHATSAPP_TOKEN'))
+    sms_configured = bool(os.environ.get('SMS_API_URL') or os.environ.get('SMS_API_KEY'))
+
+    data = {
+        "ai_available": ai_ok,
+        "components": {
+            "ai": {"ok": ai_ok, "detail": ai_detail},
+            "ket": {"ok": ket_ok, "detail": ket_detail},
+            "smtp": {"ok": smtp_ok, "detail": smtp_detail},
+            "whatsapp": {"ok": wa_configured, "detail": "ok" if wa_configured else "not_configured"},
+            "sms": {"ok": sms_configured, "detail": "ok" if sms_configured else "not_configured"},
+        },
+        "checked_at": int(now),
+    }
+    _HEALTH_CACHE["data"] = data
+    _HEALTH_CACHE["ts"] = now
+    return data
 
 
 def _get_site_from():
@@ -313,6 +411,16 @@ def ai_chat():
         if not user_msg:
             return jsonify({"error": "Empty message"}), 400
 
+        # Layer 2 fallback: if the AI provider isn't even configured, don't
+        # pretend — transparently switch the same interface to direct capture.
+        if not OPENAI_KEY:
+            return jsonify({
+                "reply": AI_FALLBACK_MESSAGE,
+                "done": False,
+                "ticket_data": None,
+                "ai_available": False,
+            })
+
         # System prompt for the AI assistant
         system_prompt = """You are a quick, efficient customer support assistant for Optiwar (online eyeglasses store, India). Collect these details to create a support ticket:
 - Name
@@ -391,11 +499,20 @@ When you have enough info, end your message with EXACTLY this format (no extra t
             except (ValueError, json_mod.JSONDecodeError):
                 pass
 
-        return jsonify({"reply": reply, "done": done, "ticket_data": ticket_data})
+        return jsonify({"reply": reply, "done": done, "ticket_data": ticket_data, "ai_available": True})
 
     except Exception as e:
+        # Layer 2: any provider failure (outage, timeout, capacity, auth) must
+        # never surface as "AI unavailable". Mark AI down so the same interface
+        # switches to direct ticket capture and keeps helping the customer.
         current_app.logger.error(f"[AI-CHAT] Error: {e}", exc_info=True)
-        return jsonify({"error": "AI service temporarily unavailable. Please use the manual form."}), 500
+        _HEALTH_CACHE["data"] = None  # invalidate so the entry re-checks health
+        return jsonify({
+            "reply": AI_FALLBACK_MESSAGE,
+            "done": False,
+            "ticket_data": None,
+            "ai_available": False,
+        })
 
 
 @bp.route('/contact_us/ai_submit', methods=['POST'])
@@ -427,8 +544,12 @@ def ai_submit_ticket():
             email = session.get('user_email', '') or email
             phone = session.get('user_phone', '') or phone
 
-        if not email or not subject or not description:
-            return jsonify({"error": "Missing required fields (email, subject, description)"}), 400
+        # Direct-capture (AI-down) tickets may not carry an AI-chosen subject.
+        if not subject:
+            subject = "Support request"
+
+        if not email or not description:
+            return jsonify({"error": "Please provide your email and a short description of the issue."}), 400
 
         # Create the ticket via existing route
         ticket_id = create_ticket_in_db(
@@ -489,4 +610,20 @@ def ai_submit_ticket():
 
     except Exception as e:
         current_app.logger.error(f"[AI-CHAT] Submit error: {e}", exc_info=True)
-        return jsonify({"error": "Failed to create ticket. Please try the manual form."}), 500
+        return jsonify({"error": "We couldn't submit your request just now. Please try again in a moment."}), 500
+
+
+@bp.route('/support/status', methods=['GET'])
+def support_status():
+    """
+    Lightweight support-pipeline health for the single support entry point.
+    The customer-facing widget calls this to decide whether to greet with the
+    AI assistant or transparently switch to direct ticket capture.
+    """
+    from flask import jsonify
+    try:
+        return jsonify(_support_health())
+    except Exception as e:  # noqa: BLE001 - status must never raise
+        current_app.logger.error(f"[SUPPORT-STATUS] {e}", exc_info=True)
+        # Fail safe: assume AI is down so support degrades to direct capture.
+        return jsonify({"ai_available": False, "components": {}, "checked_at": int(time.time())})

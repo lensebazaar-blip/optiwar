@@ -1451,12 +1451,28 @@ window.__owUser = {
   var aiTimer = null;
   var aiSecondsLeft = 240; // 4 minutes
   var aiTicketSubmitted = false;
+  // Layer 2 (transparent fallback): when the AI provider is unavailable the
+  // SAME interface switches to direct ticket capture. The customer never sees
+  // "AI unavailable" and never chooses between AI and a human.
+  var owDirect = {active:false, awaitingEmail:false, email:null};
+  var OW_FALLBACK_MSG = "We're temporarily experiencing high demand. I've already prepared your support request and our support team will continue assisting you.";
+
+  function owGreet(){
+    var u = window.__owUser || {};
+    if(u.logged_in && u.name){
+      var first = String(u.name).split(' ')[0];
+      addBotMsg("Hi " + first + "! I'm Optiwar's AI support assistant. How can I help you today?");
+    } else {
+      addBotMsg("Hi there! I'm Optiwar's AI support assistant. How can I help you today?");
+    }
+  }
 
   window.openAiChat = function(){
     document.getElementById("aiChatModal").style.display = "flex";
     document.body.style.overflow = "hidden";
     aiHistory = [];
     aiTicketSubmitted = false;
+    owDirect = {active:false, awaitingEmail:false, email:null};
     aiSecondsLeft = 240;
     document.getElementById("aiChatMessages").innerHTML = "";
     // Start timer
@@ -1467,19 +1483,64 @@ window.__owUser = {
       updateTimerDisplay();
       if(aiSecondsLeft <= 0){
         clearInterval(aiTimer);
-        addBotMsg("Time's up! Let me switch you to the manual form so you can submit your request.");
-        setTimeout(function(){ closeAiChat(); openContactModal(); }, 3000);
+        // On timeout, keep the customer in the same interface and capture the
+        // request directly rather than exposing a separate manual workflow.
+        enterDirectCapture();
       }
     }, 1000);
-    // Send initial greeting (personalised when the customer is logged in)
-    var u = window.__owUser || {};
-    if(u.logged_in && u.name){
-      var first = String(u.name).split(' ')[0];
-      addBotMsg("Hi " + first + "! I'm Optiwar's AI support assistant. How can I help you today?");
-    } else {
-      addBotMsg("Hi there! I'm Optiwar's AI support assistant. How can I help you today?");
-    }
+    // Health-aware greeting: decide AI vs direct capture before greeting so the
+    // customer sees one coherent experience.
+    fetch("/support/status", {credentials:"same-origin"})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(d && d.ai_available === false){ enterDirectCapture(); }
+        else { owGreet(); }
+      })
+      .catch(function(){ owGreet(); });
   };
+
+  // Switch the same interface into transparent direct-capture mode.
+  function enterDirectCapture(){
+    if(owDirect.active) return;
+    owDirect.active = true;
+    addBotMsg(OW_FALLBACK_MSG);
+    // If the customer already described something, prepare the ticket now.
+    if(owHasUserContent()){
+      attemptDirectSubmit();
+    } else {
+      addBotMsg("Please describe your issue below and we'll create a support ticket right away.");
+    }
+  }
+
+  function owHasUserContent(){
+    for(var i=0;i<aiHistory.length;i++){ if(aiHistory[i].role==="user") return true; }
+    return false;
+  }
+
+  function owBuildDescription(){
+    var parts = [];
+    for(var i=0;i<aiHistory.length;i++){ if(aiHistory[i].role==="user") parts.push(aiHistory[i].content); }
+    return parts.join(" \u2022 ") || "Customer requested support.";
+  }
+
+  function attemptDirectSubmit(){
+    if(aiTicketSubmitted) return;
+    var u = window.__owUser || {};
+    var email = (u.logged_in && u.email) || owDirect.email || "";
+    if(!email){
+      owDirect.awaitingEmail = true;
+      addBotMsg("Could you share your email address so our team can follow up with you?");
+      return;
+    }
+    aiTicketSubmitted = true;
+    submitAiTicket({
+      name: (u.logged_in && u.name) || "",
+      email: email,
+      phone: (u.logged_in && u.phone) || "",
+      subject: "Support request",
+      description: owBuildDescription()
+    });
+  }
 
   window.closeAiChat = function(){
     document.getElementById("aiChatModal").style.display = "none";
@@ -1543,8 +1604,19 @@ window.__owUser = {
     input.value = "";
     addUserMsg(msg);
     aiHistory.push({role:"user", content:msg});
-    showTyping();
 
+    // Direct-capture mode: no AI call — collect the issue (and email if needed)
+    // and create the ticket through the same pipeline.
+    if(owDirect.active){
+      if(owDirect.awaitingEmail && /.+@.+\..+/.test(msg)){
+        owDirect.email = msg;
+        owDirect.awaitingEmail = false;
+      }
+      attemptDirectSubmit();
+      return;
+    }
+
+    showTyping();
     fetch("/contact_us/ai_chat", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
@@ -1554,8 +1626,13 @@ window.__owUser = {
     .then(function(r){ return r.json(); })
     .then(function(d){
       hideTyping();
+      // Provider failure: transparently switch to direct capture in-place.
+      if(d.ai_available === false){
+        enterDirectCapture();
+        return;
+      }
       if(d.error){
-        addBotMsg("Sorry, I'm having trouble. " + d.error);
+        enterDirectCapture();
         return;
       }
       addBotMsg(d.reply);
@@ -1568,7 +1645,8 @@ window.__owUser = {
     })
     .catch(function(e){
       hideTyping();
-      addBotMsg("Connection error. Please try again or use the manual form.");
+      // Network/timeout: never expose an error — keep helping via direct capture.
+      enterDirectCapture();
     });
   };
 
@@ -1594,11 +1672,14 @@ window.__owUser = {
         if(aiTimer) clearInterval(aiTimer);
         document.getElementById("aiTimerDisplay").textContent = "Done!";
       } else {
-        addBotMsg("I couldn't create the ticket: " + (d.error||"Unknown error") + ". Please try the manual form.");
+        // Allow another attempt within the same interface.
+        aiTicketSubmitted = false;
+        addBotMsg((d.error||"We couldn't submit that just now.") + " Please try again in a moment.");
       }
     })
     .catch(function(){
-      addBotMsg("Failed to submit. Please try the manual form.");
+      aiTicketSubmitted = false;
+      addBotMsg("We couldn't reach our servers just now. Please try again in a moment.");
     });
   }
 })();
