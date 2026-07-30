@@ -16,6 +16,7 @@
         <meta name="twitter:title" content="{% block twitter_title %}OPTIWAR - Factory Outlet Eyewear{% endblock %}">
         <meta name="twitter:description" content="{% block twitter_description %}Premium eyewear at factory outlet prices. Save up to 70%.{% endblock %}">
         <meta name="twitter:image" content="{% block twitter_image %}{{ url_for('static', filename='favicon-512x512.png', _external=True) }}{% endblock %}">
+        <meta name="robots" content="{% block robots %}index, follow{% endblock %}">
         <link rel="canonical" href="{% block canonical_url %}{{ request.url }}{% endblock %}">
         <!-- hreflang for multi-region support -->
         <link rel="alternate" hreflang="en-in" href="{% block hreflang_in %}{{ request.url|replace('in.optiwar.com', 'optiwar.in')|replace('www.optiwar.com', 'optiwar.in')|replace('optiwar.com', 'optiwar.in') }}{% endblock %}">

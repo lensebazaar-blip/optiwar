@@ -1,9 +1,9 @@
 {% extends 'base.html' %}
 {% block title %} Contact us - Optiwar {% endblock %}
+{# Hidden operational fallback endpoint: not a customer-facing page.
+   Single AI-first support entry is the intended path; keep this out of search. #}
+{% block robots %}noindex, nofollow, noarchive{% endblock %}
 {% block meta %}
-    <!-- Hidden operational fallback endpoint: not a customer-facing page.
-         Single AI-first support entry is the intended path; keep this out of search. -->
-    <meta name="robots" content="noindex,nofollow">
     <!-- Unique Meta Tags for Privacy Policy Page -->
     <meta name="description" content="Contact OPTIWAR team via email support for things like your order, changes, cancellations or simply query about a new product">
     <meta name="keywords" content=" Optiwar Contact_Us ">
