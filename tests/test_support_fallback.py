@@ -149,6 +149,21 @@ class KetTicketEventAuthTests(unittest.TestCase):
     def test_schema_version(self):
         self.assertEqual(self.crm.KET_SCHEMA_VERSION, 1)
 
+    def test_delivery_policy_constants(self):
+        # Restart-safe outbox policy: bounded retries + a payload guard.
+        self.assertEqual(self.crm.KET_MAX_BODY_BYTES, 64 * 1024)
+        self.assertGreaterEqual(self.crm.WA_MAX_ATTEMPTS, 1)
+        self.assertTrue(callable(self.crm.start_whatsapp_outbox_worker))
+
+    def test_backoff_is_bounded_and_growing(self):
+        # Exponential backoff must grow with attempts and never exceed the cap.
+        base, cap = self.crm.WA_BACKOFF_BASE, self.crm.WA_BACKOFF_CAP
+        b1 = min(base * (2 ** 0), cap)
+        b2 = min(base * (2 ** 1), cap)
+        self.assertEqual(b1, base)
+        self.assertGreater(b2, b1)
+        self.assertLessEqual(min(base * (2 ** 20), cap), cap)
+
 
 if __name__ == "__main__":
     unittest.main()

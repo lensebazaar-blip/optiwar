@@ -66,6 +66,8 @@ def create_app(test_config=None):
     app.config['MSG91_AUTH_KEY'] = os.environ.get('MSG91_AUTH_KEY', '')
     app.config['MSG91_WHATSAPP_NUMBER'] = '919355380318'
     app.config['MSG91_SMS_SENDER'] = 'OPTWAR'
+    # Optional shared token to authenticate MSG91 delivery-status callbacks.
+    app.config['MSG91_DELIVERY_TOKEN'] = os.environ.get('MSG91_DELIVERY_TOKEN', '')
 
     # KET comms-hub event emission (payment/order events -> support.ket.ltd/external/events)
     # KET is email-ticketing only; Optiwar owns WhatsApp directly (MSG91) and SMS is off,
@@ -366,6 +368,11 @@ def create_app(test_config=None):
     # Responsive image embed: load derivative manifest once, expose Jinja helpers
     from .embed_helper import register_image_helpers
     register_image_helpers(app)
+
+    # Restart-safe KET WhatsApp outbox: resumes pending/failed delivery jobs so a
+    # gunicorn restart or crash after a webhook 200 never loses the notification.
+    from .crm import start_whatsapp_outbox_worker
+    start_whatsapp_outbox_worker(app)
 
     @app.route('/hello')
     def hello():

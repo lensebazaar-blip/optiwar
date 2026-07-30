@@ -710,11 +710,19 @@ _KET_EVENT_TEMPLATES = {
     'reopened': 'support_ticket_reopened',
 }
 
+# Durable WhatsApp delivery policy (restart-safe outbox worker).
+KET_MAX_BODY_BYTES = 64 * 1024      # reject oversized payloads with 413
+WA_MAX_ATTEMPTS = 5                 # after this a job is marked 'dead'
+WA_LOCK_TIMEOUT = 120               # seconds; reclaim a stuck 'sending' row
+WA_BACKOFF_BASE = 60                # seconds; exponential retry backoff base
+WA_BACKOFF_CAP = 3600               # seconds; backoff ceiling
+WA_SCAN_INTERVAL = 30              # seconds between outbox scans
+
 _KET_SCHEMA_READY = False
 
 
 def _ensure_ket_schema(cur):
-    """Create the lifecycle + WhatsApp-delivery tables once per process."""
+    """Create the lifecycle + WhatsApp-outbox + delivery-event tables once."""
     global _KET_SCHEMA_READY
     if _KET_SCHEMA_READY:
         return
@@ -742,14 +750,32 @@ def _ensure_ket_schema(cur):
                ticket_ref       VARCHAR(191),
                template_name    VARCHAR(64),
                recipient        VARCHAR(64),
+               body_name        VARCHAR(191),
+               site_host        VARCHAR(191),
                msg91_request_id VARCHAR(191),
                status           VARCHAR(32) DEFAULT 'pending',
                attempt_count    INT DEFAULT 0,
                last_error       TEXT,
+               next_attempt_at  DATETIME NULL,
+               locked_at        DATETIME NULL,
                sent_at          DATETIME NULL,
                delivered_at     DATETIME NULL,
                created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
                PRIMARY KEY (dedupe_key)
+           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS msg91_delivery_events (
+               id               BIGINT AUTO_INCREMENT PRIMARY KEY,
+               msg91_request_id VARCHAR(191),
+               event_id         VARCHAR(191),
+               ticket_ref       VARCHAR(191),
+               recipient        VARCHAR(64),
+               template_name    VARCHAR(64),
+               status           VARCHAR(32),
+               failure_reason   VARCHAR(255),
+               provider_ts      VARCHAR(64),
+               received_at      DATETIME DEFAULT CURRENT_TIMESTAMP
            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
     )
     _KET_SCHEMA_READY = True
@@ -801,81 +827,211 @@ def _set_lifecycle_status(event_id, status):
         current_app.logger.error(f"[KET-EVENT] status update failed event_id={event_id}: {e}")
 
 
-def _claim_whatsapp_send(dedupe_key, event_id, ticket_ref, template_name, recipient):
-    """Per-channel idempotency claim. True only the first time for this key."""
+def _enqueue_whatsapp_job(dedupe_key, event_id, ticket_ref, template_name,
+                          recipient, body_name, site_host):
+    """Durably enqueue a WhatsApp send (per-channel idempotent on dedupe_key).
+
+    Returns True if a new job row was created. INSERT IGNORE means a KET retry
+    with the same event_id never creates a second job -> never a second message.
+    Raises on real DB failure so the caller can refuse to ack.
+    """
     from .db import get_db
-    try:
-        db = get_db()
-        cur = db.cursor()
-        cur.execute(
-            """INSERT IGNORE INTO whatsapp_delivery_log
-                 (dedupe_key, event_id, ticket_ref, template_name, recipient,
-                  status, attempt_count)
-               VALUES (%s,%s,%s,%s,%s,'pending',1)""",
-            (dedupe_key, event_id, ticket_ref, template_name, recipient),
-        )
-        claimed = cur.rowcount == 1
-        db.commit()
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        """INSERT IGNORE INTO whatsapp_delivery_log
+             (dedupe_key, event_id, ticket_ref, template_name, recipient,
+              body_name, site_host, status, attempt_count, next_attempt_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,'pending',0,NOW())""",
+        (dedupe_key, event_id, ticket_ref, template_name, recipient,
+         body_name, site_host),
+    )
+    created = cur.rowcount == 1
+    db.commit()
+    cur.close()
+    return created
+
+
+def _claim_due_whatsapp_job(dedupe_key):
+    """Atomically claim one due job for sending. Returns row dict or None.
+
+    A conditional UPDATE (status pending/failed and due, or a 'sending' row whose
+    lock has expired) with rowcount==1 guarantees only one worker owns the job,
+    so concurrent workers / multiple gunicorn processes cannot double-send.
+    """
+    from .db import get_db
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        f"""UPDATE whatsapp_delivery_log
+              SET status='sending', locked_at=NOW(), attempt_count=attempt_count+1
+            WHERE dedupe_key=%s
+              AND attempt_count < {WA_MAX_ATTEMPTS}
+              AND (
+                    ((status='pending' OR status='failed')
+                       AND (next_attempt_at IS NULL OR next_attempt_at<=NOW()))
+                    OR (status='sending'
+                       AND locked_at < (NOW() - INTERVAL {WA_LOCK_TIMEOUT} SECOND))
+                  )""",
+        (dedupe_key,),
+    )
+    claimed = cur.rowcount == 1
+    db.commit()
+    if not claimed:
         cur.close()
-        return claimed
-    except Exception as e:  # noqa: BLE001
-        current_app.logger.error(f"[KET-EVENT] whatsapp claim failed key={dedupe_key}: {e}")
-        return False
+        return None
+    cur.execute(
+        """SELECT event_id, ticket_ref, template_name, recipient, body_name,
+                  site_host, attempt_count
+             FROM whatsapp_delivery_log WHERE dedupe_key=%s""",
+        (dedupe_key,),
+    )
+    row = cur.fetchone()
+    cur.close()
+    if not row:
+        return None
+    return {
+        "event_id": row[0], "ticket_ref": row[1], "template_name": row[2],
+        "recipient": row[3], "body_name": row[4], "site_host": row[5],
+        "attempt_count": row[6],
+    }
 
 
-def _record_whatsapp_result(dedupe_key, result):
-    """Persist the MSG91 outcome (request id / status / error) for the audit log."""
+def _finalize_whatsapp_job(dedupe_key, event_id, result, attempt_count):
+    """Record the send outcome + set the next state (sent / failed+retry / dead)."""
     from .db import get_db
-    try:
-        db = get_db()
-        cur = db.cursor()
+    db = get_db()
+    cur = db.cursor()
+    if result.get("ok"):
         cur.execute(
             """UPDATE whatsapp_delivery_log
-                 SET msg91_request_id=%s, status=%s, last_error=%s,
-                     sent_at=CASE WHEN %s='sent' THEN NOW() ELSE sent_at END
+                 SET status='sent', msg91_request_id=%s, last_error='',
+                     locked_at=NULL, sent_at=NOW()
                WHERE dedupe_key=%s""",
-            (result.get('request_id', ''), result.get('status', ''),
-             result.get('error', ''), result.get('status', ''), dedupe_key),
+            (result.get("request_id", ""), dedupe_key),
         )
-        db.commit()
-        cur.close()
-    except Exception as e:  # noqa: BLE001
-        current_app.logger.error(f"[KET-EVENT] whatsapp result record failed key={dedupe_key}: {e}")
+        _set_lifecycle_status(event_id, 'notified')
+    elif attempt_count >= WA_MAX_ATTEMPTS:
+        cur.execute(
+            """UPDATE whatsapp_delivery_log
+                 SET status='dead', msg91_request_id=%s, last_error=%s, locked_at=NULL
+               WHERE dedupe_key=%s""",
+            (result.get("request_id", ""), result.get("error", "")[:250], dedupe_key),
+        )
+        _set_lifecycle_status(event_id, 'notify_failed')
+    else:
+        backoff = min(WA_BACKOFF_BASE * (2 ** (attempt_count - 1)), WA_BACKOFF_CAP)
+        cur.execute(
+            f"""UPDATE whatsapp_delivery_log
+                  SET status='failed', msg91_request_id=%s, last_error=%s,
+                      locked_at=NULL, next_attempt_at=(NOW() + INTERVAL {backoff} SECOND)
+                WHERE dedupe_key=%s""",
+            (result.get("request_id", ""), result.get("error", "")[:250], dedupe_key),
+        )
+    db.commit()
+    cur.close()
 
 
-def _process_lifecycle_whatsapp(app, event, event_id, ticket_ref, name, phone, email, site_host):
-    """Async worker: send the lifecycle WhatsApp exactly once via MSG91.
-
-    Runs after the webhook has already acked KET, so MSG91 latency/failure never
-    affects the webhook response. Idempotent on ket:<event_id>:whatsapp.
-    """
+def _attempt_whatsapp_job(app, dedupe_key):
+    """Claim a due job and attempt one MSG91 send. Idempotent and crash-safe."""
     with app.app_context():
         try:
-            if not phone:
-                _set_lifecycle_status(event_id, 'skipped_no_phone')
-                app.logger.info(f"[KET-EVENT] {event} no phone; skipped event_id={event_id} ticket={ticket_ref}")
-                return
-            template_name = _KET_EVENT_TEMPLATES[event]
-            recipient = phone.replace('+', '').replace(' ', '').replace('-', '')
-            dedupe_key = f"ket:{event_id}:whatsapp"
-            if not _claim_whatsapp_send(dedupe_key, event_id, ticket_ref, template_name, recipient):
-                app.logger.info(f"[KET-EVENT] whatsapp already claimed key={dedupe_key}; not resending")
+            job = _claim_due_whatsapp_job(dedupe_key)
+            if not job:
                 return
             from .notifications import send_whatsapp_tracked
             components = {
-                "body_1": {"type": "text", "value": name or "Customer"},
-                "body_2": {"type": "text", "value": str(ticket_ref)},
-                "body_3": {"type": "text", "value": site_host},
+                "body_1": {"type": "text", "value": job["body_name"] or "Customer"},
+                "body_2": {"type": "text", "value": str(job["ticket_ref"])},
+                "body_3": {"type": "text", "value": job["site_host"]},
             }
-            result = send_whatsapp_tracked(recipient, template_name, components)
-            _record_whatsapp_result(dedupe_key, result)
-            _set_lifecycle_status(event_id, 'notified' if result.get('ok') else 'notify_failed')
+            result = send_whatsapp_tracked(job["recipient"], job["template_name"], components)
+            _finalize_whatsapp_job(dedupe_key, job["event_id"], result, job["attempt_count"])
             app.logger.info(
-                f"[KET-EVENT] {event} whatsapp event_id={event_id} ticket={ticket_ref} "
+                f"[KET-EVENT] whatsapp attempt key={dedupe_key} n={job['attempt_count']} "
                 f"ok={result.get('ok')} rid={result.get('request_id') or '-'}"
             )
         except Exception as e:  # noqa: BLE001 - worker must never crash the process
-            app.logger.error(f"[KET-EVENT] worker failed event_id={event_id}: {e}")
+            app.logger.error(f"[KET-EVENT] whatsapp attempt failed key={dedupe_key}: {e}")
+
+
+def _scan_whatsapp_outbox(app):
+    """Resume every due/stuck job. Restart-safe: pending work survives crashes."""
+    with app.app_context():
+        keys = []
+        try:
+            from .db import get_db
+            db = get_db()
+            cur = db.cursor()
+            _ensure_ket_schema(cur)
+            cur.execute(
+                f"""SELECT dedupe_key FROM whatsapp_delivery_log
+                     WHERE attempt_count < {WA_MAX_ATTEMPTS}
+                       AND (
+                             ((status='pending' OR status='failed')
+                                AND (next_attempt_at IS NULL OR next_attempt_at<=NOW()))
+                             OR (status='sending'
+                                AND locked_at < (NOW() - INTERVAL {WA_LOCK_TIMEOUT} SECOND))
+                           )
+                     LIMIT 100"""
+            )
+            keys = [r[0] for r in cur.fetchall()]
+            cur.close()
+        except Exception as e:  # noqa: BLE001
+            app.logger.error(f"[KET-EVENT] outbox scan failed: {e}")
+            return
+    for key in keys:
+        _attempt_whatsapp_job(app, key)
+
+
+def start_whatsapp_outbox_worker(app):
+    """Start the background outbox loop once per process (restart durability)."""
+    def _loop():
+        while True:
+            try:
+                _scan_whatsapp_outbox(app)
+            except Exception as e:  # noqa: BLE001
+                app.logger.error(f"[KET-EVENT] outbox loop error: {e}")
+            time.sleep(WA_SCAN_INTERVAL)
+    threading.Thread(target=_loop, daemon=True, name="wa-outbox").start()
+
+
+def _store_delivery_event(msg91_request_id, status, failure_reason, provider_ts):
+    """Persist an MSG91 delivery-status callback + fold it into the outbox row."""
+    from .db import get_db
+    db = get_db()
+    cur = db.cursor()
+    _ensure_ket_schema(cur)
+    cur.execute(
+        """SELECT event_id, ticket_ref, recipient, template_name
+             FROM whatsapp_delivery_log WHERE msg91_request_id=%s""",
+        (msg91_request_id,),
+    )
+    row = cur.fetchone()
+    event_id = row[0] if row else ''
+    ticket_ref = row[1] if row else ''
+    recipient = row[2] if row else ''
+    template_name = row[3] if row else ''
+    cur.execute(
+        """INSERT INTO msg91_delivery_events
+             (msg91_request_id, event_id, ticket_ref, recipient, template_name,
+              status, failure_reason, provider_ts)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+        (msg91_request_id, event_id, ticket_ref, recipient, template_name,
+         status, failure_reason, provider_ts),
+    )
+    if row and status in ('delivered', 'read', 'failed'):
+        cur.execute(
+            """UPDATE whatsapp_delivery_log
+                 SET status=%s,
+                     delivered_at=CASE WHEN %s IN ('delivered','read') THEN NOW() ELSE delivered_at END,
+                     last_error=CASE WHEN %s='failed' THEN %s ELSE last_error END
+               WHERE msg91_request_id=%s""",
+            (status, status, status, failure_reason, msg91_request_id),
+        )
+    db.commit()
+    cur.close()
+    return bool(row)
 
 
 @bp.route('/support/ticket_event', methods=['POST'])
@@ -889,13 +1045,18 @@ def ket_ticket_event():
     Auth: HMAC-SHA256 over "<X-KET-Timestamp>:<raw_body>" with OPTIWAR_WEBHOOK_SECRET.
     JSON: {version?, event, event_id, ticket_ref, ticket_id?, request_id?, name, phone, email}
 
-    Flow: verify signature -> validate schema -> durably store (atomic claim on
-    event_id) -> ack -> process MSG91 asynchronously.
-    Codes: 401 bad signature; 400 invalid schema; 200 accepted/duplicate/ignored;
-    503 when the event could not be durably stored (KET should retry).
+    Flow: verify signature -> validate schema -> durably store lifecycle event +
+    (if phone) enqueue a durable WhatsApp job -> ack -> a restart-safe background
+    worker performs the MSG91 send with retries.
+    Codes: 401 bad signature; 400 invalid schema; 413 payload too large;
+    200 accepted/duplicate/ignored; 503 when the event/job could not be durably
+    stored (KET should retry).
     """
     from flask import jsonify, g
     raw_body = request.get_data(as_text=True)
+    if len(raw_body.encode('utf-8', 'ignore')) > KET_MAX_BODY_BYTES:
+        current_app.logger.warning("[KET-EVENT] rejected: payload too large")
+        return jsonify({"error": "payload too large"}), 413
     if not _verify_ket_signature(
         raw_body,
         request.headers.get('X-KET-Timestamp'),
@@ -958,12 +1119,61 @@ def ket_ticket_event():
         current_app.logger.info(f"[KET-EVENT] duplicate event_id={event_id} event={event} ticket_ref={ticket_ref}")
         return jsonify({"status": "duplicate", "event": event, "ticket_ref": ticket_ref})
 
-    # Stored & claimed -> ack immediately, process MSG91 out of band.
     app_obj = current_app._get_current_object()
-    threading.Thread(
-        target=_process_lifecycle_whatsapp,
-        args=(app_obj, event, event_id, ticket_ref, name, phone, email, request.host),
-        daemon=True,
-    ).start()
+
+    if not phone:
+        _set_lifecycle_status(event_id, 'skipped_no_phone')
+        return jsonify({"status": "accepted", "event": event, "ticket_ref": ticket_ref,
+                        "event_id": event_id, "whatsapp": "skipped_no_phone"}), 200
+
+    # Durably enqueue the WhatsApp job BEFORE acking so a restart cannot lose it.
+    recipient = phone.replace('+', '').replace(' ', '').replace('-', '')
+    dedupe_key = f"ket:{event_id}:whatsapp"
+    try:
+        _enqueue_whatsapp_job(dedupe_key, event_id, ticket_ref,
+                              _KET_EVENT_TEMPLATES[event], recipient, name, request.host)
+    except Exception as e:  # noqa: BLE001 - could not persist the job
+        current_app.logger.error(f"[KET-EVENT] enqueue failed key={dedupe_key}: {e}")
+        return jsonify({"error": "temporary storage failure"}), 503
+
+    # Kick an immediate attempt for low latency; the outbox worker is the
+    # restart-safe guarantee if this process dies before/while sending.
+    threading.Thread(target=_attempt_whatsapp_job, args=(app_obj, dedupe_key), daemon=True).start()
 
     return jsonify({"status": "accepted", "event": event, "ticket_ref": ticket_ref, "event_id": event_id}), 200
+
+
+@bp.route('/support/msg91_delivery_event', methods=['POST'])
+def msg91_delivery_event():
+    """MSG91 delivery-status callback (sent/delivered/read/failed).
+
+    Optional shared-token auth via MSG91_DELIVERY_TOKEN (header X-MSG91-Token or
+    ?token=). Only known msg91_request_id values are folded into the outbox row;
+    every callback is stored in msg91_delivery_events for the audit trail.
+    """
+    from flask import jsonify
+    token = current_app.config.get('MSG91_DELIVERY_TOKEN', '')
+    if token:
+        supplied = request.headers.get('X-MSG91-Token') or request.args.get('token', '')
+        if not hmac.compare_digest(str(supplied), str(token)):
+            return jsonify({"error": "unauthorized"}), 401
+
+    data = request.get_json(force=True, silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "invalid json body"}), 400
+
+    msg91_request_id = str(data.get('request_id') or data.get('requestId') or data.get('message_id') or '').strip()
+    status = (data.get('status') or data.get('event') or '').strip().lower()
+    failure_reason = str(data.get('failure_reason') or data.get('reason') or '')[:250]
+    provider_ts = str(data.get('timestamp') or data.get('provider_ts') or '')[:64]
+    if not msg91_request_id or not status:
+        return jsonify({"error": "request_id and status required"}), 400
+
+    try:
+        matched = _store_delivery_event(msg91_request_id, status, failure_reason, provider_ts)
+    except Exception as e:  # noqa: BLE001
+        current_app.logger.error(f"[KET-EVENT] delivery event store failed rid={msg91_request_id}: {e}")
+        return jsonify({"error": "temporary storage failure"}), 503
+
+    current_app.logger.info(f"[KET-EVENT] delivery status rid={msg91_request_id} status={status} matched={matched}")
+    return jsonify({"status": "recorded", "matched": matched}), 200
