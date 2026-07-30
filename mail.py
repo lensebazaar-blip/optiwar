@@ -1,4 +1,5 @@
 import smtplib
+import time
 from email.message import EmailMessage
 from flask import current_app, request
 from email.mime.multipart import MIMEMultipart
@@ -235,57 +236,79 @@ def create_ticket_in_db(name, email, subject, message):
 
 def send_contact_email(name, email, phone, subject, message, ticket_id):
     """
-    Sends a contact form email to the admin using smtplib and EmailMessage.
+    Sends an internal admin notification for a new support ticket.
+
+    This is a best-effort, out-of-transaction notification: it NEVER raises and
+    NEVER blocks ticket creation or the customer-facing confirmation. A transient
+    SMTP failure is retried a bounded number of times and, if still failing, is
+    logged for follow-up rather than propagated to the request.
+
     :param name: Name of the user submitting the form
     :param email: Email of the user submitting the form
     :param subject: Subject of the user's query
     :param message: Detailed message from the user
-    :param ticket_id: Generated ticked ID for the query
-    :return: None
+    :param ticket_id: Generated ticket ID for the query
+    :return: True if the notification was sent, False otherwise
     """
     if not current_app.config.get('APP_TICKET_EMAIL_ENABLED', False):
         current_app.logger.info(
-            f"App-side ticket email disabled (KET is sole sender); skipping ticket_id={ticket_id}"
+            f"App-side ticket email disabled; skipping ticket_id={ticket_id}"
         )
-        return
-    try:
-        email_content = f"""
-        Dear Admin,
+        return False
 
-        A new support request form submission has been received:
+    admin_recipient = current_app.config.get('ADMIN_NOTIFY_EMAIL', 'admin@optiwar.com')
+    email_content = f"""
+    Dear Admin,
 
-        Optiwar Support Ticket ID : {ticket_id}
-        Name: {name}
-        Email: {email}
-        Subject: {subject}
-        Phone : {phone}
-        Message:
-        {message}
+    A new support request form submission has been received:
 
-        Please respond to this query at your earliest convenience.
+    Optiwar Support Ticket ID : {ticket_id}
+    Name: {name}
+    Email: {email}
+    Subject: {subject}
+    Phone : {phone}
+    Message:
+    {message}
 
-        Thank you,
-        Optiwar System
-        """
+    Please respond to this query at your earliest convenience.
 
-        msg = EmailMessage()
-        msg['Subject'] = f"Optiwar Support Ticket ID: {ticket_id} ||  {subject}"
-        msg['From'] = f"Optiwar Support <{current_app.config['MAIL_USERNAME']}>"
-        msg['To'] = current_app.config['MAIL_USERNAME']
-        msg['Cc'] = 'admin@optiwar.com'
-        msg['Reply-To'] = email
-        msg.set_content(email_content)
+    Thank you,
+    Optiwar System
+    """
 
-        # Sending email using smtplib
-        with smtplib.SMTP(current_app.config['MAIL_SERVER'], current_app.config['MAIL_PORT']) as server:
-            server.starttls()
-            server.login(current_app.config['MAIL_USERNAME'], current_app.config['MAIL_PASSWORD'])
-            server.send_message(msg)
-            current_app.logger.info(f"Contact form email sent to admin ")
+    msg = EmailMessage()
+    # Prefix distinguishes Optiwar-app alerts from KET staff notifications
+    # while both run in parallel during the notification-ownership migration.
+    msg['Subject'] = f"[Optiwar App] Support Ticket ID: {ticket_id} || {subject}"
+    msg['From'] = f"Optiwar Support <{current_app.config['MAIL_USERNAME']}>"
+    msg['To'] = admin_recipient
+    msg['Reply-To'] = email
+    msg.set_content(email_content)
 
-    except Exception as e:
-        current_app.logger.error(f"Failed to send contact form email: {e}", exc_info=True)
-        raise RuntimeError("Failed to send contact email") from e
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        try:
+            with smtplib.SMTP(current_app.config['MAIL_SERVER'], current_app.config['MAIL_PORT']) as server:
+                server.starttls()
+                server.login(current_app.config['MAIL_USERNAME'], current_app.config['MAIL_PASSWORD'])
+                server.send_message(msg)
+            current_app.logger.info(
+                f"Admin ticket notification sent for ticket_id={ticket_id} (attempt {attempt})"
+            )
+            return True
+        except Exception as e:
+            current_app.logger.warning(
+                f"Admin ticket notification attempt {attempt}/{max_attempts} "
+                f"failed for ticket_id={ticket_id}: {e}"
+            )
+            if attempt < max_attempts:
+                time.sleep(min(attempt, 3))
+
+    current_app.logger.error(
+        f"Admin ticket notification permanently failed for ticket_id={ticket_id} "
+        f"after {max_attempts} attempts; ticket + customer flow unaffected"
+    )
+    return False
 
 
 

@@ -171,17 +171,7 @@ def create_ticket():
             )
 
 
-            # Send email to admin
-            send_contact_email(
-                name=requester_name,
-                email=requester_email,
-                subject=subject,
-                phone=phone,
-                message=description,
-                ticket_id=ticket_id
-            )
-
-            # --- Forward to KET Support ---
+            # --- Forward to KET Support (system of record) ---
             _forward_to_ket(
                 name=requester_name,
                 email=requester_email,
@@ -194,6 +184,18 @@ def create_ticket():
 
             session['ticket_id'] = ticket_id
             logging.debug(f"Session contents: %s ", dict(session))
+
+            # Internal admin notification: best-effort, out-of-transaction.
+            # Never allowed to block ticket creation / customer confirmation.
+            send_contact_email(
+                name=requester_name,
+                email=requester_email,
+                subject=subject,
+                phone=phone,
+                message=description,
+                ticket_id=ticket_id
+            )
+
             return render_template('contact_us.html', ticket_id=ticket_id)
 
         except RuntimeError as e:
@@ -261,16 +263,7 @@ def submit_ticket_ajax():
             message=description
         )
 
-        send_contact_email(
-            name=requester_name,
-            email=requester_email,
-            subject=subject,
-            phone=phone,
-            message=description,
-            ticket_id=ticket_id
-        )
-
-        # --- Forward to KET Support ---
+        # --- Forward to KET Support (system of record) ---
         _forward_to_ket(
             name=requester_name,
             email=requester_email,
@@ -282,6 +275,17 @@ def submit_ticket_ajax():
         # --- End KET Support ---
 
         session['ticket_id'] = ticket_id
+
+        # Internal admin notification: best-effort, out-of-transaction.
+        send_contact_email(
+            name=requester_name,
+            email=requester_email,
+            subject=subject,
+            phone=phone,
+            message=description,
+            ticket_id=ticket_id
+        )
+
         return jsonify({'success': True, 'ticket_id': ticket_id, 'message': f'Support ticket #{ticket_id} created successfully! Our team will respond shortly.'})
 
     except Exception as e:
@@ -414,19 +418,6 @@ def ai_submit_ticket():
             message=description
         )
 
-        # Send notification email
-        try:
-            send_contact_email(
-                name=name,
-                email=email,
-                subject=subject,
-                phone=phone,
-                message=f"[AI-Assisted] {description}",
-                ticket_id=ticket_id
-            )
-        except Exception:
-            pass  # Don't fail ticket creation if email fails
-
         # --- Forward to KET Support (with chat transcript) ---
         chat_transcript = json_mod.dumps(chat_history) if chat_history else None
         _forward_to_ket(
@@ -439,6 +430,16 @@ def ai_submit_ticket():
             chat_transcript=chat_transcript
         )
         # --- End KET Support ---
+
+        # Internal admin notification: best-effort, out-of-transaction.
+        send_contact_email(
+            name=name,
+            email=email,
+            subject=subject,
+            phone=phone,
+            message=f"[AI-Assisted] {description}",
+            ticket_id=ticket_id
+        )
 
         # Log AI chat to ai_chat_logs table
         try:
