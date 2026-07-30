@@ -333,6 +333,23 @@ When you have enough info, end your message with EXACTLY this format (no extra t
 {"name": "...", "email": "...", "phone": "...", "subject": "...", "description": "..."}
 ```"""
 
+        # Auto-identity: for logged-in customers the profile is already known,
+        # so instruct the assistant never to re-ask for name/email/phone.
+        # Trust the server session, not client-supplied identity.
+        if session.get('user_id'):
+            known_name = session.get('user_name', '')
+            known_email = session.get('user_email', '')
+            known_phone = session.get('user_phone', '')
+            system_prompt += (
+                "\n\nIMPORTANT — the customer is already logged in and their "
+                "contact details are ALREADY KNOWN. Do NOT ask for name, email "
+                "or phone; use these exactly as-is in the ticket data:\n"
+                f"- Name: {known_name}\n"
+                f"- Email: {known_email}\n"
+                f"- Phone: {known_phone or '+91'}\n"
+                "Only clarify the subject and the issue, then output the ticket."
+            )
+
         # Build messages array
         messages = [{"role": "system", "content": system_prompt}]
         for h in history[-10:]:  # Keep last 10 messages for context
@@ -402,6 +419,13 @@ def ai_submit_ticket():
         subject = data.get("subject", "").strip()
         description = data.get("description", "").strip()
         chat_history = data.get("chat_history", [])
+
+        # Auto-identity: for logged-in customers, always trust the session
+        # profile over anything supplied by the client.
+        if session.get('user_id'):
+            name = session.get('user_name', '') or name
+            email = session.get('user_email', '') or email
+            phone = session.get('user_phone', '') or phone
 
         if not email or not subject or not description:
             return jsonify({"error": "Missing required fields (email, subject, description)"}), 400

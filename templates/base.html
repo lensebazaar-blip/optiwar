@@ -864,7 +864,7 @@
 		{% endif %}
 	{% endwith %}
 
-<!-- Contact Us Popup Modal --><div id="contactModal" class="ow-contact-overlay" style="display:none;">  <div class="ow-contact-modal">    <button class="ow-contact-close" onclick="closeContactModal()">&times;</button>    <h2 class="ow-contact-title">{{ _('Contact Us') }}</h2>    <p class="ow-contact-subtitle">{{ _('Raise a support ticket and our team will respond shortly.') }}</p>    <form id="contactForm" class="ow-contact-form">      <div class="ow-contact-field">        <label for="cName">{{ _('Name') }}</label>        <input type="text" id="cName" name="name" placeholder="{{ _('Your name') }}" required>      </div>      <div class="ow-contact-field">        <label for="cSubject">{{ _('Subject') }}</label>        <select id="cSubject" name="subject" onchange="prefillContactDesc()" required>          <option value="">{{ _('Select a subject') }}</option>          <option value="I want to order frames with lenses">I want to order frames with lenses</option>          <option value="Requesting someone to call me before I order">Requesting callback before ordering</option>          <option value="Others">Something else</option>        </select>      </div>      <div class="ow-contact-field">        <label for="cDesc">{{ _('Description') }}</label>        <textarea id="cDesc" name="description" rows="3" placeholder="{{ _('Tell us how we can help...') }}" required></textarea>      </div>      <div class="ow-contact-row">        <div class="ow-contact-field">          <label for="cPhone">{{ _('Mobile') }}</label>          <input type="tel" id="cPhone" name="phone" placeholder="+91 ..." required>        </div>        <div class="ow-contact-field">          <label for="cEmail">{{ _('Email') }}</label>          <input type="email" id="cEmail" name="email" placeholder="you@email.com" required>        </div>      </div>      <div class="ow-contact-captcha">        <label>{{ _('Enter the text shown below:') }}</label>        <img id="captchaImg" src="" alt="CAPTCHA" class="ow-captcha-img">        <input type="text" id="cCaptcha" name="captcha" placeholder="Enter CAPTCHA" required>      </div>      <button type="submit" class="ow-contact-submit">Submit Ticket</button>      <p class="ow-contact-note" id="contactStatus"></p>    </form>  </div></div><script>function openContactChoice(){document.getElementById("contactChoiceModal").style.display="flex";document.body.style.overflow="hidden";}
+<!-- Contact Us Popup Modal --><div id="contactModal" class="ow-contact-overlay" style="display:none;">  <div class="ow-contact-modal">    <button class="ow-contact-close" onclick="closeContactModal()">&times;</button>    <h2 class="ow-contact-title">{{ _('Contact Us') }}</h2>    <p class="ow-contact-subtitle">{{ _('Raise a support ticket and our team will respond shortly.') }}</p>    <form id="contactForm" class="ow-contact-form">      <div class="ow-contact-field">        <label for="cName">{{ _('Name') }}</label>        <input type="text" id="cName" name="name" placeholder="{{ _('Your name') }}" required>      </div>      <div class="ow-contact-field">        <label for="cSubject">{{ _('Subject') }}</label>        <select id="cSubject" name="subject" onchange="prefillContactDesc()" required>          <option value="">{{ _('Select a subject') }}</option>          <option value="I want to order frames with lenses">I want to order frames with lenses</option>          <option value="Requesting someone to call me before I order">Requesting callback before ordering</option>          <option value="Others">Something else</option>        </select>      </div>      <div class="ow-contact-field">        <label for="cDesc">{{ _('Description') }}</label>        <textarea id="cDesc" name="description" rows="3" placeholder="{{ _('Tell us how we can help...') }}" required></textarea>      </div>      <div class="ow-contact-row">        <div class="ow-contact-field">          <label for="cPhone">{{ _('Mobile') }}</label>          <input type="tel" id="cPhone" name="phone" placeholder="+91 ..." required>        </div>        <div class="ow-contact-field">          <label for="cEmail">{{ _('Email') }}</label>          <input type="email" id="cEmail" name="email" placeholder="you@email.com" required>        </div>      </div>      <div class="ow-contact-captcha">        <label>{{ _('Enter the text shown below:') }}</label>        <img id="captchaImg" src="" alt="CAPTCHA" class="ow-captcha-img">        <input type="text" id="cCaptcha" name="captcha" placeholder="Enter CAPTCHA" required>      </div>      <button type="submit" class="ow-contact-submit">Submit Ticket</button>      <p class="ow-contact-note" id="contactStatus"></p>    </form>  </div></div><script>function openContactChoice(){if(typeof window.openAiChat==="function"){window.openAiChat();}else{openContactModal();}}
 function openContactModal(orderId){  document.getElementById("contactModal").style.display="flex";  if(orderId){document.getElementById("cSubject").value="Others";document.getElementById("cDesc").value="Hi, I need help with my order #"+orderId;}  fetch("/contact_us/captcha?t="+Date.now(),{credentials:"same-origin"}).then(function(r){return r.json();}).then(function(d){document.getElementById("captchaImg").src="data:image/png;base64,"+d.captcha_image;}).catch(function(e){console.warn("Captcha load error",e);});}function closeContactModal(){  document.getElementById("contactModal").style.display="none";}function prefillContactDesc(){  var s=document.getElementById("cSubject").value;  var d=document.getElementById("cDesc");  if(s==="I want to order frames with lenses") d.value="Hi, I would like to order spectacle frames with lenses. Please assist.";  else if(s==="Requesting someone to call me before I order") d.value="Hi, please call me before I place my order. I have a few questions.";  else d.value="";}document.getElementById("contactForm").addEventListener("submit",function(e){  e.preventDefault();  var st=document.getElementById("contactStatus");  st.textContent="Submitting...";  st.style.color="#6366f1";  var fd=new FormData(this);  fetch("/contact_us/submit",{method:"POST",body:fd})    .then(function(r){return r.json();})    .then(function(d){      if(d.success){        st.textContent="Ticket submitted! We will respond shortly.";        st.style.color="#22c55e";        document.getElementById("contactForm").reset();      } else {        st.textContent=d.error||"Something went wrong. Please try again.";        st.style.color="#ef4444";        fetch("/contact_us/captcha?t="+Date.now(),{credentials:"same-origin"}).then(function(r){return r.json();}).then(function(d){document.getElementById("captchaImg").src="data:image/png;base64,"+d.captcha_image;});      }    })    .catch(function(){      st.textContent="Network error. Please try again.";      st.style.color="#ef4444";    });});</script>
 
 
@@ -1400,25 +1400,21 @@ function openContactModal(orderId){  document.getElementById("contactModal").sty
 
 
 
-<!-- Contact Us Choice: Manual vs AI -->
-<div id="contactChoiceModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9998;background:rgba(0,0,0,0.45);align-items:center;justify-content:center;" onclick="if(event.target===this){this.style.display='none';document.body.style.overflow='';}">
-  <div style="background:#fff;border-radius:20px;padding:32px 24px;max-width:380px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.25);text-align:center;">
-    <h3 style="margin:0 0 8px;font-size:20px;font-weight:700;color:#1e293b;">How would you like help?</h3>
-    <p style="margin:0 0 24px;font-size:14px;color:#64748b;">Choose your preferred support method</p>
-    <button onclick="document.getElementById('contactChoiceModal').style.display='none';openContactModal();" style="width:100%;padding:16px;border:2px solid #e2e8f0;border-radius:14px;background:#fff;cursor:pointer;margin-bottom:12px;text-align:left;transition:all 0.2s;" onmouseover="this.style.borderColor='#4f46e5';this.style.background='#f8fafc'" onmouseout="this.style.borderColor='#e2e8f0';this.style.background='#fff'">
-      <div style="font-weight:700;font-size:15px;color:#1e293b;margin-bottom:4px;">Contact Us — Manual</div>
-      <div style="font-size:13px;color:#64748b;">Fill out a form with your details and query</div>
-    </button>
-    <button onclick="document.getElementById('contactChoiceModal').style.display='none';document.body.style.overflow='';openAiChat();" style="width:100%;padding:16px;border:2px solid #e2e8f0;border-radius:14px;background:#fff;cursor:pointer;text-align:left;transition:all 0.2s;position:relative;overflow:hidden;" onmouseover="this.style.borderColor='#7c3aed';this.style.background='#faf5ff'" onmouseout="this.style.borderColor='#e2e8f0';this.style.background='#fff'">
-      <div style="display:flex;align-items:center;gap:8px;">
-        <div style="font-weight:700;font-size:15px;color:#1e293b;">Contact Us — AI Enabled</div>
-        <span style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;">NEW</span>
-      </div>
-      <div style="font-size:13px;color:#64748b;margin-top:4px;">Chat with AI to quickly create your support ticket</div>
-    </button>
-  </div>
-</div>
+<!-- Single AI-first support entry: the Manual-vs-AI choice modal was removed.
+     "Contact Us" now opens AI Support directly (openContactChoice -> openAiChat).
+     The manual contactModal above is retained only as an internal/operational
+     fallback (order support + AI-unavailable path), not a customer choice. -->
 
+<!-- Logged-in identity for AI auto-fill (never re-ask known details) -->
+<script>
+window.__owUser = {
+  logged_in: {{ 'true' if logged_in else 'false' }},
+  name: {{ current_user_name|tojson }},
+  email: {{ current_user_email|tojson }},
+  phone: {{ current_user_phone|tojson }},
+  id: {{ current_user_id if current_user_id else 'null' }}
+};
+</script>
 
 <!-- AI Chat Support Widget -->
 <div id="aiChatModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(0,0,0,0.5);align-items:center;justify-content:center;">
@@ -1475,8 +1471,14 @@ function openContactModal(orderId){  document.getElementById("contactModal").sty
         setTimeout(function(){ closeAiChat(); openContactModal(); }, 3000);
       }
     }, 1000);
-    // Send initial greeting
-    addBotMsg("Hi there! I'm Optiwar's AI support assistant. How can I help you today?");
+    // Send initial greeting (personalised when the customer is logged in)
+    var u = window.__owUser || {};
+    if(u.logged_in && u.name){
+      var first = String(u.name).split(' ')[0];
+      addBotMsg("Hi " + first + "! I'm Optiwar's AI support assistant. How can I help you today?");
+    } else {
+      addBotMsg("Hi there! I'm Optiwar's AI support assistant. How can I help you today?");
+    }
   };
 
   window.closeAiChat = function(){
@@ -1547,7 +1549,7 @@ function openContactModal(orderId){  document.getElementById("contactModal").sty
       method: "POST",
       headers: {"Content-Type":"application/json"},
       credentials: "same-origin",
-      body: JSON.stringify({message: msg, history: aiHistory})
+      body: JSON.stringify({message: msg, history: aiHistory, identity: window.__owUser || null})
     })
     .then(function(r){ return r.json(); })
     .then(function(d){
@@ -1577,9 +1579,9 @@ function openContactModal(orderId){  document.getElementById("contactModal").sty
       headers: {"Content-Type":"application/json"},
       credentials: "same-origin",
       body: JSON.stringify({
-        name: ticketData.name || "",
-        email: ticketData.email || "",
-        phone: ticketData.phone || "",
+        name: (window.__owUser && window.__owUser.logged_in && window.__owUser.name) || ticketData.name || "",
+        email: (window.__owUser && window.__owUser.logged_in && window.__owUser.email) || ticketData.email || "",
+        phone: (window.__owUser && window.__owUser.logged_in && window.__owUser.phone) || ticketData.phone || "",
         subject: ticketData.subject || "Others",
         description: ticketData.description || "",
         chat_history: aiHistory
