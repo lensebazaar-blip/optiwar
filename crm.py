@@ -891,9 +891,10 @@ def _claim_due_whatsapp_job(dedupe_key):
     if not row:
         return None
     return {
-        "event_id": row[0], "ticket_ref": row[1], "template_name": row[2],
-        "recipient": row[3], "body_name": row[4], "site_host": row[5],
-        "attempt_count": row[6],
+        "event_id": row["event_id"], "ticket_ref": row["ticket_ref"],
+        "template_name": row["template_name"], "recipient": row["recipient"],
+        "body_name": row["body_name"], "site_host": row["site_host"],
+        "attempt_count": row["attempt_count"],
     }
 
 
@@ -975,7 +976,7 @@ def _scan_whatsapp_outbox(app):
                            )
                      LIMIT 100"""
             )
-            keys = [r[0] for r in cur.fetchall()]
+            keys = [r["dedupe_key"] for r in cur.fetchall()]
             cur.close()
         except Exception as e:  # noqa: BLE001
             app.logger.error(f"[KET-EVENT] outbox scan failed: {e}")
@@ -1008,10 +1009,10 @@ def _store_delivery_event(msg91_request_id, status, failure_reason, provider_ts)
         (msg91_request_id,),
     )
     row = cur.fetchone()
-    event_id = row[0] if row else ''
-    ticket_ref = row[1] if row else ''
-    recipient = row[2] if row else ''
-    template_name = row[3] if row else ''
+    event_id = row["event_id"] if row else ''
+    ticket_ref = row["ticket_ref"] if row else ''
+    recipient = row["recipient"] if row else ''
+    template_name = row["template_name"] if row else ''
     cur.execute(
         """INSERT INTO msg91_delivery_events
              (msg91_request_id, event_id, ticket_ref, recipient, template_name,
