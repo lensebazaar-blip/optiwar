@@ -778,7 +778,86 @@ def _ensure_ket_schema(cur):
                received_at      DATETIME DEFAULT CURRENT_TIMESTAMP
            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
     )
+    # Append-only operational audit trail (Phase C): one row per notable action,
+    # never updated or deleted, so the full lifecycle is reconstructable.
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS support_event_audit (
+               id            BIGINT AUTO_INCREMENT PRIMARY KEY,
+               occurred_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+               kind          VARCHAR(48),
+               event         VARCHAR(64),
+               ticket_ref    VARCHAR(191),
+               ticket_id     VARCHAR(191),
+               event_id      VARCHAR(191),
+               request_id    VARCHAR(191),
+               sig_verified  TINYINT(1) DEFAULT 0,
+               whatsapp_status VARCHAR(32),
+               sms_status    VARCHAR(32),
+               detail        VARCHAR(255),
+               KEY idx_ticket (ticket_ref),
+               KEY idx_kind (kind),
+               KEY idx_time (occurred_at)
+           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
+    )
+    # Per-customer notification channel preferences (Phase C). Defaults are ON;
+    # a row only exists once a customer opts out of a channel.
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS notification_preferences (
+               customer_key  VARCHAR(191) NOT NULL,
+               email_enabled    TINYINT(1) DEFAULT 1,
+               whatsapp_enabled TINYINT(1) DEFAULT 1,
+               sms_enabled      TINYINT(1) DEFAULT 0,
+               push_enabled     TINYINT(1) DEFAULT 0,
+               updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+               PRIMARY KEY (customer_key)
+           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
+    )
     _KET_SCHEMA_READY = True
+
+
+def _audit(kind, event='', ticket_ref='', ticket_id='', event_id='', request_id='',
+           sig_verified=False, whatsapp_status='', sms_status='', detail=''):
+    """Append-only audit write. Best-effort: never affects the caller's response."""
+    from .db import get_db
+    try:
+        db = get_db()
+        cur = db.cursor()
+        _ensure_ket_schema(cur)
+        cur.execute(
+            """INSERT INTO support_event_audit
+                 (kind, event, ticket_ref, ticket_id, event_id, request_id,
+                  sig_verified, whatsapp_status, sms_status, detail)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (kind[:48], event[:64], ticket_ref[:191], ticket_id[:191], event_id[:191],
+             request_id[:191], 1 if sig_verified else 0, whatsapp_status[:32],
+             sms_status[:32], detail[:255]),
+        )
+        db.commit()
+        cur.close()
+    except Exception as e:  # noqa: BLE001 - audit must never break the request
+        current_app.logger.error(f"[KET-AUDIT] write failed kind={kind}: {e}")
+
+
+def _whatsapp_pref_allowed(customer_key):
+    """True unless the customer has explicitly disabled WhatsApp. Fails open."""
+    if not customer_key:
+        return True
+    from .db import get_db
+    try:
+        db = get_db()
+        cur = db.cursor()
+        cur.execute(
+            "SELECT whatsapp_enabled FROM notification_preferences WHERE customer_key=%s",
+            (customer_key,),
+        )
+        row = cur.fetchone()
+        cur.close()
+        if not row:
+            return True
+        return bool(row["whatsapp_enabled"])
+    except Exception as e:  # noqa: BLE001
+        current_app.logger.error(f"[KET-PREF] read failed key={customer_key}: {e}")
+        return True
 
 
 def _store_lifecycle_event(event_id, version, event, ticket_id, ticket_ref,
@@ -931,6 +1010,9 @@ def _finalize_whatsapp_job(dedupe_key, event_id, result, attempt_count):
         )
     db.commit()
     cur.close()
+    final = 'sent' if result.get("ok") else ('dead' if attempt_count >= WA_MAX_ATTEMPTS else 'failed')
+    _audit('whatsapp_result', event_id=event_id, whatsapp_status=final,
+           detail=(result.get("request_id", "") or result.get("error", ""))[:255])
 
 
 def _attempt_whatsapp_job(app, dedupe_key):
@@ -1057,6 +1139,7 @@ def ket_ticket_event():
     raw_body = request.get_data(as_text=True)
     if len(raw_body.encode('utf-8', 'ignore')) > KET_MAX_BODY_BYTES:
         current_app.logger.warning("[KET-EVENT] rejected: payload too large")
+        _audit('payload_too_large', detail='>64KB')
         return jsonify({"error": "payload too large"}), 413
     if not _verify_ket_signature(
         raw_body,
@@ -1064,10 +1147,12 @@ def ket_ticket_event():
         request.headers.get('X-KET-Signature'),
     ):
         current_app.logger.warning("[KET-EVENT] rejected: invalid signature")
+        _audit('hmac_fail', detail='invalid or stale signature')
         return jsonify({"error": "invalid signature"}), 401
 
     data = request.get_json(force=True, silent=True)
     if not isinstance(data, dict):
+        _audit('schema_fail', sig_verified=True, detail='invalid json body')
         return jsonify({"error": "invalid json body"}), 400
 
     try:
@@ -1100,6 +1185,8 @@ def ket_ticket_event():
     if event not in _KET_EVENT_TEMPLATES:
         # Future lifecycle stages: ack without action so KET can expand freely.
         current_app.logger.info(f"[KET-EVENT] ignored (unhandled) event={event} ticket_ref={ticket_ref} rid={rid}")
+        _audit('ignored', event=event, ticket_ref=ticket_ref, ticket_id=ticket_id,
+               event_id=event_id, request_id=request_id, sig_verified=True)
         return jsonify({"status": "ignored", "event": event})
 
     # Schema validation for actioned events.
@@ -1115,17 +1202,34 @@ def ket_ticket_event():
     )
     if outcome == 'error':
         # Could not durably store -> do not ack; KET should retry.
+        _audit('store_error', event=event, ticket_ref=ticket_ref, ticket_id=ticket_id,
+               event_id=event_id, request_id=request_id, sig_verified=True)
         return jsonify({"error": "temporary storage failure"}), 503
     if outcome == 'duplicate':
         current_app.logger.info(f"[KET-EVENT] duplicate event_id={event_id} event={event} ticket_ref={ticket_ref}")
+        _audit('duplicate', event=event, ticket_ref=ticket_ref, ticket_id=ticket_id,
+               event_id=event_id, request_id=request_id, sig_verified=True)
         return jsonify({"status": "duplicate", "event": event, "ticket_ref": ticket_ref})
 
     app_obj = current_app._get_current_object()
 
     if not phone:
         _set_lifecycle_status(event_id, 'skipped_no_phone')
+        _audit('accepted', event=event, ticket_ref=ticket_ref, ticket_id=ticket_id,
+               event_id=event_id, request_id=request_id, sig_verified=True,
+               whatsapp_status='skipped_no_phone')
         return jsonify({"status": "accepted", "event": event, "ticket_ref": ticket_ref,
                         "event_id": event_id, "whatsapp": "skipped_no_phone"}), 200
+
+    # Respect customer notification preferences (Optiwar-owned WhatsApp policy).
+    customer_key = (email or phone).lower()
+    if not _whatsapp_pref_allowed(customer_key):
+        _set_lifecycle_status(event_id, 'skipped_pref')
+        _audit('accepted', event=event, ticket_ref=ticket_ref, ticket_id=ticket_id,
+               event_id=event_id, request_id=request_id, sig_verified=True,
+               whatsapp_status='skipped_pref')
+        return jsonify({"status": "accepted", "event": event, "ticket_ref": ticket_ref,
+                        "event_id": event_id, "whatsapp": "skipped_pref"}), 200
 
     # Durably enqueue the WhatsApp job BEFORE acking so a restart cannot lose it.
     recipient = phone.replace('+', '').replace(' ', '').replace('-', '')
@@ -1135,7 +1239,14 @@ def ket_ticket_event():
                               _KET_EVENT_TEMPLATES[event], recipient, name, request.host)
     except Exception as e:  # noqa: BLE001 - could not persist the job
         current_app.logger.error(f"[KET-EVENT] enqueue failed key={dedupe_key}: {e}")
+        _audit('store_error', event=event, ticket_ref=ticket_ref, ticket_id=ticket_id,
+               event_id=event_id, request_id=request_id, sig_verified=True,
+               detail='enqueue failed')
         return jsonify({"error": "temporary storage failure"}), 503
+
+    _audit('accepted', event=event, ticket_ref=ticket_ref, ticket_id=ticket_id,
+           event_id=event_id, request_id=request_id, sig_verified=True,
+           whatsapp_status='enqueued')
 
     # Kick an immediate attempt for low latency; the outbox worker is the
     # restart-safe guarantee if this process dies before/while sending.
@@ -1177,4 +1288,203 @@ def msg91_delivery_event():
         return jsonify({"error": "temporary storage failure"}), 503
 
     current_app.logger.info(f"[KET-EVENT] delivery status rid={msg91_request_id} status={status} matched={matched}")
+    _audit('delivery_status', whatsapp_status=status, detail=f"rid={msg91_request_id} matched={matched}")
     return jsonify({"status": "recorded", "matched": matched}), 200
+
+
+# ---------------------------------------------------------------------------
+# Phase C — customer-visible timeline, notification preferences, and the
+# internal monitoring dashboard. All additive; the frozen v1 webhook contract,
+# schema, and lifecycle events are untouched.
+# ---------------------------------------------------------------------------
+_TIMELINE_LABELS = {
+    'created': 'Ticket created',
+    'resolved': 'Resolved',
+    'reopened': 'Reopened',
+    'waiting_customer': 'Waiting for you',
+    'closed': 'Closed',
+}
+
+
+def _fetch_timeline(ticket_ref):
+    """Ordered lifecycle rows for a ticket, oldest first (customer timeline)."""
+    from .db import get_db
+    db = get_db()
+    cur = db.cursor()
+    _ensure_ket_schema(cur)
+    cur.execute(
+        """SELECT event, processing_status, received_at, email
+             FROM ket_lifecycle_events WHERE ticket_ref=%s ORDER BY received_at ASC""",
+        (ticket_ref,),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    return rows
+
+
+@bp.route('/support/timeline/<ticket_ref>', methods=['GET'])
+def support_timeline(ticket_ref):
+    """Customer-visible ticket timeline so a customer need not log into KET.
+
+    Light ownership check: the caller must supply ?email= matching the email KET
+    recorded for the ticket (case-insensitive) to prevent ticket_ref enumeration.
+    """
+    from flask import jsonify
+    supplied_email = (request.args.get('email') or '').strip().lower()
+    try:
+        rows = _fetch_timeline(ticket_ref)
+    except Exception as e:  # noqa: BLE001 - never 500 a customer page
+        current_app.logger.error(f"[TIMELINE] fetch failed ticket={ticket_ref}: {e}")
+        rows = []
+    known_emails = {(r["email"] or '').lower() for r in rows if r["email"]}
+    if not rows or (known_emails and supplied_email not in known_emails):
+        # Do not disclose whether the ticket exists.
+        if request.args.get('format') == 'json':
+            return jsonify({"error": "not found"}), 404
+        return render_template('support_timeline.html', ticket_ref=ticket_ref,
+                               steps=None, not_found=True), 404
+    steps = [{
+        "event": r["event"],
+        "label": _TIMELINE_LABELS.get(r["event"], r["event"].replace('_', ' ').title()),
+        "status": r["processing_status"],
+        "at": r["received_at"].strftime('%Y-%m-%d %H:%M UTC') if r["received_at"] else '',
+    } for r in rows]
+    if request.args.get('format') == 'json':
+        return jsonify({"ticket_ref": ticket_ref, "steps": steps})
+    return render_template('support_timeline.html', ticket_ref=ticket_ref,
+                           steps=steps, not_found=False)
+
+
+@bp.route('/support/preferences', methods=['GET', 'POST'])
+def support_preferences():
+    """Read/update a customer's notification channel preferences.
+
+    Keyed on the customer's email (or phone). GET returns current effective prefs
+    (defaults ON for email/WhatsApp). POST upserts the provided boolean flags.
+    """
+    from flask import jsonify
+    from .db import get_db
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or request.form
+        customer_key = (data.get('email') or data.get('phone') or '').strip().lower()
+        if not customer_key:
+            return jsonify({"error": "email or phone required"}), 400
+
+        def _flag(name, default):
+            v = data.get(name)
+            if v is None:
+                return default
+            return 1 if str(v).lower() in ('1', 'true', 'yes', 'on') else 0
+
+        email_e = _flag('email_enabled', 1)
+        wa_e = _flag('whatsapp_enabled', 1)
+        sms_e = _flag('sms_enabled', 0)
+        push_e = _flag('push_enabled', 0)
+        try:
+            db = get_db()
+            cur = db.cursor()
+            _ensure_ket_schema(cur)
+            cur.execute(
+                """INSERT INTO notification_preferences
+                     (customer_key, email_enabled, whatsapp_enabled, sms_enabled, push_enabled)
+                   VALUES (%s,%s,%s,%s,%s)
+                   ON DUPLICATE KEY UPDATE email_enabled=VALUES(email_enabled),
+                     whatsapp_enabled=VALUES(whatsapp_enabled),
+                     sms_enabled=VALUES(sms_enabled), push_enabled=VALUES(push_enabled)""",
+                (customer_key, email_e, wa_e, sms_e, push_e),
+            )
+            db.commit()
+            cur.close()
+        except Exception as e:  # noqa: BLE001
+            current_app.logger.error(f"[KET-PREF] upsert failed key={customer_key}: {e}")
+            return jsonify({"error": "temporary storage failure"}), 503
+        return jsonify({"status": "saved", "customer_key": customer_key,
+                        "email_enabled": bool(email_e), "whatsapp_enabled": bool(wa_e),
+                        "sms_enabled": bool(sms_e), "push_enabled": bool(push_e)})
+
+    customer_key = (request.args.get('email') or request.args.get('phone') or '').strip().lower()
+    if not customer_key:
+        return jsonify({"error": "email or phone required"}), 400
+    try:
+        db = get_db()
+        cur = db.cursor()
+        _ensure_ket_schema(cur)
+        cur.execute(
+            """SELECT email_enabled, whatsapp_enabled, sms_enabled, push_enabled
+                 FROM notification_preferences WHERE customer_key=%s""",
+            (customer_key,),
+        )
+        row = cur.fetchone()
+        cur.close()
+    except Exception as e:  # noqa: BLE001
+        current_app.logger.error(f"[KET-PREF] read failed key={customer_key}: {e}")
+        return jsonify({"error": "temporary storage failure"}), 503
+    if not row:
+        return jsonify({"customer_key": customer_key, "email_enabled": True,
+                        "whatsapp_enabled": True, "sms_enabled": False,
+                        "push_enabled": False, "defaults": True})
+    return jsonify({"customer_key": customer_key,
+                    "email_enabled": bool(row["email_enabled"]),
+                    "whatsapp_enabled": bool(row["whatsapp_enabled"]),
+                    "sms_enabled": bool(row["sms_enabled"]),
+                    "push_enabled": bool(row["push_enabled"]), "defaults": False})
+
+
+def _monitor_metrics(hours):
+    """Aggregate operational counters for the support-integration dashboard."""
+    from .db import get_db
+    db = get_db()
+    cur = db.cursor()
+    _ensure_ket_schema(cur)
+    since = f"NOW() - INTERVAL {int(hours)} HOUR"
+    counts = {}
+    cur.execute(
+        f"""SELECT kind, COUNT(*) AS n FROM support_event_audit
+             WHERE occurred_at >= {since} GROUP BY kind""")
+    for r in cur.fetchall():
+        counts[r["kind"]] = int(r["n"])
+    cur.execute(
+        f"""SELECT status, COUNT(*) AS n FROM whatsapp_delivery_log
+             WHERE created_at >= {since} GROUP BY status""")
+    wa = {r["status"]: int(r["n"]) for r in cur.fetchall()}
+    cur.execute(
+        """SELECT COUNT(*) AS n FROM ket_lifecycle_events
+             WHERE event='reopened'
+               AND event_id NOT IN (SELECT event_id FROM ket_lifecycle_events WHERE event='resolved')""")
+    cur.close()
+    return {
+        "window_hours": int(hours),
+        "webhook_accepted": counts.get('accepted', 0),
+        "duplicates": counts.get('duplicate', 0),
+        "ignored_future": counts.get('ignored', 0),
+        "hmac_failures": counts.get('hmac_fail', 0),
+        "schema_failures": counts.get('schema_fail', 0),
+        "payload_too_large": counts.get('payload_too_large', 0),
+        "store_errors": counts.get('store_error', 0),
+        "whatsapp_by_status": wa,
+        "whatsapp_failed": wa.get('failed', 0),
+        "whatsapp_dead": wa.get('dead', 0),
+        "whatsapp_sent": wa.get('sent', 0) + wa.get('delivered', 0) + wa.get('read', 0),
+    }
+
+
+@bp.route('/support/monitor', methods=['GET'])
+def support_monitor():
+    """Internal support-integration monitoring dashboard (admin only)."""
+    from flask import jsonify
+    from .ops import _require_ops_auth
+    if not _require_ops_auth():
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        hours = int(request.args.get('hours', 24))
+    except (TypeError, ValueError):
+        hours = 24
+    hours = max(1, min(hours, 720))
+    try:
+        metrics = _monitor_metrics(hours)
+    except Exception as e:  # noqa: BLE001
+        current_app.logger.error(f"[KET-MONITOR] failed: {e}")
+        return jsonify({"error": "metrics unavailable"}), 500
+    if request.args.get('format') == 'json':
+        return jsonify(metrics)
+    return render_template('support_monitor.html', m=metrics)

@@ -164,6 +164,21 @@ class KetTicketEventAuthTests(unittest.TestCase):
         self.assertGreater(b2, b1)
         self.assertLessEqual(min(base * (2 ** 20), cap), cap)
 
+    def test_phasec_helpers_present(self):
+        # Phase C additive surface: audit writer, preference gate, dashboards.
+        self.assertTrue(callable(self.crm._audit))
+        self.assertTrue(callable(self.crm._whatsapp_pref_allowed))
+        self.assertTrue(callable(self.crm._monitor_metrics))
+        self.assertTrue(callable(self.crm._fetch_timeline))
+
+    def test_pref_gate_fails_open_on_empty_key(self):
+        # No customer key -> never block a notification (fail open).
+        self.assertTrue(self.crm._whatsapp_pref_allowed(""))
+
+    def test_timeline_labels_cover_lifecycle(self):
+        for ev in ("created", "resolved", "reopened"):
+            self.assertIn(ev, self.crm._TIMELINE_LABELS)
+
 
 if __name__ == "__main__":
     unittest.main()

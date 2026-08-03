@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Ticket status{% endblock %}
+{% block content %}
+<div style="max-width:680px;margin:40px auto;padding:0 16px;font-family:Arial,Helvetica,sans-serif;">
+  <h1 style="font-size:22px;margin-bottom:4px;">Support ticket status</h1>
+  <p style="color:#666;margin-top:0;">Reference: <strong>{{ ticket_ref }}</strong></p>
+
+  {% if not_found %}
+    <div style="background:#fff4f4;border:1px solid #f0c0c0;border-radius:8px;padding:16px;color:#a33;">
+      We couldn't find that ticket for the email you provided. Please open the link
+      from your confirmation email, or reply to it and our team will help.
+    </div>
+  {% else %}
+    <ol style="list-style:none;padding:0;margin:24px 0;">
+      {% for s in steps %}
+      <li style="position:relative;padding:0 0 22px 28px;border-left:2px solid #d8d8d8;">
+        <span style="position:absolute;left:-8px;top:2px;width:14px;height:14px;border-radius:50%;
+                     background:{% if s.status in ['notified','notify_failed'] %}#2e7d32{% else %}#1565c0{% endif %};
+                     border:2px solid #fff;box-shadow:0 0 0 1px #ccc;"></span>
+        <div style="font-weight:600;">{{ s.label }}</div>
+        <div style="color:#888;font-size:13px;">{{ s.at }}</div>
+      </li>
+      {% endfor %}
+    </ol>
+    <p style="color:#888;font-size:13px;">This page updates automatically as your ticket progresses. You do not need to log in anywhere.</p>
+  {% endif %}
+</div>
+{% endblock %}
