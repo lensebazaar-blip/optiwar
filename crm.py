@@ -203,7 +203,7 @@ def _forward_to_ket(name, email, phone, subject, description, source="web_form",
     Push a contact-form or AI-chat event to KET Support via the new per-site
     push API (X-API-Key auth, POST /api/v1/external/messages).
     Fire-and-forget — never breaks existing flow.
-    Returns KET ticket_id on success, None on failure.
+    Returns a dict {ticket_id, ticket_ref, ticket_uid} on success, None on failure.
     """
     try:
         # email is required by the KET API (must contain @); skip silently otherwise
@@ -260,9 +260,20 @@ def _forward_to_ket(name, email, phone, subject, description, source="web_form",
                 timeout=15,
             )
             if resp.status_code == 200:
-                ket_ticket_id = resp.json().get('ticket_id')
-                logging.info(f"KET ticket created: {ket_ticket_id}")
-                return ket_ticket_id
+                j = resp.json()
+                # KET is standardising on an immutable UUID as the join key. The
+                # create response returns the human ref today (ticket_id) and will
+                # expose the UUID; read it defensively so mapping is uid-ready.
+                result = {
+                    "ticket_id": j.get('ticket_id'),
+                    "ticket_ref": j.get('ticket_ref') or j.get('ticket_id'),
+                    "ticket_uid": j.get('ticket_uid') or j.get('uid') or j.get('uuid'),
+                }
+                logging.info(
+                    f"KET ticket created: id={result['ticket_id']} "
+                    f"uid={result['ticket_uid'] or '-'}"
+                )
+                return result
             retryable = resp.status_code == 429 or 500 <= resp.status_code < 600
             logging.warning(f"KET push returned {resp.status_code}: {resp.text[:200]}")
             if not retryable or attempt == max_attempts:
@@ -334,7 +345,7 @@ def create_ticket():
             )
 
             # --- Forward to KET Support ---
-            ket_ticket_id = _forward_to_ket(
+            ket = _forward_to_ket(
                 name=requester_name,
                 email=requester_email,
                 phone=phone,
@@ -342,8 +353,9 @@ def create_ticket():
                 description=description,
                 source="web_form"
             )
-            if ket_ticket_id:
-                persist_ticket_mapping(ticket_id, ket_ticket_id, source_system="web_form")
+            if ket:
+                persist_ticket_mapping(ticket_id, ket["ticket_id"], source_system="web_form",
+                                       ket_uid=ket["ticket_uid"], ket_ref=ket["ticket_ref"])
             # --- End KET Support ---
 
             # WhatsApp ack (Optiwar-owned, best-effort, after KET forward)
@@ -428,7 +440,7 @@ def submit_ticket_ajax():
         )
 
         # --- Forward to KET Support ---
-        ket_ticket_id = _forward_to_ket(
+        ket = _forward_to_ket(
             name=requester_name,
             email=requester_email,
             phone=phone,
@@ -436,8 +448,9 @@ def submit_ticket_ajax():
             description=description,
             source="web_form"
         )
-        if ket_ticket_id:
-            persist_ticket_mapping(ticket_id, ket_ticket_id, source_system="web_form")
+        if ket:
+            persist_ticket_mapping(ticket_id, ket["ticket_id"], source_system="web_form",
+                                   ket_uid=ket["ticket_uid"], ket_ref=ket["ticket_ref"])
         # --- End KET Support ---
 
         # WhatsApp ack (Optiwar-owned, best-effort, after KET forward)
@@ -638,7 +651,7 @@ def ai_submit_ticket():
 
         # --- Forward to KET Support (with chat transcript) ---
         chat_transcript = json_mod.dumps(chat_history) if chat_history else None
-        ket_ticket_id = _forward_to_ket(
+        ket = _forward_to_ket(
             name=name,
             email=email,
             phone=phone,
@@ -671,9 +684,10 @@ def ai_submit_ticket():
 
         # Persist the authoritative KET<->Optiwar bridge (Option A) linking the
         # chat session so the lifecycle receiver can close the correct session.
-        if ket_ticket_id:
-            persist_ticket_mapping(ticket_id, ket_ticket_id,
-                                   ai_chat_log_id=ai_chat_log_id, source_system="ai_chat")
+        if ket:
+            persist_ticket_mapping(ticket_id, ket["ticket_id"],
+                                   ai_chat_log_id=ai_chat_log_id, source_system="ai_chat",
+                                   ket_uid=ket["ticket_uid"], ket_ref=ket["ticket_ref"])
 
         current_app.logger.info(f"[AI-CHAT] Ticket #{ticket_id} created for {email} via AI chat")
 
@@ -833,6 +847,8 @@ def _ensure_ket_schema(cur):
                id                 BIGINT AUTO_INCREMENT PRIMARY KEY,
                optiwar_ticket_id  VARCHAR(191) NOT NULL,
                ket_ticket_id      VARCHAR(191) NOT NULL,
+               ket_ticket_uid     VARCHAR(191) NULL,
+               ket_ticket_ref     VARCHAR(191) NULL,
                request_id         VARCHAR(191),
                ai_chat_log_id     BIGINT NULL,
                mapping_version    INT DEFAULT 1,
@@ -845,9 +861,22 @@ def _ensure_ket_schema(cur):
                updated_at         DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                UNIQUE KEY uq_ket (ket_ticket_id),
                UNIQUE KEY uq_optiwar (optiwar_ticket_id),
-               KEY idx_request (request_id)
+               UNIQUE KEY uq_uid (ket_ticket_uid),
+               KEY idx_request (request_id),
+               KEY idx_ref (ket_ticket_ref)
            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
     )
+    # Additive migration for tables created before the UUID join key existed.
+    for ddl in (
+        "ALTER TABLE optiwar_ticket_mapping ADD COLUMN ket_ticket_uid VARCHAR(191) NULL",
+        "ALTER TABLE optiwar_ticket_mapping ADD COLUMN ket_ticket_ref VARCHAR(191) NULL",
+        "ALTER TABLE optiwar_ticket_mapping ADD UNIQUE KEY uq_uid (ket_ticket_uid)",
+        "ALTER TABLE optiwar_ticket_mapping ADD KEY idx_ref (ket_ticket_ref)",
+    ):
+        try:
+            cur.execute(ddl)
+        except Exception:  # noqa: BLE001 - column/key already exists
+            pass
     _KET_SCHEMA_READY = True
 
 
@@ -897,11 +926,13 @@ def _whatsapp_pref_allowed(customer_key):
 
 
 def persist_ticket_mapping(optiwar_ticket_id, ket_ticket_id, request_id='',
-                           ai_chat_log_id=None, source_system=''):
+                           ai_chat_log_id=None, source_system='',
+                           ket_uid='', ket_ref=''):
     """Persist the KET<->Optiwar bridge at ticket creation (Option A).
 
-    Idempotent upsert keyed on either unique id. Best-effort: a mapping failure
-    must never break ticket creation or the customer confirmation.
+    The immutable KET UUID (ket_ticket_uid) is the authoritative join key once
+    KET exposes it; ket_ticket_ref is diagnostic-only. Idempotent upsert keyed on
+    a unique id. Best-effort: a mapping failure must never break ticket creation.
     """
     if not optiwar_ticket_id or not ket_ticket_id:
         return
@@ -912,54 +943,76 @@ def persist_ticket_mapping(optiwar_ticket_id, ket_ticket_id, request_id='',
         _ensure_ket_schema(cur)
         cur.execute(
             """INSERT INTO optiwar_ticket_mapping
-                 (optiwar_ticket_id, ket_ticket_id, request_id, ai_chat_log_id,
-                  mapping_version, created_by, source_system)
-               VALUES (%s,%s,%s,%s,1,'optiwar',%s)
+                 (optiwar_ticket_id, ket_ticket_id, ket_ticket_uid, ket_ticket_ref,
+                  request_id, ai_chat_log_id, mapping_version, created_by, source_system)
+               VALUES (%s,%s,%s,%s,%s,%s,1,'optiwar',%s)
                ON DUPLICATE KEY UPDATE
                  ket_ticket_id=VALUES(ket_ticket_id),
+                 ket_ticket_uid=COALESCE(VALUES(ket_ticket_uid), ket_ticket_uid),
+                 ket_ticket_ref=COALESCE(VALUES(ket_ticket_ref), ket_ticket_ref),
                  request_id=VALUES(request_id),
                  ai_chat_log_id=COALESCE(VALUES(ai_chat_log_id), ai_chat_log_id),
                  source_system=VALUES(source_system)""",
             (str(optiwar_ticket_id)[:191], str(ket_ticket_id)[:191],
+             (str(ket_uid)[:191] or None), (str(ket_ref)[:191] or None),
              str(request_id or '')[:191], ai_chat_log_id, str(source_system or '')[:64]),
         )
         db.commit()
         cur.close()
         current_app.logger.info(
             f"[KET-MAP] mapped optiwar_ticket_id={optiwar_ticket_id} "
-            f"ket_ticket_id={ket_ticket_id} ai_chat_log_id={ai_chat_log_id}"
+            f"ket_ticket_id={ket_ticket_id} ket_uid={ket_uid or '-'} "
+            f"ai_chat_log_id={ai_chat_log_id}"
         )
     except Exception as e:  # noqa: BLE001
         current_app.logger.error(f"[KET-MAP] persist failed optiwar={optiwar_ticket_id}: {e}")
 
 
-def _lookup_ticket_mapping(ket_ticket_id, ticket_ref):
-    """Find the bridge row for a lifecycle event. Joins on the immutable
-    ket_ticket_id, falling back to ticket_ref against either id. Returns the row
-    dict or None."""
+def _lookup_ticket_mapping(ticket_id, ticket_ref):
+    """Find the bridge row for a lifecycle event.
+
+    Authoritative join is the immutable UUID: the lifecycle webhook's ticket_id
+    matched against ket_ticket_uid. Falls back to ket_ticket_id / ket_ticket_ref
+    (diagnostic) so the ref-based join keeps working until KET exposes the UUID.
+    Returns (row, matched_by) where matched_by is 'uid' or 'ref'."""
     from .db import get_db
-    candidates = [c for c in {ket_ticket_id, ticket_ref} if c]
-    if not candidates:
-        return None
+    cols = "id, optiwar_ticket_id, ket_ticket_id, ket_ticket_uid, ai_chat_log_id"
     try:
         db = get_db()
         cur = db.cursor()
         _ensure_ket_schema(cur)
-        placeholders = ','.join(['%s'] * len(candidates))
-        cur.execute(
-            f"""SELECT id, optiwar_ticket_id, ket_ticket_id, ai_chat_log_id
-                  FROM optiwar_ticket_mapping
-                 WHERE ket_ticket_id IN ({placeholders})
-                    OR optiwar_ticket_id IN ({placeholders})
-                 LIMIT 1""",
-            (*candidates, *candidates),
-        )
-        row = cur.fetchone()
+        # 1) Authoritative: UUID join on ket_ticket_uid.
+        if ticket_id:
+            cur.execute(
+                f"SELECT {cols} FROM optiwar_ticket_mapping WHERE ket_ticket_uid=%s LIMIT 1",
+                (ticket_id,),
+            )
+            row = cur.fetchone()
+            if row:
+                cur.close()
+                return row, 'uid'
+        # 2) Diagnostic fallback: ref / legacy id match.
+        candidates = [c for c in {ticket_id, ticket_ref} if c]
+        if candidates:
+            ph = ','.join(['%s'] * len(candidates))
+            cur.execute(
+                f"""SELECT {cols} FROM optiwar_ticket_mapping
+                     WHERE ket_ticket_ref IN ({ph})
+                        OR ket_ticket_id IN ({ph})
+                        OR optiwar_ticket_id IN ({ph})
+                     LIMIT 1""",
+                (*candidates, *candidates, *candidates),
+            )
+            row = cur.fetchone()
+            cur.close()
+            if row:
+                return row, 'ref'
+            return None, None
         cur.close()
-        return row
+        return None, None
     except Exception as e:  # noqa: BLE001
-        current_app.logger.error(f"[KET-MAP] lookup failed ket={ket_ticket_id}: {e}")
-        return None
+        current_app.logger.error(f"[KET-MAP] lookup failed ticket_id={ticket_id}: {e}")
+        return None, None
 
 
 def _touch_mapping_lifecycle(mapping_id, event, event_id):
@@ -1017,7 +1070,7 @@ def _process_session_lifecycle(event, ticket_id, ticket_ref, request_id, event_i
     A missing mapping is an operational alert (session_not_found), never a
     transport failure -- the lifecycle row is already durably stored.
     """
-    mapping = _lookup_ticket_mapping(ticket_id, ticket_ref)
+    mapping, matched_by = _lookup_ticket_mapping(ticket_id, ticket_ref)
     if not mapping:
         current_app.logger.warning(
             f"[KET-MAP] session_not_found ticket_id={ticket_id or '-'} "
@@ -1034,10 +1087,11 @@ def _process_session_lifecycle(event, ticket_id, ticket_ref, request_id, event_i
     if event == 'resolved':
         result = _close_chat_session(mapping["ai_chat_log_id"])
         _audit('session_close', event=event, ticket_ref=ticket_ref, ticket_id=ticket_id,
-               event_id=event_id, request_id=request_id, sig_verified=True, detail=result)
+               event_id=event_id, request_id=request_id, sig_verified=True,
+               detail=f"{result} (join={matched_by})")
         current_app.logger.info(
             f"[KET-MAP] resolved ket_ticket_id={ticket_id} ai_chat_log_id="
-            f"{mapping['ai_chat_log_id']} session={result}"
+            f"{mapping['ai_chat_log_id']} session={result} join={matched_by}"
         )
         return result
 
