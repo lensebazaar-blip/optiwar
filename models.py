@@ -3512,6 +3512,7 @@ Disallow: /profile/
 Disallow: /auth/
 Disallow: /initiate-payment
 Disallow: /clear_the_cart
+Disallow: /contact_us
 
 Sitemap: https://{_host}/sitemap.xml
 Sitemap: https://{_host}/sitemap_index.xml

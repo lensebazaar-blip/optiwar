@@ -66,12 +66,20 @@ def create_app(test_config=None):
     app.config['MSG91_AUTH_KEY'] = os.environ.get('MSG91_AUTH_KEY', '')
     app.config['MSG91_WHATSAPP_NUMBER'] = '919355380318'
     app.config['MSG91_SMS_SENDER'] = 'OPTWAR'
+    # Optional shared token to authenticate MSG91 delivery-status callbacks.
+    app.config['MSG91_DELIVERY_TOKEN'] = os.environ.get('MSG91_DELIVERY_TOKEN', '')
 
     # KET comms-hub event emission (payment/order events -> support.ket.ltd/external/events)
+    # KET is email-ticketing only; Optiwar owns WhatsApp directly (MSG91) and SMS is off,
+    # so the event channel allow-list is empty by default to prevent any duplicate delivery.
     app.config['KET_EVENTS_ENABLED'] = os.environ.get('KET_EVENTS_ENABLED', 'true').lower() == 'true'
-    app.config['KET_EVENT_CHANNELS'] = os.environ.get('KET_EVENT_CHANNELS', 'whatsapp,sms')
+    app.config['KET_EVENT_CHANNELS'] = os.environ.get('KET_EVENT_CHANNELS', '')
     # Support-ticket customer email is owned by KET (sole sender); Optiwar sends only WhatsApp for support
     app.config['SUPPORT_TICKET_EMAIL_ENABLED'] = os.environ.get('SUPPORT_TICKET_EMAIL_ENABLED', 'false').lower() == 'true'
+
+    # ticket_created WhatsApp stays OFF until the resolved/reopened lifecycle
+    # webhook passes joint acceptance (per KET direction).
+    app.config['TICKET_CREATED_WHATSAPP_ENABLED'] = os.environ.get('TICKET_CREATED_WHATSAPP_ENABLED', 'false').lower() == 'true'
 
     # Admin address for internal-only notices (e.g. payment_attempted)
     app.config['ADMIN_NOTIFY_EMAIL'] = os.environ.get('ADMIN_NOTIFY_EMAIL', 'admin@optiwar.com')
@@ -360,6 +368,11 @@ def create_app(test_config=None):
     # Responsive image embed: load derivative manifest once, expose Jinja helpers
     from .embed_helper import register_image_helpers
     register_image_helpers(app)
+
+    # Restart-safe KET WhatsApp outbox: resumes pending/failed delivery jobs so a
+    # gunicorn restart or crash after a webhook 200 never loses the notification.
+    from .crm import start_whatsapp_outbox_worker
+    start_whatsapp_outbox_worker(app)
 
     @app.route('/hello')
     def hello():

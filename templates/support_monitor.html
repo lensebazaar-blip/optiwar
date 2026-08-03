@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Support integration monitor{% endblock %}
+{% block content %}
+<div style="max-width:900px;margin:30px auto;padding:0 16px;font-family:Arial,Helvetica,sans-serif;">
+  <h1 style="font-size:22px;">Support integration monitor</h1>
+  <p style="color:#666;margin-top:0;">Rolling window: last {{ m.window_hours }}h. Append-only audit + delivery outbox.</p>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-top:16px;">
+    {% macro card(label, value, warn=False) %}
+      <div style="background:{% if warn and value %}#fff4f4{% else %}#f7f9fc{% endif %};
+                  border:1px solid #e0e6ef;border-radius:8px;padding:14px;">
+        <div style="font-size:26px;font-weight:700;color:{% if warn and value %}#c62828{% else %}#1a1a1a{% endif %};">{{ value }}</div>
+        <div style="font-size:13px;color:#667;">{{ label }}</div>
+      </div>
+    {% endmacro %}
+    {{ card('Webhooks accepted', m.webhook_accepted) }}
+    {{ card('Duplicates', m.duplicates) }}
+    {{ card('Ignored future events', m.ignored_future) }}
+    {{ card('HMAC failures', m.hmac_failures, True) }}
+    {{ card('Schema failures', m.schema_failures, True) }}
+    {{ card('Payload too large', m.payload_too_large, True) }}
+    {{ card('Store errors (503)', m.store_errors, True) }}
+    {{ card('WhatsApp sent/delivered', m.whatsapp_sent) }}
+    {{ card('WhatsApp failing (retry)', m.whatsapp_failed, True) }}
+    {{ card('WhatsApp dead (gave up)', m.whatsapp_dead, True) }}
+  </div>
+
+  <h2 style="font-size:16px;margin-top:26px;">WhatsApp outbox by status</h2>
+  <table style="border-collapse:collapse;width:100%;font-size:14px;">
+    <tr style="background:#f0f3f8;text-align:left;"><th style="padding:8px;">Status</th><th style="padding:8px;">Count</th></tr>
+    {% for st, n in m.whatsapp_by_status.items() %}
+    <tr><td style="padding:8px;border-top:1px solid #eee;">{{ st }}</td><td style="padding:8px;border-top:1px solid #eee;">{{ n }}</td></tr>
+    {% else %}
+    <tr><td colspan="2" style="padding:8px;color:#888;">No outbox rows in window.</td></tr>
+    {% endfor %}
+  </table>
+  <p style="color:#999;font-size:12px;margin-top:18px;">JSON: append <code>?format=json</code>. Window: <code>?hours=N</code> (1–720).</p>
+</div>
+{% endblock %}
