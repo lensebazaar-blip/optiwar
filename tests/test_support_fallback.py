@@ -179,6 +179,22 @@ class KetTicketEventAuthTests(unittest.TestCase):
         for ev in ("created", "resolved", "reopened"):
             self.assertIn(ev, self.crm._TIMELINE_LABELS)
 
+    def test_mapping_layer_helpers_present(self):
+        # Option A bridge: creation persistence + lifecycle session handling.
+        self.assertTrue(callable(self.crm.persist_ticket_mapping))
+        self.assertTrue(callable(self.crm._lookup_ticket_mapping))
+        self.assertTrue(callable(self.crm._close_chat_session))
+        self.assertTrue(callable(self.crm._process_session_lifecycle))
+
+    def test_close_chat_session_noop_without_id(self):
+        # No linked chat session -> nothing to close (never raises).
+        self.assertEqual(self.crm._close_chat_session(None), "no_session")
+
+    def test_persist_mapping_ignores_incomplete_ids(self):
+        # Missing either id -> no-op, must not raise (best-effort at creation).
+        self.crm.persist_ticket_mapping("", "KET-1")
+        self.crm.persist_ticket_mapping("OPT-1", "")
+
 
 if __name__ == "__main__":
     unittest.main()

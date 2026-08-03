@@ -334,7 +334,7 @@ def create_ticket():
             )
 
             # --- Forward to KET Support ---
-            _forward_to_ket(
+            ket_ticket_id = _forward_to_ket(
                 name=requester_name,
                 email=requester_email,
                 phone=phone,
@@ -342,6 +342,8 @@ def create_ticket():
                 description=description,
                 source="web_form"
             )
+            if ket_ticket_id:
+                persist_ticket_mapping(ticket_id, ket_ticket_id, source_system="web_form")
             # --- End KET Support ---
 
             # WhatsApp ack (Optiwar-owned, best-effort, after KET forward)
@@ -426,7 +428,7 @@ def submit_ticket_ajax():
         )
 
         # --- Forward to KET Support ---
-        _forward_to_ket(
+        ket_ticket_id = _forward_to_ket(
             name=requester_name,
             email=requester_email,
             phone=phone,
@@ -434,6 +436,8 @@ def submit_ticket_ajax():
             description=description,
             source="web_form"
         )
+        if ket_ticket_id:
+            persist_ticket_mapping(ticket_id, ket_ticket_id, source_system="web_form")
         # --- End KET Support ---
 
         # WhatsApp ack (Optiwar-owned, best-effort, after KET forward)
@@ -634,7 +638,7 @@ def ai_submit_ticket():
 
         # --- Forward to KET Support (with chat transcript) ---
         chat_transcript = json_mod.dumps(chat_history) if chat_history else None
-        _forward_to_ket(
+        ket_ticket_id = _forward_to_ket(
             name=name,
             email=email,
             phone=phone,
@@ -649,6 +653,7 @@ def ai_submit_ticket():
         _notify_ticket_created(name, email, phone, ticket_id, subject)
 
         # Log AI chat to ai_chat_logs table
+        ai_chat_log_id = None
         try:
             db = get_db()
             cursor = db.cursor()
@@ -658,10 +663,17 @@ def ai_submit_ticket():
                 (ticket_id, customer_name, customer_email, customer_phone, subject, chat_json, status, ip_address, session_ended_at, site_from)
                 VALUES (%s, %s, %s, %s, %s, %s, 'completed', %s, NOW(), %s)
             """, (ticket_id, name, email, phone, subject, json_mod.dumps(chat_history), ip_address, _get_site_from()))
+            ai_chat_log_id = cursor.lastrowid
             db.commit()
             cursor.close()
         except Exception as e:
             current_app.logger.error(f"[AI-CHAT] Failed to log chat: {e}")
+
+        # Persist the authoritative KET<->Optiwar bridge (Option A) linking the
+        # chat session so the lifecycle receiver can close the correct session.
+        if ket_ticket_id:
+            persist_ticket_mapping(ticket_id, ket_ticket_id,
+                                   ai_chat_log_id=ai_chat_log_id, source_system="ai_chat")
 
         current_app.logger.info(f"[AI-CHAT] Ticket #{ticket_id} created for {email} via AI chat")
 
@@ -812,6 +824,30 @@ def _ensure_ket_schema(cur):
                PRIMARY KEY (customer_key)
            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
     )
+    # Authoritative bridge between a KET ticket and the Optiwar ticket / chat
+    # session (Option A). Populated at ticket creation from the id KET returns;
+    # the lifecycle receiver joins on the immutable ket_ticket_id to close the
+    # correct chat session. Never changes the frozen v1 inbound webhook contract.
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS optiwar_ticket_mapping (
+               id                 BIGINT AUTO_INCREMENT PRIMARY KEY,
+               optiwar_ticket_id  VARCHAR(191) NOT NULL,
+               ket_ticket_id      VARCHAR(191) NOT NULL,
+               request_id         VARCHAR(191),
+               ai_chat_log_id     BIGINT NULL,
+               mapping_version    INT DEFAULT 1,
+               created_by         VARCHAR(64) DEFAULT 'optiwar',
+               source_system      VARCHAR(64) DEFAULT '',
+               last_lifecycle_event VARCHAR(64),
+               last_event_id      VARCHAR(191),
+               last_event_at      DATETIME NULL,
+               created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+               updated_at         DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+               UNIQUE KEY uq_ket (ket_ticket_id),
+               UNIQUE KEY uq_optiwar (optiwar_ticket_id),
+               KEY idx_request (request_id)
+           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
+    )
     _KET_SCHEMA_READY = True
 
 
@@ -858,6 +894,161 @@ def _whatsapp_pref_allowed(customer_key):
     except Exception as e:  # noqa: BLE001
         current_app.logger.error(f"[KET-PREF] read failed key={customer_key}: {e}")
         return True
+
+
+def persist_ticket_mapping(optiwar_ticket_id, ket_ticket_id, request_id='',
+                           ai_chat_log_id=None, source_system=''):
+    """Persist the KET<->Optiwar bridge at ticket creation (Option A).
+
+    Idempotent upsert keyed on either unique id. Best-effort: a mapping failure
+    must never break ticket creation or the customer confirmation.
+    """
+    if not optiwar_ticket_id or not ket_ticket_id:
+        return
+    from .db import get_db
+    try:
+        db = get_db()
+        cur = db.cursor()
+        _ensure_ket_schema(cur)
+        cur.execute(
+            """INSERT INTO optiwar_ticket_mapping
+                 (optiwar_ticket_id, ket_ticket_id, request_id, ai_chat_log_id,
+                  mapping_version, created_by, source_system)
+               VALUES (%s,%s,%s,%s,1,'optiwar',%s)
+               ON DUPLICATE KEY UPDATE
+                 ket_ticket_id=VALUES(ket_ticket_id),
+                 request_id=VALUES(request_id),
+                 ai_chat_log_id=COALESCE(VALUES(ai_chat_log_id), ai_chat_log_id),
+                 source_system=VALUES(source_system)""",
+            (str(optiwar_ticket_id)[:191], str(ket_ticket_id)[:191],
+             str(request_id or '')[:191], ai_chat_log_id, str(source_system or '')[:64]),
+        )
+        db.commit()
+        cur.close()
+        current_app.logger.info(
+            f"[KET-MAP] mapped optiwar_ticket_id={optiwar_ticket_id} "
+            f"ket_ticket_id={ket_ticket_id} ai_chat_log_id={ai_chat_log_id}"
+        )
+    except Exception as e:  # noqa: BLE001
+        current_app.logger.error(f"[KET-MAP] persist failed optiwar={optiwar_ticket_id}: {e}")
+
+
+def _lookup_ticket_mapping(ket_ticket_id, ticket_ref):
+    """Find the bridge row for a lifecycle event. Joins on the immutable
+    ket_ticket_id, falling back to ticket_ref against either id. Returns the row
+    dict or None."""
+    from .db import get_db
+    candidates = [c for c in {ket_ticket_id, ticket_ref} if c]
+    if not candidates:
+        return None
+    try:
+        db = get_db()
+        cur = db.cursor()
+        _ensure_ket_schema(cur)
+        placeholders = ','.join(['%s'] * len(candidates))
+        cur.execute(
+            f"""SELECT id, optiwar_ticket_id, ket_ticket_id, ai_chat_log_id
+                  FROM optiwar_ticket_mapping
+                 WHERE ket_ticket_id IN ({placeholders})
+                    OR optiwar_ticket_id IN ({placeholders})
+                 LIMIT 1""",
+            (*candidates, *candidates),
+        )
+        row = cur.fetchone()
+        cur.close()
+        return row
+    except Exception as e:  # noqa: BLE001
+        current_app.logger.error(f"[KET-MAP] lookup failed ket={ket_ticket_id}: {e}")
+        return None
+
+
+def _touch_mapping_lifecycle(mapping_id, event, event_id):
+    """Record the most recent lifecycle event on the bridge row (auditability)."""
+    if not mapping_id:
+        return
+    from .db import get_db
+    try:
+        db = get_db()
+        cur = db.cursor()
+        cur.execute(
+            """UPDATE optiwar_ticket_mapping
+                  SET last_lifecycle_event=%s, last_event_id=%s, last_event_at=NOW()
+                WHERE id=%s""",
+            (str(event)[:64], str(event_id)[:191], mapping_id),
+        )
+        db.commit()
+        cur.close()
+    except Exception as e:  # noqa: BLE001
+        current_app.logger.error(f"[KET-MAP] touch failed id={mapping_id}: {e}")
+
+
+def _close_chat_session(ai_chat_log_id):
+    """Idempotently close the mapped chat session. Returns 'closed', 'noop'
+    (already closed) or 'no_session' (nothing to close)."""
+    if not ai_chat_log_id:
+        return 'no_session'
+    from .db import get_db
+    try:
+        db = get_db()
+        cur = db.cursor()
+        cur.execute("SELECT status FROM ai_chat_logs WHERE id=%s", (ai_chat_log_id,))
+        row = cur.fetchone()
+        if not row:
+            cur.close()
+            return 'no_session'
+        if (row["status"] or '').lower() == 'closed':
+            cur.close()
+            return 'noop'
+        cur.execute("UPDATE ai_chat_logs SET status='closed' WHERE id=%s", (ai_chat_log_id,))
+        db.commit()
+        cur.close()
+        return 'closed'
+    except Exception as e:  # noqa: BLE001
+        current_app.logger.error(f"[KET-MAP] close session failed id={ai_chat_log_id}: {e}")
+        return 'noop'
+
+
+def _process_session_lifecycle(event, ticket_id, ticket_ref, request_id, event_id):
+    """Optiwar-owned session side-effects for a lifecycle event (Option A / B).
+
+    resolved -> idempotently close the mapped chat session.
+    reopened -> record lifecycle state only; transcript is preserved and NO new
+                session is created / auto-reopened (Option B).
+    A missing mapping is an operational alert (session_not_found), never a
+    transport failure -- the lifecycle row is already durably stored.
+    """
+    mapping = _lookup_ticket_mapping(ticket_id, ticket_ref)
+    if not mapping:
+        current_app.logger.warning(
+            f"[KET-MAP] session_not_found ticket_id={ticket_id or '-'} "
+            f"ticket_ref={ticket_ref or '-'} request_id={request_id or '-'} "
+            f"event_id={event_id or '-'} reason=session_not_found"
+        )
+        _audit('session_not_found', event=event, ticket_ref=ticket_ref, ticket_id=ticket_id,
+               event_id=event_id, request_id=request_id, sig_verified=True,
+               detail='no mapping row')
+        return 'session_not_found'
+
+    _touch_mapping_lifecycle(mapping["id"], event, event_id)
+
+    if event == 'resolved':
+        result = _close_chat_session(mapping["ai_chat_log_id"])
+        _audit('session_close', event=event, ticket_ref=ticket_ref, ticket_id=ticket_id,
+               event_id=event_id, request_id=request_id, sig_verified=True, detail=result)
+        current_app.logger.info(
+            f"[KET-MAP] resolved ket_ticket_id={ticket_id} ai_chat_log_id="
+            f"{mapping['ai_chat_log_id']} session={result}"
+        )
+        return result
+
+    # reopened: lifecycle state only, transcript preserved, no session mutation.
+    _audit('session_reopen', event=event, ticket_ref=ticket_ref, ticket_id=ticket_id,
+           event_id=event_id, request_id=request_id, sig_verified=True,
+           detail='lifecycle only; transcript preserved; no new session')
+    current_app.logger.info(
+        f"[KET-MAP] reopened ket_ticket_id={ticket_id} lifecycle-only (no session reopen)"
+    )
+    return 'reopened_lifecycle_only'
 
 
 def _store_lifecycle_event(event_id, version, event, ticket_id, ticket_ref,
@@ -1213,6 +1404,14 @@ def ket_ticket_event():
 
     app_obj = current_app._get_current_object()
 
+    # Optiwar-owned chat-session side-effects (Option A close / Option B reopen).
+    # Best-effort and idempotent: a mapping miss is an operational alert, never a
+    # transport failure -- the lifecycle event is already durably stored.
+    try:
+        _process_session_lifecycle(event, ticket_id, ticket_ref, request_id, event_id)
+    except Exception as e:  # noqa: BLE001
+        current_app.logger.error(f"[KET-MAP] session lifecycle error event_id={event_id}: {e}")
+
     if not phone:
         _set_lifecycle_status(event_id, 'skipped_no_phone')
         _audit('accepted', event=event, ticket_ref=ticket_ref, ticket_id=ticket_id,
@@ -1474,6 +1673,9 @@ def _monitor_metrics(hours):
         "whatsapp_failed": wa.get('failed', 0),
         "whatsapp_dead": wa.get('dead', 0),
         "whatsapp_sent": wa.get('sent', 0) + wa.get('delivered', 0) + wa.get('read', 0),
+        "sessions_closed": counts.get('session_close', 0),
+        "sessions_reopened": counts.get('session_reopen', 0),
+        "session_not_found": counts.get('session_not_found', 0),
     }
 
 
