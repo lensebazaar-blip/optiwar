@@ -1147,39 +1147,6 @@ def _store_lifecycle_event(event_id, version, event, ticket_id, ticket_ref,
         return 'error'
 
 
-def _maybe_inject_test_503(event_id):
-    """Maintenance-window fault injection for the 503 retry acceptance ONLY.
-
-    Fails exactly once, BEFORE durable storage, for a single pre-agreed event_id
-    named in env KET_503_TEST_EVENT_ID. Cross-worker/retry-safe via a DB marker:
-    the first attempt claims the marker (rowcount 1) -> inject 503; the KET retry
-    (same event_id) finds the marker present (rowcount 0) -> proceed normally.
-    Returns True to inject a 503, False to proceed. Dormant unless the env var is
-    set to the exact event_id, and never blocks the real path on its own failure.
-    """
-    target = os.environ.get('KET_503_TEST_EVENT_ID', '')
-    if not target or event_id != target:
-        return False
-    from .db import get_db
-    try:
-        db = get_db()
-        cur = db.cursor()
-        cur.execute(
-            """CREATE TABLE IF NOT EXISTS ket_503_test_marker (
-                   event_id   VARCHAR(191) PRIMARY KEY,
-                   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-               ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
-        )
-        cur.execute("INSERT IGNORE INTO ket_503_test_marker (event_id) VALUES (%s)", (event_id,))
-        first_attempt = cur.rowcount == 1
-        db.commit()
-        cur.close()
-        return first_attempt
-    except Exception as e:  # noqa: BLE001 - marker must never block real traffic
-        current_app.logger.error(f"[KET-503-TEST] marker failed event_id={event_id}: {e}")
-        return False
-
-
 def _set_lifecycle_status(event_id, status):
     """Best-effort update of a lifecycle event's processing_status."""
     from .db import get_db
@@ -1484,18 +1451,6 @@ def ket_ticket_event():
         return jsonify({"error": "event_id required"}), 400
     if not ticket_ref:
         return jsonify({"error": "ticket_ref required"}), 400
-
-    # Maintenance-window ONLY: one-time pre-storage 503 for a pre-agreed event_id
-    # (KET_503_TEST_EVENT_ID). Dormant otherwise. Proves KET's retry-on-5xx with a
-    # stable event_id folds to a single stored event; removed right after the test.
-    if _maybe_inject_test_503(event_id):
-        current_app.logger.warning(
-            f"[KET-503-TEST] injecting one-time pre-storage 503 event_id={event_id}"
-        )
-        _audit('store_error', event=event, ticket_ref=ticket_ref, ticket_id=ticket_id,
-               event_id=event_id, request_id=request_id, sig_verified=True,
-               detail='test_503_injection (pre-storage, fail-once)')
-        return jsonify({"error": "temporary storage failure"}), 503
 
     # Persist first (atomic claim on event_id), THEN ack.
     outcome = _store_lifecycle_event(
