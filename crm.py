@@ -1274,10 +1274,19 @@ def msg91_delivery_event():
     if not isinstance(data, dict):
         return jsonify({"error": "invalid json body"}), 400
 
-    msg91_request_id = str(data.get('request_id') or data.get('requestId') or data.get('message_id') or '').strip()
-    status = (data.get('status') or data.get('event') or '').strip().lower()
+    # MSG91's "On Outbound Report Received" payload uses requestId / eventName / ts.
+    msg91_request_id = str(
+        data.get('request_id') or data.get('requestId')
+        or data.get('message_id') or ''
+    ).strip()
+    status = (
+        data.get('status') or data.get('event') or data.get('eventName') or ''
+    ).strip().lower()
     failure_reason = str(data.get('failure_reason') or data.get('reason') or '')[:250]
-    provider_ts = str(data.get('timestamp') or data.get('provider_ts') or '')[:64]
+    provider_ts = str(
+        data.get('timestamp') or data.get('provider_ts')
+        or data.get('statusUpdatedAt') or data.get('ts') or ''
+    )[:64]
     if not msg91_request_id or not status:
         return jsonify({"error": "request_id and status required"}), 400
 
