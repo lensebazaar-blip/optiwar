@@ -1147,19 +1147,18 @@ def _store_lifecycle_event(event_id, version, event, ticket_id, ticket_ref,
         return 'error'
 
 
-def _maybe_inject_test_503(event_id, event):
+def _maybe_inject_test_503(event_id):
     """Maintenance-window fault injection for the 503 retry acceptance ONLY.
 
-    Fails exactly once, BEFORE durable storage, for a single pre-agreed
-    event=resolved event named in env KET_503_TEST_EVENT_ID. Cross-worker/retry
-    safe via a DB marker: the first attempt claims the marker (rowcount 1) ->
-    inject 503; the KET retry (same event_id) finds the marker present
-    (rowcount 0) -> proceed normally. Returns True to inject a 503, False to
-    proceed. Dormant unless the env var is set to the exact event_id, scoped
-    strictly to event=resolved, and never blocks the real path on its own failure.
+    Fails exactly once, BEFORE durable storage, for a single pre-agreed event_id
+    named in env KET_503_TEST_EVENT_ID. Cross-worker/retry-safe via a DB marker:
+    the first attempt claims the marker (rowcount 1) -> inject 503; the KET retry
+    (same event_id) finds the marker present (rowcount 0) -> proceed normally.
+    Returns True to inject a 503, False to proceed. Dormant unless the env var is
+    set to the exact event_id, and never blocks the real path on its own failure.
     """
     target = os.environ.get('KET_503_TEST_EVENT_ID', '')
-    if not target or event_id != target or event != 'resolved':
+    if not target or event_id != target:
         return False
     from .db import get_db
     try:
@@ -1489,7 +1488,7 @@ def ket_ticket_event():
     # Maintenance-window ONLY: one-time pre-storage 503 for a pre-agreed event_id
     # (KET_503_TEST_EVENT_ID). Dormant otherwise. Proves KET's retry-on-5xx with a
     # stable event_id folds to a single stored event; removed right after the test.
-    if _maybe_inject_test_503(event_id, event):
+    if _maybe_inject_test_503(event_id):
         current_app.logger.warning(
             f"[KET-503-TEST] injecting one-time pre-storage 503 event_id={event_id}"
         )
