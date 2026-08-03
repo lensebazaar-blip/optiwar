@@ -1082,6 +1082,18 @@ def _process_session_lifecycle(event, ticket_id, ticket_ref, request_id, event_i
                detail='no mapping row')
         return 'session_not_found'
 
+    if matched_by == 'ref':
+        # All tickets created after the UUID rollout must join by uid; a ref
+        # match means a pre-UUID/legacy row -> operational alert during observation.
+        current_app.logger.warning(
+            f"[KET-MAP] ALERT ref_fallback_join used ticket_id={ticket_id or '-'} "
+            f"ticket_ref={ticket_ref or '-'} event_id={event_id or '-'} "
+            f"(expected join=uid)"
+        )
+        _audit('ref_fallback_join', event=event, ticket_ref=ticket_ref, ticket_id=ticket_id,
+               event_id=event_id, request_id=request_id, sig_verified=True,
+               detail='diagnostic ref fallback used; expected uid join')
+
     _touch_mapping_lifecycle(mapping["id"], event, event_id)
 
     if event == 'resolved':
@@ -1730,6 +1742,7 @@ def _monitor_metrics(hours):
         "sessions_closed": counts.get('session_close', 0),
         "sessions_reopened": counts.get('session_reopen', 0),
         "session_not_found": counts.get('session_not_found', 0),
+        "ref_fallback_join": counts.get('ref_fallback_join', 0),
     }
 
 
