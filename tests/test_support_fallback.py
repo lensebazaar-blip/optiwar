@@ -196,5 +196,95 @@ class KetTicketEventAuthTests(unittest.TestCase):
         self.crm.persist_ticket_mapping("OPT-1", "")
 
 
+class KetPersistBeforeAckTests(unittest.TestCase):
+    """503 retry contract: durable store BEFORE ack, race-safe dedupe on event_id.
+
+    A store failure must return 'error' (receiver -> 503, KET retries with the
+    same event_id); a replay of a stored event_id must fold to 'duplicate'
+    (INSERT IGNORE rowcount 0) so no second WhatsApp job is ever created.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.crm = _load_crm()
+        from flask import Flask
+        cls.app = Flask(__name__)
+
+    def _install_db(self, insert_side_effect=None, insert_rowcount=1):
+        side, rc = insert_side_effect, insert_rowcount
+
+        class FakeCursor:
+            def __init__(self):
+                self.rowcount = 0
+
+            def execute(self, sql, params=None):
+                if "INSERT IGNORE" in sql:
+                    if side:
+                        raise side
+                    self.rowcount = rc
+                else:  # schema DDL etc.
+                    self.rowcount = 0
+
+            def close(self):
+                pass
+
+        class FakeDB:
+            def cursor(self):
+                return FakeCursor()
+
+            def commit(self):
+                pass
+
+            def rollback(self):
+                pass
+
+        sys.modules["flaskr.db"].get_db = lambda: FakeDB()
+
+    def test_store_claimed_first_delivery(self):
+        self._install_db(insert_rowcount=1)
+        with self.app.app_context():
+            self.assertEqual(
+                self.crm._store_lifecycle_event("e1", 1, "resolved", "uid", "ref",
+                                                "req", "n", "p", "e@x", True),
+                "claimed",
+            )
+
+    def test_store_duplicate_replayed_event_id(self):
+        self._install_db(insert_rowcount=0)  # INSERT IGNORE hit an existing event_id
+        with self.app.app_context():
+            self.assertEqual(
+                self.crm._store_lifecycle_event("e1", 1, "resolved", "uid", "ref",
+                                                "req", "n", "p", "e@x", True),
+                "duplicate",
+            )
+
+    def test_store_error_on_db_failure_forces_retry(self):
+        self._install_db(insert_side_effect=RuntimeError("db down"))
+        with self.app.app_context():
+            self.assertEqual(
+                self.crm._store_lifecycle_event("e1", 1, "resolved", "uid", "ref",
+                                                "req", "n", "p", "e@x", True),
+                "error",
+            )
+
+    def test_enqueue_is_idempotent_on_dedupe_key(self):
+        self._install_db(insert_rowcount=1)
+        with self.app.app_context():
+            self.assertTrue(self.crm._enqueue_whatsapp_job(
+                "k", "e1", "ref", "tpl", "9100000000", "Name", "optiwar.com"))
+        self._install_db(insert_rowcount=0)  # same dedupe_key -> no new job
+        with self.app.app_context():
+            self.assertFalse(self.crm._enqueue_whatsapp_job(
+                "k", "e1", "ref", "tpl", "9100000000", "Name", "optiwar.com"))
+
+    def test_enqueue_raises_on_db_failure(self):
+        # A real enqueue failure must propagate so the receiver refuses to ack.
+        self._install_db(insert_side_effect=RuntimeError("db down"))
+        with self.app.app_context():
+            with self.assertRaises(Exception):
+                self.crm._enqueue_whatsapp_job(
+                    "k", "e1", "ref", "tpl", "9100000000", "Name", "optiwar.com")
+
+
 if __name__ == "__main__":
     unittest.main()
