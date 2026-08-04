@@ -195,22 +195,6 @@
     }
   });
 
-  // Auto-open previously chosen mode on page load (skip choice menu)
-  (function() {
-    try {
-      var savedMode = localStorage.getItem('ow_chat_mode');
-      if (savedMode === 'text') {
-        console.log('[ChatWidget] Auto-opening text chat (saved preference)');
-        setTimeout(function() { togglePanel(true); }, 300);
-      } else if (savedMode === 'voice') {
-        console.log('[ChatWidget] Auto-opening voice chat (saved preference)');
-        setTimeout(function() {
-          if (window.owVoiceWidget) window.owVoiceWidget.open();
-        }, 300);
-      }
-    } catch(e) {}
-  })();
-
   // Auto-open chat if navigated here by AI (hash #owchat) — use compact nav mode
   if (window.location.hash === '#owchat') {
     setTimeout(function() {
