@@ -1,6 +1,17 @@
 <!DOCTYPE html>
 <html lang="{{ current_lang }}" {% if is_rtl %}dir="rtl"{% endif %}>
 <head> 
+	{% set _ga_id = config.GA_MEASUREMENT_ID_IN if (config.GA_MEASUREMENT_ID_IN and current_region == 'in') else config.GA_MEASUREMENT_ID %}
+	{% if _ga_id %}
+	<!-- Google tag (gtag.js) -->
+	<script async src="https://www.googletagmanager.com/gtag/js?id={{ _ga_id }}"></script>
+	<script>
+	  window.dataLayer = window.dataLayer || [];
+	  function gtag(){dataLayer.push(arguments);}
+	  gtag('js', new Date());
+	  gtag('config', '{{ _ga_id }}');
+	</script>
+	{% endif %}
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
          <!-- SEO Meta Tags -->
