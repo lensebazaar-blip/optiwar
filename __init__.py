@@ -110,8 +110,12 @@ def create_app(test_config=None):
 
     # Google Customer Reviews opt-in (order confirmation page). Set
     # GCR_MERCHANT_ID to the Merchant Center account ID to enable the opt-in
-    # survey; leave empty to disable.
+    # survey; leave empty to disable. GCR_TRANSIT_DAYS_* add a shipping-transit
+    # allowance on top of the dispatch date so the estimated delivery date
+    # reflects arrival (survey timing), differentiated India vs. international.
     app.config['GCR_MERCHANT_ID'] = os.environ.get('GCR_MERCHANT_ID', '')
+    app.config['GCR_TRANSIT_DAYS_IN'] = int(os.environ.get('GCR_TRANSIT_DAYS_IN', '3'))
+    app.config['GCR_TRANSIT_DAYS_INTL'] = int(os.environ.get('GCR_TRANSIT_DAYS_INTL', '10'))
 
     mail.init_app(app)
     Session(app)
