@@ -16,6 +16,7 @@ from .embed_helper import (
 )
 from .cart_persist import save_cart_to_db, clear_cart_in_db
 from .cl_range_model import add_prescription_of_cl
+from .country_iso import country_to_iso2
 import re
 import ast
 from datetime import datetime, timedelta
@@ -3466,7 +3467,29 @@ def success(order_id):
         return "There is something wrong, why not contact customer service at +91-8010077770", 500
 
     ship_date = calculate_ship_date()
-    return render_template('success.html', order_details=order_details, grand_total=grand_total, ship_date=ship_date)
+
+    # Google Customer Reviews opt-in fields (order confirmation page).
+    gcr = None
+    if current_app.config.get('GCR_MERCHANT_ID') and order_details:
+        _row = order_details[0]
+        _email = _row.get('delivery_email') or _row.get('customer_email') or ''
+        _country = country_to_iso2(_row.get('country'))
+        # Estimated delivery date in ISO (YYYY-MM-DD), skipping Sundays.
+        _d = datetime.now()
+        _added = 0
+        while _added < 2:
+            _d += timedelta(days=1)
+            if _d.weekday() != 6:
+                _added += 1
+        gcr = {
+            'merchant_id': current_app.config['GCR_MERCHANT_ID'],
+            'order_id': str(order_id),
+            'email': _email,
+            'delivery_country': _country,
+            'estimated_delivery_date': _d.strftime('%Y-%m-%d'),
+        }
+
+    return render_template('success.html', order_details=order_details, grand_total=grand_total, ship_date=ship_date, gcr=gcr)
 
 
 @bp.route('/terms_and_conditions')

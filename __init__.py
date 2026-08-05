@@ -108,6 +108,11 @@ def create_app(test_config=None):
     app.config['GOOGLE_OAUTH_CLIENT_ID'] = os.environ.get('GOOGLE_OAUTH_CLIENT_ID', '')
     app.config['GOOGLE_OAUTH_CLIENT_SECRET'] = os.environ.get('GOOGLE_OAUTH_CLIENT_SECRET', '')
 
+    # Google Customer Reviews opt-in (order confirmation page). Set
+    # GCR_MERCHANT_ID to the Merchant Center account ID to enable the opt-in
+    # survey; leave empty to disable.
+    app.config['GCR_MERCHANT_ID'] = os.environ.get('GCR_MERCHANT_ID', '')
+
     mail.init_app(app)
     Session(app)
 
