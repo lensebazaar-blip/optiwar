@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="{{ current_lang }}" {% if is_rtl %}dir="rtl"{% endif %}>
 <head> 
-	{% set _ga_id = config.GA_MEASUREMENT_ID_IN if (config.GA_MEASUREMENT_ID_IN and current_region == 'in') else config.GA_MEASUREMENT_ID %}
+	{% set _ga_id = config.GA_MEASUREMENT_ID_IN if (config.GA_MEASUREMENT_ID_IN and is_india) else config.GA_MEASUREMENT_ID %}
 	{% if _ga_id %}
 	<!-- Google tag (gtag.js) -->
 	<script async src="https://www.googletagmanager.com/gtag/js?id={{ _ga_id }}"></script>
