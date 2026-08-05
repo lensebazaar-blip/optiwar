@@ -3,11 +3,19 @@
 <head> 
 	{% set _ga_id = config.GA_MEASUREMENT_ID_IN if (config.GA_MEASUREMENT_ID_IN and is_india) else config.GA_MEASUREMENT_ID %}
 	{% if _ga_id %}
-	<!-- Google tag (gtag.js) -->
+	<!-- Google tag (gtag.js) + Consent Mode v2 -->
 	<script async src="https://www.googletagmanager.com/gtag/js?id={{ _ga_id }}"></script>
 	<script>
 	  window.dataLayer = window.dataLayer || [];
 	  function gtag(){dataLayer.push(arguments);}
+	  // Consent Mode v2: granted by default globally, DENIED in EEA/UK until the visitor accepts.
+	  gtag('consent', 'default', {'ad_storage':'granted','ad_user_data':'granted','ad_personalization':'granted','analytics_storage':'granted'});
+	  gtag('consent', 'default', {'ad_storage':'denied','ad_user_data':'denied','ad_personalization':'denied','analytics_storage':'denied','wait_for_update':500,'region':['AT','BE','BG','HR','CY','CZ','DK','EE','FI','FR','DE','GR','HU','IE','IT','LV','LT','LU','MT','NL','PL','PT','RO','SK','SI','ES','SE','IS','LI','NO','GB']});
+	  try {
+	    var _owc = localStorage.getItem('ow_consent');
+	    if (_owc === 'granted') gtag('consent','update',{'ad_storage':'granted','ad_user_data':'granted','ad_personalization':'granted','analytics_storage':'granted'});
+	    else if (_owc === 'denied') gtag('consent','update',{'ad_storage':'denied','ad_user_data':'denied','ad_personalization':'denied','analytics_storage':'denied'});
+	  } catch(e){}
 	  gtag('js', new Date());
 	  gtag('config', '{{ _ga_id }}');
 	</script>
@@ -1773,5 +1781,32 @@ window.__optiwarChat = {
   document.addEventListener('click',function(e){if(!dd.contains(e.target)&&e.target!==btn)dd.classList.remove('open');});
 })();
 </script>
+{% if (config.GA_MEASUREMENT_ID or config.GA_MEASUREMENT_ID_IN) %}
+<div id="ow-consent" role="dialog" aria-live="polite" style="display:none;position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#1e293b;color:#e2e8f0;padding:14px 18px;box-shadow:0 -2px 12px rgba(0,0,0,.25);font-size:13px;line-height:1.5;">
+  <div style="max-width:1080px;margin:0 auto;display:flex;gap:14px;align-items:center;flex-wrap:wrap;justify-content:center;">
+    <span style="flex:1;min-width:220px;">We use cookies for analytics to improve your experience. See our <a href="/terms_and_conditions" style="color:#a5b4fc;text-decoration:underline;">Privacy &amp; Terms</a>.</span>
+    <div style="display:flex;gap:8px;flex-shrink:0;">
+      <button type="button" id="ow-consent-decline" style="background:transparent;border:1px solid #64748b;color:#e2e8f0;padding:8px 16px;border-radius:8px;cursor:pointer;font-weight:600;">Decline</button>
+      <button type="button" id="ow-consent-accept" style="background:#6366f1;border:none;color:#fff;padding:8px 18px;border-radius:8px;cursor:pointer;font-weight:700;">Accept</button>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  var bar=document.getElementById('ow-consent'); if(!bar) return;
+  var stored; try{stored=localStorage.getItem('ow_consent');}catch(e){}
+  if(!stored){ bar.style.display='block'; }
+  function choose(v){
+    try{localStorage.setItem('ow_consent',v);}catch(e){}
+    gtag('consent','update',{'ad_storage':v,'ad_user_data':v,'ad_personalization':v,'analytics_storage':v});
+    bar.style.display='none';
+  }
+  document.getElementById('ow-consent-accept').addEventListener('click',function(){choose('granted');});
+  document.getElementById('ow-consent-decline').addEventListener('click',function(){choose('denied');});
+})();
+</script>
+{% endif %}
 </body>
 </html>
