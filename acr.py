@@ -30,11 +30,21 @@ _CONFIRM_RE = re.compile(
 )
 
 # Phrases where the assistant CLAIMS/PROMISES a navigation. If one appears with
-# no structured action, that is the silent-failure ("AI lied") case (A2).
+# no structured action, that is the silent-failure ("AI lied") case (A2). These
+# are assertive claims only — an *offer* ("Would you like me to take you
+# there?") is not a promise and is filtered out by _OFFER_RE below.
 _PROMISE_RE = re.compile(
-    r"take you there|taking you there|let me take you|i'?ll take you|"
+    r"taking you there|let me take you|i'?ll take you|i am taking you|i'?m taking you|"
     r"i'?ve opened|i have opened|opening (it|them|that|the|these|those|your)|"
     r"i'?ll open|let me open|redirecting you|navigating you|taking you to",
+    re.IGNORECASE,
+)
+
+# Offer/question markers: when present the reply is asking permission, not
+# claiming completion, so it must not be treated as a promise-without-action.
+_OFFER_RE = re.compile(
+    r"would you like|shall i|want me to|do you want|should i|may i|"
+    r"can i (open|take|show)|let me know",
     re.IGNORECASE,
 )
 
@@ -48,8 +58,12 @@ def is_confirmation(text):
 
 
 def promises_navigation(text):
-    """True when an assistant reply claims a navigation it may not have performed."""
-    return bool(text and _PROMISE_RE.search(text))
+    """True when an assistant reply *claims* a navigation it may not have
+    performed. Offers/questions ("Would you like me to take you there?") are
+    not promises and return False."""
+    if not text or _OFFER_RE.search(text):
+        return False
+    return bool(_PROMISE_RE.search(text))
 
 
 # ─── Schema (additive) ───

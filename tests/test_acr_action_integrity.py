@@ -57,8 +57,18 @@ class PromiseDetectionTests(unittest.TestCase):
     def test_non_promises_not_flagged(self):
         for t in ["Would you like me to take you to these frames?",
                   "Here are 4 frames that suit you.",
-                  "Shall I open them for you? Yes or No"]:
+                  "Shall I open them for you? Yes or No",
+                  "Want me to take you there?",
+                  "Do you want me to open the frames page?"]:
             self.assertFalse(acr.promises_navigation(t), t)
+
+    def test_offer_containing_promise_words_is_not_a_promise(self):
+        # An offer that literally contains "take you there" must NOT auto-fire
+        # a navigation — the customer hasn't confirmed yet.
+        self.assertFalse(
+            acr.promises_navigation("Would you like me to take you there?"))
+        # But the assertive claim on the confirmation turn IS a promise.
+        self.assertTrue(acr.promises_navigation("Great — taking you there now!"))
 
 
 class FallbackLinkTests(unittest.TestCase):
