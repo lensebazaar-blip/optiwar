@@ -56,6 +56,8 @@
 .ow-chat-messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px}
 .ow-msg{max-width:100%;padding:10px 14px;border-radius:12px;font-size:14px;line-height:1.5;word-wrap:break-word}
 .ow-msg a{color:inherit;text-decoration:underline}
+.ow-msg a.ow-action-btn{display:inline-block;margin-top:6px;padding:8px 14px;background:#1F93FF;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px}
+.ow-msg a.ow-action-btn:hover{background:#177ae0}
 .ow-msg-user{align-self:flex-end;background:#1F93FF;color:#fff;border-bottom-right-radius:4px}
 .ow-msg-ai{align-self:flex-start;background:#f0f2f5;color:#1a1a1a;border-bottom-left-radius:4px}
 .ow-msg-system{align-self:center;background:transparent;color:#666;font-size:12px;font-style:italic;text-align:center;max-width:100%}
@@ -361,8 +363,30 @@
         renderSystemMsg('Connecting you to our support team...');
       }
       if (data.navigate_url) {
-        setTimeout(function() { window.location.href = data.navigate_url; }, 1500);
+        var acrAction = data.action && data.action.action_id ? data.action : null;
+        setTimeout(function() {
+          reportActionResult(acrAction, true, 'dispatched');
+          window.location.href = data.navigate_url;
+        }, 1500);
       }
+    }
+
+    // ACR A1: tell the server whether a structured action actually executed.
+    // Uses sendBeacon so it survives the page unload that navigation triggers.
+    function reportActionResult(action, success, code) {
+      if (!action || !action.action_id) return;
+      var payload = JSON.stringify({
+        session_id: sessionId, action_id: action.action_id,
+        success: !!success, failure_code: success ? null : code
+      });
+      try {
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon(API + '/action-result', new Blob([payload], { type: 'application/json' }));
+          return;
+        }
+      } catch (e) {}
+      try { fetch(API + '/action-result', { method: 'POST', keepalive: true,
+        headers: { 'Content-Type': 'application/json' }, body: payload }); } catch (e) {}
     }
 
     function onFinalFailure(wasBusy) {
@@ -485,7 +509,11 @@
   function formatContent(text) {
     text = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_self">$1</a>');
+    text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(m, label, href) {
+      // ACR fallback links start with the ▶ marker and render as action buttons.
+      var cls = label.indexOf('\u25b6') === 0 ? ' class="ow-action-btn"' : '';
+      return '<a href="' + href + '" target="_self"' + cls + '>' + label + '</a>';
+    });
     text = text.replace(/(https?:\/\/[^\s<]+)/g, function(url) {
       if (text.indexOf('href="' + url) >= 0) return url;
       return '<a href="' + url + '" target="_self">' + url + '</a>';

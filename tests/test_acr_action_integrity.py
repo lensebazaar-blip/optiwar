@@ -1,0 +1,99 @@
+"""Tests for ACR A1/A2 pure decision logic (acr.py).
+
+These cover the heart of the Action-Integrity fix without needing Flask or a DB:
+
+  - bare confirmations ("yes", "take me there") are recognised so they can be
+    resolved against a pending action instead of re-inferred from the word;
+  - non-confirmations (real questions) are NOT treated as confirmations;
+  - promise-without-action phrases are detected (the "AI lied" case);
+  - the mandatory fallback link is appended once, with a sensible label.
+
+    python3 -m unittest tests.test_acr_action_integrity
+"""
+import importlib.util
+import os
+import unittest
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _load_acr():
+    # acr.py only uses the stdlib, so load it directly by path (no package deps).
+    spec = importlib.util.spec_from_file_location("acr_under_test", os.path.join(REPO, "acr.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+acr = _load_acr()
+
+
+class ConfirmationTests(unittest.TestCase):
+    def test_bare_affirmatives_are_confirmations(self):
+        for t in ["yes", "Yes", "yes!", "yeah", "yep", "sure", "ok", "okay",
+                  "go", "go ahead", "proceed", "take me there", "open them",
+                  "show me", "sounds good", "absolutely", "let's go"]:
+            self.assertTrue(acr.is_confirmation(t), t)
+
+    def test_questions_and_statements_are_not_confirmations(self):
+        for t in ["no", "not now", "what colours do you have?",
+                  "do you have these in black?", "how much is it",
+                  "yes but only if it's under 50 euros and blue",
+                  "can you show me something cheaper"]:
+            self.assertFalse(acr.is_confirmation(t), t)
+
+    def test_empty_is_not_confirmation(self):
+        self.assertFalse(acr.is_confirmation(""))
+        self.assertFalse(acr.is_confirmation(None))
+
+
+class PromiseDetectionTests(unittest.TestCase):
+    def test_promise_phrases_detected(self):
+        for t in ["Let me take you there!", "Taking you there now",
+                  "I've opened the frames for you", "Opening them now",
+                  "I'll take you to the page"]:
+            self.assertTrue(acr.promises_navigation(t), t)
+
+    def test_non_promises_not_flagged(self):
+        for t in ["Would you like me to take you to these frames?",
+                  "Here are 4 frames that suit you.",
+                  "Shall I open them for you? Yes or No"]:
+            self.assertFalse(acr.promises_navigation(t), t)
+
+
+class FallbackLinkTests(unittest.TestCase):
+    def test_appends_button_once(self):
+        r1 = acr.with_fallback_link("Here are your frames.", "/eyeglasses/all-spectacle-frames.html")
+        self.assertIn("](/eyeglasses/all-spectacle-frames.html)", r1)
+        self.assertTrue(r1.strip().rsplit("\n", 1)[-1].startswith("[\u25b6"))
+        # idempotent: same link not duplicated
+        r2 = acr.with_fallback_link(r1, "/eyeglasses/all-spectacle-frames.html")
+        self.assertEqual(r1, r2)
+
+    def test_empty_url_is_noop(self):
+        self.assertEqual(acr.with_fallback_link("hi", ""), "hi")
+
+    def test_labels(self):
+        self.assertEqual(acr.nav_link_label("/eyeglasses/all-spectacle-frames.html?color=black"),
+                         "Open recommended frames")
+        self.assertEqual(acr.nav_link_label("/lenses"), "Open lens options")
+        self.assertEqual(acr.nav_link_label("/checkout"), "Go to checkout")
+        self.assertEqual(acr.nav_link_label("/catalog/item?pid=294"), "Open this frame")
+
+
+class EventLoggingTests(unittest.TestCase):
+    def test_log_event_never_raises(self):
+        class BoomCursor:
+            def execute(self, *a, **k):
+                raise RuntimeError("db down")
+
+        class BoomDB:
+            def cursor(self):
+                return BoomCursor()
+
+        # best-effort logging must swallow errors so it never breaks a reply
+        acr.log_event(BoomDB(), "AI_TEST_EVENT", session_id="s1")
+
+
+if __name__ == "__main__":
+    unittest.main()
