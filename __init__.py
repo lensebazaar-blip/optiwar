@@ -97,6 +97,11 @@ def create_app(test_config=None):
     # webhook verifier fails closed (rejects all KET calls).
     app.config['OPTIWAR_WEBHOOK_SECRET'] = os.environ.get('OPTIWAR_WEBHOOK_SECRET', '')
 
+    # Shared Bearer token for /ops/* endpoints and the read-only ACR Ops Console.
+    # Server-side only, no fallback: when unset the Bearer path fails closed
+    # (admin sessions still work). See ops._require_ops_auth.
+    app.config['OPS_API_TOKEN'] = os.environ.get('OPS_API_TOKEN', '')
+
     # ═══ TEST_PAY: Set to False to disable the test payment button on checkout ═══
     # To disable: change True to False below and restart gunicorn
     #   sudo systemctl restart gunicorn
