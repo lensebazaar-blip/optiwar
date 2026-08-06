@@ -585,6 +585,7 @@ def _call_deepseek_wrapped(messages, is_india, endpoint, gate_key):
                     from flask import g as _g, has_request_context as _hrc
                     if _hrc():
                         _g._chat_nav_products = results
+                        _g._chat_nav_filters = _nav_filters_from_args(args)
                 except Exception:
                     pass
                 # Re-send a sanitized assistant tool-call message (only role/
@@ -715,6 +716,7 @@ def _call_deepseek(system_prompt, history, user_message, is_india=False,
                         from flask import g as _g, has_request_context as _hrc
                         if _hrc():
                             _g._chat_nav_products = results
+                            _g._chat_nav_filters = _nav_filters_from_args(args)
                     except Exception:
                         pass
                     # Add tool call and result to messages
@@ -1201,26 +1203,44 @@ def _resolve_product_nav(navigate_url, user_message):
     return navigate_url
 
 
+def _nav_filters_from_args(args):
+    """Pick the catalog filters the model actually used, so a multi-product
+    recommendation can navigate to those *filtered* results rather than a
+    generic catalogue (preserves recommendation identity)."""
+    out = {}
+    for k in acr.NAV_FILTER_KEYS:
+        v = (args or {}).get(k)
+        if v is not None and str(v).strip() != '':
+            out[k] = str(v).strip()
+    return out
+
+
 def _recover_nav_target():
     """Best-effort navigation target for a recommendation turn, so a later
-    confirmation ("yes") always resolves to a real, non-dead destination.
+    confirmation ("yes") always resolves to a real, non-dead destination that
+    preserves the recommendation's identity.
 
     - exactly one product searched -> that product's canonical URL
-    - several products searched     -> the canonical frames listing page
+    - several products searched     -> the frames listing filtered by the same
+                                       criteria the model used (not a generic
+                                       catalogue); generic listing only if no
+                                       filters are known
     - nothing searched              -> None
     """
     try:
         from flask import g as _g, has_request_context as _hrc
-        products = getattr(_g, "_chat_nav_products", None) if _hrc() else None
+        in_ctx = _hrc()
+        products = getattr(_g, "_chat_nav_products", None) if in_ctx else None
+        filters = getattr(_g, "_chat_nav_filters", None) if in_ctx else None
     except Exception:
-        products = None
+        products, filters = None, None
     if not products:
         return None
     if len(products) == 1:
         url = (products[0].get("url") or "").strip()
         if url:
             return url
-    return acr.FRAMES_LISTING_FALLBACK
+    return acr.filtered_listing_url(filters)
 
 
 # ─── API Endpoints ───
@@ -1688,6 +1708,7 @@ def chat_action_result():
 @bp.route('/admin/ops-console', methods=['GET'])
 def acr_ops_console():
     """ACR A3: read-only AI Operations Console (admin only). ?format=json for data."""
+    from flask import session
     from .ops import _require_ops_auth
     if not _require_ops_auth():
         return jsonify({'error': 'unauthorized'}), 401
@@ -1701,6 +1722,15 @@ def acr_ops_console():
         limit = 50
     db = _get_db()
     try:
+        # Audit every access to the PII-bearing console (who / when / IP / scope).
+        # NOW() supplies the timestamp; best-effort so it never blocks the view.
+        actor = session.get('user_email') or 'bearer_token'
+        fwd = request.headers.get('X-Forwarded-For', '')
+        client_ip = (fwd.split(',')[0].strip() if fwd else request.remote_addr)
+        acr.log_event(db, 'OPS_CONSOLE_ACCESS',
+                      payload={'actor': actor, 'ip': client_ip,
+                               'scope': {'hours': hours, 'limit': limit},
+                               'format': request.args.get('format', 'html')})
         sessions = acr.ops_console_snapshot(db, limit=limit)
         stats = acr.ops_console_stats(db, hours=hours)
     finally:

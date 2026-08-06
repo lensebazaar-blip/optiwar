@@ -117,6 +117,24 @@ class BestEffortActionTests(unittest.TestCase):
         self.assertFalse(acr.mark_action(self._BoomDB(), None, "CONFIRMED"))
 
 
+class FilteredListingUrlTests(unittest.TestCase):
+    def test_no_filters_falls_back_to_generic_listing(self):
+        self.assertEqual(acr.filtered_listing_url(None), acr.FRAMES_LISTING_FALLBACK)
+        self.assertEqual(acr.filtered_listing_url({}), acr.FRAMES_LISTING_FALLBACK)
+        self.assertEqual(acr.filtered_listing_url({'color': ''}), acr.FRAMES_LISTING_FALLBACK)
+
+    def test_filters_preserve_recommendation_identity(self):
+        url = acr.filtered_listing_url({'color': 'black', 'facefit': 'medium'})
+        self.assertTrue(url.startswith(acr.FRAMES_LISTING_FALLBACK + '?'))
+        self.assertIn('color=black', url)
+        self.assertIn('facefit=medium', url)
+
+    def test_filter_order_is_stable(self):
+        url = acr.filtered_listing_url({'facefit': 'large', 'color': 'blue'})
+        # color precedes facefit per NAV_FILTER_KEYS regardless of input order
+        self.assertLess(url.index('color=blue'), url.index('facefit=large'))
+
+
 class FallbackLinkTests(unittest.TestCase):
     def test_appends_button_once(self):
         r1 = acr.with_fallback_link("Here are your frames.", "/eyeglasses/all-spectacle-frames.html")

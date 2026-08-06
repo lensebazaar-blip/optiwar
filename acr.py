@@ -63,6 +63,21 @@ _NAV_OFFER_TARGET_RE = re.compile(
 PENDING_TTL_SECONDS = 1800  # 30 min
 FRAMES_LISTING_FALLBACK = "/eyeglasses/all-spectacle-frames.html"
 
+# Catalog filters that identify a recommendation, in URL order.
+NAV_FILTER_KEYS = ('color', 'shape', 'facefit', 'min_price', 'max_price')
+
+
+def filtered_listing_url(filters):
+    """Frames-listing URL carrying the recommendation's own filters so a
+    multi-product recommendation lands on *those* filtered results instead of a
+    generic catalogue. Falls back to the generic listing when no filters known."""
+    from urllib.parse import urlencode
+    ordered = [(k, str(filters[k])) for k in NAV_FILTER_KEYS
+               if filters and filters.get(k) not in (None, '')]
+    if not ordered:
+        return FRAMES_LISTING_FALLBACK
+    return "%s?%s" % (FRAMES_LISTING_FALLBACK, urlencode(ordered))
+
 
 def is_confirmation(text):
     """True when a customer message is a bare affirmative/confirmation."""

@@ -1,22 +1,35 @@
 """Ops/Admin API endpoints for order management and EWS notifications."""
 
-from flask import Blueprint, request, jsonify, current_app
+import hmac
+
+from flask import Blueprint, request, jsonify, current_app, session
 from .db import get_db
 from .notifications import notify_order_shipped, notify_support_ticket_resolved
 
 bp = Blueprint('ops', __name__, url_prefix='/ops')
 
+ADMIN_SESSION_EMAILS = ('admin@ket.ltd', 'admin@optiwar.com', 'lensebazaar@gmail.com')
+
 
 def _require_ops_auth():
-    """Simple auth check for ops endpoints. Uses Bearer token or admin session."""
+    """Auth for all /ops endpoints (and the read-only Ops Console).
+
+    Accepts either an admin browser session or a Bearer ``OPS_API_TOKEN``.
+    There is deliberately NO default token: if ``OPS_API_TOKEN`` is unset the
+    Bearer path fails closed and logs an error, so a misconfigured deployment
+    denies access rather than silently accepting a published default.
+    """
+    if session.get('user_email') in ADMIN_SESSION_EMAILS:
+        return True
     auth = request.headers.get('Authorization', '')
-    ops_token = current_app.config.get('OPS_API_TOKEN', 'optiwar-ops-2025')
-    if auth == f'Bearer {ops_token}':
-        return True
-    # Also accept admin@ket.ltd session
-    from flask import session
-    if session.get('user_email') in ('admin@ket.ltd', 'admin@optiwar.com', 'lensebazaar@gmail.com'):
-        return True
+    if auth.startswith('Bearer '):
+        ops_token = current_app.config.get('OPS_API_TOKEN')
+        if not ops_token:
+            current_app.logger.error(
+                'OPS_API_TOKEN not configured; Bearer auth for /ops is disabled')
+            return False
+        if hmac.compare_digest(auth[len('Bearer '):], str(ops_token)):
+            return True
     return False
 
 
