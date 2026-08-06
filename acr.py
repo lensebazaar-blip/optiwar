@@ -245,10 +245,10 @@ def ops_console_snapshot(db, limit=50):
                   s.current_page_url, s.last_activity,
                   (SELECT m.content FROM chat_messages m
                      WHERE m.session_id = s.session_id
-                     ORDER BY m.created_at DESC LIMIT 1) AS last_message,
+                     ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_message,
                   (SELECT m.source FROM chat_messages m
                      WHERE m.session_id = s.session_id
-                     ORDER BY m.created_at DESC LIMIT 1) AS last_source
+                     ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_source
            FROM chat_sessions s
            ORDER BY s.last_activity DESC
            LIMIT %s""",
