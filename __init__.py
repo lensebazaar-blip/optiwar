@@ -102,6 +102,14 @@ def create_app(test_config=None):
     # (admin sessions still work). See ops._require_ops_auth.
     app.config['OPS_API_TOKEN'] = os.environ.get('OPS_API_TOKEN', '')
 
+    # ACR (A1/A2/A3) canary gate. ACR_ACTIONS_ENABLED master switch (default off
+    # => legacy stable chat path for everyone). ACR_CANARY_ONLY restricts ACR to
+    # approved canary sessions (signed ow_acr_canary cookie or an email in
+    # ACR_CANARY_EMAILS). Set ACR_CANARY_ONLY=false for full rollout after canary.
+    app.config['ACR_ACTIONS_ENABLED'] = os.environ.get('ACR_ACTIONS_ENABLED', 'false').lower() == 'true'
+    app.config['ACR_CANARY_ONLY'] = os.environ.get('ACR_CANARY_ONLY', 'true').lower() == 'true'
+    app.config['ACR_CANARY_EMAILS'] = os.environ.get('ACR_CANARY_EMAILS', '')
+
     # ═══ TEST_PAY: Set to False to disable the test payment button on checkout ═══
     # To disable: change True to False below and restart gunicorn
     #   sudo systemctl restart gunicorn

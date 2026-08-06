@@ -47,6 +47,31 @@ class ConfirmationTests(unittest.TestCase):
         self.assertFalse(acr.is_confirmation(None))
 
 
+class CanaryGateTests(unittest.TestCase):
+    def test_master_switch_off_disables_everyone(self):
+        # actions disabled -> off regardless of cookie/email/canary_only
+        self.assertFalse(acr.canary_allows(False, True, True, "a@b.com", "a@b.com"))
+        self.assertFalse(acr.canary_allows(False, False, True, "a@b.com", "a@b.com"))
+
+    def test_full_rollout_when_not_canary_only(self):
+        # enabled + not canary_only -> on for everyone
+        self.assertTrue(acr.canary_allows(True, False, False, "", ""))
+        self.assertTrue(acr.canary_allows(True, False, False, "anyone@x.com", ""))
+
+    def test_canary_only_requires_cookie_or_allowlisted_email(self):
+        # enabled + canary_only, no cookie, not allow-listed -> off
+        self.assertFalse(acr.canary_allows(True, True, False, "cust@x.com", "staff@x.com"))
+        # valid canary cookie -> on
+        self.assertTrue(acr.canary_allows(True, True, True, "cust@x.com", ""))
+        # allow-listed email (case-insensitive, trims list) -> on
+        self.assertTrue(acr.canary_allows(True, True, False, "Staff@X.com", " staff@x.com , qa@x.com "))
+        self.assertTrue(acr.canary_allows(True, True, False, "qa@x.com", "staff@x.com,qa@x.com"))
+
+    def test_canary_only_empty_email_and_list_is_off(self):
+        self.assertFalse(acr.canary_allows(True, True, False, "", ""))
+        self.assertFalse(acr.canary_allows(True, True, False, None, ""))
+
+
 class PromiseDetectionTests(unittest.TestCase):
     def test_promise_phrases_detected(self):
         for t in ["Let me take you there!", "Taking you there now",

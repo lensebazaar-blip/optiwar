@@ -1271,6 +1271,61 @@ def _is_chat_owner(session_id):
         return False
 
 
+def _acr_enabled_for(contact_email):
+    """ACR customer-facing gate (safeguard #3, limited canary).
+
+    - ``ACR_ACTIONS_ENABLED`` false  -> off for everyone (legacy stable path).
+    - ``ACR_CANARY_ONLY`` true (default) -> on only for approved canary sessions:
+      a signed ``ow_acr_canary`` cookie, or a customer whose email is in the
+      ``ACR_CANARY_EMAILS`` allow-list.
+    - ``ACR_CANARY_ONLY`` false -> on for all sessions (post-canary rollout).
+
+    Fail-safe: any error resolves to False (legacy path), never a crash.
+    """
+    try:
+        cookie_ok = False
+        raw = request.cookies.get('ow_acr_canary', '')
+        if raw:
+            try:
+                cookie_ok = URLSafeSerializer(
+                    current_app.config['SECRET_KEY'], salt='acr-canary').loads(raw) == 'on'
+            except (BadSignature, Exception):
+                cookie_ok = False
+        return acr.canary_allows(
+            current_app.config.get('ACR_ACTIONS_ENABLED', False),
+            current_app.config.get('ACR_CANARY_ONLY', True),
+            cookie_ok,
+            contact_email,
+            current_app.config.get('ACR_CANARY_EMAILS', ''),
+        )
+    except Exception:
+        return False
+
+
+@bp.route('/admin/acr-canary', methods=['GET', 'POST'])
+def acr_canary_toggle():
+    """Admin-only: set/clear the signed ACR canary opt-in cookie for this browser.
+
+    ``?on=1`` (default) enrols this browser in the canary; ``?on=0`` removes it.
+    Gated by the shared /ops auth (admin session or Bearer OPS_API_TOKEN)."""
+    from .ops import _require_ops_auth
+    if not _require_ops_auth():
+        return jsonify({'error': 'unauthorized'}), 401
+    on = str(request.args.get('on', '1')).lower() not in ('0', 'false', 'no', '')
+    resp = make_response(jsonify({'canary': on}))
+    if on:
+        tok = URLSafeSerializer(current_app.config['SECRET_KEY'],
+                                salt='acr-canary').dumps('on')
+        resp.set_cookie('ow_acr_canary', tok, max_age=7 * 24 * 3600, path='/',
+                        secure=True, httponly=True, samesite='Lax')
+    else:
+        # Mirror the set_cookie attributes on deletion so opt-out reliably
+        # clears the cookie even under strict attribute-parity cookie policies.
+        resp.delete_cookie('ow_acr_canary', path='/',
+                           secure=True, httponly=True, samesite='Lax')
+    return resp
+
+
 @bp.route('/start', methods=['POST'])
 def chat_start():
     """Start a new chat session or resume active one."""
@@ -1469,59 +1524,70 @@ def chat_message():
     # with the matched product's canonical catalog URL when applicable.
     navigate_url = _resolve_product_nav(navigate_url, content)
 
-    # ── ACR A1: resolve a bare confirmation against a live pending action ──
-    # If the model produced no navigation this turn but the customer just
-    # confirmed ("yes"/"take me there"), honour the action we proposed earlier
-    # instead of re-inferring from the word "yes" (the silent-failure bug).
-    # A confirmation is only resolved against a pending NAVIGATE when this turn
-    # is NOT itself a supervisor handover / ticket confirmation — otherwise a
-    # "yes" answering "connect you to my supervisor? Yes or No" would be
-    # hijacked into a stale redirect.
+    # ── ACR canary gate (safeguard #3) ──
+    # When ACR is not enabled for this session, ordinary customers keep the exact
+    # pre-ACR stable path (no pending actions, no fallback button, no result
+    # reporting). ACR action-integrity runs only for approved canary sessions.
     acr_action = None
-    _confirm_is_navigational = not ({'human_handover', 'create_ticket'} & set(actions))
-    if not navigate_url and _confirm_is_navigational and acr.is_confirmation(content):
-        pending = acr.get_live_pending_action(db, session_id, 'NAVIGATE')
-        if pending and pending.get('target'):
-            navigate_url = pending['target']
-            acr_action = {'action_id': pending['action_id'], 'type': 'NAVIGATE',
-                          'target': navigate_url}
-            acr.mark_action(db, pending['action_id'], 'CONFIRMED')
+    if _acr_enabled_for(session.get('contact_email')):
+        # ── ACR A1: resolve a bare confirmation against a live pending action ──
+        # If the model produced no navigation this turn but the customer just
+        # confirmed ("yes"/"take me there"), honour the action we proposed earlier
+        # instead of re-inferring from the word "yes" (the silent-failure bug).
+        # A confirmation is only resolved against a pending NAVIGATE when this turn
+        # is NOT itself a supervisor handover / ticket confirmation — otherwise a
+        # "yes" answering "connect you to my supervisor? Yes or No" would be
+        # hijacked into a stale redirect.
+        _confirm_is_navigational = not ({'human_handover', 'create_ticket'} & set(actions))
+        if not navigate_url and _confirm_is_navigational and acr.is_confirmation(content):
+            pending = acr.get_live_pending_action(db, session_id, 'NAVIGATE')
+            if pending and pending.get('target'):
+                navigate_url = pending['target']
+                acr_action = {'action_id': pending['action_id'], 'type': 'NAVIGATE',
+                              'target': navigate_url}
+                acr.mark_action(db, pending['action_id'], 'CONFIRMED')
 
-    if navigate_url and 'navigate' not in actions:
-        actions.append('navigate')
-
-    # ── ACR A2: promise-without-action detection ──
-    # The model claimed a navigation but emitted no target -> recover one if we
-    # can, otherwise log the incident (never leave the promise unbacked).
-    if 'navigate' not in actions and acr.promises_navigation(ai_reply):
-        recovered = _recover_nav_target()
-        acr.log_event(db, 'AI_PROMISE_WITHOUT_ACTION', session_id=session_id,
-                      page_url=page_url,
-                      payload={'reply_head': ai_reply[:160], 'recovered': bool(recovered)})
-        if recovered:
-            navigate_url = recovered
+        if navigate_url and 'navigate' not in actions:
             actions.append('navigate')
 
-    # ── ACR A1: create/confirm a structured action + mandatory fallback link ──
-    if navigate_url:
-        if acr_action is None:
-            _aid = acr.create_pending_action(db, session_id, 'NAVIGATE', navigate_url)
-            acr.mark_action(db, _aid, 'CONFIRMED')
-            acr_action = {'action_id': _aid, 'type': 'NAVIGATE', 'target': navigate_url}
-        if not ai_reply.strip():
-            ai_reply = 'Opening that for you now.'
-        # Always leave a real, clickable fallback so navigation can never
-        # silently fail — the reply itself carries the button (survives polling).
-        ai_reply = acr.with_fallback_link(ai_reply, navigate_url)
-    elif acr.offers_navigation(ai_reply):
-        # No navigation this turn, but the assistant *offered* to navigate
-        # ("...take you to these frames?"). Seed a pending action so a
-        # follow-up "yes" resolves to a real destination. Only seed on a genuine
-        # navigation offer — never on a ticket/handover yes/no prompt — so a
-        # later confirmation can't be turned into an unexpected redirect.
-        _seed = _recover_nav_target()
-        if _seed:
-            acr.create_pending_action(db, session_id, 'NAVIGATE', _seed)
+        # ── ACR A2: promise-without-action detection ──
+        # The model claimed a navigation but emitted no target -> recover one if
+        # we can, otherwise log the incident (never leave the promise unbacked).
+        if 'navigate' not in actions and acr.promises_navigation(ai_reply):
+            recovered = _recover_nav_target()
+            acr.log_event(db, 'AI_PROMISE_WITHOUT_ACTION', session_id=session_id,
+                          page_url=page_url,
+                          payload={'reply_head': ai_reply[:160], 'recovered': bool(recovered)})
+            if recovered:
+                navigate_url = recovered
+                actions.append('navigate')
+
+        # ── ACR A1: create/confirm a structured action + mandatory fallback link ──
+        if navigate_url:
+            if acr_action is None:
+                _aid = acr.create_pending_action(db, session_id, 'NAVIGATE', navigate_url)
+                acr.mark_action(db, _aid, 'CONFIRMED')
+                acr_action = {'action_id': _aid, 'type': 'NAVIGATE', 'target': navigate_url}
+            if not ai_reply.strip():
+                ai_reply = 'Opening that for you now.'
+            # Always leave a real, clickable fallback so navigation can never
+            # silently fail — the reply itself carries the button (survives polling).
+            ai_reply = acr.with_fallback_link(ai_reply, navigate_url)
+        elif acr.offers_navigation(ai_reply):
+            # No navigation this turn, but the assistant *offered* to navigate
+            # ("...take you to these frames?"). Seed a pending action so a
+            # follow-up "yes" resolves to a real destination. Only seed on a
+            # genuine navigation offer — never on a ticket/handover yes/no prompt
+            # — so a later confirmation can't be turned into an unexpected redirect.
+            _seed = _recover_nav_target()
+            if _seed:
+                acr.create_pending_action(db, session_id, 'NAVIGATE', _seed)
+    else:
+        # Pre-ACR stable path (unchanged legacy behaviour for ordinary customers).
+        if navigate_url and 'navigate' not in actions:
+            actions.append('navigate')
+        if 'navigate' in actions and not ai_reply.strip():
+            ai_reply = 'Taking you there now...'
 
     # Insert AI response — idempotent on the same client_message_id so a concurrent
     # duplicate submit can never store two AI replies for one customer turn. On a
