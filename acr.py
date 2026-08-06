@@ -79,6 +79,25 @@ def filtered_listing_url(filters):
     return "%s?%s" % (FRAMES_LISTING_FALLBACK, urlencode(ordered))
 
 
+def canary_allows(actions_enabled, canary_only, cookie_ok, contact_email, allow_emails):
+    """Pure decision for the ACR customer-facing canary gate (safeguard #3).
+
+    - ``actions_enabled`` false -> off for everyone (legacy stable path).
+    - ``canary_only`` true      -> on only for a valid canary cookie or a
+                                    ``contact_email`` in the ``allow_emails``
+                                    (comma-separated) list.
+    - ``canary_only`` false     -> on for all sessions (post-canary rollout).
+    """
+    if not actions_enabled:
+        return False
+    if not canary_only:
+        return True
+    if cookie_ok:
+        return True
+    allow = {e.strip().lower() for e in (allow_emails or '').split(',') if e.strip()}
+    return bool(contact_email and str(contact_email).strip().lower() in allow)
+
+
 def is_confirmation(text):
     """True when a customer message is a bare affirmative/confirmation."""
     return bool(text and _CONFIRM_RE.match(text.strip()))
