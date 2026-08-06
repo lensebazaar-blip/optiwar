@@ -71,6 +71,52 @@ class PromiseDetectionTests(unittest.TestCase):
         self.assertTrue(acr.promises_navigation("Great — taking you there now!"))
 
 
+class NavigationOfferTests(unittest.TestCase):
+    def test_navigation_offers_detected(self):
+        for t in ["Would you like me to take you to these frames?",
+                  "Shall I open them for you?",
+                  "Want me to take you there?",
+                  "Do you want me to open the frames page?"]:
+            self.assertTrue(acr.offers_navigation(t), t)
+
+    def test_non_navigation_offers_not_detected(self):
+        # These are offers, but NOT to navigate — a later bare "yes" here must
+        # not seed / resolve a navigation (the ticket/handover redirect bug).
+        for t in ["Do you want me to connect you with my supervisor? Yes or No",
+                  "Would you like me to create a support ticket for this? Yes or No",
+                  "Here are 2 frames that suit you.",
+                  "Shall I email you the receipt?"]:
+            self.assertFalse(acr.offers_navigation(t), t)
+
+    def test_empty_is_not_an_offer(self):
+        self.assertFalse(acr.offers_navigation(""))
+        self.assertFalse(acr.offers_navigation(None))
+
+
+class BestEffortActionTests(unittest.TestCase):
+    class _BoomCursor:
+        def execute(self, *a, **k):
+            raise RuntimeError("table missing")
+
+        def fetchone(self):
+            raise RuntimeError("table missing")
+
+    class _BoomDB:
+        def cursor(self):
+            return BestEffortActionTests._BoomCursor()
+
+    def test_action_helpers_never_raise_when_tables_missing(self):
+        db = self._BoomDB()
+        # A missing ai_actions table must degrade gracefully, never 500 the chat.
+        self.assertIsNone(acr.create_pending_action(db, "s1", "NAVIGATE", "/x"))
+        self.assertIsNone(acr.get_live_pending_action(db, "s1", "NAVIGATE"))
+        self.assertFalse(acr.mark_action(db, "a1", "CONFIRMED"))
+        self.assertFalse(acr.record_action_result(db, "a1", True))
+
+    def test_mark_action_noop_on_empty_id(self):
+        self.assertFalse(acr.mark_action(self._BoomDB(), None, "CONFIRMED"))
+
+
 class FallbackLinkTests(unittest.TestCase):
     def test_appends_button_once(self):
         r1 = acr.with_fallback_link("Here are your frames.", "/eyeglasses/all-spectacle-frames.html")

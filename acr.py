@@ -48,6 +48,18 @@ _OFFER_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Navigation-target markers: the reply is offering to *navigate* specifically
+# (open/take/show a page or the frames), as opposed to offering a ticket or a
+# supervisor handover. Only a genuine navigation offer should seed a pending
+# NAVIGATE action — otherwise a later bare "yes" answering a ticket/handover
+# yes/no question would be resolved into an unwanted redirect.
+_NAV_OFFER_TARGET_RE = re.compile(
+    r"take you( there| to)?|open (it|them|that|these|those|this|the|your)|"
+    r"show you|go to|these frames|the frames|frames page|browse (these|them)|"
+    r"see (them|these)",
+    re.IGNORECASE,
+)
+
 PENDING_TTL_SECONDS = 1800  # 30 min
 FRAMES_LISTING_FALLBACK = "/eyeglasses/all-spectacle-frames.html"
 
@@ -64,6 +76,15 @@ def promises_navigation(text):
     if not text or _OFFER_RE.search(text):
         return False
     return bool(_PROMISE_RE.search(text))
+
+
+def offers_navigation(text):
+    """True when an assistant reply is *offering to navigate* (e.g. "Would you
+    like me to take you to these frames?"). Used to gate seeding a pending
+    NAVIGATE action so a ticket/handover yes/no offer never seeds one."""
+    if not text:
+        return False
+    return bool(_OFFER_RE.search(text) and _NAV_OFFER_TARGET_RE.search(text))
 
 
 # ─── Schema (additive) ───
@@ -141,58 +162,80 @@ def log_event(db, event_type, session_id=None, action_id=None, journey_stage=Non
 def create_pending_action(db, session_id, action_type, target, source_message_id=None,
                           ttl_seconds=PENDING_TTL_SECONDS):
     """Persist a pending action, superseding any earlier live one of the same
-    type for the session so a later confirmation resolves the latest offer."""
-    cur = db.cursor()
-    cur.execute(
-        """UPDATE ai_actions SET status='SUPERSEDED', resolved_at=NOW()
-           WHERE session_id=%s AND action_type=%s AND status='PENDING'""",
-        (session_id, action_type),
-    )
-    action_id = uuid.uuid4().hex
-    cur.execute(
-        """INSERT INTO ai_actions
-              (action_id, session_id, action_type, target, status,
-               source_message_id, created_at, expires_at)
-           VALUES (%s,%s,%s,%s,'PENDING',%s,NOW(),
-                   DATE_ADD(NOW(), INTERVAL %s SECOND))""",
-        (action_id, session_id, action_type, target, source_message_id, ttl_seconds),
-    )
+    type for the session so a later confirmation resolves the latest offer.
+
+    Best-effort: if the additive tables are missing (schema creation is itself
+    best-effort at boot) this returns None instead of raising into the chat
+    reply path, so action bookkeeping can never break a customer conversation."""
+    try:
+        cur = db.cursor()
+        cur.execute(
+            """UPDATE ai_actions SET status='SUPERSEDED', resolved_at=NOW()
+               WHERE session_id=%s AND action_type=%s AND status='PENDING'""",
+            (session_id, action_type),
+        )
+        action_id = uuid.uuid4().hex
+        cur.execute(
+            """INSERT INTO ai_actions
+                  (action_id, session_id, action_type, target, status,
+                   source_message_id, created_at, expires_at)
+               VALUES (%s,%s,%s,%s,'PENDING',%s,NOW(),
+                       DATE_ADD(NOW(), INTERVAL %s SECOND))""",
+            (action_id, session_id, action_type, target, source_message_id, ttl_seconds),
+        )
+    except Exception:
+        return None
     log_event(db, 'AI_ACTION_PROPOSED', session_id=session_id, action_id=action_id,
               action_type=action_type, payload={'target': target})
     return action_id
 
 
 def get_live_pending_action(db, session_id, action_type='NAVIGATE'):
-    """Return the latest non-expired PENDING action of a type, or None."""
-    cur = db.cursor()
-    cur.execute(
-        """SELECT action_id, target FROM ai_actions
-           WHERE session_id=%s AND action_type=%s AND status='PENDING'
-             AND (expires_at IS NULL OR expires_at > NOW())
-           ORDER BY created_at DESC LIMIT 1""",
-        (session_id, action_type),
-    )
-    return cur.fetchone()
+    """Return the latest non-expired PENDING action of a type, or None.
+    Best-effort: returns None if the table is unavailable."""
+    try:
+        cur = db.cursor()
+        cur.execute(
+            """SELECT action_id, target FROM ai_actions
+               WHERE session_id=%s AND action_type=%s AND status='PENDING'
+                 AND (expires_at IS NULL OR expires_at > NOW())
+               ORDER BY created_at DESC LIMIT 1""",
+            (session_id, action_type),
+        )
+        return cur.fetchone()
+    except Exception:
+        return None
 
 
 def mark_action(db, action_id, status, result_code=None, duration_ms=None):
-    cur = db.cursor()
-    cur.execute(
-        """UPDATE ai_actions
-           SET status=%s, result_code=%s, duration_ms=%s, resolved_at=NOW()
-           WHERE action_id=%s""",
-        (status, result_code, duration_ms, action_id),
-    )
+    """Best-effort status update; never raises into the request path."""
+    if not action_id:
+        return False
+    try:
+        cur = db.cursor()
+        cur.execute(
+            """UPDATE ai_actions
+               SET status=%s, result_code=%s, duration_ms=%s, resolved_at=NOW()
+               WHERE action_id=%s""",
+            (status, result_code, duration_ms, action_id),
+        )
+        return True
+    except Exception:
+        return False
 
 
 def record_action_result(db, action_id, success, failure_code=None, duration_ms=None):
-    """Record the browser-reported outcome of an executed action (A1 verify)."""
-    cur = db.cursor()
-    cur.execute(
-        "SELECT session_id, action_type FROM ai_actions WHERE action_id=%s",
-        (action_id,),
-    )
-    row = cur.fetchone()
+    """Record the browser-reported outcome of an executed action (A1 verify).
+    Best-effort: returns False (not raise) if the table is unavailable."""
+    try:
+        cur = db.cursor()
+        cur.execute(
+            "SELECT session_id, action_type FROM ai_actions WHERE action_id=%s",
+            (action_id,),
+        )
+        row = cur.fetchone()
+    except Exception:
+        return False
     if not row:
         return False
     mark_action(db, action_id, 'EXECUTED' if success else 'FAILED',

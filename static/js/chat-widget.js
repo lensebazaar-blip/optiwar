@@ -364,29 +364,15 @@
       }
       if (data.navigate_url) {
         var acrAction = data.action && data.action.action_id ? data.action : null;
+        // ACR A1: stash the action across the navigation instead of reporting
+        // success up-front. The destination page confirms EXECUTED on load
+        // (arrival == success); if navigation never lands, the action stays
+        // CONFIRMED rather than being falsely recorded as executed.
+        stashActionForArrival(acrAction);
         setTimeout(function() {
-          reportActionResult(acrAction, true, 'dispatched');
           window.location.href = data.navigate_url;
         }, 1500);
       }
-    }
-
-    // ACR A1: tell the server whether a structured action actually executed.
-    // Uses sendBeacon so it survives the page unload that navigation triggers.
-    function reportActionResult(action, success, code) {
-      if (!action || !action.action_id) return;
-      var payload = JSON.stringify({
-        session_id: sessionId, action_id: action.action_id,
-        success: !!success, failure_code: success ? null : code
-      });
-      try {
-        if (navigator.sendBeacon) {
-          navigator.sendBeacon(API + '/action-result', new Blob([payload], { type: 'application/json' }));
-          return;
-        }
-      } catch (e) {}
-      try { fetch(API + '/action-result', { method: 'POST', keepalive: true,
-        headers: { 'Content-Type': 'application/json' }, body: payload }); } catch (e) {}
     }
 
     function onFinalFailure(wasBusy) {
@@ -401,6 +387,48 @@
     }
 
     attempt(1);
+  }
+
+  // ── ACR A1: verified action reporting (arrival-based) ──
+  // POST an action outcome. Uses sendBeacon so it survives page unload.
+  function postActionResult(payload) {
+    try {
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon(API + '/action-result', new Blob([payload], { type: 'application/json' }));
+        return;
+      }
+    } catch (e) {}
+    try { fetch(API + '/action-result', { method: 'POST', keepalive: true,
+      headers: { 'Content-Type': 'application/json' }, body: payload }); } catch (e) {}
+  }
+
+  // Remember the pending action so the NEXT page load (the destination) can
+  // confirm it as executed. Carries the session id so the confirmation does not
+  // depend on the widget having re-initialised its session yet.
+  function stashActionForArrival(action) {
+    if (!action || !action.action_id) return;
+    try {
+      sessionStorage.setItem('ow_acr_pending', JSON.stringify({
+        session_id: sessionId, action_id: action.action_id
+      }));
+    } catch (e) {}
+  }
+
+  // On load, if we arrived here from a navigation action, record it as EXECUTED.
+  // If navigation never lands (404/blocked/aborted), nothing fires and the
+  // action stays CONFIRMED — so a failed navigation is never counted as success.
+  function flushArrivedAction() {
+    var raw;
+    try { raw = sessionStorage.getItem('ow_acr_pending'); } catch (e) { return; }
+    if (!raw) return;
+    try { sessionStorage.removeItem('ow_acr_pending'); } catch (e) {}
+    var d;
+    try { d = JSON.parse(raw); } catch (e) { return; }
+    if (!d || !d.session_id || !d.action_id) return;
+    postActionResult(JSON.stringify({
+      session_id: d.session_id, action_id: d.action_id,
+      success: true, failure_code: null
+    }));
   }
 
   function loadMessages() {
@@ -506,17 +534,32 @@
     scrollToBottom();
   }
 
+  // Only http(s) absolute or same-site root-relative URLs may become links, and
+  // any embedded double quote is escaped so a crafted URL (message content is
+  // partly model/attacker-influenced) can't break out of the href attribute or
+  // inject a javascript:/data: handler.
+  function safeUrl(href) {
+    var h = String(href == null ? '' : href).trim();
+    if (!/^https?:\/\//i.test(h) && h.charAt(0) !== '/') return '';
+    return h.replace(/"/g, '&quot;');
+  }
+
   function formatContent(text) {
     text = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
     text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(m, label, href) {
+      var safe = safeUrl(href);
+      // Disallowed scheme -> render the label as plain text, never a link.
+      if (!safe) return label;
       // ACR fallback links start with the ▶ marker and render as action buttons.
       var cls = label.indexOf('\u25b6') === 0 ? ' class="ow-action-btn"' : '';
-      return '<a href="' + href + '" target="_self"' + cls + '>' + label + '</a>';
+      return '<a href="' + safe + '" target="_self"' + cls + '>' + label + '</a>';
     });
     text = text.replace(/(https?:\/\/[^\s<]+)/g, function(url) {
       if (text.indexOf('href="' + url) >= 0) return url;
-      return '<a href="' + url + '" target="_self">' + url + '</a>';
+      var safe = safeUrl(url);
+      if (!safe) return url;
+      return '<a href="' + safe + '" target="_self">' + url + '</a>';
     });
     text = text.replace(/\n/g, '<br>');
     return text;
@@ -583,7 +626,12 @@
     }, 2000);
   }
 
-  // ─── Init: check for existing session ───
+  // ─── Init ───
+  // ACR A1: if this page load is the destination of a navigation action,
+  // confirm it as executed now that we have actually arrived.
+  flushArrivedAction();
+
+  // Check for an existing session
   apiCall('GET', '/status?email=' + encodeURIComponent(userEmail)).then(function(data) {
     if (data.has_active) {
       sessionId = data.session_id;

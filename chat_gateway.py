@@ -1453,8 +1453,13 @@ def chat_message():
     # If the model produced no navigation this turn but the customer just
     # confirmed ("yes"/"take me there"), honour the action we proposed earlier
     # instead of re-inferring from the word "yes" (the silent-failure bug).
+    # A confirmation is only resolved against a pending NAVIGATE when this turn
+    # is NOT itself a supervisor handover / ticket confirmation — otherwise a
+    # "yes" answering "connect you to my supervisor? Yes or No" would be
+    # hijacked into a stale redirect.
     acr_action = None
-    if not navigate_url and acr.is_confirmation(content):
+    _confirm_is_navigational = not ({'human_handover', 'create_ticket'} & set(actions))
+    if not navigate_url and _confirm_is_navigational and acr.is_confirmation(content):
         pending = acr.get_live_pending_action(db, session_id, 'NAVIGATE')
         if pending and pending.get('target'):
             navigate_url = pending['target']
@@ -1488,9 +1493,12 @@ def chat_message():
         # Always leave a real, clickable fallback so navigation can never
         # silently fail — the reply itself carries the button (survives polling).
         ai_reply = acr.with_fallback_link(ai_reply, navigate_url)
-    else:
-        # No navigation this turn: if we just recommended products, seed a
-        # pending action so a follow-up "yes" resolves to a real destination.
+    elif acr.offers_navigation(ai_reply):
+        # No navigation this turn, but the assistant *offered* to navigate
+        # ("...take you to these frames?"). Seed a pending action so a
+        # follow-up "yes" resolves to a real destination. Only seed on a genuine
+        # navigation offer — never on a ticket/handover yes/no prompt — so a
+        # later confirmation can't be turned into an unexpected redirect.
         _seed = _recover_nav_target()
         if _seed:
             acr.create_pending_action(db, session_id, 'NAVIGATE', _seed)
