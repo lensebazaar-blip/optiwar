@@ -10,9 +10,10 @@ import time
 import re
 from datetime import datetime, timedelta
 
-from flask import Blueprint, request, jsonify, current_app, make_response, g
+from flask import Blueprint, request, jsonify, current_app, make_response, g, render_template
 from itsdangerous import URLSafeSerializer, BadSignature
 from openai import OpenAI
+from . import acr
 from .mail import create_ticket_in_db
 import smtplib
 from email.message import EmailMessage
@@ -100,6 +101,12 @@ def init_chat_gateway(app):
         'password': app.config.get('MYSQL_PASSWORD', ''),
         'database': app.config.get('MYSQL_DB', ''),
     }
+    # ACR (A1/A2/A3): ensure the additive action/event tables exist. Best-effort
+    # so a DB hiccup at boot never blocks app startup.
+    try:
+        acr.ensure_schema(_get_db)
+    except Exception as e:  # noqa: BLE001
+        app.logger.warning(f"[ACR] schema ensure skipped: {e}")
 
 
 # ─── DB Helpers ───
@@ -509,6 +516,7 @@ RULES:
     - /favorites (your saved favorites)
     - /profile (customer profile)
     If a customer asks for a page that doesn't exist  tell them to contact support or create a ticket.
+23. ACTION INTEGRITY: Never claim you have opened, navigated to, or taken the customer somewhere unless you ALSO include the matching [ACTION:NAVIGATE:...] tag in that same reply. If you are only offering to navigate, ask the yes/no question WITHOUT claiming it is already done. Do not say "Let me take you there" or "I've opened it" on a turn that has no [ACTION:NAVIGATE:...] tag.
 """
     return prompt
 
@@ -577,6 +585,7 @@ def _call_deepseek_wrapped(messages, is_india, endpoint, gate_key):
                     from flask import g as _g, has_request_context as _hrc
                     if _hrc():
                         _g._chat_nav_products = results
+                        _g._chat_nav_filters = _nav_filters_from_args(args)
                 except Exception:
                     pass
                 # Re-send a sanitized assistant tool-call message (only role/
@@ -707,6 +716,7 @@ def _call_deepseek(system_prompt, history, user_message, is_india=False,
                         from flask import g as _g, has_request_context as _hrc
                         if _hrc():
                             _g._chat_nav_products = results
+                            _g._chat_nav_filters = _nav_filters_from_args(args)
                     except Exception:
                         pass
                     # Add tool call and result to messages
@@ -1193,6 +1203,45 @@ def _resolve_product_nav(navigate_url, user_message):
     return navigate_url
 
 
+def _nav_filters_from_args(args):
+    """Pick the catalog filters the model actually used, so a multi-product
+    recommendation can navigate to those *filtered* results rather than a
+    generic catalogue (preserves recommendation identity)."""
+    out = {}
+    for k in acr.NAV_FILTER_KEYS:
+        v = (args or {}).get(k)
+        if v is not None and str(v).strip() != '':
+            out[k] = str(v).strip()
+    return out
+
+
+def _recover_nav_target():
+    """Best-effort navigation target for a recommendation turn, so a later
+    confirmation ("yes") always resolves to a real, non-dead destination that
+    preserves the recommendation's identity.
+
+    - exactly one product searched -> that product's canonical URL
+    - several products searched     -> the frames listing filtered by the same
+                                       criteria the model used (not a generic
+                                       catalogue); generic listing only if no
+                                       filters are known
+    - nothing searched              -> None
+    """
+    try:
+        from flask import g as _g, has_request_context as _hrc
+        in_ctx = _hrc()
+        products = getattr(_g, "_chat_nav_products", None) if in_ctx else None
+        filters = getattr(_g, "_chat_nav_filters", None) if in_ctx else None
+    except Exception:
+        products, filters = None, None
+    if not products:
+        return None
+    if len(products) == 1:
+        url = (products[0].get("url") or "").strip()
+        if url:
+            return url
+    return acr.filtered_listing_url(filters)
+
 
 # ─── API Endpoints ───
 
@@ -1419,12 +1468,60 @@ def chat_message():
     # Deterministic product navigation: override the model's freelanced link
     # with the matched product's canonical catalog URL when applicable.
     navigate_url = _resolve_product_nav(navigate_url, content)
+
+    # ── ACR A1: resolve a bare confirmation against a live pending action ──
+    # If the model produced no navigation this turn but the customer just
+    # confirmed ("yes"/"take me there"), honour the action we proposed earlier
+    # instead of re-inferring from the word "yes" (the silent-failure bug).
+    # A confirmation is only resolved against a pending NAVIGATE when this turn
+    # is NOT itself a supervisor handover / ticket confirmation — otherwise a
+    # "yes" answering "connect you to my supervisor? Yes or No" would be
+    # hijacked into a stale redirect.
+    acr_action = None
+    _confirm_is_navigational = not ({'human_handover', 'create_ticket'} & set(actions))
+    if not navigate_url and _confirm_is_navigational and acr.is_confirmation(content):
+        pending = acr.get_live_pending_action(db, session_id, 'NAVIGATE')
+        if pending and pending.get('target'):
+            navigate_url = pending['target']
+            acr_action = {'action_id': pending['action_id'], 'type': 'NAVIGATE',
+                          'target': navigate_url}
+            acr.mark_action(db, pending['action_id'], 'CONFIRMED')
+
     if navigate_url and 'navigate' not in actions:
         actions.append('navigate')
 
-    # Fallback: if navigate action left reply empty, add a helpful message
-    if 'navigate' in actions and not ai_reply.strip():
-        ai_reply = 'Taking you there now...'
+    # ── ACR A2: promise-without-action detection ──
+    # The model claimed a navigation but emitted no target -> recover one if we
+    # can, otherwise log the incident (never leave the promise unbacked).
+    if 'navigate' not in actions and acr.promises_navigation(ai_reply):
+        recovered = _recover_nav_target()
+        acr.log_event(db, 'AI_PROMISE_WITHOUT_ACTION', session_id=session_id,
+                      page_url=page_url,
+                      payload={'reply_head': ai_reply[:160], 'recovered': bool(recovered)})
+        if recovered:
+            navigate_url = recovered
+            actions.append('navigate')
+
+    # ── ACR A1: create/confirm a structured action + mandatory fallback link ──
+    if navigate_url:
+        if acr_action is None:
+            _aid = acr.create_pending_action(db, session_id, 'NAVIGATE', navigate_url)
+            acr.mark_action(db, _aid, 'CONFIRMED')
+            acr_action = {'action_id': _aid, 'type': 'NAVIGATE', 'target': navigate_url}
+        if not ai_reply.strip():
+            ai_reply = 'Opening that for you now.'
+        # Always leave a real, clickable fallback so navigation can never
+        # silently fail — the reply itself carries the button (survives polling).
+        ai_reply = acr.with_fallback_link(ai_reply, navigate_url)
+    elif acr.offers_navigation(ai_reply):
+        # No navigation this turn, but the assistant *offered* to navigate
+        # ("...take you to these frames?"). Seed a pending action so a
+        # follow-up "yes" resolves to a real destination. Only seed on a genuine
+        # navigation offer — never on a ticket/handover yes/no prompt — so a
+        # later confirmation can't be turned into an unexpected redirect.
+        _seed = _recover_nav_target()
+        if _seed:
+            acr.create_pending_action(db, session_id, 'NAVIGATE', _seed)
 
     # Insert AI response — idempotent on the same client_message_id so a concurrent
     # duplicate submit can never store two AI replies for one customer turn. On a
@@ -1512,6 +1609,8 @@ def chat_message():
     }
     if navigate_url:
         resp['navigate_url'] = navigate_url
+    if acr_action:
+        resp['action'] = acr_action
     return jsonify(resp)
 
 
@@ -1572,6 +1671,80 @@ def chat_messages(session_id):
         'messages': result,
         'count': len(result)
     })
+
+
+@bp.route('/action-result', methods=['POST'])
+def chat_action_result():
+    """ACR A1: the widget reports whether a structured action executed.
+
+    Owner-gated. Body: {session_id, action_id, success, failure_code?, duration_ms?}.
+    Also accepts navigator.sendBeacon (text/plain body) fired during page unload.
+    """
+    data = request.get_json(force=True, silent=True)
+    if data is None:
+        try:
+            data = json.loads(request.get_data(as_text=True) or '{}')
+        except (ValueError, TypeError):
+            data = {}
+    session_id = str(data.get('session_id', '')).strip()
+    action_id = str(data.get('action_id', '')).strip()
+    if not session_id or not action_id:
+        return jsonify({'error': 'session_id and action_id required'}), 400
+    if not _is_chat_owner(session_id):
+        return jsonify({'error': 'forbidden'}), 403
+    success = bool(data.get('success', True))
+    failure_code = (str(data.get('failure_code')) if data.get('failure_code') else None)
+    try:
+        duration_ms = int(data.get('duration_ms')) if data.get('duration_ms') is not None else None
+    except (TypeError, ValueError):
+        duration_ms = None
+
+    db = _get_db()
+    ok = acr.record_action_result(db, action_id, success, failure_code, duration_ms)
+    db.close()
+    return jsonify({'recorded': ok}), (200 if ok else 404)
+
+
+@bp.route('/admin/ops-console', methods=['GET'])
+def acr_ops_console():
+    """ACR A3: read-only AI Operations Console (admin only). ?format=json for data."""
+    from flask import session
+    from .ops import _require_ops_auth
+    if not _require_ops_auth():
+        return jsonify({'error': 'unauthorized'}), 401
+    try:
+        hours = max(1, min(int(request.args.get('hours', 24)), 720))
+    except (TypeError, ValueError):
+        hours = 24
+    try:
+        limit = max(1, min(int(request.args.get('limit', 50)), 200))
+    except (TypeError, ValueError):
+        limit = 50
+    db = _get_db()
+    try:
+        # Audit every access to the PII-bearing console (who / when / IP / scope).
+        # NOW() supplies the timestamp; best-effort so it never blocks the view.
+        actor = session.get('user_email') or 'bearer_token'
+        fwd = request.headers.get('X-Forwarded-For', '')
+        client_ip = (fwd.split(',')[0].strip() if fwd else request.remote_addr)
+        acr.log_event(db, 'OPS_CONSOLE_ACCESS',
+                      payload={'actor': actor, 'ip': client_ip,
+                               'scope': {'hours': hours, 'limit': limit},
+                               'format': request.args.get('format', 'html')})
+        sessions = acr.ops_console_snapshot(db, limit=limit)
+        stats = acr.ops_console_stats(db, hours=hours)
+    finally:
+        db.close()
+    # Serialize datetimes for JSON / template safety.
+    for s in sessions:
+        if s.get('last_activity'):
+            s['last_activity'] = s['last_activity'].isoformat()
+        la = s.get('last_action')
+        if la and la.get('created_at'):
+            la['created_at'] = la['created_at'].isoformat()
+    if request.args.get('format') == 'json':
+        return jsonify({'sessions': sessions, 'stats': stats, 'hours': hours})
+    return render_template('acr_ops_console.html', sessions=sessions, stats=stats, hours=hours)
 
 
 @bp.route('/status', methods=['GET'])
