@@ -1316,10 +1316,13 @@ def acr_canary_toggle():
     if on:
         tok = URLSafeSerializer(current_app.config['SECRET_KEY'],
                                 salt='acr-canary').dumps('on')
-        resp.set_cookie('ow_acr_canary', tok, max_age=7 * 24 * 3600,
+        resp.set_cookie('ow_acr_canary', tok, max_age=7 * 24 * 3600, path='/',
                         secure=True, httponly=True, samesite='Lax')
     else:
-        resp.delete_cookie('ow_acr_canary')
+        # Mirror the set_cookie attributes on deletion so opt-out reliably
+        # clears the cookie even under strict attribute-parity cookie policies.
+        resp.delete_cookie('ow_acr_canary', path='/',
+                           secure=True, httponly=True, samesite='Lax')
     return resp
 
 
