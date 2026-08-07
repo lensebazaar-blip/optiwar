@@ -4087,6 +4087,54 @@ LENS_DATA = {
 }
 
 
+def _localize_lens_for_global(lens, eur_map):
+    """Deep-copy a LENS_DATA entry with INR/India copy converted to EUR/worldwide
+    for the global site (optiwar.com). The India site is never passed here, so
+    its copy is unaffected. Walks every customer-facing text field so no 'Rs' or
+    India-shipping phrasing can leak onto .com."""
+    import copy as _copy
+    d = _copy.deepcopy(lens)
+    eur_price = eur_map.get(d['price'], str(d['price']))
+    d['price_eur'] = eur_price
+
+    def conv(s):
+        if not isinstance(s, str):
+            return s
+        # currency: swap every known INR add-on tier for its EUR equivalent
+        # (longest INR number first so e.g. 'Rs 100' can't clobber 'Rs 1000')
+        for inr in sorted(eur_map, key=lambda x: -len(str(x))):
+            s = s.replace('Rs ' + str(inr), '€' + str(eur_map[inr]))
+        # prose price-difference that isn't an add-on tier
+        s = s.replace('Rs 150 more', '€2 more')
+        # shipping / India framing
+        s = (s.replace('Free shipping across India', 'Free worldwide shipping')
+               .replace('Free shipping India.', 'Free worldwide shipping.')
+               .replace('Free shipping India', 'Free worldwide shipping')
+               .replace('shipping across India', 'worldwide shipping')
+               .replace('across India', 'worldwide'))
+        return s
+
+    for f in ('price_label', 'meta_description', 'how_it_works',
+              'short_desc', 'what_are', 'who_should_use'):
+        if isinstance(d.get(f), str):
+            d[f] = conv(d[f])
+    if isinstance(d.get('benefits'), list):
+        d['benefits'] = [conv(x) for x in d['benefits']]
+    for spec in d.get('specs', []):
+        if spec.get('label') == 'Add-on Price':
+            spec['value'] = '€' + eur_price
+        elif isinstance(spec.get('value'), str):
+            spec['value'] = conv(spec['value'])
+    for faq in d.get('faqs', []):
+        if isinstance(faq.get('q'), str):
+            faq['q'] = conv(faq['q'])
+        if isinstance(faq.get('a'), str):
+            faq['a'] = conv(faq['a'])
+    if isinstance(d.get('keywords'), str):
+        d['keywords'] = conv(d['keywords']).replace('India', 'online').replace('india', 'online')
+    return d
+
+
 @bp.route('/lenses')
 def lenses_hub():
     """Hub page listing all lens types available at Optiwar."""
@@ -4103,20 +4151,20 @@ def lenses_hub():
         pass
     EUR_LENS_PRICES = _eur_map if _eur_map else {50: '5', 100: '7', 200: '7', 250: '5.50', 350: '6.50', 500: '8', 650: '9.50', 800: '11', 1000: '13'}
     is_india_site = _req_is_india()
-    lenses_list = [
-        {
-            'name': v['name'],
-            'slug': v['slug'],
-            'price_label': v['price_label'] if is_india_site else v['price_label'].replace('Rs ' + str(v['price']), '€' + EUR_LENS_PRICES.get(v['price'], str(v['price']))),
-            'short_desc': v['short_desc'],
-            'color': v['color'],
-            'icon': v['icon'],
-            'widget_class': v['widget_class'],
-            'widget_icon': v['widget_icon'],
-            'widget_label': v['widget_label']
-        }
-        for v in LENS_DATA.values()
-    ]
+    lenses_list = []
+    for v in LENS_DATA.values():
+        src = v if is_india_site else _localize_lens_for_global(v, EUR_LENS_PRICES)
+        lenses_list.append({
+            'name': src['name'],
+            'slug': src['slug'],
+            'price_label': src['price_label'],
+            'short_desc': src['short_desc'],
+            'color': src['color'],
+            'icon': src['icon'],
+            'widget_class': src['widget_class'],
+            'widget_icon': src['widget_icon'],
+            'widget_label': src['widget_label']
+        })
     return render_template('lenses.html', lenses=lenses_list)
 
 
@@ -4139,31 +4187,13 @@ def lens_page(lens_slug):
         pass
     EUR_LENS_PRICES = _eur_map2 if _eur_map2 else {50: '5', 100: '7', 200: '7', 250: '5.50', 350: '6.50', 500: '8', 650: '9.50', 800: '11', 1000: '13'}
     is_india_site = _req_is_india()
-    # Create a copy with EUR equivalents for global site
-    import copy
-    lens_data = copy.deepcopy(lens)
-    eur_price = EUR_LENS_PRICES.get(lens_data['price'], str(lens_data['price']))
-    lens_data['price_eur'] = eur_price
-    if not is_india_site:
-        lens_data['price_label'] = lens_data['price_label'].replace('Rs ' + str(lens_data['price']), '€' + eur_price)
-        lens_data['meta_description'] = lens_data['meta_description'].replace('Rs ' + str(lens_data['price']), '€' + eur_price).replace('Free shipping India.', 'Free worldwide shipping.')
-        lens_data['keywords'] = lens_data['keywords'].replace('India', 'online').replace('india', 'online')
-        # Fix specs
-        for spec in lens_data.get('specs', []):
-            if spec.get('label') == 'Add-on Price':
-                spec['value'] = '€' + eur_price
-        # Fix how_it_works
-        if 'how_it_works' in lens_data:
-            lens_data['how_it_works'] = lens_data['how_it_works'].replace('Rs ' + str(lens_data['price']), '€' + eur_price)
-            # Also replace other Rs references
-            for inr, eu in EUR_LENS_PRICES.items():
-                lens_data['how_it_works'] = lens_data['how_it_works'].replace('Rs ' + str(inr), '€' + eu)
-            lens_data['how_it_works'] = lens_data['how_it_works'].replace('across India', 'worldwide').replace('Free shipping India', 'Free worldwide shipping')
-        # Fix FAQs
-        for faq in lens_data.get('faqs', []):
-            for inr, eu in EUR_LENS_PRICES.items():
-                faq['a'] = faq['a'].replace('Rs ' + str(inr), '€' + eu)
-            faq['a'] = faq['a'].replace('across India', 'worldwide').replace('Free shipping India', 'Free worldwide shipping')
+    if is_india_site:
+        import copy
+        lens_data = copy.deepcopy(lens)
+        lens_data['price_eur'] = EUR_LENS_PRICES.get(lens_data['price'], str(lens_data['price']))
+    else:
+        # optiwar.com: convert all INR/India copy to EUR/worldwide
+        lens_data = _localize_lens_for_global(lens, EUR_LENS_PRICES)
     all_lenses = [{'name': v['name'], 'slug': v['slug'], 'widget_class': v['widget_class'], 'widget_icon': v['widget_icon']} for v in LENS_DATA.values()]
     return render_template('lens_type.html', lens=lens_data, all_lenses=all_lenses)
 
