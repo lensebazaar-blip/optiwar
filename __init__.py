@@ -97,6 +97,13 @@ def create_app(test_config=None):
     # webhook verifier fails closed (rejects all KET calls).
     app.config['OPTIWAR_WEBHOOK_SECRET'] = os.environ.get('OPTIWAR_WEBHOOK_SECRET', '')
 
+    # Live in-widget human takeover. Default OFF: KET remains ticket-based
+    # escalation only. When off, an authenticated KET agent-reply push is
+    # accepted (HMAC still verified) but does not deliver into the widget or flip
+    # the session to human_open. Flip to true only when the joint live-handover
+    # acceptance programme signs off (mirrors KET's LIVE_HANDOVER_ENABLED).
+    app.config['LIVE_HANDOVER_ENABLED'] = os.environ.get('LIVE_HANDOVER_ENABLED', 'false').lower() == 'true'
+
     # Shared Bearer token for /ops/* endpoints and the read-only ACR Ops Console.
     # Server-side only, no fallback: when unset the Bearer path fails closed
     # (admin sessions still work). See ops._require_ops_auth.

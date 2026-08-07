@@ -1900,6 +1900,13 @@ def chat_agent_reply():
     ):
         return jsonify({'error': 'invalid signature'}), 401
 
+    # Live in-widget handover is OFF by default (ticket-based escalation only).
+    # A valid, signed agent-reply is accepted but intentionally not delivered:
+    # no widget message, no flip to human_open. Flip LIVE_HANDOVER_ENABLED only
+    # after the joint live-handover acceptance programme signs off.
+    if not current_app.config.get('LIVE_HANDOVER_ENABLED', False):
+        return jsonify({'status': 'ignored', 'reason': 'live_handover_disabled'}), 202
+
     data = request.get_json(force=True, silent=True) or {}
     session_id = data.get('session_id', '').strip()
     content = data.get('content', '').strip()
