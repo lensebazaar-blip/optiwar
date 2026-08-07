@@ -64,6 +64,9 @@ class TestAcrReportSection(unittest.TestCase):
         self.assertIsNone(s._nav_execution_rate({"PENDING": 4}))
         self.assertIsNone(s._nav_execution_rate({}))
         self.assertIsNone(s._nav_execution_rate(None))
+        # Time-expired offers count as non-executed terminal outcomes: 3 executed
+        # of (3 executed + 1 expired) = 75%, not a fabricated 100%.
+        self.assertEqual(s._nav_execution_rate({"EXECUTED": 3, "PENDING": 2}, 1), 75.0)
 
     def test_rate_status_thresholds(self):
         s = acr_report_section

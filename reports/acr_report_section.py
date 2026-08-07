@@ -68,7 +68,11 @@ def run_sql(query):
     c = _db_conf()
     if not (c["user"] and c["name"]):
         raise SqlError("db credentials not configured (ACR_REPORT_DB_* / MYSQL_*)")
-    cmd = ["mysql", "-h", c["host"], "-u", c["user"], c["name"], "-N", "-e", query]
+    # --no-defaults: use ONLY the explicit connection params below. A cron/root
+    # my.cnf ([client] user/password) would otherwise override MYSQL_PWD and make
+    # the client authenticate as the wrong (privileged) identity.
+    cmd = ["mysql", "--no-defaults", "-h", c["host"], "-u", c["user"],
+           c["name"], "-N", "-e", query]
     env = dict(os.environ, MYSQL_PWD=c["passwd"])  # avoid -p on argv
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=env)
@@ -225,13 +229,19 @@ def _worst(*statuses):
 TERMINAL_STATUSES = ("EXECUTED", "FAILED", "BLOCKED", "EXPIRED")
 
 
-def _nav_execution_rate(nav):
-    """executed / terminal outcomes. PENDING/SUPERSEDED are in-flight or replaced,
-    not failures, so they are excluded from the denominator. Returns None when
-    there are no terminal outcomes yet (rate is not meaningful)."""
+def _nav_execution_rate(nav, expired_extra=0):
+    """executed / terminal outcomes.
+
+    Terminal = the terminal ai_actions statuses (EXECUTED/FAILED/BLOCKED/EXPIRED)
+    PLUS time-expired offers (``expired_extra``): the app never writes an EXPIRED
+    status — expiry is derived from PENDING rows whose ``expires_at`` has passed —
+    so those must be counted here as non-executed, or the rate is inflated.
+    Still-live PENDING and CONFIRMED-but-unresolved actions are in-flight (their
+    outcome hasn't arrived) and are deliberately excluded. Returns None when there
+    are no terminal outcomes yet (rate is not meaningful)."""
     if not nav:
         return None
-    terminal = sum(v for k, v in nav.items() if k in TERMINAL_STATUSES)
+    terminal = sum(v for k, v in nav.items() if k in TERMINAL_STATUSES) + (expired_extra or 0)
     if terminal == 0:
         return None
     return round(100.0 * nav.get("EXECUTED", 0) / terminal, 1)
@@ -283,7 +293,7 @@ def build():
         failed = nav.get("FAILED", 0)
         blocked = nav.get("BLOCKED", 0)
         expired = nav.get("EXPIRED", 0) + (m.get("nav_expired_by_time") or 0)
-        success_rate = _nav_execution_rate(nav)
+        success_rate = _nav_execution_rate(nav, m.get("nav_expired_by_time") or 0)
     else:
         offered = executed = failed = blocked = expired = None
         success_rate = None
