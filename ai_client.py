@@ -435,6 +435,44 @@ def http_error_for(exc, request_id="-"):
     return unavailable_contract(request_id, getattr(exc, "retry_after", None))
 
 
+# ─── Per-call telemetry seam (Part B) ───
+# call_model stays DB/Flask-free by design, so it must not write ai_events.
+# Instead each outcome appends one record to a thread-local list; the web layer
+# (which holds the DB handle + session_id) reads it with pop_calls() after the
+# turn and emits exactly one terminal MODEL_* event per provider round-trip.
+_telemetry = threading.local()
+
+
+def _int_or_none(v):
+    """Coerce an SDK usage value to int, or None when absent. The emitter never
+    estimates token counts; a missing count is stored as null."""
+    try:
+        return int(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _record_call(**fields):
+    try:
+        lst = getattr(_telemetry, "calls", None)
+        if lst is None:
+            lst = _telemetry.calls = []
+        lst.append(fields)
+    except Exception:
+        pass
+
+
+def pop_calls():
+    """Return and clear this thread's accumulated per-round-trip telemetry
+    (list of dicts), or [] if none. Best-effort; never raises."""
+    try:
+        lst = getattr(_telemetry, "calls", None)
+        _telemetry.calls = []
+        return lst or []
+    except Exception:
+        return []
+
+
 def call_model(*, workload, messages, model=None, deadline=None, max_tokens=None,
                temperature=None, endpoint="-", request_id="-", **extra):
     """Single guarded chat-completion entry point. Raises ModelError subclasses."""
@@ -456,6 +494,8 @@ def call_model(*, workload, messages, model=None, deadline=None, max_tokens=None
         _log(logger, endpoint=endpoint, workload=workload, provider=wl["provider"],
              outcome="capacity_rejected", reason="total_full",
              capacity_limit=pools.total_limit, rid=request_id)
+        _record_call(kind="admission_503", provider=wl["provider"], model=model,
+                     workload=workload, failure_code="total_full", request_id=request_id)
         raise ModelCapacityExceeded(retry_after=_retry_after(), workload=workload)
 
     got_wl = False
@@ -465,6 +505,8 @@ def call_model(*, workload, messages, model=None, deadline=None, max_tokens=None
             _log(logger, endpoint=endpoint, workload=workload, provider=wl["provider"],
                  outcome="capacity_rejected", reason="workload_full",
                  capacity_limit=pools.workload_limit.get(workload), rid=request_id)
+            _record_call(kind="admission_503", provider=wl["provider"], model=model,
+                         workload=workload, failure_code="workload_full", request_id=request_id)
             raise ModelCapacityExceeded(retry_after=_retry_after(), workload=workload)
 
         with pools.lock:
@@ -477,6 +519,9 @@ def call_model(*, workload, messages, model=None, deadline=None, max_tokens=None
             _log(logger, endpoint=endpoint, workload=workload, provider=wl["provider"],
                  outcome="deadline_exceeded", reason="pre_attempt",
                  queue_wait_ms=queue_wait_ms, rid=request_id)
+            _record_call(kind="model_timeout", provider=wl["provider"], model=model,
+                         workload=workload, failure_code="pre_attempt",
+                         duration_ms=queue_wait_ms, request_id=request_id)
             raise ModelDeadlineExceeded()
 
         per_attempt = float(_cfg_int("AI_PER_ATTEMPT_TIMEOUT", int(PER_ATTEMPT_TIMEOUT)))
@@ -507,16 +552,26 @@ def call_model(*, workload, messages, model=None, deadline=None, max_tokens=None
                  requested_model=model, queue_wait_ms=queue_wait_ms,
                  provider_duration_ms=int((time.monotonic() - provider_start) * 1000),
                  rid=request_id)
+            _record_call(kind="model_timeout", provider=wl["provider"], model=model,
+                         workload=workload, failure_code="provider_timeout",
+                         duration_ms=int((time.monotonic() - provider_start) * 1000),
+                         request_id=request_id)
             raise ModelDeadlineExceeded() from e
         except RateLimitError as e:
             _log(logger, endpoint=endpoint, workload=workload, provider=wl["provider"],
                  outcome="provider_429", requested_model=model,
                  queue_wait_ms=queue_wait_ms, rid=request_id)
+            _record_call(kind="admission_503", provider=wl["provider"], model=model,
+                         workload=workload, failure_code="provider_429", request_id=request_id)
             raise ModelCapacityExceeded(retry_after=_retry_after(), workload=workload) from e
         except (APIConnectionError, InternalServerError) as e:
             _log(logger, endpoint=endpoint, workload=workload, provider=wl["provider"],
                  outcome="provider_unavailable", reason=type(e).__name__,
                  requested_model=model, queue_wait_ms=queue_wait_ms, rid=request_id)
+            _record_call(kind="provider_failure", provider=wl["provider"], model=model,
+                         workload=workload, failure_code=type(e).__name__,
+                         duration_ms=int((time.monotonic() - provider_start) * 1000),
+                         request_id=request_id)
             raise ModelProviderUnavailable(retry_after=_retry_after()) from e
 
         usage = getattr(resp, "usage", None)
@@ -538,6 +593,13 @@ def call_model(*, workload, messages, model=None, deadline=None, max_tokens=None
              input_tokens=getattr(usage, "prompt_tokens", "-") if usage else "-",
              output_tokens=getattr(usage, "completion_tokens", "-") if usage else "-",
              rid=request_id)
+        _record_call(kind="model_call", provider=wl["provider"], model=model,
+                     actual_model=getattr(resp, "model", None),
+                     workload=workload, success=not content_empty,
+                     duration_ms=int((time.monotonic() - provider_start) * 1000),
+                     input_tokens=_int_or_none(getattr(usage, "prompt_tokens", None)),
+                     output_tokens=_int_or_none(getattr(usage, "completion_tokens", None)),
+                     request_id=request_id)
         return resp
     finally:
         if got_wl:

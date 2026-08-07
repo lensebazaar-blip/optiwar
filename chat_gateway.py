@@ -137,6 +137,39 @@ def _log_event(db, session_id, event_type, payload=None):
     )
 
 
+_MODEL_EVENT_BY_KIND = {
+    'model_call': acr.EV_MODEL_CALL,
+    'model_timeout': acr.EV_MODEL_TIMEOUT,
+    'admission_503': acr.EV_ADMISSION_503,
+    'provider_failure': acr.EV_PROVIDER_FAILURE,
+}
+
+
+def _emit_model_events(db, session_id, page_url):
+    """Drain the AI wrapper's per-round-trip telemetry and emit exactly one
+    canonical MODEL_* event per provider round-trip. Kept out of ai_client so
+    the model layer stays DB/Flask-free. Best-effort; never raises."""
+    try:
+        from .ai_client import pop_calls
+        calls = pop_calls()
+    except Exception:
+        return
+    for c in calls:
+        ev = _MODEL_EVENT_BY_KIND.get(c.get('kind'))
+        if not ev:
+            continue
+        payload = {'input_tokens': c.get('input_tokens'),
+                   'output_tokens': c.get('output_tokens'),
+                   'actual_model': c.get('actual_model')}
+        acr.log_event(
+            db, ev, session_id=session_id, page_url=page_url,
+            success=c.get('success') if ev == acr.EV_MODEL_CALL else False,
+            failure_code=c.get('failure_code'), duration_ms=c.get('duration_ms'),
+            request_id=c.get('request_id'), provider=c.get('provider'),
+            model=c.get('model'), workload=c.get('workload'),
+            payload={k: v for k, v in payload.items() if v is not None} or None)
+
+
 def _insert_message(db, session_id, source, role, content, status='sent', metadata=None,
                     client_message_id=None):
     """Insert a chat_messages row. Returns the row id.
@@ -1377,6 +1410,11 @@ def chat_start():
     _log_event(db, session_id, 'session_created', {
         'email': email, 'name': name, 'page_url': page_url
     })
+    # Canonical event: emitted once at real creation only (never on resume).
+    acr.log_event(db, acr.EV_SESSION_STARTED, session_id=session_id,
+                  journey_stage=acr.STAGE_LANDING, page_url=page_url,
+                  consent_scope=acr.CONSENT_FUNCTIONAL,
+                  payload={'authenticated': bool(customer_id)})
 
     # Send welcome message
     welcome = f"Hi {name or 'there'}, I am here to help \u2013 ask me anything you need"
@@ -1483,6 +1521,24 @@ def chat_message():
     ai_reply, error = _call_deepseek(system_prompt, history, content, is_india=is_india,
                                      endpoint="chat_gateway.message", gate_key=session_id)
 
+    # Canonical MODEL_* events: one terminal event per provider round-trip,
+    # drained from the wrapper telemetry regardless of success/shed/failure.
+    _emit_model_events(db, session_id, page_url)
+    # Canonical RECOMMENDATION_GENERATED: emitted when the model's product search
+    # returned matches this turn. Carries immutable SKUs (product codes) for
+    # later recommendation-quality / inventory / revenue attribution.
+    try:
+        _recs = getattr(g, '_chat_nav_products', None)
+        if _recs is not None:
+            _skus = [p.get('code') for p in _recs if p.get('code')]
+            acr.log_event(db, acr.EV_RECOMMENDATION_GENERATED, session_id=session_id,
+                          journey_stage=acr.STAGE_RECOMMENDATION, page_url=page_url,
+                          success=bool(_skus),
+                          payload={'result_count': len(_recs), 'skus': _skus[:20],
+                                   'filters': getattr(g, '_chat_nav_filters', None)})
+    except Exception:
+        pass
+
     if error == 'ai_temporarily_unavailable':
         # Retryable capacity/deadline shed from the wrapper. Return the public 503
         # contract so the frontend can soft-retry once (reusing client_message_id).
@@ -1524,6 +1580,20 @@ def chat_message():
     # with the matched product's canonical catalog URL when applicable.
     navigate_url = _resolve_product_nav(navigate_url, content)
 
+    # ── Authoritative server-side navigation-safety gate ──
+    # Policy decides here (browser safeUrl() is only defence-in-depth). A
+    # model-proposed off-site/unsafe URL is blocked and replaced with the safe
+    # frames listing so navigation never dead-ends; both the URL-level and
+    # action-level rejections are recorded as canonical events.
+    if navigate_url and not acr.is_safe_nav_url(navigate_url):
+        acr.log_event(db, acr.EV_UNSAFE_URL_REJECTED, session_id=session_id,
+                      journey_stage=acr.STAGE_NAVIGATION, page_url=page_url,
+                      failure_code='unsafe_url')
+        acr.log_event(db, acr.EV_ACTION_BLOCKED, session_id=session_id,
+                      journey_stage=acr.STAGE_NAVIGATION, action_type='NAVIGATE',
+                      success=False, failure_code='unsafe_url')
+        navigate_url = acr.FRAMES_LISTING_FALLBACK
+
     # ── ACR canary gate (safeguard #3) ──
     # When ACR is not enabled for this session, ordinary customers keep the exact
     # pre-ACR stable path (no pending actions, no fallback button, no result
@@ -1555,9 +1625,9 @@ def chat_message():
         # we can, otherwise log the incident (never leave the promise unbacked).
         if 'navigate' not in actions and acr.promises_navigation(ai_reply):
             recovered = _recover_nav_target()
-            acr.log_event(db, 'AI_PROMISE_WITHOUT_ACTION', session_id=session_id,
-                          page_url=page_url,
-                          payload={'reply_head': ai_reply[:160], 'recovered': bool(recovered)})
+            acr.log_event(db, acr.EV_PROMISE_WITHOUT_ACTION, session_id=session_id,
+                          journey_stage=acr.STAGE_NAVIGATION, page_url=page_url,
+                          payload={'recovered': bool(recovered)})
             if recovered:
                 navigate_url = recovered
                 actions.append('navigate')
@@ -1618,6 +1688,19 @@ def chat_message():
     if 'human_handover' in actions or 'create_ticket' in actions:
         # STEP 1: Create ticket via solid 3-step flow (DB + KET + fallback email)
         local_ticket_id, ket_ticket_id = _forward_ticket_from_chat(db, session_id, session, page_url)
+
+        # Canonical escalation/ticket events (authoritative point: right after
+        # the ticket flow completes). HANDOVER_ESCALATED marks the human-handover
+        # decision; KET_TICKET_CREATED reconciles against actual ticket creation
+        # and carries only ticket-reference ids (no PII).
+        if 'human_handover' in actions:
+            acr.log_event(db, acr.EV_HANDOVER_ESCALATED, session_id=session_id,
+                          journey_stage=acr.STAGE_SUPPORT, action_type='HANDOVER')
+        if local_ticket_id or ket_ticket_id:
+            acr.log_event(db, acr.EV_KET_TICKET_CREATED, session_id=session_id,
+                          journey_stage=acr.STAGE_SUPPORT, success=bool(ket_ticket_id),
+                          payload={'ket_ticket_id': ket_ticket_id,
+                                   'local_ticket_id': local_ticket_id})
 
         # Build ticket reference for customer
         ticket_ref = ""
@@ -1777,6 +1860,16 @@ def acr_ops_console():
     from flask import session
     from .ops import _require_ops_auth
     if not _require_ops_auth():
+        # Canonical audit of a failed console auth attempt. IP only — never a
+        # guessed actor identity or any token material.
+        _dbf = _get_db()
+        try:
+            _fwd = request.headers.get('X-Forwarded-For', '')
+            _ip = (_fwd.split(',')[0].strip() if _fwd else request.remote_addr)
+            acr.log_event(_dbf, acr.EV_OPS_CONSOLE_AUTH_FAILURE, success=False,
+                          failure_code='unauthorized', payload={'ip': _ip})
+        finally:
+            _dbf.close()
         return jsonify({'error': 'unauthorized'}), 401
     try:
         hours = max(1, min(int(request.args.get('hours', 24)), 720))
@@ -1793,7 +1886,7 @@ def acr_ops_console():
         actor = session.get('user_email') or 'bearer_token'
         fwd = request.headers.get('X-Forwarded-For', '')
         client_ip = (fwd.split(',')[0].strip() if fwd else request.remote_addr)
-        acr.log_event(db, 'OPS_CONSOLE_ACCESS',
+        acr.log_event(db, acr.EV_OPS_CONSOLE_ACCESS,
                       payload={'actor': actor, 'ip': client_ip,
                                'scope': {'hours': hours, 'limit': limit},
                                'format': request.args.get('format', 'html')})

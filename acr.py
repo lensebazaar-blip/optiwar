@@ -63,6 +63,103 @@ _NAV_OFFER_TARGET_RE = re.compile(
 PENDING_TTL_SECONDS = 1800  # 30 min
 FRAMES_LISTING_FALLBACK = "/eyeglasses/all-spectacle-frames.html"
 
+# ─── Canonical ACR event vocabulary (Part B) ───
+# One authoritative name per lifecycle state. These replace the legacy
+# AI_ACTION_* strings going forward; the Daily Report keeps a temporary
+# read-side alias for historical rows until one clean observation window has
+# passed (then the alias is retired). Never dual-write both names.
+EV_SESSION_STARTED = "SESSION_STARTED"
+EV_SESSION_RESUMED = "SESSION_RESUMED"           # reserved (not emitted yet)
+EV_RECOMMENDATION_GENERATED = "RECOMMENDATION_GENERATED"
+EV_NAVIGATION_OFFERED = "NAVIGATION_OFFERED"
+EV_ACTION_CONFIRMED = "ACTION_CONFIRMED"
+EV_ACTION_EXECUTED = "ACTION_EXECUTED"
+EV_ACTION_FAILED = "ACTION_FAILED"
+EV_ACTION_BLOCKED = "ACTION_BLOCKED"
+EV_ACTION_EXPIRED = "ACTION_EXPIRED"
+EV_PROMISE_WITHOUT_ACTION = "PROMISE_WITHOUT_ACTION"
+EV_UNSAFE_URL_REJECTED = "UNSAFE_URL_REJECTED"
+EV_MODEL_CALL = "MODEL_CALL"
+EV_MODEL_TIMEOUT = "MODEL_TIMEOUT"
+EV_ADMISSION_503 = "ADMISSION_503"
+EV_PROVIDER_FAILURE = "PROVIDER_FAILURE"
+EV_HANDOVER_ESCALATED = "HANDOVER_ESCALATED"
+EV_KET_TICKET_CREATED = "KET_TICKET_CREATED"
+EV_SESSION_OUTCOME = "SESSION_OUTCOME"
+EV_OPS_CONSOLE_ACCESS = "OPS_CONSOLE_ACCESS"
+EV_OPS_CONSOLE_AUTH_FAILURE = "OPS_CONSOLE_AUTH_FAILURE"
+
+# Journey stages (coarse, safe to store).
+STAGE_LANDING = "LANDING"
+STAGE_RECOMMENDATION = "RECOMMENDATION"
+STAGE_NAVIGATION = "NAVIGATION"
+STAGE_SUPPORT = "SUPPORT"
+
+# Purpose-specific consent scopes (never inferred; the caller passes the
+# effective scope for that event). VARCHAR(32) stores a single effective scope;
+# a structured multi-scope representation can be layered on later.
+CONSENT_FUNCTIONAL = "functional"
+CONSENT_ANALYTICS = "analytics"
+CONSENT_SENSITIVE_AI = "sensitive_ai"
+CONSENT_VOICE = "voice"
+CONSENT_ATTACHMENT = "attachment_processing"
+
+# Typed columns added to ai_events by the Part-B idempotent migration.
+_AI_EVENTS_EXTRA_COLS = (
+    ("request_id", "VARCHAR(64) NULL"),
+    ("provider", "VARCHAR(24) NULL"),
+    ("model", "VARCHAR(64) NULL"),
+    ("workload", "VARCHAR(32) NULL"),
+    ("consent_scope", "VARCHAR(32) NULL"),
+)
+
+
+# Hosts a navigation action is allowed to point at. Authoritative server-side
+# policy; the browser safeUrl() remains defence-in-depth, not the decision.
+_SAFE_NAV_HOSTS = (
+    "optiwar.com", "www.optiwar.com", "in.optiwar.com", "optiwar.in",
+    "www.optiwar.in",
+)
+
+
+def is_safe_nav_url(url):
+    """Deterministic server-side navigation-safety check. Same-origin optiwar
+    paths only. Returns True for a site-relative path ('/x') or an absolute URL
+    on an approved optiwar host over http(s); False for anything else
+    (external host, protocol-relative '//host', javascript:/data: schemes)."""
+    if not url:
+        return True  # no navigation to gate
+    u = str(url).strip()
+    if not u:
+        return True
+    if u.startswith("//"):
+        return False
+    if u.startswith("/"):
+        return True
+    try:
+        from urllib.parse import urlsplit
+        p = urlsplit(u)
+    except Exception:
+        return False
+    if p.scheme not in ("http", "https"):
+        return False
+    host = (p.hostname or "").lower()
+    return host in _SAFE_NAV_HOSTS
+
+
+def sanitize_url_for_event(url):
+    """Return a storage-safe URL for events: scheme+host+path only, query and
+    fragment stripped (a query string can carry email/token/PII). Returns None
+    for a falsy input."""
+    if not url:
+        return None
+    try:
+        from urllib.parse import urlsplit, urlunsplit
+        p = urlsplit(str(url))
+        return urlunsplit((p.scheme, p.netloc, p.path, "", "")) or str(url).split("?", 1)[0]
+    except Exception:
+        return str(url).split("?", 1)[0]
+
 # Catalog filters that identify a recommendation, in URL order.
 NAV_FILTER_KEYS = ('color', 'shape', 'facefit', 'min_price', 'max_price')
 
@@ -163,16 +260,82 @@ def ensure_schema(get_conn):
                 KEY idx_session (session_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
         )
+        _ensure_ai_events_columns(cur)
     finally:
         conn.close()
+
+
+def _ensure_ai_events_columns(cur):
+    """Idempotently add the Part-B typed columns to ai_events. Additive only;
+    each column is guarded by an information_schema check so re-runs and
+    read-only replicas never error. Best-effort: a failure here must not block
+    boot or the event path (callers already run ensure_schema best-effort)."""
+    for name, decl in _AI_EVENTS_EXTRA_COLS:
+        try:
+            cur.execute(
+                """SELECT COUNT(*) FROM information_schema.COLUMNS
+                   WHERE table_schema=DATABASE() AND table_name='ai_events'
+                     AND column_name=%s""",
+                (name,),
+            )
+            row = cur.fetchone()
+            exists = (row[0] if isinstance(row, (list, tuple)) else
+                      list(row.values())[0]) if row else 0
+            if not exists:
+                cur.execute("ALTER TABLE ai_events ADD COLUMN %s %s" % (name, decl))
+        except Exception:
+            # Column may already exist / insufficient grant / replica — skip.
+            pass
+    for idx, cols in (("idx_provider_model", "provider, model"),
+                      ("idx_request", "request_id")):
+        try:
+            cur.execute(
+                """SELECT COUNT(*) FROM information_schema.STATISTICS
+                   WHERE table_schema=DATABASE() AND table_name='ai_events'
+                     AND index_name=%s""",
+                (idx,),
+            )
+            row = cur.fetchone()
+            has = (row[0] if isinstance(row, (list, tuple)) else
+                   list(row.values())[0]) if row else 0
+            if not has:
+                cur.execute("ALTER TABLE ai_events ADD KEY %s (%s)" % (idx, cols))
+        except Exception:
+            pass
 
 
 # ─── Canonical event stream (A2 / minimum of the ACR-5 event model) ───
 
 def log_event(db, event_type, session_id=None, action_id=None, journey_stage=None,
               action_type=None, page_url=None, success=None, failure_code=None,
-              duration_ms=None, payload=None):
-    """Append an AI event. Best-effort: never raises into the request path."""
+              duration_ms=None, payload=None, request_id=None, provider=None,
+              model=None, workload=None, consent_scope=None):
+    """Append an AI event. Best-effort: never raises into the request path.
+
+    The typed Part-B columns (request_id/provider/model/workload/consent_scope)
+    are written when present. If the columns are absent (migration not yet
+    applied on this DB), the INSERT falls back to the legacy column set so a
+    lagging schema never drops the event."""
+    page_url = sanitize_url_for_event(page_url)
+    success_i = None if success is None else (1 if success else 0)
+    payload_s = json.dumps(payload) if payload else None
+    try:
+        cur = db.cursor()
+        cur.execute(
+            """INSERT INTO ai_events
+                  (event_id, event_type, session_id, action_id, journey_stage,
+                   action_type, page_url, success, failure_code, duration_ms,
+                   payload, request_id, provider, model, workload, consent_scope,
+                   created_at)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())""",
+            (uuid.uuid4().hex, event_type, session_id, action_id, journey_stage,
+             action_type, page_url, success_i, failure_code, duration_ms,
+             payload_s, request_id, provider, model, workload, consent_scope),
+        )
+        return
+    except Exception:
+        pass
+    # Fallback for a DB where the Part-B columns don't exist yet.
     try:
         cur = db.cursor()
         cur.execute(
@@ -182,10 +345,7 @@ def log_event(db, event_type, session_id=None, action_id=None, journey_stage=Non
                    payload, created_at)
                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())""",
             (uuid.uuid4().hex, event_type, session_id, action_id, journey_stage,
-             action_type, page_url,
-             None if success is None else (1 if success else 0),
-             failure_code, duration_ms,
-             json.dumps(payload) if payload else None),
+             action_type, page_url, success_i, failure_code, duration_ms, payload_s),
         )
     except Exception:
         pass
@@ -219,8 +379,9 @@ def create_pending_action(db, session_id, action_type, target, source_message_id
         )
     except Exception:
         return None
-    log_event(db, 'AI_ACTION_PROPOSED', session_id=session_id, action_id=action_id,
-              action_type=action_type, payload={'target': target})
+    log_event(db, EV_NAVIGATION_OFFERED, session_id=session_id, action_id=action_id,
+              action_type=action_type, journey_stage=STAGE_NAVIGATION,
+              payload={'target_path': sanitize_url_for_event(target)})
     return action_id
 
 
@@ -242,11 +403,34 @@ def get_live_pending_action(db, session_id, action_type='NAVIGATE'):
 
 
 def mark_action(db, action_id, status, result_code=None, duration_ms=None):
-    """Best-effort status update; never raises into the request path."""
+    """Best-effort status update; never raises into the request path.
+
+    For the PENDING->CONFIRMED edge this emits exactly one ACTION_CONFIRMED
+    event (guarded by the WHERE status='PENDING' rowcount), so confirmation is
+    counted once regardless of which call site confirms the action."""
     if not action_id:
         return False
     try:
         cur = db.cursor()
+        if status == 'CONFIRMED':
+            cur.execute(
+                """UPDATE ai_actions SET status='CONFIRMED', resolved_at=NOW()
+                   WHERE action_id=%s AND status='PENDING'""",
+                (action_id,),
+            )
+            if cur.rowcount and cur.rowcount > 0:
+                cur.execute(
+                    "SELECT session_id, action_type FROM ai_actions WHERE action_id=%s",
+                    (action_id,),
+                )
+                r = cur.fetchone()
+                if r:
+                    sid = r['session_id'] if isinstance(r, dict) else r[0]
+                    at = r['action_type'] if isinstance(r, dict) else r[1]
+                    log_event(db, EV_ACTION_CONFIRMED, session_id=sid,
+                              action_id=action_id, action_type=at,
+                              journey_stage=STAGE_NAVIGATION)
+            return True
         cur.execute(
             """UPDATE ai_actions
                SET status=%s, result_code=%s, duration_ms=%s, resolved_at=NOW()
@@ -272,11 +456,15 @@ def record_action_result(db, action_id, success, failure_code=None, duration_ms=
         return False
     if not row:
         return False
+    sid = row['session_id'] if isinstance(row, dict) else row[0]
+    at = row['action_type'] if isinstance(row, dict) else row[1]
+    # Executed is recorded ONLY here, on the verified browser callback — never
+    # optimistically at confirmation time — so it is counted exactly once.
     mark_action(db, action_id, 'EXECUTED' if success else 'FAILED',
                 result_code=failure_code, duration_ms=duration_ms)
-    log_event(db, 'AI_ACTION_COMPLETED' if success else 'AI_ACTION_FAILED',
-              session_id=row['session_id'], action_id=action_id,
-              action_type=row['action_type'], success=bool(success),
+    log_event(db, EV_ACTION_EXECUTED if success else EV_ACTION_FAILED,
+              session_id=sid, action_id=action_id, action_type=at,
+              journey_stage=STAGE_NAVIGATION, success=bool(success),
               failure_code=failure_code, duration_ms=duration_ms)
     return True
 
