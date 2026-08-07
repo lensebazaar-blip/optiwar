@@ -63,6 +63,57 @@ _NAV_OFFER_TARGET_RE = re.compile(
 PENDING_TTL_SECONDS = 1800  # 30 min
 FRAMES_LISTING_FALLBACK = "/eyeglasses/all-spectacle-frames.html"
 
+# ─── Step 5: closure/sweeper constants ───
+# Inactivity after which a session becomes an *abandonment candidate* — i.e.
+# eligible for closure. This is NOT the terminal outcome: a resumable shopper
+# can still return and reset last_activity. The immutable SESSION_OUTCOME is
+# only written at the real terminal boundary (session archived/closed by the
+# existing stale-session lifecycle), never at the 120-minute mark.
+ABANDONMENT_CANDIDATE_MINUTES = 120
+
+# The terminal boundary for emitting SESSION_OUTCOME. A session is only given an
+# immutable outcome once it reaches this status (set by archive_stale_sessions).
+TERMINAL_SESSION_STATUS = "archived"
+
+# Session outcomes and their precedence (higher wins). Never decided by an LLM:
+# PURCHASED  <- commerce/order truth
+# ESCALATED  <- handover/ticket truth
+# FAILED     <- defined terminal failure signal
+# ABANDONED  <- archived without a normal resolution (matured candidate)
+# ANSWERED   <- residual: archived after a normal resolution, none of the above
+OUTCOME_PURCHASED = "PURCHASED"
+OUTCOME_ESCALATED = "ESCALATED"
+OUTCOME_FAILED = "FAILED"
+OUTCOME_ABANDONED = "ABANDONED"
+OUTCOME_ANSWERED = "ANSWERED"
+_OUTCOME_PRIORITY = (
+    OUTCOME_PURCHASED,
+    OUTCOME_ESCALATED,
+    OUTCOME_FAILED,
+    OUTCOME_ABANDONED,
+    OUTCOME_ANSWERED,
+)
+
+
+def decide_session_outcome(has_order=False, is_escalated=False, is_failed=False,
+                           normally_resolved=False):
+    """Deterministic session-outcome decision (pure). Applies the fixed
+    precedence PURCHASED -> ESCALATED -> FAILED -> ABANDONED -> ANSWERED using
+    caller-supplied truth booleans. Never consults an LLM.
+
+    ``normally_resolved`` distinguishes ANSWERED (session closed normally) from
+    ABANDONED (archived after inactivity without a normal resolution). A session
+    reaching the terminal boundary always yields exactly one outcome."""
+    if has_order:
+        return OUTCOME_PURCHASED
+    if is_escalated:
+        return OUTCOME_ESCALATED
+    if is_failed:
+        return OUTCOME_FAILED
+    if normally_resolved:
+        return OUTCOME_ANSWERED
+    return OUTCOME_ABANDONED
+
 # ─── Canonical ACR event vocabulary (Part B) ───
 # One authoritative name per lifecycle state. These replace the legacy
 # AI_ACTION_* strings going forward; the Daily Report keeps a temporary
@@ -467,6 +518,216 @@ def record_action_result(db, action_id, success, failure_code=None, duration_ms=
               journey_stage=STAGE_NAVIGATION, success=bool(success),
               failure_code=failure_code, duration_ms=duration_ms)
     return True
+
+
+# ─── Step 5: closure / sweeper (ACTION_EXPIRED + SESSION_OUTCOME) ───
+#
+# Two edge-triggered, idempotent, bounded sweeps intended to run under a single
+# runner (advisory lock) on a short cron. Both honour a dry-run mode that
+# computes and returns what WOULD change without writing anything.
+#
+#   1. expire_due_actions()  — PENDING ai_actions past expires_at become
+#      EXPIRED; exactly one ACTION_EXPIRED event per row this run actually
+#      transitions (the atomic UPDATE ... WHERE status='PENDING' rowcount is
+#      the edge trigger, so two overlapping runs can't double-emit).
+#
+#   2. finalize_archived_session_outcomes() — archived sessions with no
+#      recorded outcome get exactly one immutable SESSION_OUTCOME. Idempotency
+#      is enforced by an atomic INSERT-claim into the ai_session_outcomes ledger
+#      (session_id PRIMARY KEY): the run that wins the INSERT is the only one
+#      that emits the event, so overlapping runs can't produce duplicate
+#      terminal outcomes. The 120-minute mark only makes a session an
+#      abandonment *candidate*; the terminal outcome waits for TERMINAL_SESSION_STATUS.
+
+def ensure_closure_schema(get_conn):
+    """Create the additive SESSION_OUTCOME idempotency ledger if absent. The
+    session_id PRIMARY KEY is the one-per-session guarantee (atomic claim), not
+    a SELECT-then-INSERT. Never alters existing tables; best-effort."""
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """CREATE TABLE IF NOT EXISTS ai_session_outcomes (
+                session_id VARCHAR(64) PRIMARY KEY,
+                outcome    VARCHAR(16) NOT NULL,
+                event_id   VARCHAR(36) NULL,
+                created_at DATETIME NOT NULL,
+                KEY idx_outcome (outcome),
+                KEY idx_created (created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
+        )
+    finally:
+        conn.close()
+
+
+def find_due_actions(db, limit=500):
+    """Return PENDING actions already past their expiry (bounded, indexed by
+    the idx_session_status / idx_created keys). Read-only; used by both dry-run
+    and live sweeps so the two see the same candidate set."""
+    cur = db.cursor()
+    cur.execute(
+        """SELECT action_id, session_id, action_type FROM ai_actions
+           WHERE status='PENDING' AND expires_at IS NOT NULL AND expires_at < NOW()
+           ORDER BY expires_at ASC LIMIT %s""",
+        (int(limit),),
+    )
+    return cur.fetchall() or []
+
+
+def expire_due_actions(db, dry_run=True, limit=500):
+    """Expire PENDING actions past expires_at. Edge-triggered and idempotent:
+    each row is claimed with an atomic UPDATE guarded by status='PENDING', and
+    ACTION_EXPIRED is emitted only for rows this run actually transitioned.
+
+    Returns a dict {'candidates': [...], 'expired': [...]}. In dry_run the
+    'expired' list is what WOULD be expired and nothing is written."""
+    rows = find_due_actions(db, limit=limit)
+    candidates = []
+    for r in rows:
+        aid = r['action_id'] if isinstance(r, dict) else r[0]
+        sid = r['session_id'] if isinstance(r, dict) else r[1]
+        at = r['action_type'] if isinstance(r, dict) else r[2]
+        candidates.append({'action_id': aid, 'session_id': sid, 'action_type': at})
+    if dry_run:
+        return {'candidates': candidates, 'expired': list(candidates)}
+    expired = []
+    for c in candidates:
+        try:
+            cur = db.cursor()
+            cur.execute(
+                """UPDATE ai_actions SET status='EXPIRED', resolved_at=NOW()
+                   WHERE action_id=%s AND status='PENDING'""",
+                (c['action_id'],),
+            )
+            if cur.rowcount and cur.rowcount > 0:
+                log_event(db, EV_ACTION_EXPIRED, session_id=c['session_id'],
+                          action_id=c['action_id'], action_type=c['action_type'],
+                          journey_stage=STAGE_NAVIGATION, success=False,
+                          failure_code='expired')
+                expired.append(c)
+        except Exception:
+            # Best-effort: a single row failing must not abort the batch.
+            pass
+    return {'candidates': candidates, 'expired': expired}
+
+
+def _scalar1(cur):
+    row = cur.fetchone()
+    if not row:
+        return None
+    return list(row.values())[0] if isinstance(row, dict) else row[0]
+
+
+def _exists(db, sql, params):
+    """True iff the indexed LIMIT-1 probe returns a row. Best-effort per signal:
+    a missing/denied truth table degrades that one signal to False rather than
+    aborting the whole sweep (documented — optiwar_closer must have SELECT on
+    every truth table for outcomes to be accurate)."""
+    try:
+        cur = db.cursor()
+        cur.execute(sql, params)
+        return _scalar1(cur) is not None
+    except Exception:
+        return False
+
+
+def gather_session_truth(db, session_id, customer_id, session_created_at):
+    """Collect the deterministic truth signals for one session, using indexed,
+    LIMIT-1 lookups only. Order/handover/failure/resolution are read from
+    commerce, chat-event and canonical-event tables — never inferred by a model.
+    Returns the kwargs for :func:`decide_session_outcome`."""
+    has_order = False
+    if customer_id is not None:
+        has_order = _exists(
+            db,
+            """SELECT 1 FROM orders
+               WHERE customer_id=%s AND is_test=0
+                 AND (%s IS NULL OR date_created >= %s) LIMIT 1""",
+            (customer_id, session_created_at, session_created_at),
+        )
+    # Escalation: a human agent replied, or a canonical handover/ticket event.
+    is_escalated = _exists(
+        db,
+        """SELECT 1 FROM chat_events
+           WHERE session_id=%s AND event_type='agent_reply' LIMIT 1""",
+        (session_id,),
+    ) or _exists(
+        db,
+        """SELECT 1 FROM ai_events
+           WHERE session_id=%s AND event_type IN (%s,%s) LIMIT 1""",
+        (session_id, EV_HANDOVER_ESCALATED, EV_KET_TICKET_CREATED),
+    )
+    # Failure: a defined terminal failure event for this session.
+    is_failed = _exists(
+        db,
+        """SELECT 1 FROM ai_events
+           WHERE session_id=%s AND event_type IN (%s,%s) LIMIT 1""",
+        (session_id, EV_ACTION_FAILED, EV_PROVIDER_FAILURE),
+    )
+    # Normal resolution: session was resolved before archival.
+    normally_resolved = _exists(
+        db,
+        """SELECT 1 FROM chat_events
+           WHERE session_id=%s AND event_type='session_resolved' LIMIT 1""",
+        (session_id,),
+    )
+    return {'has_order': has_order, 'is_escalated': is_escalated,
+            'is_failed': is_failed, 'normally_resolved': normally_resolved}
+
+
+def find_sessions_awaiting_outcome(db, limit=500):
+    """Archived sessions that have not yet been given an immutable outcome
+    (bounded, LEFT JOIN anti-join on the ledger). Read-only."""
+    cur = db.cursor()
+    cur.execute(
+        """SELECT s.session_id, s.customer_id, s.created_at
+           FROM chat_sessions s
+           LEFT JOIN ai_session_outcomes o ON o.session_id = s.session_id
+           WHERE s.status=%s AND o.session_id IS NULL
+           ORDER BY s.last_activity ASC LIMIT %s""",
+        (TERMINAL_SESSION_STATUS, int(limit)),
+    )
+    return cur.fetchall() or []
+
+
+def finalize_archived_session_outcomes(db, dry_run=True, limit=500):
+    """Assign exactly one immutable SESSION_OUTCOME to each archived session
+    that has none yet. Idempotent via an atomic INSERT-claim into
+    ai_session_outcomes (session_id PRIMARY KEY): only the run that wins the
+    claim emits the SESSION_OUTCOME event, so overlapping runs cannot duplicate.
+
+    Returns {'candidates': [{session_id, outcome}...], 'closed': [...]}.
+    In dry_run nothing is written and 'closed' mirrors 'candidates'."""
+    rows = find_sessions_awaiting_outcome(db, limit=limit)
+    candidates = []
+    for r in rows:
+        sid = r['session_id'] if isinstance(r, dict) else r[0]
+        cid = r['customer_id'] if isinstance(r, dict) else r[1]
+        created = r['created_at'] if isinstance(r, dict) else r[2]
+        truth = gather_session_truth(db, sid, cid, created)
+        outcome = decide_session_outcome(**truth)
+        candidates.append({'session_id': sid, 'outcome': outcome})
+    if dry_run:
+        return {'candidates': candidates, 'closed': list(candidates)}
+    closed = []
+    for c in candidates:
+        try:
+            event_id = uuid.uuid4().hex
+            cur = db.cursor()
+            cur.execute(
+                """INSERT IGNORE INTO ai_session_outcomes
+                     (session_id, outcome, event_id, created_at)
+                   VALUES (%s,%s,%s,NOW())""",
+                (c['session_id'], c['outcome'], event_id),
+            )
+            if cur.rowcount and cur.rowcount > 0:
+                log_event(db, EV_SESSION_OUTCOME, session_id=c['session_id'],
+                          success=(c['outcome'] != OUTCOME_FAILED),
+                          payload={'outcome': c['outcome']})
+                closed.append(c)
+        except Exception:
+            pass
+    return {'candidates': candidates, 'closed': closed}
 
 
 # ─── Fallback affordance ───
