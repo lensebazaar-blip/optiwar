@@ -16,6 +16,7 @@ from .embed_helper import (
 )
 from .cart_persist import save_cart_to_db, clear_cart_in_db
 from .cl_range_model import add_prescription_of_cl
+from .country_iso import country_to_iso2
 import re
 import ast
 from datetime import datetime, timedelta
@@ -134,19 +135,26 @@ def inject_currency():
 
 
 
-def calculate_ship_date(start_date=None):
-    if not start_date:
-        start_date = datetime.now()
-
-    ship_days = 2
-    days_added = 0
+def _add_business_days(start_date, n):
+    """Add n days to start_date, skipping Sundays (weekday() == 6)."""
     current_date = start_date
-
-    while days_added <  ship_days:
+    days_added = 0
+    while days_added < n:
         current_date += timedelta(days=1)
         if current_date.weekday() != 6:
-           days_added += 1
-    return current_date.strftime('%A, %d %B %Y')
+            days_added += 1
+    return current_date
+
+
+def dispatch_date_obj(start_date=None):
+    """Estimated dispatch date: 2 business days from start (skipping Sundays)."""
+    if not start_date:
+        start_date = datetime.now()
+    return _add_business_days(start_date, 2)
+
+
+def calculate_ship_date(start_date=None):
+    return dispatch_date_obj(start_date).strftime('%A, %d %B %Y')
 
 def safe_float(val, default=0.0):
     try:
@@ -3466,7 +3474,29 @@ def success(order_id):
         return "There is something wrong, why not contact customer service at +91-8010077770", 500
 
     ship_date = calculate_ship_date()
-    return render_template('success.html', order_details=order_details, grand_total=grand_total, ship_date=ship_date)
+
+    # Google Customer Reviews opt-in fields (order confirmation page).
+    gcr = None
+    if current_app.config.get('GCR_MERCHANT_ID') and order_details:
+        _row = order_details[0]
+        _email = _row.get('delivery_email') or _row.get('customer_email') or ''
+        _country = country_to_iso2(_row.get('country'))
+        # Estimated *delivery* date (ISO YYYY-MM-DD) = dispatch date + transit
+        # allowance, so Google schedules the review survey after the parcel is
+        # expected to arrive (not on dispatch). Transit differs by destination:
+        # domestic India vs. international (shipped from India).
+        _transit = (current_app.config['GCR_TRANSIT_DAYS_IN'] if _country == 'IN'
+                    else current_app.config['GCR_TRANSIT_DAYS_INTL'])
+        _delivery = _add_business_days(dispatch_date_obj(), _transit)
+        gcr = {
+            'merchant_id': current_app.config['GCR_MERCHANT_ID'],
+            'order_id': str(order_id),
+            'email': _email,
+            'delivery_country': _country,
+            'estimated_delivery_date': _delivery.strftime('%Y-%m-%d'),
+        }
+
+    return render_template('success.html', order_details=order_details, grand_total=grand_total, ship_date=ship_date, gcr=gcr)
 
 
 @bp.route('/terms_and_conditions')
