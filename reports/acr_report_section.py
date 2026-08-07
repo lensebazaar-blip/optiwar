@@ -68,7 +68,11 @@ def run_sql(query):
     c = _db_conf()
     if not (c["user"] and c["name"]):
         raise SqlError("db credentials not configured (ACR_REPORT_DB_* / MYSQL_*)")
-    cmd = ["mysql", "-h", c["host"], "-u", c["user"], c["name"], "-N", "-e", query]
+    # --no-defaults: use ONLY the explicit connection params below. A cron/root
+    # my.cnf ([client] user/password) would otherwise override MYSQL_PWD and make
+    # the client authenticate as the wrong (privileged) identity.
+    cmd = ["mysql", "--no-defaults", "-h", c["host"], "-u", c["user"],
+           c["name"], "-N", "-e", query]
     env = dict(os.environ, MYSQL_PWD=c["passwd"])  # avoid -p on argv
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=env)
@@ -183,13 +187,11 @@ def _collect():
         "AND status='PENDING' AND expires_at IS NOT NULL AND expires_at < NOW() "
         "AND created_at >= %s" % SINCE)))
 
-    # Human escalation + tickets
+    # Human escalations in the window. Counted from the canonical handover signal
+    # only; no all-time fallback (a genuine 0 must report as 0, not history).
     safe("escalations", lambda: _to_int(_scalar(
         "SELECT COUNT(DISTINCT session_id) FROM chat_events "
-        "WHERE event_type='agent_reply' AND created_at >= %s" % SINCE))
-        or _to_int(_scalar(
-            "SELECT COUNT(*) FROM chat_sessions WHERE status IN "
-            "('human_pending','human_open')")))
+        "WHERE event_type='agent_reply' AND created_at >= %s" % SINCE)))
 
     safe("ket_tickets", lambda: _to_int(_scalar(
         "SELECT COUNT(*) FROM tickets WHERE date_created >= %s" % SINCE)))
@@ -224,14 +226,25 @@ def _worst(*statuses):
     return max(real, key=lambda s: _ORDER[s])
 
 
-def _nav_success_rate(nav):
+TERMINAL_STATUSES = ("EXECUTED", "FAILED", "BLOCKED", "EXPIRED")
+
+
+def _nav_execution_rate(nav, expired_extra=0):
+    """executed / terminal outcomes.
+
+    Terminal = the terminal ai_actions statuses (EXECUTED/FAILED/BLOCKED/EXPIRED)
+    PLUS time-expired offers (``expired_extra``): the app never writes an EXPIRED
+    status — expiry is derived from PENDING rows whose ``expires_at`` has passed —
+    so those must be counted here as non-executed, or the rate is inflated.
+    Still-live PENDING and CONFIRMED-but-unresolved actions are in-flight (their
+    outcome hasn't arrived) and are deliberately excluded. Returns None when there
+    are no terminal outcomes yet (rate is not meaningful)."""
     if not nav:
         return None
-    offered = sum(nav.values())
-    if offered == 0:
+    terminal = sum(v for k, v in nav.items() if k in TERMINAL_STATUSES) + (expired_extra or 0)
+    if terminal == 0:
         return None
-    executed = nav.get("EXECUTED", 0)
-    return round(100.0 * executed / offered, 1)
+    return round(100.0 * nav.get("EXECUTED", 0) / terminal, 1)
 
 
 def _rate_status(rate, green_min, amber_min):
@@ -269,21 +282,34 @@ def build():
         return "\n".join([BANNER, "  ACR AI OPERATIONS (Last %dh)" % WINDOW_HOURS,
                           BANNER, "  [WARN] section unavailable: %s" % e, BANNER])
 
-    nav = m.get("nav_actions") or {}
-    offered = sum(nav.values()) if nav else 0
-    executed = nav.get("EXECUTED", 0)
-    failed = nav.get("FAILED", 0)
-    blocked = nav.get("BLOCKED", 0)
-    expired = nav.get("EXPIRED", 0) + (m.get("nav_expired_by_time") or 0)
-    success_rate = _nav_success_rate(nav)
+    # The action ledger (ai_actions) is the core health source. Distinguish
+    # "query degraded / no data" (None) from a genuine zero: when it is None we
+    # must NOT collapse to 0 and print a fabricated GREEN.
+    nav = m.get("nav_actions")
+    nav_available = isinstance(nav, dict)
+    if nav_available:
+        offered = sum(nav.values())
+        executed = nav.get("EXECUTED", 0)
+        failed = nav.get("FAILED", 0)
+        blocked = nav.get("BLOCKED", 0)
+        expired = nav.get("EXPIRED", 0) + (m.get("nav_expired_by_time") or 0)
+        success_rate = _nav_execution_rate(nav, m.get("nav_expired_by_time") or 0)
+    else:
+        offered = executed = failed = blocked = expired = None
+        success_rate = None
 
     # ---- statuses (v0 thresholds; calibrate during observation) ----
     st_success = _rate_status(success_rate,
                               float(os.environ.get("ACR_REPORT_NAV_GREEN", "95")),
                               float(os.environ.get("ACR_REPORT_NAV_AMBER", "85")))
-    st_failed = GREEN if failed == 0 else (AMBER if failed <= 2 else RED)
-    st_escal = GREEN  # informational
-    overall = _worst(st_success, st_failed, st_escal)
+    st_failed = (None if failed is None
+                 else GREEN if failed == 0
+                 else AMBER if failed <= 2 else RED)
+    # Core action data unavailable -> the health verdict is not trustworthy;
+    # surface AMBER (data incomplete) rather than a false all-clear GREEN.
+    st_data = AMBER if not nav_available else None
+    overall = _worst(st_success, st_failed, st_data)
+    data_note = "  (data incomplete)" if not nav_available else ""
 
     def bar(status):
         fill = {GREEN: "#" * 14, AMBER: "#" * 9 + "." * 5, RED: "#" * 4 + "." * 10}
@@ -295,10 +321,10 @@ def build():
 
     # ═══ LAYER 1 — EXECUTIVE SUMMARY ═══
     add(BANNER)
-    add("  ACR AI OPERATIONS (Last %dh)%sSTATUS: %s" %
-        (WINDOW_HOURS, " " * max(1, 26 - len(str(WINDOW_HOURS))), overall))
+    add("  ACR AI OPERATIONS (Last %dh)%sSTATUS: %s%s" %
+        (WINDOW_HOURS, " " * max(1, 26 - len(str(WINDOW_HOURS))), overall, data_note))
     add(BANNER)
-    add("  AI STATUS   %s" % bar(overall))
+    add("  AI STATUS   %s%s" % (bar(overall), data_note))
     add("")
     add("  Sessions              %s" % _val(ss_total))
     add("  Customers assisted    %s" % _val(m.get("customers_assisted")))
@@ -306,7 +332,7 @@ def build():
     add("  Purchases assisted    %s" % NA)   # T3: needs GA4/attribution
     add("  Revenue assisted      %s" % NA)   # T3: needs GA4/attribution
     add("  Escalations           %s" % _val(m.get("escalations")))
-    add("  Failures              %s" % _val(failed))
+    add("  Failures              %s" % _val(failed))  # NA (not 0) when data unavailable
     add("  Unsafe actions        %s" % NA)   # T2: needs UNSAFE_URL_REJECTED event
     add("  Overall               %s" % overall)
     add("")
@@ -317,7 +343,7 @@ def build():
     add("  " + "-" * (WIDTH - 4))
     add("    Landing / sessions        %s" % _fmt_hosts(ss))
     add("    Recommendation            %s" % _val(m.get("recommendations")))
-    add("    Navigation offered        %s" % (offered if nav else NA))
+    add("    Navigation offered        %s" % _val(offered))
     add("    Navigation confirmed      %s" % NA)  # T2: ACTION_CONFIRMED event
     add("    Product viewed            %s" % NA)  # T2: journey event
     add("    Cart                      %s" % NA)  # T2: cart_added event
@@ -355,9 +381,9 @@ def build():
     add("  ENGINEERING")
     add("  " + "-" * (WIDTH - 4))
     add("    Action lifecycle (NAVIGATE):")
-    add("      offered %s | confirmed %s | executed %d | failed %d | blocked %d | expired %d"
-        % ((offered if nav else 0), NA, executed, failed, blocked, expired))
-    add("      confirmed-nav success rate   %s   [%s]" %
+    add("      offered %s | confirmed %s | executed %s | failed %s | blocked %s | expired %s"
+        % (_val(offered), NA, _val(executed), _val(failed), _val(blocked), _val(expired)))
+    add("      nav execution rate (executed/terminal)   %s   [%s]" %
         (("%.1f%%" % success_rate) if success_rate is not None else NA, st_success or "-"))
     add("      promise-without-action       %s" % NA)  # T2: PROMISE_WITHOUT_ACTION
     add("      unsafe-url rejected          %s" % NA)  # T2: UNSAFE_URL_REJECTED
