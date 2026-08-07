@@ -456,4 +456,26 @@
 {% endif %}
 </div>
 
+{% if (config.GA_MEASUREMENT_ID or config.GA_MEASUREMENT_ID_IN) and order_details %}
+<script>
+(function(){
+  if (typeof gtag !== 'function') return;
+  var tid = String({{ order_details[0]['order_id']|tojson }});
+  try { if (sessionStorage.getItem('ow_purchase_' + tid)) return; } catch(e){}
+  var items = [
+  {% for product in order_details %}
+    { item_id: String({{ (product['product_code'] or loop.index)|tojson }}), item_name: {{ (product['product_name'] or '')|tojson }}, item_category: {{ (product['product_category'] or '')|tojson }}, price: parseFloat(String({{ (product['order_total'] or 0)|tojson }}).replace(/[^0-9.]/g,'')) || 0, quantity: parseInt({{ (product['order_quantity'] or 1)|tojson }}, 10) || 1 }{% if not loop.last %},{% endif %}
+  {% endfor %}
+  ];
+  gtag('event', 'purchase', {
+    transaction_id: tid,
+    value: parseFloat(String({{ (grand_total or 0)|tojson }}).replace(/[^0-9.]/g,'')) || 0,
+    currency: {{ ('INR' if is_india else 'EUR')|tojson }},
+    items: items
+  });
+  try { sessionStorage.setItem('ow_purchase_' + tid, '1'); } catch(e){}
+})();
+</script>
+{% endif %}
+
 {% endblock %}
