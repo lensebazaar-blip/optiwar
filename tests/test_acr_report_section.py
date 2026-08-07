@@ -38,6 +38,15 @@ class TestAcrReportSection(unittest.TestCase):
         self.assertIn("Revenue assisted", out)
         self.assertIn(acr_report_section.NA, out)
 
+    def test_degraded_data_never_fabricates_green_all_clear(self):
+        # With no DB, the core action query degrades. The report must NOT print a
+        # false "Failures 0" / GREEN all-clear; it should flag data incomplete and
+        # render the failure counter as n/a.
+        out = acr_report_section.build()
+        self.assertIn("(data incomplete)", out)
+        self.assertNotIn("STATUS: GREEN", out)
+        self.assertNotIn("Failures              0", out)
+
     def test_worst_status_ordering(self):
         s = acr_report_section
         self.assertEqual(s._worst(s.GREEN, s.AMBER, s.RED), s.RED)
@@ -45,11 +54,16 @@ class TestAcrReportSection(unittest.TestCase):
         self.assertEqual(s._worst(s.GREEN, None), s.GREEN)
         self.assertEqual(s._worst(None), s.GREEN)
 
-    def test_nav_success_rate(self):
+    def test_nav_execution_rate_excludes_non_terminal(self):
         s = acr_report_section
-        self.assertEqual(s._nav_success_rate({"EXECUTED": 9, "PENDING": 1}), 90.0)
-        self.assertIsNone(s._nav_success_rate({}))
-        self.assertIsNone(s._nav_success_rate(None))
+        # PENDING is in-flight, not a failure: 9 executed / 9 terminal = 100%.
+        self.assertEqual(s._nav_execution_rate({"EXECUTED": 9, "PENDING": 5}), 100.0)
+        # 3 executed of 4 terminal (1 FAILED) = 75%.
+        self.assertEqual(s._nav_execution_rate({"EXECUTED": 3, "FAILED": 1, "PENDING": 2}), 75.0)
+        # No terminal outcomes yet -> not meaningful.
+        self.assertIsNone(s._nav_execution_rate({"PENDING": 4}))
+        self.assertIsNone(s._nav_execution_rate({}))
+        self.assertIsNone(s._nav_execution_rate(None))
 
     def test_rate_status_thresholds(self):
         s = acr_report_section
