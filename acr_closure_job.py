@@ -130,6 +130,9 @@ def main():
             for c in r1["expired"]:
                 _log("  action %s (%s) session=%s" % (
                     c["action_id"], c["action_type"], c["session_id"]))
+            for c in r1.get("event_failed") or []:
+                _log("  WARNING action %s expired but ACTION_EXPIRED event write "
+                     "failed (state correct, event missing)" % c["action_id"])
 
             # ── Sweep 2: finalize archived session outcomes ──
             t0 = time.time()
@@ -146,6 +149,9 @@ def main():
                     "%s=%d" % (k, counts[k]) for k in sorted(counts)))
             for c in r2["closed"]:
                 _log("  session %s -> %s" % (c["session_id"], c["outcome"]))
+            for c in r2.get("event_failed") or []:
+                _log("  WARNING session %s claimed but SESSION_OUTCOME event write "
+                     "failed; will be retried next run" % c["session_id"])
         finally:
             _release_lock(db)
     finally:

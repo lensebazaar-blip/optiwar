@@ -75,6 +75,13 @@ ABANDONMENT_CANDIDATE_MINUTES = 120
 # immutable outcome once it reaches this status (set by archive_stale_sessions).
 TERMINAL_SESSION_STATUS = "archived"
 
+# Purchase attribution horizon. An order counts as this session's purchase only
+# if it was placed between the session start and this many hours after the
+# session's last activity. Without an upper bound, a single later order would
+# retroactively mark every earlier archived session of the same customer as
+# PURCHASED (PURCHASED has top precedence), inflating conversion reporting.
+PURCHASE_ATTRIBUTION_HOURS = 24
+
 # Session outcomes and their precedence (higher wins). Never decided by an LLM:
 # PURCHASED  <- commerce/order truth
 # ESCALATED  <- handover/ticket truth
@@ -290,7 +297,8 @@ def ensure_schema(get_conn):
                 resolved_at       DATETIME NULL,
                 expires_at        DATETIME NULL,
                 KEY idx_session_status (session_id, status),
-                KEY idx_created (created_at)
+                KEY idx_created (created_at),
+                KEY idx_status_expires (status, expires_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
         )
         cur.execute(
@@ -312,8 +320,30 @@ def ensure_schema(get_conn):
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
         )
         _ensure_ai_events_columns(cur)
+        _ensure_ai_actions_indexes(cur)
     finally:
         conn.close()
+
+
+def _ensure_ai_actions_indexes(cur):
+    """Idempotently add the index the Step-5 expiry sweep needs on an existing
+    ai_actions table. (status, expires_at) turns the sweep's
+    ``status='PENDING' AND expires_at < NOW() ORDER BY expires_at`` from a full
+    scan + filesort into an index range scan. Additive and best-effort."""
+    try:
+        cur.execute(
+            """SELECT COUNT(*) FROM information_schema.STATISTICS
+               WHERE table_schema=DATABASE() AND table_name='ai_actions'
+                 AND index_name='idx_status_expires'"""
+        )
+        row = cur.fetchone()
+        has = (row[0] if isinstance(row, (list, tuple)) else
+               list(row.values())[0]) if row else 0
+        if not has:
+            cur.execute(
+                "ALTER TABLE ai_actions ADD KEY idx_status_expires (status, expires_at)")
+    except Exception:
+        pass
 
 
 def _ensure_ai_events_columns(cur):
@@ -363,6 +393,11 @@ def log_event(db, event_type, session_id=None, action_id=None, journey_stage=Non
               model=None, workload=None, consent_scope=None):
     """Append an AI event. Best-effort: never raises into the request path.
 
+    Returns the ``event_id`` actually written, or None if the event could not be
+    stored — so a caller that needs to know whether the event landed (e.g. the
+    closure sweeps, which must not silently lose a terminal event) can check,
+    and one that doesn't can keep ignoring the result.
+
     The typed Part-B columns (request_id/provider/model/workload/consent_scope)
     are written when present. If the columns are absent (migration not yet
     applied on this DB), the INSERT falls back to the legacy column set so a
@@ -370,6 +405,7 @@ def log_event(db, event_type, session_id=None, action_id=None, journey_stage=Non
     page_url = sanitize_url_for_event(page_url)
     success_i = None if success is None else (1 if success else 0)
     payload_s = json.dumps(payload) if payload else None
+    event_id = uuid.uuid4().hex
     try:
         cur = db.cursor()
         cur.execute(
@@ -379,11 +415,11 @@ def log_event(db, event_type, session_id=None, action_id=None, journey_stage=Non
                    payload, request_id, provider, model, workload, consent_scope,
                    created_at)
                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())""",
-            (uuid.uuid4().hex, event_type, session_id, action_id, journey_stage,
+            (event_id, event_type, session_id, action_id, journey_stage,
              action_type, page_url, success_i, failure_code, duration_ms,
              payload_s, request_id, provider, model, workload, consent_scope),
         )
-        return
+        return event_id
     except Exception:
         pass
     # Fallback for a DB where the Part-B columns don't exist yet.
@@ -395,11 +431,12 @@ def log_event(db, event_type, session_id=None, action_id=None, journey_stage=Non
                    action_type, page_url, success, failure_code, duration_ms,
                    payload, created_at)
                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())""",
-            (uuid.uuid4().hex, event_type, session_id, action_id, journey_stage,
+            (event_id, event_type, session_id, action_id, journey_stage,
              action_type, page_url, success_i, failure_code, duration_ms, payload_s),
         )
+        return event_id
     except Exception:
-        pass
+        return None
 
 
 # ─── Structured actions (A1) ───
@@ -542,7 +579,11 @@ def record_action_result(db, action_id, success, failure_code=None, duration_ms=
 def ensure_closure_schema(get_conn):
     """Create the additive SESSION_OUTCOME idempotency ledger if absent. The
     session_id PRIMARY KEY is the one-per-session guarantee (atomic claim), not
-    a SELECT-then-INSERT. Never alters existing tables; best-effort."""
+    a SELECT-then-INSERT. Never alters existing tables; best-effort.
+
+    event_id references the SESSION_OUTCOME row in ai_events and stays NULL until
+    that event has actually landed; a NULL therefore means "claimed but not yet
+    proven", which is what makes a failed event write retryable."""
     conn = get_conn()
     try:
         cur = conn.cursor()
@@ -561,9 +602,11 @@ def ensure_closure_schema(get_conn):
 
 
 def find_due_actions(db, limit=500):
-    """Return PENDING actions already past their expiry (bounded, indexed by
-    the idx_session_status / idx_created keys). Read-only; used by both dry-run
-    and live sweeps so the two see the same candidate set."""
+    """Return PENDING actions already past their expiry. Bounded by ``limit`` and
+    served by the idx_status_expires (status, expires_at) index, so the filter
+    and the ORDER BY are an index range scan rather than a full scan + filesort.
+    Read-only; used by both dry-run and live sweeps so the two see the same
+    candidate set."""
     cur = db.cursor()
     cur.execute(
         """SELECT action_id, session_id, action_type FROM ai_actions
@@ -579,8 +622,13 @@ def expire_due_actions(db, dry_run=True, limit=500):
     each row is claimed with an atomic UPDATE guarded by status='PENDING', and
     ACTION_EXPIRED is emitted only for rows this run actually transitioned.
 
-    Returns a dict {'candidates': [...], 'expired': [...]}. In dry_run the
-    'expired' list is what WOULD be expired and nothing is written."""
+    Returns a dict {'candidates': [...], 'expired': [...], 'event_failed': [...]}.
+    In dry_run the 'expired' list is what WOULD be expired and nothing is written.
+
+    A row whose status transition succeeds but whose ACTION_EXPIRED event write
+    fails is reported in 'event_failed' so the runner logs it loudly: the action
+    state is already correct, but the missing event must be visible rather than
+    silently absent from the canonical stream."""
     rows = find_due_actions(db, limit=limit)
     candidates = []
     for r in rows:
@@ -589,8 +637,10 @@ def expire_due_actions(db, dry_run=True, limit=500):
         at = r['action_type'] if isinstance(r, dict) else r[2]
         candidates.append({'action_id': aid, 'session_id': sid, 'action_type': at})
     if dry_run:
-        return {'candidates': candidates, 'expired': list(candidates)}
+        return {'candidates': candidates, 'expired': list(candidates),
+                'event_failed': []}
     expired = []
+    event_failed = []
     for c in candidates:
         try:
             cur = db.cursor()
@@ -600,15 +650,18 @@ def expire_due_actions(db, dry_run=True, limit=500):
                 (c['action_id'],),
             )
             if cur.rowcount and cur.rowcount > 0:
-                log_event(db, EV_ACTION_EXPIRED, session_id=c['session_id'],
-                          action_id=c['action_id'], action_type=c['action_type'],
-                          journey_stage=STAGE_NAVIGATION, success=False,
-                          failure_code='expired')
+                ok = log_event(db, EV_ACTION_EXPIRED, session_id=c['session_id'],
+                               action_id=c['action_id'], action_type=c['action_type'],
+                               journey_stage=STAGE_NAVIGATION, success=False,
+                               failure_code='expired')
                 expired.append(c)
+                if not ok:
+                    event_failed.append(c)
         except Exception:
             # Best-effort: a single row failing must not abort the batch.
             pass
-    return {'candidates': candidates, 'expired': expired}
+    return {'candidates': candidates, 'expired': expired,
+            'event_failed': event_failed}
 
 
 def _scalar1(cur):
@@ -631,19 +684,30 @@ def _exists(db, sql, params):
         return False
 
 
-def gather_session_truth(db, session_id, customer_id, session_created_at):
+def gather_session_truth(db, session_id, customer_id, session_created_at,
+                        session_last_activity=None):
     """Collect the deterministic truth signals for one session, using indexed,
     LIMIT-1 lookups only. Order/handover/failure/resolution are read from
     commerce, chat-event and canonical-event tables — never inferred by a model.
-    Returns the kwargs for :func:`decide_session_outcome`."""
+    Returns the kwargs for :func:`decide_session_outcome`.
+
+    Purchase truth is attributed only inside a bounded window: the order must
+    fall between the session start and PURCHASE_ATTRIBUTION_HOURS after the
+    session's last activity. ``customer_id`` alone is not sufficient linkage —
+    an unbounded lower-only window would attribute one later order to every
+    earlier session of that shopper."""
     has_order = False
     if customer_id is not None:
         has_order = _exists(
             db,
             """SELECT 1 FROM orders
                WHERE customer_id=%s AND is_test=0
-                 AND (%s IS NULL OR date_created >= %s) LIMIT 1""",
-            (customer_id, session_created_at, session_created_at),
+                 AND (%s IS NULL OR date_created >= %s)
+                 AND (%s IS NULL OR
+                      date_created <= %s + INTERVAL %s HOUR) LIMIT 1""",
+            (customer_id, session_created_at, session_created_at,
+             session_last_activity, session_last_activity,
+             PURCHASE_ATTRIBUTION_HOURS),
         )
     # Escalation: a human agent replied, or a canonical handover/ticket event.
     is_escalated = _exists(
@@ -676,14 +740,20 @@ def gather_session_truth(db, session_id, customer_id, session_created_at):
 
 
 def find_sessions_awaiting_outcome(db, limit=500):
-    """Archived sessions that have not yet been given an immutable outcome
-    (bounded, LEFT JOIN anti-join on the ledger). Read-only."""
+    """Archived sessions still owed an immutable outcome event (bounded,
+    LEFT JOIN anti-join on the ledger). Read-only.
+
+    A session qualifies when it has no ledger row at all, OR it has a ledger row
+    whose event_id is still NULL — i.e. a previous run won the claim but its
+    SESSION_OUTCOME event never landed. Including the latter is what makes a
+    failed event write retryable instead of silently losing the outcome forever.
+    """
     cur = db.cursor()
     cur.execute(
-        """SELECT s.session_id, s.customer_id, s.created_at
+        """SELECT s.session_id, s.customer_id, s.created_at, s.last_activity
            FROM chat_sessions s
            LEFT JOIN ai_session_outcomes o ON o.session_id = s.session_id
-           WHERE s.status=%s AND o.session_id IS NULL
+           WHERE s.status=%s AND (o.session_id IS NULL OR o.event_id IS NULL)
            ORDER BY s.last_activity ASC LIMIT %s""",
         (TERMINAL_SESSION_STATUS, int(limit)),
     )
@@ -696,38 +766,94 @@ def finalize_archived_session_outcomes(db, dry_run=True, limit=500):
     ai_session_outcomes (session_id PRIMARY KEY): only the run that wins the
     claim emits the SESSION_OUTCOME event, so overlapping runs cannot duplicate.
 
-    Returns {'candidates': [{session_id, outcome}...], 'closed': [...]}.
-    In dry_run nothing is written and 'closed' mirrors 'candidates'."""
+    The ledger row is claimed with event_id NULL and backfilled with the id of
+    the SESSION_OUTCOME event that actually landed, so the stored reference is
+    always joinable to ai_events. If the event write fails, event_id stays NULL
+    and find_sessions_awaiting_outcome offers the session again on a later run
+    instead of the outcome being lost forever. A retried session first probes for
+    an already-stored SESSION_OUTCOME event and only backfills in that case, so a
+    failed backfill cannot turn into a duplicate event.
+
+    Returns {'candidates': [{session_id, outcome}...], 'closed': [...],
+    'event_failed': [...]}. In dry_run nothing is written and 'closed' mirrors
+    'candidates'."""
     rows = find_sessions_awaiting_outcome(db, limit=limit)
     candidates = []
     for r in rows:
         sid = r['session_id'] if isinstance(r, dict) else r[0]
         cid = r['customer_id'] if isinstance(r, dict) else r[1]
         created = r['created_at'] if isinstance(r, dict) else r[2]
-        truth = gather_session_truth(db, sid, cid, created)
+        last_act = (r.get('last_activity') if isinstance(r, dict)
+                    else (r[3] if len(r) > 3 else None))
+        truth = gather_session_truth(db, sid, cid, created, last_act)
         outcome = decide_session_outcome(**truth)
         candidates.append({'session_id': sid, 'outcome': outcome})
     if dry_run:
-        return {'candidates': candidates, 'closed': list(candidates)}
+        return {'candidates': candidates, 'closed': list(candidates),
+                'event_failed': []}
     closed = []
+    event_failed = []
     for c in candidates:
         try:
-            event_id = uuid.uuid4().hex
             cur = db.cursor()
             cur.execute(
                 """INSERT IGNORE INTO ai_session_outcomes
                      (session_id, outcome, event_id, created_at)
-                   VALUES (%s,%s,%s,NOW())""",
-                (c['session_id'], c['outcome'], event_id),
+                   VALUES (%s,%s,NULL,NOW())""",
+                (c['session_id'], c['outcome']),
             )
-            if cur.rowcount and cur.rowcount > 0:
-                log_event(db, EV_SESSION_OUTCOME, session_id=c['session_id'],
-                          success=(c['outcome'] != OUTCOME_FAILED),
-                          payload={'outcome': c['outcome']})
+            fresh_claim = bool(cur.rowcount and cur.rowcount > 0)
+            if not fresh_claim:
+                # Retry of an earlier claim whose event never landed. If the
+                # event is in fact present, only repair the reference.
+                existing = _existing_outcome_event_id(db, c['session_id'])
+                if existing:
+                    _backfill_outcome_event_id(db, c['session_id'], existing)
+                    continue
+            event_id = log_event(db, EV_SESSION_OUTCOME, session_id=c['session_id'],
+                                 success=(c['outcome'] != OUTCOME_FAILED),
+                                 payload={'outcome': c['outcome']})
+            if event_id:
+                _backfill_outcome_event_id(db, c['session_id'], event_id)
                 closed.append(c)
+            else:
+                # Claim stays event_id NULL -> retried on a later run.
+                event_failed.append(c)
         except Exception:
             pass
-    return {'candidates': candidates, 'closed': closed}
+    return {'candidates': candidates, 'closed': closed,
+            'event_failed': event_failed}
+
+
+def _existing_outcome_event_id(db, session_id):
+    """The event_id of an already-stored SESSION_OUTCOME for this session, if
+    any. Used only on the retry path to distinguish 'event never landed' from
+    'event landed but the ledger reference did not'."""
+    try:
+        cur = db.cursor()
+        cur.execute(
+            """SELECT event_id FROM ai_events
+               WHERE session_id=%s AND event_type=%s
+               ORDER BY created_at ASC LIMIT 1""",
+            (session_id, EV_SESSION_OUTCOME),
+        )
+        return _scalar1(cur)
+    except Exception:
+        return None
+
+
+def _backfill_outcome_event_id(db, session_id, event_id):
+    """Point the ledger row at the SESSION_OUTCOME event that actually landed.
+    Guarded by event_id IS NULL so an established reference is never rewritten."""
+    try:
+        cur = db.cursor()
+        cur.execute(
+            """UPDATE ai_session_outcomes SET event_id=%s
+               WHERE session_id=%s AND event_id IS NULL""",
+            (event_id, session_id),
+        )
+    except Exception:
+        pass
 
 
 # ─── Fallback affordance ───

@@ -74,19 +74,36 @@ class _FakeCursor:
                 self.db.expired_ids.append(aid)
                 self.rowcount = 1
         elif s.startswith("SELECT s.session_id, s.customer_id, s.created_at"):
-            self._result = [dict(r) for r in self.db.archived_sessions
-                            if r["session_id"] not in self.db.ledger]
+            # Anti-join: no ledger row at all, or a claim whose event never landed.
+            self._result = [
+                dict(r) for r in self.db.archived_sessions
+                if r["session_id"] not in self.db.ledger
+                or self.db.ledger[r["session_id"]]["event_id"] is None]
         elif s.startswith("INSERT IGNORE INTO ai_session_outcomes"):
             sid = params[0]
             if sid in self.db.ledger:
                 self.rowcount = 0
             else:
-                self.db.ledger[sid] = params[1]
+                self.db.ledger[sid] = {"outcome": params[1], "event_id": None}
                 self.rowcount = 1
+        elif s.startswith("UPDATE ai_session_outcomes SET event_id"):
+            eid, sid = params
+            row = self.db.ledger.get(sid)
+            if row and row["event_id"] is None and not self.db.fail_backfill:
+                row["event_id"] = eid
+                self.rowcount = 1
+        elif s.startswith("SELECT event_id FROM ai_events"):
+            sid = params[0]
+            hit = [e for e in self.db.events
+                   if e[1] == acr.EV_SESSION_OUTCOME and e[2] == sid]
+            self._result = [{"event_id": hit[0][0]}] if hit else []
         elif s.startswith("INSERT INTO ai_events"):
+            if self.db.fail_event_writes:
+                raise RuntimeError("simulated ai_events write failure")
             self.db.events.append(params)
             self.rowcount = 1
         elif s.startswith("SELECT 1 FROM orders"):
+            self.db.order_probes.append(params)
             self._result = [{"1": 1}] if self.db.truth.get("has_order") else []
         elif "event_type='agent_reply'" in s:
             self._result = [{"1": 1}] if self.db.truth.get("agent_reply") else []
@@ -115,6 +132,9 @@ class FakeDB:
         self.events = []
         self.executed = []
         self.truth = {}
+        self.order_probes = []
+        self.fail_event_writes = False
+        self.fail_backfill = False
 
     def cursor(self):
         return _FakeCursor(self)
@@ -153,12 +173,24 @@ class ExpireActionsTests(unittest.TestCase):
         self.assertEqual(len(r2["expired"]), 0)
         self.assertEqual(len(db.events), 2)
 
+    def test_failed_event_write_is_reported_not_silent(self):
+        # The status transition is correct, but a lost ACTION_EXPIRED event must
+        # be surfaced so the runner can log it.
+        db = self._db()
+        db.fail_event_writes = True
+        r = acr.expire_due_actions(db, dry_run=False)
+        self.assertEqual(sorted(db.expired_ids), ["a1", "a2"])
+        self.assertEqual(sorted(c["action_id"] for c in r["event_failed"]),
+                         ["a1", "a2"])
+        self.assertEqual(db.events, [])
+
 
 class FinalizeOutcomeTests(unittest.TestCase):
     def _db(self, truth):
         db = FakeDB()
         db.archived_sessions = [
-            {"session_id": "s1", "customer_id": 10, "created_at": "2026-01-01"},
+            {"session_id": "s1", "customer_id": 10, "created_at": "2026-01-01",
+             "last_activity": "2026-01-02"},
         ]
         db.truth = truth
         return db
@@ -174,13 +206,63 @@ class FinalizeOutcomeTests(unittest.TestCase):
         db = self._db({"resolved": True})
         r = acr.finalize_archived_session_outcomes(db, dry_run=False)
         self.assertEqual(r["closed"][0]["outcome"], acr.OUTCOME_ANSWERED)
-        self.assertEqual(db.ledger.get("s1"), acr.OUTCOME_ANSWERED)
+        self.assertEqual(db.ledger["s1"]["outcome"], acr.OUTCOME_ANSWERED)
         self.assertEqual(len(db.events), 1)
+
+    def test_ledger_event_id_matches_the_stored_event(self):
+        # The ledger reference must be joinable to the actual ai_events row,
+        # not a locally invented uuid.
+        db = self._db({})
+        acr.finalize_archived_session_outcomes(db, dry_run=False)
+        self.assertEqual(len(db.events), 1)
+        self.assertEqual(db.ledger["s1"]["event_id"], db.events[0][0])
+
+    def test_failed_event_write_is_retried_not_lost(self):
+        db = self._db({})
+        db.fail_event_writes = True
+        r1 = acr.finalize_archived_session_outcomes(db, dry_run=False)
+        # Claimed, but no event landed -> reported, not silently "closed".
+        self.assertEqual(len(r1["closed"]), 0)
+        self.assertEqual([c["session_id"] for c in r1["event_failed"]], ["s1"])
+        self.assertIsNone(db.ledger["s1"]["event_id"])
+        # A later run picks the session up again and completes it.
+        db.fail_event_writes = False
+        r2 = acr.finalize_archived_session_outcomes(db, dry_run=False)
+        self.assertEqual([c["session_id"] for c in r2["closed"]], ["s1"])
+        self.assertEqual(len(db.events), 1)
+        self.assertEqual(db.ledger["s1"]["event_id"], db.events[0][0])
+
+    def test_retry_after_failed_backfill_does_not_duplicate_event(self):
+        # Event landed but the reference update failed: the retry must repair the
+        # reference, never emit a second terminal outcome.
+        db = self._db({})
+        db.fail_backfill = True
+        acr.finalize_archived_session_outcomes(db, dry_run=False)
+        self.assertEqual(len(db.events), 1)
+        self.assertIsNone(db.ledger["s1"]["event_id"])
+        db.fail_backfill = False
+        r2 = acr.finalize_archived_session_outcomes(db, dry_run=False)
+        self.assertEqual(len(db.events), 1)          # no duplicate
+        self.assertEqual(len(r2["closed"]), 0)
+        self.assertEqual(db.ledger["s1"]["event_id"], db.events[0][0])
+
+    def test_purchase_probe_is_bounded_at_both_ends(self):
+        # An order must fall inside the attribution window, so one later order
+        # cannot retroactively mark every earlier session PURCHASED.
+        db = self._db({"has_order": True})
+        acr.finalize_archived_session_outcomes(db, dry_run=True)
+        self.assertTrue(db.order_probes)
+        params = db.order_probes[0]
+        self.assertIn("2026-01-01", params)   # lower bound: session start
+        self.assertIn("2026-01-02", params)   # upper bound: last activity + horizon
+        self.assertIn(acr.PURCHASE_ATTRIBUTION_HOURS, params)
+        sql = [s for s, _ in db.executed if "FROM orders" in s][0]
+        self.assertIn("date_created <=", " ".join(sql.split()))
 
     def test_idempotent_second_run_no_duplicate(self):
         db = self._db({})  # -> ABANDONED
         acr.finalize_archived_session_outcomes(db, dry_run=False)
-        self.assertEqual(db.ledger.get("s1"), acr.OUTCOME_ABANDONED)
+        self.assertEqual(db.ledger["s1"]["outcome"], acr.OUTCOME_ABANDONED)
         # ledger anti-join means the session is no longer a candidate
         r2 = acr.finalize_archived_session_outcomes(db, dry_run=False)
         self.assertEqual(len(r2["candidates"]), 0)
