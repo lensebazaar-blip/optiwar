@@ -5,10 +5,12 @@ verdict must reflect sections appended *after* the base report was written.
 
     python3 -m unittest tests.test_report_executive
 """
+import json
 import os
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -111,9 +113,9 @@ class ScavengeTests(unittest.TestCase):
 class DeduplicationTests(unittest.TestCase):
     """A migrated section prints what it also reports; count it once."""
 
-    def test_a_reporting_section_is_not_scavenged_from_its_own_text(self):
+    def test_a_finding_reported_and_printed_counts_once(self):
         d = tempfile.mkdtemp()
-        emit("gmc", [Finding(ACTION, "gmc", "2/710 products disapproved",
+        emit("gmc", [Finding(ACTION, "gmc", "2 product(s) disapproved",
                              "gmc")], sidecar_dir=d)
         report = (BASE_REPORT +
                   "\n  SECTION D15: GOOGLE MERCHANT CENTER\n"
@@ -121,8 +123,20 @@ class DeduplicationTests(unittest.TestCase):
         out = rx.finalize(report, sidecar_dir=d)
         self.assertIn("ACTION=1", out)
 
+    def test_an_unmigrated_marker_survives_a_sibling_that_reported(self):
+        """Partly-migrated sections: one part reporting must not mute another."""
+        d = tempfile.mkdtemp()
+        emit("gmc", [Finding(ACTION, "gmc", "2 product(s) disapproved",
+                             "gmc")], sidecar_dir=d)
+        report = (BASE_REPORT +
+                  "\n  SECTION D15: GOOGLE MERCHANT CENTER\n"
+                  "  *** ACTION: 2 product(s) disapproved ***\n"
+                  "  [CRITICAL] feed upload failed for 3 days\n")
+        out = rx.finalize(report, sidecar_dir=d)
+        self.assertIn("CRITICAL=1", out)
+        self.assertIn("feed upload failed", out)
+
     def test_a_silent_section_is_still_scavenged(self):
-        """Region skipping must not become a way to hide a finding."""
         report = (BASE_REPORT +
                   "\n  SECTION D15: GOOGLE MERCHANT CENTER\n"
                   "  *** ACTION: 2 product(s) disapproved ***\n")
@@ -150,6 +164,33 @@ class RollingLogTests(unittest.TestCase):
         with self.assertRaises(rx.NoPlaceholder):
             rx.finalize(history, sidecar_dir=tempfile.mkdtemp(),
                         require_placeholder=True)
+
+    def test_yesterdays_findings_are_not_counted_as_todays(self):
+        d = tempfile.mkdtemp()
+        banner = rx.compute_banner(BASE_REPORT, sidecar_dir=d)
+        rolling = ("  [CRITICAL] payment gateway down\n"      # last month
+                   "  *** ACTION: restock 40 frames ***\n"    # last week
+                   + BASE_REPORT)                             # today
+        out = rx.finalize(rolling, sidecar_dir=d, banner=banner)
+        self.assertIn("CRITICAL=0  ACTION=0", out)
+
+
+class StaleSidecarTests(unittest.TestCase):
+    def test_a_stale_section_is_not_credited_as_contributing(self):
+        d = tempfile.mkdtemp()
+        emit("gmc", [Finding(ACTION, "gmc", "2 disapproved", "gmc")],
+             sidecar_dir=d)
+        path = os.path.join(d, "gmc.json")
+        with open(path) as fh:
+            payload = json.load(fh)
+        payload["generated_at"] = time.time() - 60 * 60 * 24
+        with open(path, "w") as fh:
+            json.dump(payload, fh)
+        out = rx.finalize(BASE_REPORT, sidecar_dir=d)
+        self.assertIn("stale or unreadable", out)
+        contributing = [ln for ln in out.splitlines()
+                        if "sections contributing" in ln]
+        self.assertNotIn("gmc", contributing[0])
 
 
 class InvariantTests(unittest.TestCase):
