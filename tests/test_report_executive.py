@@ -175,6 +175,42 @@ class RollingLogTests(unittest.TestCase):
         self.assertIn("CRITICAL=0  ACTION=0", out)
 
 
+class MainSourceSelectionTests(unittest.TestCase):
+    """Which target the day's verdict is computed from, via the CLI."""
+
+    def _run(self, args, files):
+        d = tempfile.mkdtemp()
+        for name, text in files.items():
+            with open(os.path.join(d, name), "w") as fh:
+                fh.write(text)
+        argv, report_dir = sys.argv, rx.REPORT_DIR
+        sys.argv = ["report_executive"] + args
+        rx.REPORT_DIR = d
+        try:
+            rc = rx.main()
+        finally:
+            sys.argv, rx.REPORT_DIR = argv, report_dir
+        with open(os.path.join(d, "daily.txt")) as fh:
+            return rc, fh.read()
+
+    def test_history_listed_first_is_not_the_source_of_todays_verdict(self):
+        history = ("  [CRITICAL] payment gateway down\n"
+                   "  *** ACTION: restock 40 frames ***\n"
+                   + BASE_REPORT.replace(rx.PLACEHOLDER, "OPERATIONAL STATUS\n"))
+        rc, today = self._run(
+            ["rolling.log", "daily.txt", "--placeholder-only=rolling.log"],
+            {"rolling.log": history, "daily.txt": BASE_REPORT})
+        self.assertEqual(0, rc)
+        self.assertIn("CRITICAL=0  ACTION=0", today)
+
+    def test_a_history_target_is_never_the_source(self):
+        """Even listed first and carrying a placeholder, history is excluded."""
+        rc, _ = self._run(
+            ["rolling.log", "--placeholder-only=rolling.log"],
+            {"rolling.log": BASE_REPORT, "daily.txt": BASE_REPORT})
+        self.assertEqual(1, rc)
+
+
 class StaleSidecarTests(unittest.TestCase):
     def test_a_stale_section_is_not_credited_as_contributing(self):
         d = tempfile.mkdtemp()
