@@ -44,6 +44,12 @@ GREEN, AMBER, RED = "GREEN", "AMBER", "RED"
 _ORDER = {GREEN: 0, AMBER: 1, RED: 2}
 NA = "n/a (pending instrumentation)"
 
+# Instrumentation coverage below this percentage means the health verdict is
+# built on too little of the picture to be asserted as GREEN. Reporting a
+# confident all-clear while most metrics are n/a is the same false-green
+# failure mode as an executive summary that ignores its own subsections.
+MIN_COVERAGE_PCT = float(os.environ.get("ACR_REPORT_MIN_COVERAGE_PCT", "60"))
+
 
 def _db_conf():
     return dict(
@@ -247,6 +253,62 @@ def _nav_execution_rate(nav, expired_extra=0):
     return round(100.0 * nav.get("EXECUTED", 0) / terminal, 1)
 
 
+_COLLECT_CACHE = []
+
+
+def _collect_once():
+    """``_collect`` memoised for the lifetime of one report run.
+
+    ``build()`` and ``findings()`` both need the same numbers; querying twice
+    would double the section's DB load and could report two different states
+    for the same run.
+    """
+    if not _COLLECT_CACHE:
+        _COLLECT_CACHE.append(_collect())
+    return _COLLECT_CACHE[0]
+
+
+def _reset_cache():
+    """Drop the memoised collection (one report run == one snapshot)."""
+    del _COLLECT_CACHE[:]
+
+
+def _coverage(metrics, na_count):
+    """Instrumentation coverage as (live, pending, percent).
+
+    ``live`` counts metrics that actually resolved to a value; ``pending``
+    counts the rendered rows still showing ``n/a``. Deriving pending from the
+    rendered output rather than a hand-maintained list means coverage rises by
+    itself as Part-B metrics are promoted — the number cannot drift out of
+    step with what the report actually shows.
+    """
+    live = sum(1 for v in metrics.values() if v is not None)
+    pending = int(na_count or 0)
+    total = live + pending
+    pct = (100.0 * live / total) if total else 0.0
+    return live, pending, pct
+
+
+def _telemetry_contradiction(metrics):
+    """Detect a self-inconsistent read of the chat tables.
+
+    Active sessions with zero started sessions *and* zero conversations in the
+    same window is not a quiet day — the counters disagree with each other, so
+    the source is incomplete rather than empty. Returns a message or None.
+    """
+    active = metrics.get("sessions_active")
+    started = metrics.get("sessions_started")
+    started_total = started[2] if isinstance(started, tuple) else started
+    conversations = metrics.get("conversations")
+    if not isinstance(active, int) or active <= 0:
+        return None
+    if started_total in (None, 0) and conversations in (None, 0):
+        return ("%d active session(s) but 0 started / 0 conversations in the "
+                "last %dh — counters disagree, coverage incomplete"
+                % (active, WINDOW_HOURS))
+    return None
+
+
 def _rate_status(rate, green_min, amber_min):
     if rate is None:
         return None
@@ -277,7 +339,7 @@ def build():
     from datetime import datetime
 
     try:
-        m, errs = _collect()
+        m, errs = _collect_once()
     except Exception as e:  # noqa: BLE001 - never break the daily report
         return "\n".join([BANNER, "  ACR AI OPERATIONS (Last %dh)" % WINDOW_HOURS,
                           BANNER, "  [WARN] section unavailable: %s" % e, BANNER])
@@ -308,7 +370,6 @@ def build():
     # Core action data unavailable -> the health verdict is not trustworthy;
     # surface AMBER (data incomplete) rather than a false all-clear GREEN.
     st_data = AMBER if not nav_available else None
-    overall = _worst(st_success, st_failed, st_data)
     data_note = "  (data incomplete)" if not nav_available else ""
 
     def bar(status):
@@ -320,11 +381,17 @@ def build():
     ga = m.get("guest_auth")
 
     # ═══ LAYER 1 — EXECUTIVE SUMMARY ═══
+    # The verdict depends on how much of the section actually resolved, which
+    # is only known once every layer below has rendered. So the status cells
+    # are written as placeholders here and substituted at the end — the same
+    # "compute the summary last" rule the report-level aggregator follows.
     add(BANNER)
     add("  ACR AI OPERATIONS (Last %dh)%sSTATUS: %s%s" %
-        (WINDOW_HOURS, " " * max(1, 26 - len(str(WINDOW_HOURS))), overall, data_note))
+        (WINDOW_HOURS, " " * max(1, 26 - len(str(WINDOW_HOURS))), "{{STATUS}}",
+         data_note))
     add(BANNER)
-    add("  AI STATUS   %s%s" % (bar(overall), data_note))
+    add("  AI STATUS   {{BAR}}%s" % data_note)
+    add("  COVERAGE    {{COVERAGE}}")
     add("")
     add("  Sessions              %s" % _val(ss_total))
     add("  Customers assisted    %s" % _val(m.get("customers_assisted")))
@@ -334,7 +401,7 @@ def build():
     add("  Escalations           %s" % _val(m.get("escalations")))
     add("  Failures              %s" % _val(failed))  # NA (not 0) when data unavailable
     add("  Unsafe actions        %s" % NA)   # T2: needs UNSAFE_URL_REJECTED event
-    add("  Overall               %s" % overall)
+    add("  Overall               {{STATUS}}")
     add("")
 
     # ═══ LAYER 2 — OPERATIONS: CUSTOMER JOURNEY FUNNEL ═══
@@ -403,17 +470,71 @@ def build():
         % (_val(m.get("escalations")), _val(m.get("ket_tickets")),
            _val(m.get("resolved")), _val(m.get("abandoned"))))
 
-    if errs:
-        add("")
-        add("    [degraded metrics] " + "; ".join(errs[:6]))
+    # ---- coverage verdict, computed once the whole section has rendered ----
+    live, pending, pct = _coverage(m, sum(1 for ln in L if NA in ln))
+    contradiction = _telemetry_contradiction(m)
+    st_coverage = AMBER if (pct < MIN_COVERAGE_PCT or contradiction) else None
+    overall = _worst(st_success, st_failed, st_data, st_coverage)
+
+    coverage_txt = "%d/%d metrics live (%.0f%%)" % (live, live + pending, pct)
+    if pct < MIN_COVERAGE_PCT:
+        coverage_txt += " — AMBER: instrumentation coverage incomplete"
 
     add("")
+    add("  DATA COVERAGE  %s" % coverage_txt)
+    if contradiction:
+        add("  [coverage] %s" % contradiction)
+    for e in errs[:6]:
+        add("  [degraded] %s" % e)
     add("  Source: canonical ai_events/ai_actions + bridge chat tables. "
         "n/a rows await Part-B event instrumentation.")
     add("  Generated %s" % datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     add(BANNER)
-    return "\n".join(L)
+
+    out = "\n".join(L)
+    return (out.replace("{{STATUS}}", overall)
+               .replace("{{BAR}}", bar(overall))
+               .replace("{{COVERAGE}}", coverage_txt))
+
+
+def findings():
+    """Severity findings this section contributes to the executive summary.
+
+    Kept separate from :func:`build` so the report-level aggregator can reason
+    about ACR health without parsing rendered text. Failing to produce the
+    section is itself reported, so an ACR outage cannot read as healthy.
+    """
+    from reports.report_severity import ACTION, WARNING, Finding
+
+    try:
+        m, errs = _collect_once()
+    except Exception as e:  # noqa: BLE001 - never break the daily report
+        return [Finding(ACTION, "acr", "ACR section unavailable: %s" % e, "acr")]
+
+    out = []
+    nav = m.get("nav_actions")
+    if not isinstance(nav, dict):
+        out.append(Finding(WARNING, "acr",
+                           "action ledger unavailable — AI health verdict is "
+                           "not trustworthy", "acr"))
+    contradiction = _telemetry_contradiction(m)
+    if contradiction:
+        out.append(Finding(WARNING, "acr", contradiction, "acr"))
+    for e in errs[:6]:
+        out.append(Finding(WARNING, "acr", "degraded metric %s" % e, "acr"))
+    return out
+
+
+def main():
+    """Print the section and publish findings for the executive aggregator."""
+    text = build()
+    try:
+        from reports.report_severity import emit
+        emit("acr", findings())
+    except Exception:  # noqa: BLE001 - the section still stands on its own
+        pass
+    print(text)
 
 
 if __name__ == "__main__":
-    print(build())
+    main()
