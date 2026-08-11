@@ -125,8 +125,8 @@ Exit codes distinguish the two things an operator must not confuse:
 | code | meaning |
 |---|---|
 | 0 | all six canonical events written — the deployment is proven |
-| 1 | the canary ran and the release is bad — events missing, or a chat endpoint returned non-200 |
-| 2 | the canary could not run (enrolment 401, no cookie) — no evidence either way |
+| 1 | the canary ran and the release is bad — events missing, a chat endpoint non-200, or a malformed/absent `session_id` in a 200 |
+| 2 | the canary could not run (enrolment 401, no cookie, `ai_events` query failed) — no evidence either way |
 
 `1` is grounds to roll back; `2` means fix the canary and re-run. The split has
 to cut in both directions. A failed staff enrolment silently disables the ACR

@@ -88,6 +88,17 @@ def remote(cmd, check=True):
     return p.stdout.strip()
 
 
+def remote_try(cmd):
+    """Run remotely, returning (ok, stdout) instead of swallowing the status.
+
+    ``check=False`` hides the difference between "the query said nothing" and
+    "the query failed", which for a verification step is the difference between
+    a bad release and no evidence at all.
+    """
+    p = subprocess.run(["ssh", HOST, cmd], capture_output=True, text=True)
+    return p.returncode == 0, p.stdout.strip()
+
+
 def remote_script(script, check=True):
     """Run a script on the production host, fed over stdin.
 
@@ -420,7 +431,9 @@ code=$(post "$BASE/api/chat/start" \
   "{\"email\":\"$EMAIL\",\"name\":\"Deploy Canary\",\"page_url\":\"$BASE/\"}")
 [ "$code" = "200" ] || appfail "/chat/start HTTP $code: $(head -c 200 "$body")"
 sid=$(field session_id < "$body")
-[ -n "$sid" ] || fail "/chat/start returned no session_id"
+# 200 with no session_id is the deployed code misbehaving, not a canary
+# problem, so it carries the rollback-worthy marker.
+[ -n "$sid" ] || appfail "/chat/start 200 but no session_id: $(head -c 200 "$body")"
 echo "SESSION=$sid"
 
 # A product question: the model's search is what emits RECOMMENDATION_GENERATED,
@@ -486,17 +499,28 @@ def cmd_canary(args):
     for line in out.splitlines():
         if line.startswith("SESSION="):
             sid = line.split("=", 1)[1].strip()
-    # Shaped like the ids chat_start mints. Anything else came from somewhere
-    # unexpected and is not going into a SQL statement.
-    if not re.fullmatch(r"chat_[0-9a-f]{8,32}", sid or ""):
-        print("canary produced no usable session id (%r)" % sid, file=sys.stderr)
+    if not sid:
+        print("canary produced no session id at all", file=sys.stderr)
         return 2
+    # Shaped like the ids chat_start mints. A malformed one is the application
+    # misbehaving, and it is not going into a SQL statement either way.
+    if not re.fullmatch(r"chat_[0-9a-f]{8,32}", sid):
+        print("  /chat/start returned a malformed session id (%r) — that is the "
+              "release: roll back" % sid, file=sys.stderr)
+        return 1
 
     # Scoped to this session rather than a time window, so a concurrent
     # shopper's events cannot be mistaken for the canary's.
-    counts = remote(
+    ok, counts = remote_try(
         "mysql -N -e \"SELECT event_type, COUNT(*) FROM optiwar2.ai_events "
-        "WHERE session_id='%s' GROUP BY event_type\"" % sid, check=False)
+        "WHERE session_id='%s' GROUP BY event_type\"" % sid)
+    if not ok:
+        # An unreadable ai_events proves nothing about the release, and reading
+        # its silence as "no events were written" would send a good deployment
+        # into a rollback.
+        print("\n  CANARY COULD NOT RUN — the ai_events query failed; no "
+              "evidence either way", file=sys.stderr)
+        return 2
     seen = dict((ln.split("\t")[0], ln.split("\t")[1])
                 for ln in counts.splitlines() if "\t" in ln)
     print("\n  CANONICAL EVENTS for session %s" % sid)
