@@ -203,27 +203,40 @@ def main():
               for a in sys.argv[1:] if a.startswith("--placeholder-only=")}
     targets = [os.path.join(REPORT_DIR, f) for f in args] or [
         os.path.join(REPORT_DIR, "daily_latest.txt")]
-    present = [p for p in targets if os.path.exists(p)]
-    if not present:
+    texts = []
+    for path in targets:
+        if not os.path.exists(path):
+            continue
+        with open(path, "r", errors="replace") as f:
+            texts.append((path, f.read()))
+    if not texts:
         print("report_executive: no report to finalize", file=sys.stderr)
         return 1
     # One verdict for the day, computed from today's report, then rendered into
-    # each copy of it — the rolling log must not aggregate its own history.
-    with open(present[0], "r", errors="replace") as f:
-        today = f.read()
+    # each copy of it — an append-only history file holds every previous day's
+    # report, so aggregating from one would count resolved findings as today's.
+    # Today's report is the one still carrying the placeholder; argument order
+    # is not a guarantee. A history target is never the source.
+    candidates = [(p, t) for p, t in texts
+                  if os.path.basename(p) not in strict]
+    today = next((t for _, t in candidates if PLACEHOLDER in t), None)
+    if today is None:
+        if not candidates:
+            print("report_executive: only history targets given; nothing to "
+                  "aggregate from", file=sys.stderr)
+            return 1
+        today = candidates[0][1]
     try:
         banner = compute_banner(today)
     except RuntimeError as e:
         print("report_executive: INVARIANT VIOLATION: %s" % e, file=sys.stderr)
         return 1
     rc = 0
-    for path in targets:
-        if not os.path.exists(path):
-            print("report_executive: missing %s" % path, file=sys.stderr)
-            rc = 1
-            continue
-        with open(path, "r", errors="replace") as f:
-            text = f.read()
+    missing = [p for p in targets if not os.path.exists(p)]
+    for path in missing:
+        print("report_executive: missing %s" % path, file=sys.stderr)
+        rc = 1
+    for path, text in texts:
         try:
             out = finalize(text, banner=banner,
                            require_placeholder=os.path.basename(path) in strict)
