@@ -388,7 +388,12 @@ J="-b $jar -c $jar"
 # session for a known email, and SESSION_STARTED fires only on real creation.
 JSON="-H Content-Type:application/json -H Origin:$BASE -H Referer:$BASE/"
 EMAIL="deploy-canary+$(date +%s)@optiwar.com"
+# Two different verdicts, so two different markers. A precondition the
+# deployment cannot affect is no evidence; the deployed app returning non-200
+# is the strongest evidence of a bad release we have, and nothing else catches
+# it — the smoke suite makes no chat request.
 fail() { echo "CANARY_FAIL $*"; exit 2; }
+appfail() { echo "CANARY_APP_FAIL $*"; exit 3; }
 post() {  # url json -> body in $body, prints status
   curl -s -o "$body" -w '%{http_code}' $J $JSON -X POST -d "$2" "$1"
 }
@@ -413,7 +418,7 @@ grep -q 'ow_acr_canary' "$jar" || fail "enrolled but no ow_acr_canary cookie"
 
 code=$(post "$BASE/api/chat/start" \
   "{\"email\":\"$EMAIL\",\"name\":\"Deploy Canary\",\"page_url\":\"$BASE/\"}")
-[ "$code" = "200" ] || fail "/chat/start HTTP $code: $(head -c 200 "$body")"
+[ "$code" = "200" ] || appfail "/chat/start HTTP $code: $(head -c 200 "$body")"
 sid=$(field session_id < "$body")
 [ -n "$sid" ] || fail "/chat/start returned no session_id"
 echo "SESSION=$sid"
@@ -422,14 +427,14 @@ echo "SESSION=$sid"
 # and an offered navigation is what emits NAVIGATION_OFFERED.
 code=$(post "$BASE/api/chat/message" \
   "{\"session_id\":\"$sid\",\"content\":\"show me round metal frames\",\"page_url\":\"$BASE/\"}")
-[ "$code" = "200" ] || fail "/chat/message HTTP $code: $(head -c 200 "$body")"
+[ "$code" = "200" ] || appfail "/chat/message HTTP $code: $(head -c 200 "$body")"
 aid=$(field action.action_id < "$body")
 
 # Confirming the offer is the PENDING->CONFIRMED edge that emits
 # ACTION_CONFIRMED; without this turn the event can never appear.
 code=$(post "$BASE/api/chat/message" \
   "{\"session_id\":\"$sid\",\"content\":\"yes\",\"page_url\":\"$BASE/\"}")
-[ "$code" = "200" ] || fail "/chat/message (confirm) HTTP $code: $(head -c 200 "$body")"
+[ "$code" = "200" ] || appfail "/chat/message (confirm) HTTP $code: $(head -c 200 "$body")"
 aid2=$(field action.action_id < "$body")
 [ -n "$aid2" ] && aid=$aid2
 
@@ -437,7 +442,7 @@ if [ -n "$aid" ]; then
   # The widget reporting execution is what emits ACTION_EXECUTED.
   code=$(post "$BASE/api/chat/action-result" \
     "{\"session_id\":\"$sid\",\"action_id\":\"$aid\",\"success\":true,\"duration_ms\":120}")
-  [ "$code" = "200" ] || fail "/chat/action-result HTTP $code: $(head -c 200 "$body")"
+  [ "$code" = "200" ] || appfail "/chat/action-result HTTP $code: $(head -c 200 "$body")"
   echo "ACTION=$aid"
 else
   # No action offered is a fact about the deployment, not a broken canary.
@@ -466,6 +471,12 @@ def cmd_canary(args):
     # look alike: the first is no evidence either way, the second is grounds to
     # roll a release back.
     for line in out.splitlines():
+        if line.startswith("CANARY_APP_FAIL"):
+            print("\n  DEPLOYED CHAT API FAILED — %s\n  This is the release, not "
+                  "the canary: roll back with\n  python3 deploy/deploy.py "
+                  "rollback --confirm"
+                  % line[len("CANARY_APP_FAIL"):].strip(), file=sys.stderr)
+            return 1
         if line.startswith("CANARY_FAIL"):
             print("\n  CANARY COULD NOT RUN — %s\n  This says nothing about the "
                   "deployment; fix the canary and re-run."

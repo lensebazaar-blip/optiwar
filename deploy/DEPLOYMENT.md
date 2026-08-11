@@ -125,12 +125,16 @@ Exit codes distinguish the two things an operator must not confuse:
 | code | meaning |
 |---|---|
 | 0 | all six canonical events written — the deployment is proven |
-| 1 | the canary ran, events are missing — the instrumentation is not live |
-| 2 | the canary could not run (enrolment 401, endpoint error) — no evidence either way |
+| 1 | the canary ran and the release is bad — events missing, or a chat endpoint returned non-200 |
+| 2 | the canary could not run (enrolment 401, no cookie) — no evidence either way |
 
-Only `1` is grounds to roll back. `2` means fix the canary and re-run: a failed
-staff enrolment silently disables the ACR action path, and without this
-distinction that reads identically to a broken release.
+`1` is grounds to roll back; `2` means fix the canary and re-run. The split has
+to cut in both directions. A failed staff enrolment silently disables the ACR
+action path, which reads identically to a broken release — hence `2`. But a
+non-200 from `/api/chat/start`, `/api/chat/message` or `/api/chat/action-result`
+is the deployed code failing, and it is the *only* check that exercises it: the
+smoke suite makes no chat request, and the deploy set is exactly those three
+chat files. That must never be filed as inconclusive.
 
 ## Rollback
 
