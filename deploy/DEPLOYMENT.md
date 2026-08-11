@@ -54,8 +54,10 @@ copied, and `py_compile` runs again on the box after the copy.
 
 ```bash
 python3 deploy/deploy.py plan                 # writes nothing
+python3 deploy/deploy.py migrate --confirm    # additive schema, on its own
 python3 deploy/deploy.py apply --confirm      # backup, replace, restart, smoke
 python3 deploy/deploy.py canary               # staff conversation + event proof
+python3 deploy/deploy.py release --confirm    # all three, unattended
 python3 deploy/deploy.py rollback --confirm   # previous release, one command
 ```
 
@@ -69,11 +71,40 @@ anything.
 
 ### Schema first, separately
 
-`ensure_schema()` runs at app boot and will add five nullable columns to
-`ai_events` plus an index on `ai_actions`. Both tables are tiny (6 and 2 rows),
-so the DDL is instant — but run it deliberately *before* the restart anyway, so
-that a code swap and a schema change are never the same event. `plan` lists
-exactly what is outstanding.
+`ensure_schema()` runs at app boot and will add five nullable columns and three
+indexes. Both tables are tiny (6 and 2 rows), so the DDL is instant — but
+`migrate` runs it deliberately *before* the restart anyway, so that a code swap
+and a schema change are never the same event, and then re-reads
+`information_schema` to prove the restart will find nothing left to do.
+
+The list is not restated here or in `deploy.py`: it is read out of `acr.py`'s
+`_AI_EVENTS_EXTRA_COLS` / `_AI_EVENTS_EXTRA_IDX` / `_AI_ACTIONS_EXTRA_IDX`,
+which `ensure_schema()` itself applies. A second copy is a copy that can
+disagree, and a disagreement means `plan` reporting "nothing pending" while the
+restart runs DDL — the one thing this step exists to rule out.
+`tests/test_deploy_migration.py` holds that wiring in place.
+
+Every item is additive and nullable, so it is compatible in both directions:
+pre-Part-B code neither reads nor writes the new columns, which is why a
+rollback leaves them alone.
+
+### Unattended release
+
+`release` runs migrate → apply → canary as one operation and, unlike the
+individual commands, **acts on the canary's verdict**. `apply` already restores
+the previous release on a failed boot or a failed smoke test; the canary ran
+afterwards and only printed the rollback command, which is fine with an
+operator watching and useless at 02:00 with nobody there.
+
+| canary | `release` does |
+|---|---|
+| 0 | leaves it live; the observation window starts |
+| 1 — the release is at fault | rolls back automatically, code only |
+| 2 — no evidence | leaves the live, smoke-clean release alone and reports |
+
+Exit 2 must not roll back: reverting a healthy release because the model
+provider was briefly busy during the deploy window is both a likely and a bad
+outcome.
 
 ### Restart window
 
@@ -159,3 +190,19 @@ first standardized deployment would make any failure ambiguous.
 
 `LIVE_HANDOVER_ENABLED` stays `false` at both Optiwar and KET. Step 5 stays
 dry-run only, with no cron.
+
+## Standing up a new node
+
+The tool holds no host-specific logic. `OPTIWAR_DEPLOY_HOST`, `OPTIWAR_APP_DIR`,
+`OPTIWAR_SERVICE`, `OPTIWAR_DB` and `OPTIWAR_RELEASES` are the whole surface, so
+a second node needs only: a checkout at the release commit, Python
+dependencies, `/etc/optiwar/optiwar-secrets.env`, `migrate --confirm`, the
+service unit, shared data services, and `release --confirm`.
+
+One real obstacle remains, and it is not in this tool. Four files hold live
+credentials inline in `/var/www` that exist nowhere in git — `pricing.py`,
+`delhivery_union.py`, `missing_order_search.py`, `dashboard_admin_streamlit.py`
+— while `main` reads them from environment variables that are **not set** on the
+box. A node built from the repository today would come up with an empty
+Delhivery token, pricing secret and admin database password. Until those are
+externalised for real, production cannot be reconstructed from git alone.

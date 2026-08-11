@@ -245,13 +245,23 @@ CONSENT_SENSITIVE_AI = "sensitive_ai"
 CONSENT_VOICE = "voice"
 CONSENT_ATTACHMENT = "attachment_processing"
 
-# Typed columns added to ai_events by the Part-B idempotent migration.
+# Typed columns and indexes added by the Part-B idempotent migration. These are
+# the single source of truth for the additive schema: ensure_schema() applies
+# them at boot, and deploy/deploy.py reads them to plan and apply the same
+# migration deliberately beforehand. Adding one here is enough.
 _AI_EVENTS_EXTRA_COLS = (
     ("request_id", "VARCHAR(64) NULL"),
     ("provider", "VARCHAR(24) NULL"),
     ("model", "VARCHAR(64) NULL"),
     ("workload", "VARCHAR(32) NULL"),
     ("consent_scope", "VARCHAR(32) NULL"),
+)
+_AI_EVENTS_EXTRA_IDX = (
+    ("idx_provider_model", "provider, model"),
+    ("idx_request", "request_id"),
+)
+_AI_ACTIONS_EXTRA_IDX = (
+    ("idx_status_expires", "status, expires_at"),
 )
 
 
@@ -413,20 +423,22 @@ def _ensure_ai_actions_indexes(cur):
     ai_actions table. (status, expires_at) turns the sweep's
     ``status='PENDING' AND expires_at < NOW() ORDER BY expires_at`` from a full
     scan + filesort into an index range scan. Additive and best-effort."""
-    try:
-        cur.execute(
-            """SELECT COUNT(*) FROM information_schema.STATISTICS
-               WHERE table_schema=DATABASE() AND table_name='ai_actions'
-                 AND index_name='idx_status_expires'"""
-        )
-        row = cur.fetchone()
-        has = (row[0] if isinstance(row, (list, tuple)) else
-               list(row.values())[0]) if row else 0
-        if not has:
+    for idx, cols in _AI_ACTIONS_EXTRA_IDX:
+        try:
             cur.execute(
-                "ALTER TABLE ai_actions ADD KEY idx_status_expires (status, expires_at)")
-    except Exception:
-        pass
+                """SELECT COUNT(*) FROM information_schema.STATISTICS
+                   WHERE table_schema=DATABASE() AND table_name='ai_actions'
+                     AND index_name=%s""",
+                (idx,),
+            )
+            row = cur.fetchone()
+            has = (row[0] if isinstance(row, (list, tuple)) else
+                   list(row.values())[0]) if row else 0
+            if not has:
+                cur.execute(
+                    "ALTER TABLE ai_actions ADD KEY %s (%s)" % (idx, cols))
+        except Exception:
+            pass
 
 
 def _ensure_ai_events_columns(cur):
@@ -450,8 +462,7 @@ def _ensure_ai_events_columns(cur):
         except Exception:
             # Column may already exist / insufficient grant / replica — skip.
             pass
-    for idx, cols in (("idx_provider_model", "provider, model"),
-                      ("idx_request", "request_id")):
+    for idx, cols in _AI_EVENTS_EXTRA_IDX:
         try:
             cur.execute(
                 """SELECT COUNT(*) FROM information_schema.STATISTICS

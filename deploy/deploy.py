@@ -7,7 +7,11 @@ have, in both directions. This tool makes a deployment an auditable operation
 instead of an scp:
 
     plan      what would change, proven safe, writing nothing
+    migrate   apply the additive schema, on its own, before any code moves
     apply     back up, replace, restart once, smoke test
+    canary    drive a staff conversation, prove canonical events are written
+    release   migrate -> apply -> canary as one unattended run, rolling itself
+              back when the release is at fault
     rollback  restore the previous release (code only)
 
 Two guards do the real work.
@@ -23,14 +27,21 @@ ticket-notification retry are live but merged nowhere — so a whole-tree deploy
 would silently revert working features. Widening the set is a deliberate act
 that has to survive the provenance guard.
 
+Nothing here is specific to the current host beyond the settings at the top,
+all overridable from the environment. A new node needs a checkout, its
+dependencies, its secrets file, this migration and this command.
+
 Usage:
     python3 deploy/deploy.py plan
+    python3 deploy/deploy.py migrate --confirm
     python3 deploy/deploy.py apply --confirm
+    python3 deploy/deploy.py release --confirm
     python3 deploy/deploy.py rollback --confirm
 """
 import argparse
 import datetime
 import hashlib
+import importlib.util
 import os
 import re
 import shlex
@@ -45,7 +56,8 @@ APP_DIR = os.environ.get(
     "/var/www/flask-optiwar-ow-release-090525/venv/lib/python3.11/"
     "site-packages/flaskr")
 SERVICE = os.environ.get("OPTIWAR_SERVICE", "gunicorn")
-RELEASES = "/root/deploy_releases"
+DB = os.environ.get("OPTIWAR_DB", "optiwar2")
+RELEASES = os.environ.get("OPTIWAR_RELEASES", "/root/deploy_releases")
 
 # The ACR Part B canonical instrumentation, and nothing else. Every other file
 # either matches main already or is *ahead* of it; see the module docstring.
@@ -118,6 +130,35 @@ def md5(path):
         return hashlib.md5(fh.read()).hexdigest()
 
 
+def acr_module():
+    """Load the repo's acr.py by path (stdlib only, no package import).
+
+    The migration is read from the application rather than restated here: a
+    second copy of the column and index list is a copy that can disagree with
+    ``ensure_schema()``, and a disagreement means unplanned DDL running during
+    the restart, which is the thing this tool exists to prevent.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "acr_for_deploy", os.path.join(REPO, "acr.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def migration():
+    """The additive Part-B schema as (label, DDL), in application order."""
+    acr = acr_module()
+    items = [("ai_events.%s (column)" % name,
+              "ALTER TABLE ai_events ADD COLUMN %s %s" % (name, decl))
+             for name, decl in acr._AI_EVENTS_EXTRA_COLS]
+    for table, idx in (("ai_events", acr._AI_EVENTS_EXTRA_IDX),
+                       ("ai_actions", acr._AI_ACTIONS_EXTRA_IDX)):
+        items += [("%s.%s (index)" % (table, name),
+                   "ALTER TABLE %s ADD KEY %s (%s)" % (table, name, cols))
+                  for name, cols in idx]
+    return items
+
+
 def remote_md5s():
     out = remote("cd %s && md5sum *.py" % shlex.quote(APP_DIR))
     return {name: h for h, name in
@@ -176,24 +217,25 @@ def pending_ddl():
     """
     cols = remote(
         "mysql -N -e \"SELECT column_name FROM information_schema.columns "
-        "WHERE table_schema='optiwar2' AND table_name='ai_events'\"",
+        "WHERE table_schema='%s' AND table_name='ai_events'\"" % DB,
         check=False).split()
-    def indexes(table):
-        return remote(
+    have = {}
+    for table in ("ai_events", "ai_actions"):
+        have[table] = remote(
             "mysql -N -e \"SELECT DISTINCT index_name FROM information_schema."
-            "statistics WHERE table_schema='optiwar2' AND table_name='%s'\""
-            % table, check=False).split()
+            "statistics WHERE table_schema='%s' AND table_name='%s'\""
+            % (DB, table), check=False).split()
 
-    want_cols = ("request_id", "provider", "model", "workload", "consent_scope")
-    pending = ["ai_events.%s (column)" % c for c in want_cols if c not in cols]
-    # Every index ensure_schema() creates, not just the one on ai_actions —
-    # an unlisted index is still DDL running during the restart, which is the
-    # thing this is meant to rule out.
-    for table, names in (("ai_events", ("idx_provider_model", "idx_request")),
-                         ("ai_actions", ("idx_status_expires",))):
-        have = indexes(table)
-        pending += ["%s.%s (index)" % (table, n) for n in names
-                    if n not in have]
+    # Driven by the application's own list, so an index added to ensure_schema()
+    # and not here can no longer slip through unplanned.
+    pending = []
+    for label, ddl in migration():
+        table, rest = label.split(".", 1)
+        name = rest.split(" ", 1)[0]
+        missing = (name not in cols if label.endswith("(column)")
+                   else name not in have[table])
+        if missing:
+            pending.append((label, ddl))
     return pending
 
 
@@ -287,11 +329,14 @@ def cmd_plan(args):
 
     ddl = pending_ddl()
     print("\n  SCHEMA — ensure_schema() would add these at first boot:")
-    for d in ddl or ["    (none — already applied)"]:
-        print("    %s" % d if ddl else d)
+    if not ddl:
+        print("    (none — already applied)")
+    for label, _sql in ddl:
+        print("    %s" % label)
     if ddl:
-        print("    Apply these deliberately BEFORE the restart so a code swap\n"
-              "    and a DDL change are not the same event.")
+        print("    Apply these deliberately BEFORE the restart, so a code swap\n"
+              "    and a DDL change are not the same event:\n"
+              "      python3 deploy/deploy.py migrate --confirm")
 
     print("\n  SMOKE (current, pre-deploy baseline)")
     for label, _url, code, good in smoke():
@@ -299,6 +344,39 @@ def cmd_plan(args):
 
     print("\n  Rollback after apply:  python3 deploy/deploy.py rollback --confirm")
     return 1 if (problems or blocked or not ok) else 0
+
+
+def cmd_migrate(args):
+    """Apply the additive schema as its own operation, before any code moves.
+
+    Every item is additive — nullable columns and new indexes — so it is
+    compatible in both directions: the running pre-Part-B code neither reads
+    nor writes them, and a rollback deliberately leaves them in place.
+    """
+    pending = pending_ddl()
+    print("SCHEMA — %d item(s) pending" % len(pending))
+    for label, _sql in pending:
+        print("  %s" % label)
+    if not pending:
+        return 0
+    if not args.confirm:
+        print("refusing to migrate without --confirm", file=sys.stderr)
+        return 1
+
+    for label, sql in pending:
+        remote("mysql %s -e %s" % (shlex.quote(DB), shlex.quote(sql)))
+        print("  applied  %s" % label)
+
+    # Re-read information_schema rather than trusting the ALTERs returned zero:
+    # the guarantee being bought is that the restart finds nothing left to do.
+    left = pending_ddl()
+    if left:
+        print("\nSTILL PENDING after migrate: %s"
+              % ", ".join(l for l, _ in left), file=sys.stderr)
+        return 1
+    print("\nall %d item(s) verified present — the restart will run no DDL"
+          % len(pending))
+    return 0
 
 
 def cmd_apply(args):
@@ -572,11 +650,63 @@ def cmd_canary(args):
     return 1 if missing else 0
 
 
+def cmd_release(args):
+    """The whole approved sequence, unattended: migrate, apply, canary.
+
+    Unattended is the reason this exists rather than three commands typed in
+    order. ``apply`` already rolls back a failed boot or a failed smoke test,
+    but the canary ran afterwards and only *printed* the rollback command —
+    fine with an operator watching, useless at 02:00 with nobody there. Here a
+    verdict of "the release is at fault" acts.
+
+    The distinction the canary draws is what makes acting safe: exit 1 is the
+    deployed code misbehaving, exit 2 is no evidence either way — a busy model
+    provider, a transport failure, an unreadable ai_events. Rolling back on
+    exit 2 would revert a healthy release because something else was briefly
+    unwell, so exit 2 stops and reports instead.
+    """
+    if not args.confirm:
+        print("refusing to release without --confirm", file=sys.stderr)
+        return 1
+
+    print("=== 1/3 SCHEMA " + "=" * 45)
+    if cmd_migrate(args) != 0:
+        print("\nschema step failed — no code deployed", file=sys.stderr)
+        return 1
+
+    print("\n=== 2/3 APPLY " + "=" * 46)
+    if cmd_apply(args) != 0:
+        # cmd_apply has already restored the previous release on a failed boot
+        # or a failed smoke test.
+        print("\napply failed — see above for rollback state", file=sys.stderr)
+        return 1
+
+    print("\n=== 3/3 CANARY " + "=" * 45)
+    verdict = cmd_canary(args)
+    if verdict == 0:
+        print("\nRELEASE PROVEN — canonical events are being written.\n"
+              "The canonical-vs-legacy observation window starts now.")
+        return 0
+    if verdict == 2:
+        print("\nNO EVIDENCE — the canary could not run, which says nothing "
+              "about the\nrelease. Deployed code is LIVE and smoke-clean; "
+              "re-run the canary.", file=sys.stderr)
+        return 2
+
+    print("\nRELEASE AT FAULT — rolling back automatically", file=sys.stderr)
+    rc = cmd_rollback(args)
+    print("\nrolled back%s. Schema additions and hardening are deliberately "
+          "left in place." % ("" if rc == 0 else " WITH ERRORS — check the box"),
+          file=sys.stderr)
+    return 1
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name, fn in (("plan", cmd_plan), ("apply", cmd_apply),
-                     ("rollback", cmd_rollback), ("canary", cmd_canary)):
+    for name, fn in (("plan", cmd_plan), ("migrate", cmd_migrate),
+                     ("apply", cmd_apply), ("canary", cmd_canary),
+                     ("release", cmd_release), ("rollback", cmd_rollback)):
         p = sub.add_parser(name)
         p.add_argument("--confirm", action="store_true")
         p.set_defaults(fn=fn)
