@@ -408,6 +408,34 @@ appfail() { echo "CANARY_APP_FAIL $*"; exit 3; }
 post() {  # url json -> body in $body, prints status
   curl -s -o "$body" -w '%{http_code}' $J $JSON -X POST -d "$2" "$1"
 }
+classify() {  # code label — decide whether a non-200 is the release's fault
+  case "$1" in
+    200) return 0 ;;
+    # curl could not complete the request at all: that is the network between
+    # here and nginx, and it says nothing about the deployed code.
+    000) fail "$2 no HTTP response (transport)" ;;
+    503) if grep -q 'AI_TEMPORARILY_UNAVAILABLE' "$body"; then
+           # The designed load-shedding contract, which the widget soft-retries.
+           # A busy model provider is not a bad release.
+           fail "$2 503 AI_TEMPORARILY_UNAVAILABLE — provider shedding load"
+         else
+           appfail "$2 HTTP 503: $(head -c 200 "$body")"
+         fi ;;
+    *) appfail "$2 HTTP $1: $(head -c 200 "$body")" ;;
+  esac
+}
+post_ai() {  # url json label — bounded retry of the retryable 503 only
+  n=0
+  while : ; do
+    code=$(post "$1" "$2")
+    if [ "$code" = "503" ] && grep -q 'AI_TEMPORARILY_UNAVAILABLE' "$body" \
+       && [ "$n" -lt 2 ]; then
+      n=$((n + 1)); sleep 5; continue
+    fi
+    break
+  done
+  classify "$code" "$3"
+}
 field() { python3 -c 'import json,sys
 try:
     d = json.load(sys.stdin)
@@ -424,12 +452,12 @@ print(d if isinstance(d, str) else "")' "$1" 2>/dev/null; }
 # and three events can never appear — which would read as a failed deployment.
 code=$(curl -s -o /dev/null -w '%{http_code}' -c "$jar" -K "$cfg" \
        "$BASE/api/chat/admin/acr-canary?on=1")
-[ "$code" = "200" ] || fail "staff enrolment HTTP $code (ops token?)"
+[ "$code" = "200" ] || fail "staff enrolment HTTP $code (ops token, or no route)"
 grep -q 'ow_acr_canary' "$jar" || fail "enrolled but no ow_acr_canary cookie"
 
 code=$(post "$BASE/api/chat/start" \
   "{\"email\":\"$EMAIL\",\"name\":\"Deploy Canary\",\"page_url\":\"$BASE/\"}")
-[ "$code" = "200" ] || appfail "/chat/start HTTP $code: $(head -c 200 "$body")"
+classify "$code" /chat/start
 sid=$(field session_id < "$body")
 # 200 with no session_id is the deployed code misbehaving, not a canary
 # problem, so it carries the rollback-worthy marker.
@@ -438,16 +466,16 @@ echo "SESSION=$sid"
 
 # A product question: the model's search is what emits RECOMMENDATION_GENERATED,
 # and an offered navigation is what emits NAVIGATION_OFFERED.
-code=$(post "$BASE/api/chat/message" \
-  "{\"session_id\":\"$sid\",\"content\":\"show me round metal frames\",\"page_url\":\"$BASE/\"}")
-[ "$code" = "200" ] || appfail "/chat/message HTTP $code: $(head -c 200 "$body")"
+post_ai "$BASE/api/chat/message" \
+  "{\"session_id\":\"$sid\",\"content\":\"show me round metal frames\",\"page_url\":\"$BASE/\"}" \
+  /chat/message
 aid=$(field action.action_id < "$body")
 
 # Confirming the offer is the PENDING->CONFIRMED edge that emits
 # ACTION_CONFIRMED; without this turn the event can never appear.
-code=$(post "$BASE/api/chat/message" \
-  "{\"session_id\":\"$sid\",\"content\":\"yes\",\"page_url\":\"$BASE/\"}")
-[ "$code" = "200" ] || appfail "/chat/message (confirm) HTTP $code: $(head -c 200 "$body")"
+post_ai "$BASE/api/chat/message" \
+  "{\"session_id\":\"$sid\",\"content\":\"yes\",\"page_url\":\"$BASE/\"}" \
+  "/chat/message (confirm)"
 aid2=$(field action.action_id < "$body")
 [ -n "$aid2" ] && aid=$aid2
 
@@ -455,7 +483,7 @@ if [ -n "$aid" ]; then
   # The widget reporting execution is what emits ACTION_EXECUTED.
   code=$(post "$BASE/api/chat/action-result" \
     "{\"session_id\":\"$sid\",\"action_id\":\"$aid\",\"success\":true,\"duration_ms\":120}")
-  [ "$code" = "200" ] || appfail "/chat/action-result HTTP $code: $(head -c 200 "$body")"
+  classify "$code" /chat/action-result
   echo "ACTION=$aid"
 else
   # No action offered is a fact about the deployment, not a broken canary.

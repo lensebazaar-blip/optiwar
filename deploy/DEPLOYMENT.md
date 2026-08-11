@@ -126,7 +126,7 @@ Exit codes distinguish the two things an operator must not confuse:
 |---|---|
 | 0 | all six canonical events written — the deployment is proven |
 | 1 | the canary ran and the release is bad — events missing, a chat endpoint non-200, or a malformed/absent `session_id` in a 200 |
-| 2 | the canary could not run (enrolment 401, no cookie, `ai_events` query failed) — no evidence either way |
+| 2 | the canary could not run (enrolment 401, no cookie, `ai_events` query failed, transport failure, or a retryable `AI_TEMPORARILY_UNAVAILABLE` 503) — no evidence either way |
 
 `1` is grounds to roll back; `2` means fix the canary and re-run. The split has
 to cut in both directions. A failed staff enrolment silently disables the ACR
@@ -135,6 +135,11 @@ non-200 from `/api/chat/start`, `/api/chat/message` or `/api/chat/action-result`
 is the deployed code failing, and it is the *only* check that exercises it: the
 smoke suite makes no chat request, and the deploy set is exactly those three
 chat files. That must never be filed as inconclusive.
+
+One exception, because the app says so itself: a 503 carrying
+`AI_TEMPORARILY_UNAVAILABLE` is `ai_client.unavailable_contract()` shedding
+load, which the widget soft-retries. The canary retries it twice before giving
+up and then reports `2` — a busy model provider is not a bad release.
 
 ## Rollback
 
