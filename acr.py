@@ -75,51 +75,127 @@ ABANDONMENT_CANDIDATE_MINUTES = 120
 # immutable outcome once it reaches this status (set by archive_stale_sessions).
 TERMINAL_SESSION_STATUS = "archived"
 
-# Purchase attribution horizon. An order counts as this session's purchase only
-# if it was placed between the session start and this many hours after the
-# session's last activity. Without an upper bound, a single later order would
-# retroactively mark every earlier archived session of the same customer as
-# PURCHASED (PURCHASED has top precedence), inflating conversion reporting.
+# Purchase attribution horizon. An order is attributed to a session only if it
+# was placed between the session start and this many hours after the session's
+# last activity. This bounds *commerce attribution* only — it is recorded as the
+# attribution_window alongside the order, and never rewrites the conversation's
+# immutable outcome.
 PURCHASE_ATTRIBUTION_HOURS = 24
 
-# Session outcomes and their precedence (higher wins). Never decided by an LLM:
-# PURCHASED  <- commerce/order truth
+# ─── Tri-state truth ───
+# An authoritative probe answers TRUE, FALSE or UNKNOWN. UNKNOWN is what a
+# failed, denied, missing or timed-out query returns.
+#
+# Collapsing UNKNOWN into FALSE is acceptable for a dashboard tile and unsafe
+# for an immutable customer outcome: a denied SELECT on `orders` would read as
+# "no order", and the shopper who actually bought would be permanently recorded
+# as ABANDONED. When a probe that could change the answer is UNKNOWN we write
+# nothing and retry on the next sweep.
+TRUTH_TRUE = "TRUE"
+TRUTH_FALSE = "FALSE"
+TRUTH_UNKNOWN = "UNKNOWN"
+
+
+def truth_or(*values):
+    """OR over tri-state truth. TRUE dominates; UNKNOWN beats FALSE.
+
+    One source proving something happened settles it even if another source is
+    unreadable, but "nothing found" from a source that failed is not evidence of
+    absence.
+    """
+    if any(v == TRUTH_TRUE for v in values):
+        return TRUTH_TRUE
+    if any(v == TRUTH_UNKNOWN for v in values):
+        return TRUTH_UNKNOWN
+    return TRUTH_FALSE
+
+
+# ─── Conversational session outcomes ───
+# The immutable record of how the *conversation* ended. Purchase is deliberately
+# absent: a shopper can end a chat, have the session archived, return days later
+# and buy. Those are two different facts, and recording the purchase must not
+# require rewriting history. Commerce lands in the separate attribution ledger.
+#
+# Precedence (higher wins). Never decided by an LLM:
 # ESCALATED  <- handover/ticket truth
-# FAILED     <- defined terminal failure signal
+# FAILED     <- terminal *unrecovered* failure
 # ABANDONED  <- archived without a normal resolution (matured candidate)
 # ANSWERED   <- residual: archived after a normal resolution, none of the above
-OUTCOME_PURCHASED = "PURCHASED"
 OUTCOME_ESCALATED = "ESCALATED"
 OUTCOME_FAILED = "FAILED"
 OUTCOME_ABANDONED = "ABANDONED"
 OUTCOME_ANSWERED = "ANSWERED"
 _OUTCOME_PRIORITY = (
-    OUTCOME_PURCHASED,
     OUTCOME_ESCALATED,
     OUTCOME_FAILED,
     OUTCOME_ABANDONED,
     OUTCOME_ANSWERED,
 )
 
+# Commerce attribution vocabulary, deliberately kept out of _OUTCOME_PRIORITY.
+COMMERCE_PURCHASED = "PURCHASED"
 
-def decide_session_outcome(has_order=False, is_escalated=False, is_failed=False,
-                           normally_resolved=False):
-    """Deterministic session-outcome decision (pure). Applies the fixed
-    precedence PURCHASED -> ESCALATED -> FAILED -> ABANDONED -> ANSWERED using
-    caller-supplied truth booleans. Never consults an LLM.
+# Why an outcome could not be finalised on this sweep. Recorded, then retried.
+DEFER_ESCALATION_TRUTH = "escalation_truth_unavailable"
+DEFER_FAILURE_TRUTH = "failure_truth_unavailable"
+DEFER_RESOLUTION_TRUTH = "resolution_truth_unavailable"
+DEFER_ORDER_TRUTH = "order_truth_unavailable"
 
-    ``normally_resolved`` distinguishes ANSWERED (session closed normally) from
-    ABANDONED (archived after inactivity without a normal resolution). A session
-    reaching the terminal boundary always yields exactly one outcome."""
-    if has_order:
-        return OUTCOME_PURCHASED
-    if is_escalated:
-        return OUTCOME_ESCALATED
-    if is_failed:
-        return OUTCOME_FAILED
-    if normally_resolved:
-        return OUTCOME_ANSWERED
-    return OUTCOME_ABANDONED
+
+def _record_deferrals(db, deferred):
+    """Emit OUTCOME_DEFERRED once per session+reason, not once per sweep.
+
+    A deferral persists until the truth source comes back, and the sweep runs
+    every 15 minutes, so emitting unconditionally would write ~96 identical
+    events per session per day and bury the event stream under the very
+    condition it is meant to make visible. The event marks the *onset* of a
+    deferral; the current backlog is reported by the job's summary line.
+    """
+    for d in deferred:
+        already = _probe(
+            db,
+            """SELECT 1 FROM ai_events
+               WHERE session_id=%s AND event_type=%s AND failure_code=%s
+               LIMIT 1""",
+            (d['session_id'], EV_OUTCOME_DEFERRED, d['reason']),
+        )
+        if already == TRUTH_TRUE:
+            continue
+        log_event(db, EV_OUTCOME_DEFERRED, session_id=d['session_id'],
+                  success=False, failure_code=d['reason'],
+                  payload={'reason': d['reason']})
+
+
+def decide_session_outcome(is_escalated=TRUTH_FALSE, is_failed=TRUTH_FALSE,
+                           normally_resolved=TRUTH_FALSE):
+    """Decide one conversation's immutable outcome (pure, tri-state).
+
+    Returns ``(outcome, deferred_reason)``. Exactly one is non-None: either the
+    outcome is established, or it is deferred because a probe that could still
+    change the answer is UNKNOWN.
+
+    Precedence is evaluated highest-first, and a probe is only allowed to block
+    when it could actually change the result — if escalation is TRUE the session
+    is ESCALATED even when the failure probe is unreadable, because no value of
+    the lower-priority probe could alter that. That keeps deferral rare and
+    honest rather than making every unreadable table stall the sweep.
+    """
+    if is_escalated == TRUTH_TRUE:
+        return OUTCOME_ESCALATED, None
+    if is_escalated == TRUTH_UNKNOWN:
+        return None, DEFER_ESCALATION_TRUTH
+
+    if is_failed == TRUTH_TRUE:
+        return OUTCOME_FAILED, None
+    if is_failed == TRUTH_UNKNOWN:
+        return None, DEFER_FAILURE_TRUTH
+
+    if normally_resolved == TRUTH_TRUE:
+        return OUTCOME_ANSWERED, None
+    if normally_resolved == TRUTH_UNKNOWN:
+        # ANSWERED vs ABANDONED are both immutable and both wrong if guessed.
+        return None, DEFER_RESOLUTION_TRUTH
+    return OUTCOME_ABANDONED, None
 
 # ─── Canonical ACR event vocabulary (Part B) ───
 # One authoritative name per lifecycle state. These replace the legacy
@@ -144,6 +220,13 @@ EV_PROVIDER_FAILURE = "PROVIDER_FAILURE"
 EV_HANDOVER_ESCALATED = "HANDOVER_ESCALATED"
 EV_KET_TICKET_CREATED = "KET_TICKET_CREATED"
 EV_SESSION_OUTCOME = "SESSION_OUTCOME"
+# Commerce attribution is a separate fact from how the conversation ended, so it
+# gets its own event rather than overwriting SESSION_OUTCOME.
+EV_COMMERCE_OUTCOME = "COMMERCE_OUTCOME"
+# A sweep that could not establish authoritative truth records why, so a
+# deferred outcome is visible in the event stream instead of looking like an
+# unprocessed session.
+EV_OUTCOME_DEFERRED = "OUTCOME_DEFERRED"
 EV_OPS_CONSOLE_ACCESS = "OPS_CONSOLE_ACCESS"
 EV_OPS_CONSOLE_AUTH_FAILURE = "OPS_CONSOLE_AUTH_FAILURE"
 
@@ -597,6 +680,22 @@ def ensure_closure_schema(get_conn):
                 KEY idx_created (created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
         )
+        # Commerce attribution is a separate fact with its own lifetime: an
+        # order can arrive long after the conversation was archived and given
+        # its immutable outcome. Keeping it in its own table is what lets the
+        # purchase be recorded without rewriting that history.
+        cur.execute(
+            """CREATE TABLE IF NOT EXISTS ai_session_commerce (
+                session_id       VARCHAR(64) PRIMARY KEY,
+                order_id         VARCHAR(64) NOT NULL,
+                attribution_type VARCHAR(32) NOT NULL,
+                attribution_window_hours INT NOT NULL,
+                event_id         VARCHAR(36) NULL,
+                created_at       DATETIME NOT NULL,
+                KEY idx_order (order_id),
+                KEY idx_created (created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
+        )
     finally:
         conn.close()
 
@@ -671,72 +770,172 @@ def _scalar1(cur):
     return list(row.values())[0] if isinstance(row, dict) else row[0]
 
 
-def _exists(db, sql, params):
-    """True iff the indexed LIMIT-1 probe returns a row. Best-effort per signal:
-    a missing/denied truth table degrades that one signal to False rather than
-    aborting the whole sweep (documented — optiwar_closer must have SELECT on
-    every truth table for outcomes to be accurate)."""
+def _probe(db, sql, params):
+    """Tri-state existence probe: TRUE if the LIMIT-1 lookup returns a row,
+    FALSE if it provably does not, UNKNOWN if the query could not be answered.
+
+    A missing table, a denied grant, a timeout or any other failure yields
+    UNKNOWN. It must never be reported as FALSE — the caller writes immutable
+    customer outcomes, and "I could not read the orders table" is not the same
+    statement as "this customer did not order".
+    """
     try:
         cur = db.cursor()
         cur.execute(sql, params)
-        return _scalar1(cur) is not None
+        return TRUTH_TRUE if _scalar1(cur) is not None else TRUTH_FALSE
     except Exception:
-        return False
+        return TRUTH_UNKNOWN
 
 
-def gather_session_truth(db, session_id, customer_id, session_created_at,
-                        session_last_activity=None):
-    """Collect the deterministic truth signals for one session, using indexed,
-    LIMIT-1 lookups only. Order/handover/failure/resolution are read from
-    commerce, chat-event and canonical-event tables — never inferred by a model.
-    Returns the kwargs for :func:`decide_session_outcome`.
+def _probe_value(db, sql, params):
+    """Fetch one scalar as ``(truth, value)``.
 
-    Purchase truth is attributed only inside a bounded window: the order must
-    fall between the session start and PURCHASE_ATTRIBUTION_HOURS after the
-    session's last activity. ``customer_id`` alone is not sufficient linkage —
-    an unbounded lower-only window would attribute one later order to every
-    earlier session of that shopper."""
-    has_order = False
-    if customer_id is not None:
-        has_order = _exists(
-            db,
-            """SELECT 1 FROM orders
-               WHERE customer_id=%s AND is_test=0
-                 AND (%s IS NULL OR date_created >= %s)
-                 AND (%s IS NULL OR
-                      date_created <= %s + INTERVAL %s HOUR) LIMIT 1""",
-            (customer_id, session_created_at, session_created_at,
-             session_last_activity, session_last_activity,
-             PURCHASE_ATTRIBUTION_HOURS),
+    Same tri-state contract as :func:`_probe`, but keeps the value: attribution
+    needs the order_id, not merely the knowledge that an order exists.
+    """
+    try:
+        cur = db.cursor()
+        cur.execute(sql, params)
+        val = _scalar1(cur)
+        return (TRUTH_TRUE, val) if val is not None else (TRUTH_FALSE, None)
+    except Exception:
+        return TRUTH_UNKNOWN, None
+
+
+# Events that demonstrate the journey carried on working after a failure. A
+# provider timeout followed by a recommendation the customer then acted on is a
+# recovered blip, not a failed conversation.
+_RECOVERY_EVENTS = (
+    EV_RECOMMENDATION_GENERATED,
+    EV_NAVIGATION_OFFERED,
+    EV_ACTION_CONFIRMED,
+    EV_ACTION_EXECUTED,
+)
+
+# Failure signals considered when deciding whether a session ended in failure.
+_FAILURE_EVENTS = (
+    EV_ACTION_FAILED,
+    EV_PROVIDER_FAILURE,
+    EV_MODEL_TIMEOUT,
+    EV_ADMISSION_503,
+)
+
+
+def terminal_failure_truth(db, session_id):
+    """Whether this session ended in a *terminal unrecovered* failure.
+
+    FAILED must not mean "a failure happened at some point". The common path is
+    provider timeout -> retry -> recommendation -> navigation -> purchase, and
+    labelling that conversation FAILED would be simply untrue.
+
+    The rule is therefore: take the most recent failure event, then look for any
+    successful AI/action event after it. Something succeeding later *is* the
+    proof of recovery. No failure at all is FALSE; an unreadable event stream is
+    UNKNOWN.
+    """
+    try:
+        cur = db.cursor()
+        cur.execute(
+            """SELECT MAX(created_at) FROM ai_events
+               WHERE session_id=%s AND event_type IN (%s,%s,%s,%s)""",
+            (session_id,) + _FAILURE_EVENTS,
         )
+        last_failure_at = _scalar1(cur)
+    except Exception:
+        return TRUTH_UNKNOWN
+    if last_failure_at is None:
+        return TRUTH_FALSE
+
+    recovered = _probe(
+        db,
+        """SELECT 1 FROM ai_events
+           WHERE session_id=%s AND created_at > %s
+             AND (event_type IN (%s,%s,%s,%s)
+                  OR (event_type=%s AND success=1)) LIMIT 1""",
+        (session_id, last_failure_at) + _RECOVERY_EVENTS + (EV_MODEL_CALL,),
+    )
+    if recovered == TRUTH_UNKNOWN:
+        return TRUTH_UNKNOWN
+    return TRUTH_FALSE if recovered == TRUTH_TRUE else TRUTH_TRUE
+
+
+def gather_session_truth(db, session_id):
+    """Collect the tri-state truth signals for one conversation's outcome.
+
+    Indexed LIMIT-1 lookups only, read from chat-event and canonical-event
+    tables — never inferred by a model. Returns the kwargs for
+    :func:`decide_session_outcome`.
+
+    Order truth is deliberately absent: purchase is commerce attribution, not a
+    conversation outcome (see :func:`attribute_session_commerce`).
+    """
     # Escalation: a human agent replied, or a canonical handover/ticket event.
-    is_escalated = _exists(
-        db,
-        """SELECT 1 FROM chat_events
-           WHERE session_id=%s AND event_type='agent_reply' LIMIT 1""",
-        (session_id,),
-    ) or _exists(
-        db,
-        """SELECT 1 FROM ai_events
-           WHERE session_id=%s AND event_type IN (%s,%s) LIMIT 1""",
-        (session_id, EV_HANDOVER_ESCALATED, EV_KET_TICKET_CREATED),
+    is_escalated = truth_or(
+        _probe(
+            db,
+            """SELECT 1 FROM chat_events
+               WHERE session_id=%s AND event_type='agent_reply' LIMIT 1""",
+            (session_id,),
+        ),
+        _probe(
+            db,
+            """SELECT 1 FROM ai_events
+               WHERE session_id=%s AND event_type IN (%s,%s) LIMIT 1""",
+            (session_id, EV_HANDOVER_ESCALATED, EV_KET_TICKET_CREATED),
+        ),
     )
-    # Failure: a defined terminal failure event for this session.
-    is_failed = _exists(
-        db,
-        """SELECT 1 FROM ai_events
-           WHERE session_id=%s AND event_type IN (%s,%s) LIMIT 1""",
-        (session_id, EV_ACTION_FAILED, EV_PROVIDER_FAILURE),
-    )
-    # Normal resolution: session was resolved before archival.
-    normally_resolved = _exists(
+    is_failed = terminal_failure_truth(db, session_id)
+    normally_resolved = _probe(
         db,
         """SELECT 1 FROM chat_events
            WHERE session_id=%s AND event_type='session_resolved' LIMIT 1""",
         (session_id,),
     )
-    return {'has_order': has_order, 'is_escalated': is_escalated,
-            'is_failed': is_failed, 'normally_resolved': normally_resolved}
+    return {'is_escalated': is_escalated, 'is_failed': is_failed,
+            'normally_resolved': normally_resolved}
+
+
+# How an order was tied to a session. Only one method exists today; naming it
+# explicitly means later methods (click-through, cart handoff) are
+# distinguishable in analytics instead of silently changing what the column
+# means.
+ATTRIBUTION_SESSION_WINDOW = "session_window"
+
+
+def attribute_session_commerce(db, session_id, customer_id, session_created_at,
+                               session_last_activity=None):
+    """Find the order attributable to this session, if any.
+
+    Returns ``(truth, record)``. ``record`` carries order_id, attribution_type
+    and attribution_window so the basis of the claim is auditable rather than
+    implied by a bare PURCHASED label.
+
+    The window is bounded at both ends — session start to last activity plus
+    PURCHASE_ATTRIBUTION_HOURS. A lower bound alone would let one order be
+    attributed to every earlier session that shopper ever had.
+    """
+    if customer_id is None:
+        return TRUTH_FALSE, None
+    truth, order_id = _probe_value(
+        db,
+        """SELECT order_id FROM orders
+           WHERE customer_id=%s AND is_test=0
+             AND (%s IS NULL OR date_created >= %s)
+             AND (%s IS NULL OR
+                  date_created <= %s + INTERVAL %s HOUR)
+           ORDER BY date_created ASC LIMIT 1""",
+        (customer_id, session_created_at, session_created_at,
+         session_last_activity, session_last_activity,
+         PURCHASE_ATTRIBUTION_HOURS),
+    )
+    if truth != TRUTH_TRUE:
+        return truth, None
+    return TRUTH_TRUE, {
+        'session_id': session_id,
+        'order_id': order_id,
+        'attribution_type': ATTRIBUTION_SESSION_WINDOW,
+        'attribution_window_hours': PURCHASE_ATTRIBUTION_HOURS,
+    }
 
 
 def find_sessions_awaiting_outcome(db, limit=500):
@@ -774,23 +973,30 @@ def finalize_archived_session_outcomes(db, dry_run=True, limit=500):
     an already-stored SESSION_OUTCOME event and only backfills in that case, so a
     failed backfill cannot turn into a duplicate event.
 
+    A session whose authoritative truth cannot be established is *deferred*, not
+    guessed: no ledger row is claimed, an OUTCOME_DEFERRED event records the
+    reason, and the session is offered again on the next sweep. Writing a wrong
+    immutable outcome is unrecoverable; waiting for the next run costs 15
+    minutes.
+
     Returns {'candidates': [{session_id, outcome}...], 'closed': [...],
-    'event_failed': [...]}. In dry_run nothing is written and 'closed' mirrors
-    'candidates'."""
+    'deferred': [{session_id, reason}...], 'event_failed': [...]}. In dry_run
+    nothing is written and 'closed' mirrors 'candidates'."""
     rows = find_sessions_awaiting_outcome(db, limit=limit)
     candidates = []
+    deferred = []
     for r in rows:
         sid = r['session_id'] if isinstance(r, dict) else r[0]
-        cid = r['customer_id'] if isinstance(r, dict) else r[1]
-        created = r['created_at'] if isinstance(r, dict) else r[2]
-        last_act = (r.get('last_activity') if isinstance(r, dict)
-                    else (r[3] if len(r) > 3 else None))
-        truth = gather_session_truth(db, sid, cid, created, last_act)
-        outcome = decide_session_outcome(**truth)
+        truth = gather_session_truth(db, sid)
+        outcome, defer_reason = decide_session_outcome(**truth)
+        if defer_reason:
+            deferred.append({'session_id': sid, 'reason': defer_reason})
+            continue
         candidates.append({'session_id': sid, 'outcome': outcome})
     if dry_run:
         return {'candidates': candidates, 'closed': list(candidates),
-                'event_failed': []}
+                'deferred': deferred, 'event_failed': []}
+    _record_deferrals(db, deferred)
     closed = []
     event_failed = []
     for c in candidates:
@@ -822,7 +1028,127 @@ def finalize_archived_session_outcomes(db, dry_run=True, limit=500):
         except Exception:
             pass
     return {'candidates': candidates, 'closed': closed,
-            'event_failed': event_failed}
+            'deferred': deferred, 'event_failed': event_failed}
+
+
+def find_sessions_awaiting_attribution(db, limit=500):
+    """Archived sessions with no commerce-attribution row yet (bounded anti-join).
+
+    Runs independently of the outcome sweep. A session whose conversation was
+    already closed as ANSWERED still appears here, because the order may only
+    have landed afterwards — that is the whole point of separating the two.
+    """
+    cur = db.cursor()
+    cur.execute(
+        """SELECT s.session_id, s.customer_id, s.created_at, s.last_activity
+           FROM chat_sessions s
+           LEFT JOIN ai_session_commerce c ON c.session_id = s.session_id
+           WHERE s.status=%s AND (c.session_id IS NULL OR c.event_id IS NULL)
+           ORDER BY s.last_activity ASC LIMIT %s""",
+        (TERMINAL_SESSION_STATUS, int(limit)),
+    )
+    return cur.fetchall() or []
+
+
+def attribute_archived_session_commerce(db, dry_run=True, limit=500):
+    """Record purchase attribution for archived sessions, separately from their
+    conversation outcome.
+
+    Same idempotency mechanism as the outcome ledger — an atomic INSERT-claim on
+    a session_id PRIMARY KEY, with event_id backfilled once COMMERCE_OUTCOME has
+    actually landed, so a failed event write is retried rather than lost.
+
+    Unknown order truth defers: no row is claimed and the session is retried.
+    Recording "no purchase" because the orders table was unreadable would
+    understate revenue attribution permanently.
+
+    Returns {'candidates': [...], 'attributed': [...], 'deferred': [...],
+    'event_failed': [...]}.
+    """
+    rows = find_sessions_awaiting_attribution(db, limit=limit)
+    candidates = []
+    deferred = []
+    for r in rows:
+        sid = r['session_id'] if isinstance(r, dict) else r[0]
+        cid = r['customer_id'] if isinstance(r, dict) else r[1]
+        created = r['created_at'] if isinstance(r, dict) else r[2]
+        last_act = (r.get('last_activity') if isinstance(r, dict)
+                    else (r[3] if len(r) > 3 else None))
+        truth, record = attribute_session_commerce(db, sid, cid, created, last_act)
+        if truth == TRUTH_UNKNOWN:
+            deferred.append({'session_id': sid,
+                             'reason': DEFER_ORDER_TRUTH})
+            continue
+        if truth == TRUTH_TRUE and record:
+            candidates.append(record)
+    if dry_run:
+        return {'candidates': candidates, 'attributed': list(candidates),
+                'deferred': deferred, 'event_failed': []}
+    _record_deferrals(db, deferred)
+    attributed = []
+    event_failed = []
+    for c in candidates:
+        try:
+            cur = db.cursor()
+            cur.execute(
+                """INSERT IGNORE INTO ai_session_commerce
+                     (session_id, order_id, attribution_type,
+                      attribution_window_hours, event_id, created_at)
+                   VALUES (%s,%s,%s,%s,NULL,NOW())""",
+                (c['session_id'], c['order_id'], c['attribution_type'],
+                 c['attribution_window_hours']),
+            )
+            fresh_claim = bool(cur.rowcount and cur.rowcount > 0)
+            if not fresh_claim:
+                existing = _existing_event_id(db, c['session_id'],
+                                              EV_COMMERCE_OUTCOME)
+                if existing:
+                    _backfill_commerce_event_id(db, c['session_id'], existing)
+                    continue
+            event_id = log_event(db, EV_COMMERCE_OUTCOME,
+                                 session_id=c['session_id'], success=True,
+                                 payload={'outcome': COMMERCE_PURCHASED,
+                                          'order_id': c['order_id'],
+                                          'attribution_type': c['attribution_type'],
+                                          'attribution_window_hours':
+                                              c['attribution_window_hours']})
+            if event_id:
+                _backfill_commerce_event_id(db, c['session_id'], event_id)
+                attributed.append(c)
+            else:
+                event_failed.append(c)
+        except Exception:
+            pass
+    return {'candidates': candidates, 'attributed': attributed,
+            'deferred': deferred, 'event_failed': event_failed}
+
+
+def _backfill_commerce_event_id(db, session_id, event_id):
+    """Point the attribution row at the COMMERCE_OUTCOME event that landed."""
+    try:
+        cur = db.cursor()
+        cur.execute(
+            """UPDATE ai_session_commerce SET event_id=%s
+               WHERE session_id=%s AND event_id IS NULL""",
+            (event_id, session_id),
+        )
+    except Exception:
+        pass
+
+
+def _existing_event_id(db, session_id, event_type):
+    """The event_id of an already-stored event of this type for this session."""
+    try:
+        cur = db.cursor()
+        cur.execute(
+            """SELECT event_id FROM ai_events
+               WHERE session_id=%s AND event_type=%s
+               ORDER BY created_at ASC LIMIT 1""",
+            (session_id, event_type),
+        )
+        return _scalar1(cur)
+    except Exception:
+        return None
 
 
 def _existing_outcome_event_id(db, session_id):

@@ -5,9 +5,15 @@ ACR Step 5 — closure / sweeper job.
 Emits the two remaining canonical lifecycle events that require an out-of-band
 sweep rather than a request-path signal:
 
-  * ACTION_EXPIRED   — PENDING navigation actions that outlived their TTL.
-  * SESSION_OUTCOME  — the single immutable outcome of an archived session
-                       (PURCHASED > ESCALATED > FAILED > ABANDONED > ANSWERED).
+  * ACTION_EXPIRED    — PENDING navigation actions that outlived their TTL.
+  * SESSION_OUTCOME   — the single immutable outcome of an archived
+                        *conversation* (ESCALATED > FAILED > ABANDONED >
+                        ANSWERED).
+  * COMMERCE_OUTCOME  — purchase attribution for an archived session, recorded
+                        separately so an order arriving after the conversation
+                        closed never rewrites its immutable outcome.
+  * OUTCOME_DEFERRED  — emitted instead of guessing when an authoritative truth
+                        source cannot be read. The session is retried next run.
 
 Live-site safeguards (all defaults are the safe ones):
 
@@ -21,9 +27,13 @@ Live-site safeguards (all defaults are the safe ones):
   * Every sweep is bounded (ACR_CLOSURE_BATCH, default 500) and uses indexed,
     short statements — no broad table locks, no long transactions.
   * Idempotency is structural, not advisory: ACTION_EXPIRED is edge-triggered by
-    an atomic PENDING->EXPIRED UPDATE rowcount; SESSION_OUTCOME by an atomic
-    INSERT-claim into ai_session_outcomes (session_id PRIMARY KEY). Two
-    overlapping runs therefore cannot double-emit either event.
+    an atomic PENDING->EXPIRED UPDATE rowcount; SESSION_OUTCOME and
+    COMMERCE_OUTCOME by an atomic INSERT-claim into their ledger
+    (session_id PRIMARY KEY). Two overlapping runs therefore cannot double-emit
+    any of them.
+  * Truth probes are tri-state. A denied or missing truth table yields UNKNOWN,
+    never False, and an UNKNOWN that could change the answer defers the session
+    rather than writing an immutable outcome that may be wrong.
 
 Intended cron (only after dry-run evidence is reviewed and writes are enabled):
 */15 * * * * ACR_CLOSURE_ENABLED=true ACR_CLOSURE_DRY_RUN=false \
@@ -94,6 +104,28 @@ def _release_lock(db):
         pass
 
 
+def _log_deferrals(result, label):
+    """Report sessions held back for want of authoritative truth.
+
+    Deferrals are the signal that a grant is missing or a truth table is
+    unreadable, so they are printed with their reason and their count rather
+    than being invisible in a 'nothing to do' line.
+    """
+    deferred = result.get("deferred") or []
+    if not deferred:
+        return
+    reasons = {}
+    for d in deferred:
+        reasons[d["reason"]] = reasons.get(d["reason"], 0) + 1
+    _log("  %s deferred: %d (%s)" % (
+        label, len(deferred),
+        ", ".join("%s=%d" % (k, reasons[k]) for k in sorted(reasons))))
+    for d in deferred[:20]:
+        _log("    deferred %s reason=%s" % (d["session_id"], d["reason"]))
+    if len(deferred) > 20:
+        _log("    ... and %d more" % (len(deferred) - 20))
+
+
 def main():
     enabled = _bool_env("ACR_CLOSURE_ENABLED", False)
     dry_run = _bool_env("ACR_CLOSURE_DRY_RUN", True)
@@ -149,9 +181,27 @@ def main():
                     "%s=%d" % (k, counts[k]) for k in sorted(counts)))
             for c in r2["closed"]:
                 _log("  session %s -> %s" % (c["session_id"], c["outcome"]))
+            _log_deferrals(r2, "session")
             for c in r2.get("event_failed") or []:
                 _log("  WARNING session %s claimed but SESSION_OUTCOME event write "
                      "failed; will be retried next run" % c["session_id"])
+
+            # ── Sweep 3: commerce attribution (separate from outcome) ──
+            t0 = time.time()
+            r3 = acr.attribute_archived_session_commerce(
+                db, dry_run=dry_run, limit=batch)
+            dt3 = (time.time() - t0) * 1000.0
+            verb = "would attribute" if dry_run else "attributed"
+            _log("commerce: %d attributable; %s %d [%.1f ms]" % (
+                len(r3["candidates"]), verb, len(r3["attributed"]), dt3))
+            for c in r3["attributed"]:
+                _log("  session %s -> PURCHASED order=%s (%s, %dh window)" % (
+                    c["session_id"], c["order_id"], c["attribution_type"],
+                    c["attribution_window_hours"]))
+            _log_deferrals(r3, "commerce")
+            for c in r3.get("event_failed") or []:
+                _log("  WARNING session %s claimed but COMMERCE_OUTCOME event "
+                     "write failed; will be retried next run" % c["session_id"])
         finally:
             _release_lock(db)
     finally:
