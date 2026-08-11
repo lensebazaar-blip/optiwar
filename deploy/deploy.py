@@ -87,6 +87,20 @@ def remote(cmd, check=True):
     return p.stdout.strip()
 
 
+def remote_script(script, check=True):
+    """Run a script on the production host, fed over stdin.
+
+    Anything that touches a credential goes through here rather than
+    ``remote()``: a command passed as an ssh argument is visible in the remote
+    process list and is echoed back in the error message on failure.
+    """
+    p = subprocess.run(["ssh", HOST, "bash -s"], input=script,
+                       capture_output=True, text=True)
+    if check and p.returncode != 0:
+        raise SystemExit("remote script failed:\n%s" % p.stderr.strip())
+    return p.stdout.strip()
+
+
 def md5(path):
     with open(path, "rb") as fh:
         return hashlib.md5(fh.read()).hexdigest()
@@ -120,6 +134,10 @@ def preflight():
         problems.append("working tree is dirty — deploy builds from git, not "
                         "from edited files")
     branch = sh("git rev-parse --abbrev-ref HEAD")
+    if branch != "main":
+        # Being level with origin/main is not the same as being main: a feature
+        # branch contains it and carries unreviewed commits on top.
+        problems.append("HEAD is on %s — deploy builds from main" % branch)
     sh("git fetch -q origin main", check=False)
     behind = sh("git rev-list --count HEAD..origin/main", check=False)
     if behind and behind != "0":
@@ -148,14 +166,22 @@ def pending_ddl():
         "mysql -N -e \"SELECT column_name FROM information_schema.columns "
         "WHERE table_schema='optiwar2' AND table_name='ai_events'\"",
         check=False).split()
-    idx = remote(
-        "mysql -N -e \"SELECT DISTINCT index_name FROM information_schema."
-        "statistics WHERE table_schema='optiwar2' AND table_name='ai_actions'\"",
-        check=False).split()
+    def indexes(table):
+        return remote(
+            "mysql -N -e \"SELECT DISTINCT index_name FROM information_schema."
+            "statistics WHERE table_schema='optiwar2' AND table_name='%s'\""
+            % table, check=False).split()
+
     want_cols = ("request_id", "provider", "model", "workload", "consent_scope")
-    pending = ["ai_events.%s" % c for c in want_cols if c not in cols]
-    if "idx_status_expires" not in idx:
-        pending.append("ai_actions.idx_status_expires (index)")
+    pending = ["ai_events.%s (column)" % c for c in want_cols if c not in cols]
+    # Every index ensure_schema() creates, not just the one on ai_actions —
+    # an unlisted index is still DDL running during the restart, which is the
+    # thing this is meant to rule out.
+    for table, names in (("ai_events", ("idx_provider_model", "idx_request")),
+                         ("ai_actions", ("idx_status_expires",))):
+        have = indexes(table)
+        pending += ["%s.%s (index)" % (table, n) for n in names
+                    if n not in have]
     return pending
 
 
@@ -302,8 +328,12 @@ def cmd_apply(args):
     active, errs = worker_health(since)
     print("service %s, %s error line(s) since restart" % (active, errs))
 
-    failed = [r for r in smoke() if not r[3]]
-    for label, _u, code, good in smoke():
+    # One run, printed and judged: two runs can disagree, and the operator
+    # deciding whether to roll back must be looking at the results the exit
+    # code was computed from.
+    results = smoke()
+    failed = [r for r in results if not r[3]]
+    for label, _u, code, good in results:
         print("  %-24s HTTP %-4s %s" % (label, code, "ok" if good else "FAIL"))
     if failed or active != "active":
         print("\nSMOKE FAILED — roll back with: "
@@ -317,9 +347,13 @@ def cmd_rollback(args):
     if not args.confirm:
         print("refusing to roll back without --confirm", file=sys.stderr)
         return 1
-    rel = remote("readlink -f %s/previous" % RELEASES, check=False)
+    # -e, not -f: readlink -f prints a path for a symlink that does not exist,
+    # so the "nothing to roll back to" case would fall through to a raw ls
+    # failure instead of saying so.
+    rel = remote("readlink -e %s/previous" % RELEASES, check=False)
     if not rel:
-        print("no previous release recorded", file=sys.stderr)
+        print("no previous release recorded — nothing to roll back to",
+              file=sys.stderr)
         return 1
     names = remote("cd %s && ls *.py" % shlex.quote(rel)).split()
     for name in names:
@@ -337,39 +371,112 @@ def cmd_rollback(args):
     return 0
 
 
+CANARY_SCRIPT = r"""
+set -u
+umask 077
+jar=$(mktemp); cfg=$(mktemp)
+trap 'rm -f "$jar" "$cfg"' EXIT
+# The ops token goes into a curl config file rather than the command line:
+# an argv is visible in the host's process list to every local user.
+printf 'header = "Authorization: Bearer %s"\n' \
+  "$(grep -h '^OPS_API_TOKEN=' /etc/optiwar/optiwar-secrets.env | cut -d= -f2-)" > "$cfg"
+BASE=https://optiwar.com
+J="-b $jar -c $jar"
+# Origin/Referer satisfy the CSRF origin check; without them every POST here
+# is a 403. A fresh address each run matters: /start resumes an existing
+# session for a known email, and SESSION_STARTED fires only on real creation.
+JSON="-H Content-Type:application/json -H Origin:$BASE -H Referer:$BASE/"
+EMAIL="deploy-canary+$(date +%s)@optiwar.com"
+field() { python3 -c 'import json,sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+for k in sys.argv[1].split("."):
+    if not isinstance(d, dict):
+        sys.exit(0)
+    d = d.get(k)
+print(d if isinstance(d, str) else "")' "$1" 2>/dev/null; }
+
+curl -s -o /dev/null -c "$jar" -K "$cfg" "$BASE/api/chat/admin/acr-canary?on=1"
+sid=$(curl -s $J $JSON -X POST \
+        -d "{\"email\":\"$EMAIL\",\"name\":\"Deploy Canary\",\"page_url\":\"$BASE/\"}" \
+        "$BASE/api/chat/start" | field session_id)
+[ -n "$sid" ] || { echo "CANARY_FAIL no session_id"; exit 1; }
+echo "SESSION=$sid"
+
+# A product question: the model's search is what emits RECOMMENDATION_GENERATED,
+# and an offered navigation is what emits NAVIGATION_OFFERED.
+r1=$(curl -s $J $JSON -X POST "$BASE/api/chat/message" -d "{\"session_id\":\"$sid\",\"content\":\"show me round metal frames\",\"page_url\":\"$BASE/\"}")
+aid=$(printf '%s' "$r1" | field action.action_id)
+
+# Confirming the offer is the PENDING->CONFIRMED edge that emits
+# ACTION_CONFIRMED; without this turn the event can never appear.
+r2=$(curl -s $J $JSON -X POST "$BASE/api/chat/message" -d "{\"session_id\":\"$sid\",\"content\":\"yes\",\"page_url\":\"$BASE/\"}")
+aid2=$(printf '%s' "$r2" | field action.action_id)
+[ -n "$aid2" ] && aid=$aid2
+
+if [ -n "$aid" ]; then
+  # The widget reporting execution is what emits ACTION_EXECUTED.
+  curl -s -o /dev/null $J $JSON -X POST "$BASE/api/chat/action-result" \
+    -d "{\"session_id\":\"$sid\",\"action_id\":\"$aid\",\"success\":true,\"duration_ms\":120}"
+  echo "ACTION=$aid"
+else
+  echo "ACTION=none-offered"
+fi
+"""
+
+
 def cmd_canary(args):
     """Drive one staff conversation and prove canonical events were written.
 
-    Runs from the production host so it goes through nginx and gunicorn exactly
-    as a customer would. ``ACR_CANARY_ONLY`` keeps the action path staff-only,
-    so this does not expose anything to live shoppers.
-    """
-    since = remote("date '+%Y-%m-%d %H:%M:%S'")
-    jar = "/tmp/.acr_canary_jar"
-    remote("rm -f %s" % jar, check=False)
-    auth = ('-H "Authorization: Bearer $(grep -h ^OPS_API_TOKEN= '
-            '/etc/optiwar/optiwar-secrets.env | cut -d= -f2-)"')
-    remote("curl -s -o /dev/null -c %s %s "
-           "'https://optiwar.com/api/chat/admin/acr-canary?on=1'"
-           % (jar, auth), check=False)
-    start = remote("curl -s -b %s -c %s -X POST -H 'Content-Type: "
-                   "application/json' -d '{}' "
-                   "https://optiwar.com/api/chat/start" % (jar, jar),
-                   check=False)
-    print("start: %s" % start[:200])
+    Runs on the production host so the request path is nginx and gunicorn,
+    exactly as a shopper's would be. ``ACR_CANARY_ONLY`` keeps the action path
+    staff-only, so nothing is exposed to live shoppers.
 
+    The whole conversation is driven, not just its first turn: the model's
+    product search is what emits ``RECOMMENDATION_GENERATED``, a confirmation
+    turn is what drives the PENDING->CONFIRMED edge behind ``ACTION_CONFIRMED``,
+    and the widget reporting back is what emits ``ACTION_EXECUTED``. Opening a
+    session alone would leave five of the six events permanently MISSING and
+    prove nothing about the deployment.
+    """
+    out = remote_script(CANARY_SCRIPT, check=False)
+    print(out)
+    sid = ""
+    for line in out.splitlines():
+        if line.startswith("SESSION="):
+            sid = line.split("=", 1)[1].strip()
+    if not sid:
+        print("canary did not start a session", file=sys.stderr)
+        return 1
+
+    # Scoped to this session rather than a time window, so a concurrent
+    # shopper's events cannot be mistaken for the canary's.
     counts = remote(
         "mysql -N -e \"SELECT event_type, COUNT(*) FROM optiwar2.ai_events "
-        "WHERE created_at >= '%s' GROUP BY event_type\"" % since, check=False)
+        "WHERE session_id='%s' GROUP BY event_type\"" % sid, check=False)
     seen = dict((ln.split("\t")[0], ln.split("\t")[1])
                 for ln in counts.splitlines() if "\t" in ln)
-    print("\n  CANONICAL EVENTS since %s" % since)
+    print("\n  CANONICAL EVENTS for session %s" % sid)
     for ev in CANARY_EVENTS:
         print("    %-26s %s" % (ev, seen.get(ev, "MISSING")))
-    legacy = {k: v for k, v in seen.items() if k.startswith("AI_")}
+    missing = [e for e in CANARY_EVENTS if e not in seen]
+
+    legacy = remote(
+        "mysql -N -e \"SELECT event_type, COUNT(*) FROM optiwar2.ai_events "
+        "WHERE created_at > NOW() - INTERVAL 7 DAY AND event_type LIKE 'AI\\_%%' "
+        "GROUP BY event_type\"", check=False)
     if legacy:
-        print("  legacy names still being emitted: %s" % legacy)
-    return 0 if all(e in seen for e in ("SESSION_STARTED",)) else 1
+        print("\n  legacy names still emitted in the last 7 days:")
+        for ln in legacy.splitlines():
+            print("    %s" % ln.replace("\t", "  "))
+        print("  (the canonical-vs-legacy reconciliation window runs from here)")
+
+    if missing:
+        print("\n  MISSING: %s \u2014 the instrumentation is not fully live"
+              % ", ".join(missing), file=sys.stderr)
+    return 1 if missing else 0
 
 
 def main():

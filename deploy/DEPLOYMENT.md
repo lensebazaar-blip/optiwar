@@ -105,6 +105,21 @@ NAVIGATION_OFFERED  ACTION_CONFIRMED  ACTION_EXECUTED
 It also reports any legacy `AI_*` names still being written, which is what
 starts the canonical-vs-legacy reconciliation window.
 
+Run against production *before* deployment, it returns 1 and gives the baseline
+the deployment has to change:
+
+```
+SESSION=chat_c818bf3356ad48e3   ACTION=f07fc06dbb3c4e54926cf4ecbc24ace1
+  SESSION_STARTED  MODEL_CALL  RECOMMENDATION_GENERATED
+  NAVIGATION_OFFERED  ACTION_CONFIRMED  ACTION_EXECUTED     all MISSING
+  legacy in last 7 days:  AI_ACTION_PROPOSED 4   AI_ACTION_COMPLETED 3
+```
+
+The action path ran — the canary's own turn is what took the legacy counters
+from 2/2 to 4/3 — and produced no canonical events, which is the deployment gap
+stated as evidence rather than inference. After deployment the same command must
+return 0 with all six populated.
+
 ## Rollback
 
 ```bash
