@@ -34,7 +34,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from reports.report_severity import (  # noqa: E402
-    ACTION, CRITICAL, WARNING, Aggregator, load_all,
+    ACTION, CRITICAL, WARNING, Aggregator, Finding, load_all,
 )
 
 REPORT_DIR = os.environ.get("OPTIWAR_REPORT_DIR", "/root/reports")
@@ -94,36 +94,16 @@ def _strip_banner(text):
     return "\n".join(out)
 
 
-# Which source owns which part of the assembled report. A migrated section still
-# prints its severity markers in its own body, so scavenging its text would
-# count every finding twice — once structurally, once as text.
-_REGION_MARKERS = (
-    (re.compile(r"^\s*SECTION D15:\s*GOOGLE MERCHANT CENTER"), "gmc"),
-    (re.compile(r"^\s*ACR AI OPERATIONS"), "acr"),
-    (re.compile(r"^\s*SECTION 6:\s*SEO"), "observatory"),
-    (re.compile(r"^\s*SECTION \d+:"), "base"),
-)
-
-
-def _region_of(line, current):
-    for pattern, source in _REGION_MARKERS:
-        if pattern.match(line):
-            return source
-    return current
-
-
-def scavenge(text, skip_sources=()):
+def scavenge(text):
     """Findings recovered from report text produced by un-migrated sections.
 
-    ``skip_sources`` are the sections that already reported structurally; their
-    printed markers are a rendering of findings already counted, not new ones.
+    Every line is swept, including inside sections that reported structurally:
+    those sections are only *partly* migrated, and a marker printed by a part
+    that still writes text must not be discarded because a sibling part now
+    reports properly. Double counting is handled per message, not per region.
     """
     found = []
-    region = "base"
     for line in _strip_banner(text).splitlines():
-        region = _region_of(line, region)
-        if region in skip_sources:
-            continue
         for pattern, severity, category in _SCAVENGE_PATTERNS:
             m = pattern.match(line)
             if m:
@@ -150,15 +130,17 @@ def build_aggregator(report_text, sidecar_dir=None):
     for source in stale:
         # Stale or corrupt output is not a verdict. Left unreported it would
         # look like a clean section; recorded, it shows up as a coverage gap.
-        agg.add(WARNING, "coverage",
-                "%s findings were stale or unreadable — excluded from the "
-                "executive status" % source, source=source)
-    # Text belonging to a section that reported is skipped wholesale; the
-    # message match then catches a marker printed outside its own region — the
-    # base report reprints the Observatory summary at the top, for instance.
+        # Appended directly rather than through add(): a section whose output
+        # was discarded must not be listed among the contributors.
+        agg.findings.append(Finding(
+            WARNING, "coverage",
+            "%s findings were stale or unreadable — excluded from the "
+            "executive status" % source, source))
+    # A migrated section prints the findings it also reported, so the same
+    # message arriving from both paths is counted once — by message, so that a
+    # marker from an un-migrated part of that same section still gets through.
     reported = {_key(f.message) for f in agg.findings}
-    for severity, category, message in scavenge(
-            report_text, skip_sources=set(by_source)):
+    for severity, category, message in scavenge(report_text):
         if _key(message) in reported:
             continue
         agg.add(severity, category, message, source="report-text")
@@ -170,23 +152,34 @@ class NoPlaceholder(Exception):
     """Raised for an append-only target that today's report did not reach."""
 
 
-def finalize(report_text, sidecar_dir=None, require_placeholder=False):
-    """Return the report with its executive status rendered in place.
+def compute_banner(report_text, sidecar_dir=None):
+    """Today's executive banner, from the sidecars plus today's report text.
 
-    Raises RuntimeError if the resulting banner would violate the invariant, so
-    a broken aggregation surfaces as a failed cron rather than a false green.
-
-    ``require_placeholder`` is for the rolling log, which holds every previous
-    day's report: the fallback below rewrites banners wherever it finds them,
-    which on that file would rewrite history with today's verdict.
+    Raises RuntimeError if the banner would violate the invariant, so a broken
+    aggregation surfaces as a failed cron rather than a false green.
     """
-    if require_placeholder and PLACEHOLDER not in report_text:
-        raise NoPlaceholder("no placeholder to render into")
     agg = build_aggregator(report_text, sidecar_dir=sidecar_dir)
     banner = agg.render_executive()
     violation = agg.assert_invariant()
     if violation:
         raise RuntimeError(violation)
+    return banner
+
+
+def finalize(report_text, sidecar_dir=None, require_placeholder=False,
+             banner=None):
+    """Return the report with its executive status rendered in place.
+
+    ``banner`` is the already-computed verdict for today. The rolling log needs
+    it: that file holds every previous day's report, so aggregating from its
+    own text would count months of resolved findings as today's. Alongside
+    ``require_placeholder``, which stops the fallback below from rewriting an
+    older entry's banner, today's verdict lands only on today's entry.
+    """
+    if require_placeholder and PLACEHOLDER not in report_text:
+        raise NoPlaceholder("no placeholder to render into")
+    if banner is None:
+        banner = compute_banner(report_text, sidecar_dir=sidecar_dir)
     if PLACEHOLDER in report_text:
         return report_text.replace(PLACEHOLDER, banner.rstrip("\n"))
     # Base report not yet migrated: replace its own stale banner in place, so
@@ -210,6 +203,19 @@ def main():
               for a in sys.argv[1:] if a.startswith("--placeholder-only=")}
     targets = [os.path.join(REPORT_DIR, f) for f in args] or [
         os.path.join(REPORT_DIR, "daily_latest.txt")]
+    present = [p for p in targets if os.path.exists(p)]
+    if not present:
+        print("report_executive: no report to finalize", file=sys.stderr)
+        return 1
+    # One verdict for the day, computed from today's report, then rendered into
+    # each copy of it — the rolling log must not aggregate its own history.
+    with open(present[0], "r", errors="replace") as f:
+        today = f.read()
+    try:
+        banner = compute_banner(today)
+    except RuntimeError as e:
+        print("report_executive: INVARIANT VIOLATION: %s" % e, file=sys.stderr)
+        return 1
     rc = 0
     for path in targets:
         if not os.path.exists(path):
@@ -219,7 +225,7 @@ def main():
         with open(path, "r", errors="replace") as f:
             text = f.read()
         try:
-            out = finalize(text,
+            out = finalize(text, banner=banner,
                            require_placeholder=os.path.basename(path) in strict)
         except NoPlaceholder:
             print("report_executive: %s has no placeholder; left unchanged"

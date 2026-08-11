@@ -23,7 +23,14 @@ PRODUCT_VIEW_QUERY = (
     "product_view.item_issues FROM product_view"
 )
 
+# A runaway-pagination guard, not a catalogue limit: 20 pages x 250 rows. If it
+# is ever reached the answer is incomplete, and an incomplete catalogue must be
+# reported as unknown rather than rolled up as though it were the whole one.
 MAX_PAGES = 20
+
+
+class IncompleteCatalogue(RuntimeError):
+    """Pagination stopped before the catalogue was exhausted."""
 
 
 def read_env(path=None):
@@ -71,6 +78,11 @@ def fetch_product_views(env=None):
             rows.append(row.get("productView") or {})
         token = payload.get("nextPageToken")
         pages += 1
-        if not token or pages >= MAX_PAGES:
+        if not token:
             break
+        if pages >= MAX_PAGES:
+            raise IncompleteCatalogue(
+                "stopped after %d pages (%d products) with more remaining — "
+                "an eligibility rollup over part of the catalogue would "
+                "understate disapprovals" % (pages, len(rows)))
     return rows
