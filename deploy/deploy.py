@@ -32,6 +32,7 @@ import argparse
 import datetime
 import hashlib
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -374,8 +375,8 @@ def cmd_rollback(args):
 CANARY_SCRIPT = r"""
 set -u
 umask 077
-jar=$(mktemp); cfg=$(mktemp)
-trap 'rm -f "$jar" "$cfg"' EXIT
+jar=$(mktemp); cfg=$(mktemp); body=$(mktemp)
+trap 'rm -f "$jar" "$cfg" "$body"' EXIT
 # The ops token goes into a curl config file rather than the command line:
 # an argv is visible in the host's process list to every local user.
 printf 'header = "Authorization: Bearer %s"\n' \
@@ -387,6 +388,10 @@ J="-b $jar -c $jar"
 # session for a known email, and SESSION_STARTED fires only on real creation.
 JSON="-H Content-Type:application/json -H Origin:$BASE -H Referer:$BASE/"
 EMAIL="deploy-canary+$(date +%s)@optiwar.com"
+fail() { echo "CANARY_FAIL $*"; exit 2; }
+post() {  # url json -> body in $body, prints status
+  curl -s -o "$body" -w '%{http_code}' $J $JSON -X POST -d "$2" "$1"
+}
 field() { python3 -c 'import json,sys
 try:
     d = json.load(sys.stdin)
@@ -398,30 +403,44 @@ for k in sys.argv[1].split("."):
     d = d.get(k)
 print(d if isinstance(d, str) else "")' "$1" 2>/dev/null; }
 
-curl -s -o /dev/null -c "$jar" -K "$cfg" "$BASE/api/chat/admin/acr-canary?on=1"
-sid=$(curl -s $J $JSON -X POST \
-        -d "{\"email\":\"$EMAIL\",\"name\":\"Deploy Canary\",\"page_url\":\"$BASE/\"}" \
-        "$BASE/api/chat/start" | field session_id)
-[ -n "$sid" ] || { echo "CANARY_FAIL no session_id"; exit 1; }
+# Enrolment must be verified, not assumed. An empty or renamed OPS_API_TOKEN
+# gives a 401 and no ow_acr_canary cookie; the ACR action path then stays off
+# and three events can never appear — which would read as a failed deployment.
+code=$(curl -s -o /dev/null -w '%{http_code}' -c "$jar" -K "$cfg" \
+       "$BASE/api/chat/admin/acr-canary?on=1")
+[ "$code" = "200" ] || fail "staff enrolment HTTP $code (ops token?)"
+grep -q 'ow_acr_canary' "$jar" || fail "enrolled but no ow_acr_canary cookie"
+
+code=$(post "$BASE/api/chat/start" \
+  "{\"email\":\"$EMAIL\",\"name\":\"Deploy Canary\",\"page_url\":\"$BASE/\"}")
+[ "$code" = "200" ] || fail "/chat/start HTTP $code: $(head -c 200 "$body")"
+sid=$(field session_id < "$body")
+[ -n "$sid" ] || fail "/chat/start returned no session_id"
 echo "SESSION=$sid"
 
 # A product question: the model's search is what emits RECOMMENDATION_GENERATED,
 # and an offered navigation is what emits NAVIGATION_OFFERED.
-r1=$(curl -s $J $JSON -X POST "$BASE/api/chat/message" -d "{\"session_id\":\"$sid\",\"content\":\"show me round metal frames\",\"page_url\":\"$BASE/\"}")
-aid=$(printf '%s' "$r1" | field action.action_id)
+code=$(post "$BASE/api/chat/message" \
+  "{\"session_id\":\"$sid\",\"content\":\"show me round metal frames\",\"page_url\":\"$BASE/\"}")
+[ "$code" = "200" ] || fail "/chat/message HTTP $code: $(head -c 200 "$body")"
+aid=$(field action.action_id < "$body")
 
 # Confirming the offer is the PENDING->CONFIRMED edge that emits
 # ACTION_CONFIRMED; without this turn the event can never appear.
-r2=$(curl -s $J $JSON -X POST "$BASE/api/chat/message" -d "{\"session_id\":\"$sid\",\"content\":\"yes\",\"page_url\":\"$BASE/\"}")
-aid2=$(printf '%s' "$r2" | field action.action_id)
+code=$(post "$BASE/api/chat/message" \
+  "{\"session_id\":\"$sid\",\"content\":\"yes\",\"page_url\":\"$BASE/\"}")
+[ "$code" = "200" ] || fail "/chat/message (confirm) HTTP $code: $(head -c 200 "$body")"
+aid2=$(field action.action_id < "$body")
 [ -n "$aid2" ] && aid=$aid2
 
 if [ -n "$aid" ]; then
   # The widget reporting execution is what emits ACTION_EXECUTED.
-  curl -s -o /dev/null $J $JSON -X POST "$BASE/api/chat/action-result" \
-    -d "{\"session_id\":\"$sid\",\"action_id\":\"$aid\",\"success\":true,\"duration_ms\":120}"
+  code=$(post "$BASE/api/chat/action-result" \
+    "{\"session_id\":\"$sid\",\"action_id\":\"$aid\",\"success\":true,\"duration_ms\":120}")
+  [ "$code" = "200" ] || fail "/chat/action-result HTTP $code: $(head -c 200 "$body")"
   echo "ACTION=$aid"
 else
+  # No action offered is a fact about the deployment, not a broken canary.
   echo "ACTION=none-offered"
 fi
 """
@@ -443,13 +462,24 @@ def cmd_canary(args):
     """
     out = remote_script(CANARY_SCRIPT, check=False)
     print(out)
+    # "the canary could not run" and "the instrumentation is missing" must not
+    # look alike: the first is no evidence either way, the second is grounds to
+    # roll a release back.
+    for line in out.splitlines():
+        if line.startswith("CANARY_FAIL"):
+            print("\n  CANARY COULD NOT RUN — %s\n  This says nothing about the "
+                  "deployment; fix the canary and re-run."
+                  % line[len("CANARY_FAIL"):].strip(), file=sys.stderr)
+            return 2
     sid = ""
     for line in out.splitlines():
         if line.startswith("SESSION="):
             sid = line.split("=", 1)[1].strip()
-    if not sid:
-        print("canary did not start a session", file=sys.stderr)
-        return 1
+    # Shaped like the ids chat_start mints. Anything else came from somewhere
+    # unexpected and is not going into a SQL statement.
+    if not re.fullmatch(r"chat_[0-9a-f]{8,32}", sid or ""):
+        print("canary produced no usable session id (%r)" % sid, file=sys.stderr)
+        return 2
 
     # Scoped to this session rather than a time window, so a concurrent
     # shopper's events cannot be mistaken for the canary's.

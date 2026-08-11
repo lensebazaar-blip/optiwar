@@ -115,10 +115,22 @@ SESSION=chat_c818bf3356ad48e3   ACTION=f07fc06dbb3c4e54926cf4ecbc24ace1
   legacy in last 7 days:  AI_ACTION_PROPOSED 4   AI_ACTION_COMPLETED 3
 ```
 
-The action path ran — the canary's own turn is what took the legacy counters
-from 2/2 to 4/3 — and produced no canonical events, which is the deployment gap
-stated as evidence rather than inference. After deployment the same command must
-return 0 with all six populated.
+The action path ran — the canary's own turn is what moves those legacy counters,
+which stood at 2/2 before the first run — and produced no canonical events. That
+is the deployment gap stated as evidence rather than inference. After deployment
+the same command must return 0 with all six populated.
+
+Exit codes distinguish the two things an operator must not confuse:
+
+| code | meaning |
+|---|---|
+| 0 | all six canonical events written — the deployment is proven |
+| 1 | the canary ran, events are missing — the instrumentation is not live |
+| 2 | the canary could not run (enrolment 401, endpoint error) — no evidence either way |
+
+Only `1` is grounds to roll back. `2` means fix the canary and re-run: a failed
+staff enrolment silently disables the ACR action path, and without this
+distinction that reads identically to a broken release.
 
 ## Rollback
 
