@@ -105,6 +105,42 @@ NAVIGATION_OFFERED  ACTION_CONFIRMED  ACTION_EXECUTED
 It also reports any legacy `AI_*` names still being written, which is what
 starts the canonical-vs-legacy reconciliation window.
 
+Run against production *before* deployment, it returns 1 and gives the baseline
+the deployment has to change:
+
+```
+SESSION=chat_c818bf3356ad48e3   ACTION=f07fc06dbb3c4e54926cf4ecbc24ace1
+  SESSION_STARTED  MODEL_CALL  RECOMMENDATION_GENERATED
+  NAVIGATION_OFFERED  ACTION_CONFIRMED  ACTION_EXECUTED     all MISSING
+  legacy in last 7 days:  AI_ACTION_PROPOSED 4   AI_ACTION_COMPLETED 3
+```
+
+The action path ran — the canary's own turn is what moves those legacy counters,
+which stood at 2/2 before the first run — and produced no canonical events. That
+is the deployment gap stated as evidence rather than inference. After deployment
+the same command must return 0 with all six populated.
+
+Exit codes distinguish the two things an operator must not confuse:
+
+| code | meaning |
+|---|---|
+| 0 | all six canonical events written — the deployment is proven |
+| 1 | the canary ran and the release is bad — events missing, a chat endpoint non-200, or a malformed/absent `session_id` in a 200 |
+| 2 | the canary could not run (enrolment 401, no cookie, `ai_events` query failed, transport failure, or a retryable `AI_TEMPORARILY_UNAVAILABLE` 503) — no evidence either way |
+
+`1` is grounds to roll back; `2` means fix the canary and re-run. The split has
+to cut in both directions. A failed staff enrolment silently disables the ACR
+action path, which reads identically to a broken release — hence `2`. But a
+non-200 from `/api/chat/start`, `/api/chat/message` or `/api/chat/action-result`
+is the deployed code failing, and it is the *only* check that exercises it: the
+smoke suite makes no chat request, and the deploy set is exactly those three
+chat files. That must never be filed as inconclusive.
+
+One exception, because the app says so itself: a 503 carrying
+`AI_TEMPORARILY_UNAVAILABLE` is `ai_client.unavailable_contract()` shedding
+load, which the widget soft-retries. The canary retries it twice before giving
+up and then reports `2` — a busy model provider is not a bad release.
+
 ## Rollback
 
 ```bash
