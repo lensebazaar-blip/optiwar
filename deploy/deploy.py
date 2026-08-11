@@ -165,16 +165,18 @@ def manifest():
     rows, blocked = [], []
     for name in DEPLOY_SET:
         old, new = prod.get(name), md5(os.path.join(REPO, name))
-        rows.append((name, old, new))
         if old is None:
+            rows.append((name, old, new, None))
             blocked.append("%s: not present in production" % name)
             continue
         if old == new:
+            rows.append((name, old, new, "HEAD"))
             continue
         tmp = "/tmp/.deploy_prod_%s" % name
         subprocess.run(["scp", "-q", "%s:%s/%s" % (HOST, APP_DIR, name), tmp],
                        check=True)
         rev = known_to_git(name, sh("git hash-object %s" % tmp))
+        rows.append((name, old, new, rev))
         if not rev:
             blocked.append(
                 "%s: the running version is not any committed version of this "
@@ -227,11 +229,12 @@ def cmd_plan(args):
     print("  unit suite: %s" % ("  ".join(tail) if tail else "?"))
 
     rows, blocked, ahead, only_prod = manifest()
-    print("\n  FILE MANIFEST (old -> new)")
-    for name, old, new in rows:
+    print("\n  FILE MANIFEST (old -> new, and the commit production is at)")
+    for name, old, new, rev in rows:
         print("    %-18s %s -> %s%s"
               % (name, (old or "absent")[:12], new[:12],
-                 "   (unchanged)" if old == new else ""))
+                 "   (unchanged)" if old == new
+                 else "   running = %s" % (rev[:9] if rev else "UNCOMMITTED")))
     for b in blocked:
         print("    BLOCKED  %s" % b)
 
@@ -275,18 +278,18 @@ def cmd_apply(args):
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     rel = "%s/%s" % (RELEASES, stamp)
     remote("mkdir -p %s" % shlex.quote(rel))
-    for name, old, _new in rows:
+    for name, _old, _new, _rev in rows:
         remote("cp -p %s/%s %s/%s" % (APP_DIR, name, rel, name))
     with open("/tmp/manifest.txt", "w") as fh:
         fh.write("release %s\nrepo %s @ %s\n" % (stamp, branch, head))
-        for name, old, new in rows:
-            fh.write("%s %s -> %s\n" % (name, old, new))
+        for name, old, new, rev in rows:
+            fh.write("%s %s -> %s (was %s)\n" % (name, old, new, rev or "?"))
     subprocess.run(["scp", "-q", "/tmp/manifest.txt",
                     "%s:%s/manifest.txt" % (HOST, rel)], check=True)
     remote("ln -sfn %s %s/previous" % (shlex.quote(rel), RELEASES))
     print("backed up to %s" % rel)
 
-    for name, _o, _n in rows:
+    for name, _o, _n, _r in rows:
         subprocess.run(["scp", "-q", os.path.join(REPO, name),
                         "%s:%s/%s" % (HOST, APP_DIR, name)], check=True)
     remote("cd %s && python3 -m py_compile %s"
