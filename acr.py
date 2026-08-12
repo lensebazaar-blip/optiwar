@@ -683,7 +683,7 @@ def ensure_closure_schema(get_conn):
         cur = conn.cursor()
         cur.execute(
             """CREATE TABLE IF NOT EXISTS ai_session_outcomes (
-                session_id VARCHAR(64) PRIMARY KEY,
+                session_id VARCHAR(64) COLLATE utf8mb4_general_ci PRIMARY KEY,
                 outcome    VARCHAR(16) NOT NULL,
                 event_id   VARCHAR(36) NULL,
                 created_at DATETIME NOT NULL,
@@ -697,7 +697,7 @@ def ensure_closure_schema(get_conn):
         # purchase be recorded without rewriting that history.
         cur.execute(
             """CREATE TABLE IF NOT EXISTS ai_session_commerce (
-                session_id       VARCHAR(64) PRIMARY KEY,
+                session_id       VARCHAR(64) COLLATE utf8mb4_general_ci PRIMARY KEY,
                 order_id         VARCHAR(64) NOT NULL,
                 attribution_type VARCHAR(32) NOT NULL,
                 attribution_window_hours INT NOT NULL,
@@ -957,12 +957,18 @@ def find_sessions_awaiting_outcome(db, limit=500):
     whose event_id is still NULL — i.e. a previous run won the claim but its
     SESSION_OUTCOME event never landed. Including the latter is what makes a
     failed event write retryable instead of silently losing the outcome forever.
+
+    The join collation is stated explicitly because the two tables need not
+    share one: chat_sessions predates the ai_* tables and production has it in
+    utf8mb4_unicode_ci while the ledger is utf8mb4_general_ci, which makes an
+    unqualified comparison an error rather than a mismatch.
     """
     cur = db.cursor()
     cur.execute(
         """SELECT s.session_id, s.customer_id, s.created_at, s.last_activity
            FROM chat_sessions s
-           LEFT JOIN ai_session_outcomes o ON o.session_id = s.session_id
+           LEFT JOIN ai_session_outcomes o
+                  ON o.session_id = s.session_id COLLATE utf8mb4_general_ci
            WHERE s.status=%s AND (o.session_id IS NULL OR o.event_id IS NULL)
            ORDER BY s.last_activity ASC LIMIT %s""",
         (TERMINAL_SESSION_STATUS, int(limit)),
@@ -1048,12 +1054,15 @@ def find_sessions_awaiting_attribution(db, limit=500):
     Runs independently of the outcome sweep. A session whose conversation was
     already closed as ANSWERED still appears here, because the order may only
     have landed afterwards — that is the whole point of separating the two.
+
+    Collation is stated explicitly for the same reason as the outcome anti-join.
     """
     cur = db.cursor()
     cur.execute(
         """SELECT s.session_id, s.customer_id, s.created_at, s.last_activity
            FROM chat_sessions s
-           LEFT JOIN ai_session_commerce c ON c.session_id = s.session_id
+           LEFT JOIN ai_session_commerce c
+                  ON c.session_id = s.session_id COLLATE utf8mb4_general_ci
            WHERE s.status=%s AND (c.session_id IS NULL OR c.event_id IS NULL)
            ORDER BY s.last_activity ASC LIMIT %s""",
         (TERMINAL_SESSION_STATUS, int(limit)),
