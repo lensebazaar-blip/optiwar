@@ -25,16 +25,20 @@ import os
 import re
 import subprocess
 
-# path -> the aspect of AI behaviour it governs. Order matters only for reading;
-# a commit can touch several.
+# Repo-relative path -> the aspect of AI behaviour it governs. Paths, not
+# basenames: git reports repo-relative paths and a register that matched
+# basenames would credit an unrelated file of the same name in another
+# directory. A test asserts every path here still exists, because a register
+# naming a file the tree does not have is a register quietly missing history.
 AI_PATHS = {
     "ai_client.py": "model/provider",
     "ai_model_registry.py": "model/provider",
+    "ai_api.py": "prompt",
     "chat.py": "prompt",
     "chat_gateway.py": "policy",
     "acr.py": "policy",
     "acr_closure_job.py": "closure",
-    "acr_report.py": "instrumentation",
+    "reports/acr_report_section.py": "instrumentation",
 }
 
 # Subject-line and path signals that refine the class. A commit touching
