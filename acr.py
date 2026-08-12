@@ -546,8 +546,13 @@ def create_pending_action(db, session_id, action_type, target, source_message_id
     try:
         cur = db.cursor()
         cur.execute(
+            # CONFIRMED counts as live. A confirmed action whose browser result
+            # never arrived is not finished, and leaving it out of the supersede
+            # means a new offer strands it at CONFIRMED with no terminal state
+            # for any sweep to reach.
             """UPDATE ai_actions SET status='SUPERSEDED', resolved_at=NOW()
-               WHERE session_id=%s AND action_type=%s AND status='PENDING'""",
+               WHERE session_id=%s AND action_type=%s
+                 AND status IN ('PENDING','CONFIRMED')""",
             (session_id, action_type),
         )
         action_id = uuid.uuid4().hex
@@ -796,16 +801,28 @@ def _report_ledger_schema(cur):
     return pending + _align_ledger_collation(cur, allow_ddl=False)
 
 
+# Statuses a sweep may still resolve. PENDING is an offer nobody answered;
+# CONFIRMED is an offer the customer *accepted* whose execution was never
+# reported back — the browser navigated away, or the action-result POST never
+# landed. Both are unfinished, and only one of them used to be swept.
+UNRESOLVED_STATUSES = ('PENDING', 'CONFIRMED')
+
+
 def find_due_actions(db, limit=500):
-    """Return PENDING actions already past their expiry. Bounded by ``limit`` and
-    served by the idx_status_expires (status, expires_at) index, so the filter
-    and the ORDER BY are an index range scan rather than a full scan + filesort.
-    Read-only; used by both dry-run and live sweeps so the two see the same
-    candidate set."""
+    """Return unresolved actions already past their expiry. Bounded by ``limit``
+    and served by the idx_status_expires (status, expires_at) index, so the
+    filter and the ORDER BY are index range scans rather than a full scan +
+    filesort. Read-only; used by both dry-run and live sweeps so the two see the
+    same candidate set.
+
+    Each row carries its current ``status`` because the sweep must claim the
+    exact status it observed, and because expiring from CONFIRMED is a different
+    fact about the customer than expiring from PENDING."""
     cur = db.cursor()
     cur.execute(
-        """SELECT action_id, session_id, action_type FROM ai_actions
-           WHERE status='PENDING' AND expires_at IS NOT NULL AND expires_at < NOW()
+        """SELECT action_id, session_id, action_type, status FROM ai_actions
+           WHERE status IN ('PENDING','CONFIRMED')
+             AND expires_at IS NOT NULL AND expires_at < NOW()
            ORDER BY expires_at ASC LIMIT %s""",
         (int(limit),),
     )
@@ -813,9 +830,16 @@ def find_due_actions(db, limit=500):
 
 
 def expire_due_actions(db, dry_run=True, limit=500):
-    """Expire PENDING actions past expires_at. Edge-triggered and idempotent:
-    each row is claimed with an atomic UPDATE guarded by status='PENDING', and
-    ACTION_EXPIRED is emitted only for rows this run actually transitioned.
+    """Expire unresolved actions past expires_at. Edge-triggered and idempotent:
+    each row is claimed with an atomic UPDATE guarded by the status it was found
+    in, and ACTION_EXPIRED is emitted only for rows this run actually
+    transitioned.
+
+    An action expiring from CONFIRMED is reported with failure_code
+    ``confirmed_never_executed`` rather than ``expired``. The distinction is the
+    whole point: "nobody answered the offer" is a conversion metric, while "the
+    customer said yes and nothing happened" is a defect, and collapsing them
+    into one code loses the only signal that separates the two.
 
     Returns a dict {'candidates': [...], 'expired': [...], 'event_failed': [...]}.
     In dry_run the 'expired' list is what WOULD be expired and nothing is written.
@@ -830,7 +854,10 @@ def expire_due_actions(db, dry_run=True, limit=500):
         aid = r['action_id'] if isinstance(r, dict) else r[0]
         sid = r['session_id'] if isinstance(r, dict) else r[1]
         at = r['action_type'] if isinstance(r, dict) else r[2]
-        candidates.append({'action_id': aid, 'session_id': sid, 'action_type': at})
+        st = (r.get('status') if isinstance(r, dict)
+              else (r[3] if len(r) > 3 else None)) or 'PENDING'
+        candidates.append({'action_id': aid, 'session_id': sid,
+                           'action_type': at, 'status': st})
     if dry_run:
         return {'candidates': candidates, 'expired': list(candidates),
                 'event_failed': []}
@@ -841,14 +868,17 @@ def expire_due_actions(db, dry_run=True, limit=500):
             cur = db.cursor()
             cur.execute(
                 """UPDATE ai_actions SET status='EXPIRED', resolved_at=NOW()
-                   WHERE action_id=%s AND status='PENDING'""",
-                (c['action_id'],),
+                   WHERE action_id=%s AND status=%s""",
+                (c['action_id'], c['status']),
             )
             if cur.rowcount and cur.rowcount > 0:
+                code = ('confirmed_never_executed' if c['status'] == 'CONFIRMED'
+                        else 'expired')
                 ok = log_event(db, EV_ACTION_EXPIRED, session_id=c['session_id'],
                                action_id=c['action_id'], action_type=c['action_type'],
                                journey_stage=STAGE_NAVIGATION, success=False,
-                               failure_code='expired')
+                               failure_code=code,
+                               payload={'from_status': c['status']})
                 expired.append(c)
                 if not ok:
                     event_failed.append(c)

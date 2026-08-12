@@ -175,6 +175,29 @@ class SupersededActionTests(unittest.TestCase):
         self.assertIn(qc.QC_FAILED_NAVIGATION, signals(r))
 
 
+class SweptConfirmationTests(unittest.TestCase):
+    """Closure moves a stranded confirmation from CONFIRMED to EXPIRED. Counting
+    only live CONFIRMED rows would let the sweep erase the defect this signal
+    exists to report."""
+
+    def test_an_expiry_from_confirmed_is_still_a_failed_navigation(self):
+        r = qc.review_session("s", [
+            ev(acr.EV_ACTION_CONFIRMED),
+            ev(acr.EV_ACTION_EXPIRED, failure_code="confirmed_never_executed",
+               payload={"from_status": "CONFIRMED"}),
+        ], [], actions=[dict(action_id="a", status="EXPIRED")])
+        self.assertEqual(
+            detail(r, qc.QC_FAILED_NAVIGATION)["confirmed_not_executed"], 1)
+
+    def test_an_expiry_nobody_answered_is_not_a_failed_navigation(self):
+        r = qc.review_session("s", [
+            ev(acr.EV_NAVIGATION_OFFERED),
+            ev(acr.EV_ACTION_EXPIRED, failure_code="expired",
+               payload={"from_status": "PENDING"}),
+        ], [], actions=[dict(action_id="a", status="EXPIRED")])
+        self.assertNotIn(qc.QC_FAILED_NAVIGATION, signals(r))
+
+
 class SilenceIsNotQualityTests(unittest.TestCase):
     def test_a_session_with_no_events_is_unreviewable_not_clean(self):
         r = qc.review_session("s10", [], [msg("user", "hello")])
@@ -284,7 +307,8 @@ class _DB:
 class ReadOnlyQueryTests(unittest.TestCase):
     def test_reviewing_a_session_issues_selects_only(self):
         cur = _Cur([
-            [dict(event_type=acr.EV_ACTION_EXECUTED, success=1, payload=None)],
+            [dict(event_type=acr.EV_ACTION_EXECUTED, success=1, payload=None,
+                  failure_code=None)],
             [dict(role="user", content="hi")],
             [dict(action_id="a", status="EXECUTED")],
         ])
@@ -323,7 +347,7 @@ class ReadOnlyQueryTests(unittest.TestCase):
             self.assertTrue(sql.upper().startswith("SELECT"), sql)
 
     def test_tuple_cursors_are_supported_too(self):
-        cur = _Cur([[(acr.EV_ACTION_EXECUTED, 1, None)], [("user", "hi")],
+        cur = _Cur([[(acr.EV_ACTION_EXECUTED, 1, None, None)], [("user", "hi")],
                     [("a", "EXECUTED")]])
         r = qc.review_one(_DB(cur), "sess-4")
         self.assertIn(qc.QC_JOURNEY_COMPLETED, signals(r))

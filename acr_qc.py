@@ -210,6 +210,13 @@ def review_session(session_id, events, messages=(), outcome=None, actions=()):
     else:
         stuck = max(confirmed - executed, 0)
         failed = ev.get(acr.EV_ACTION_FAILED, 0) + ev.get(acr.EV_ACTION_BLOCKED, 0)
+    # A swept action leaves CONFIRMED for EXPIRED, so counting only live
+    # CONFIRMED rows would let the closure sweep erase the very defect this
+    # signal exists to report. The expiry event carries which status it came
+    # from, and only the confirmed one is a broken journey.
+    stuck += sum(1 for e in events
+                 if e.get("event_type") == acr.EV_ACTION_EXPIRED
+                 and _from_confirmed(e))
     if stuck or failed:
         add(QC_FAILED_NAVIGATION, confirmed_not_executed=stuck, failed=failed)
 
@@ -272,6 +279,14 @@ def review_session(session_id, events, messages=(), outcome=None, actions=()):
                 outcome=outcome, reviewable=True)
 
 
+def _from_confirmed(event):
+    """True when an ACTION_EXPIRED describes a customer who said yes."""
+    if event.get("failure_code") == "confirmed_never_executed":
+        return True
+    payload = event.get("payload")
+    return isinstance(payload, dict) and payload.get("from_status") == "CONFIRMED"
+
+
 def _result_count(event):
     payload = event.get("payload")
     if isinstance(payload, dict):
@@ -330,12 +345,13 @@ def review_one(db, session_id):
     cur.execute(
         # ai_events is keyed by event_id, not an autoincrement id; ordering by a
         # column that does not exist is a 1054, not a slower query.
-        """SELECT event_type, success, payload FROM ai_events
+        """SELECT event_type, success, payload, failure_code FROM ai_events
              WHERE session_id=%s ORDER BY created_at, event_id""",
         (session_id,),
     )
     events = [dict(event_type=_col(r, "event_type"), success=_col(r, "success"),
-                   payload=_json(_col(r, "payload")))
+                   payload=_json(_col(r, "payload")),
+                   failure_code=_col(r, "failure_code"))
               for r in (cur.fetchall() or [])]
     cur.execute(
         """SELECT role, content FROM chat_messages
@@ -363,7 +379,8 @@ def _col(row, name):
     if isinstance(row, dict):
         return row.get(name)
     order = {"session_id": 0, "event_type": 0, "success": 1, "payload": 2,
-             "role": 0, "content": 1, "action_id": 0, "status": 1}
+             "failure_code": 3, "role": 0, "content": 1, "action_id": 0,
+             "status": 1}
     try:
         return row[order[name]]
     except (KeyError, IndexError, TypeError):
