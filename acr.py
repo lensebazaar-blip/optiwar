@@ -670,10 +670,52 @@ def record_action_result(db, action_id, success, failure_code=None, duration_ms=
 #      terminal outcomes. The 120-minute mark only makes a session an
 #      abandonment *candidate*; the terminal outcome waits for TERMINAL_SESSION_STATUS.
 
+LEDGER_COLLATION = 'utf8mb4_general_ci'
+# session_id is VARCHAR(64) PRIMARY KEY in both ledgers, so one declaration
+# serves the alignment ALTER for either table.
+_LEDGER_TABLES = ('ai_session_outcomes', 'ai_session_commerce')
+
+
+def _align_ledger_collation(cur):
+    """Convert an existing ledger's session_id to the collation the sweeps join
+    in. CREATE TABLE IF NOT EXISTS is a no-op on a ledger created before the
+    collation was stated, so on those installations the anti-joins would still
+    raise 'illegal mix of collations' and nothing would ever be recorded.
+
+    Best-effort and idempotent: reads the current collation first and only
+    alters on a genuine mismatch, so a correct table is never rewritten and a
+    missing ALTER grant degrades to the previous behaviour."""
+    for table in _LEDGER_TABLES:
+        try:
+            cur.execute(
+                """SELECT COLLATION_NAME FROM information_schema.COLUMNS
+                   WHERE table_schema=DATABASE() AND table_name=%s
+                     AND column_name='session_id'""",
+                (table,),
+            )
+            row = cur.fetchone()
+            if not row:
+                continue
+            current = (row[0] if isinstance(row, (list, tuple))
+                       else list(row.values())[0])
+            if current and current != LEDGER_COLLATION:
+                cur.execute(
+                    "ALTER TABLE %s MODIFY session_id VARCHAR(64) "
+                    "COLLATE %s NOT NULL" % (table, LEDGER_COLLATION))
+        except Exception:
+            # Insufficient grant / replica / concurrent DDL — the sweep will
+            # report the collation error rather than this being silently wrong.
+            pass
+
+
 def ensure_closure_schema(get_conn):
     """Create the additive SESSION_OUTCOME idempotency ledger if absent. The
     session_id PRIMARY KEY is the one-per-session guarantee (atomic claim), not
-    a SELECT-then-INSERT. Never alters existing tables; best-effort.
+    a SELECT-then-INSERT. Best-effort.
+
+    The only alteration ever made to an existing table is aligning session_id's
+    collation with the one the sweeps join in — a ledger created before that
+    collation was stated cannot be joined at all.
 
     event_id references the SESSION_OUTCOME row in ai_events and stays NULL until
     that event has actually landed; a NULL therefore means "claimed but not yet
@@ -707,6 +749,7 @@ def ensure_closure_schema(get_conn):
                 KEY idx_created (created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
         )
+        _align_ledger_collation(cur)
     finally:
         conn.close()
 

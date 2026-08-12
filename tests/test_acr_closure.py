@@ -164,6 +164,11 @@ class _FakeCursor:
             if row and row["event_id"] is None and not self.db.fail_backfill:
                 row["event_id"] = eid
                 self.rowcount = 1
+        elif s.startswith("SELECT COLLATION_NAME FROM information_schema.COLUMNS"):
+            coll = self.db.column_collation.get(params[0])
+            self._result = [{"COLLATION_NAME": coll}] if coll else []
+        elif s.startswith("ALTER TABLE") and self.db.deny_alter:
+            raise RuntimeError("ALTER command denied to user")
         elif s.startswith("SELECT event_id FROM ai_events"):
             sid, etype = params
             hit = [e for e in self.db.events if e[1] == etype and e[2] == sid]
@@ -232,6 +237,9 @@ class FakeDB:
         self.unreadable = set()
         self.fail_event_writes = False
         self.fail_backfill = False
+        # table -> session_id collation; absent means the table does not exist.
+        self.column_collation = {}
+        self.deny_alter = False
 
     def cursor(self):
         return _FakeCursor(self)
@@ -604,11 +612,69 @@ class LedgerAntiJoinCollationTests(unittest.TestCase):
         # MySQL 5.7 and 8.0, and a new node would reintroduce the mismatch.
         db = FakeDB()
         acr.ensure_closure_schema(lambda: _ClosingDB(db))
-        ddl = [" ".join(s.split()) for s, _p in db.executed]
+        ddl = [" ".join(s.split()) for s, _p in db.executed
+               if s.strip().startswith("CREATE TABLE")]
         self.assertEqual(len(ddl), 2)
         for stmt in ddl:
             self.assertIn("session_id VARCHAR(64) COLLATE utf8mb4_general_ci",
                           " ".join(stmt.split()))
+
+
+class LedgerCollationAlignmentTests(unittest.TestCase):
+    """A ledger created before the collation was stated must be converted.
+
+    CREATE TABLE IF NOT EXISTS is a no-op on those installations, so without
+    this the anti-joins keep raising 'illegal mix of collations' and no outcome
+    or attribution is ever recorded — the exact production failure, surviving
+    the fix."""
+
+    def _alters(self, db):
+        return [" ".join(s.split()) for s, _p in db.executed
+                if s.strip().startswith("ALTER TABLE")]
+
+    def test_existing_ledger_in_another_collation_is_converted(self):
+        db = FakeDB()
+        db.column_collation = {"ai_session_outcomes": "utf8mb4_unicode_ci",
+                               "ai_session_commerce": "utf8mb4_unicode_ci"}
+        acr.ensure_closure_schema(lambda: _ClosingDB(db))
+        alters = self._alters(db)
+        self.assertEqual(len(alters), 2)
+        for stmt in alters:
+            self.assertIn("MODIFY session_id VARCHAR(64) COLLATE "
+                          "utf8mb4_general_ci NOT NULL", stmt)
+
+    def test_a_correct_table_is_never_rewritten(self):
+        # ALTER on a large ledger is not free; only a genuine mismatch earns it.
+        db = FakeDB()
+        db.column_collation = {"ai_session_outcomes": acr.LEDGER_COLLATION,
+                               "ai_session_commerce": acr.LEDGER_COLLATION}
+        acr.ensure_closure_schema(lambda: _ClosingDB(db))
+        self.assertEqual(self._alters(db), [])
+
+    def test_only_the_mismatched_table_is_altered(self):
+        db = FakeDB()
+        db.column_collation = {"ai_session_outcomes": acr.LEDGER_COLLATION,
+                               "ai_session_commerce": "utf8mb4_unicode_ci"}
+        acr.ensure_closure_schema(lambda: _ClosingDB(db))
+        alters = self._alters(db)
+        self.assertEqual(len(alters), 1)
+        self.assertIn("ai_session_commerce", alters[0])
+
+    def test_absent_tables_are_not_altered(self):
+        # Freshly created by the CREATE above; information_schema has no row for
+        # them in this fake, and inventing an ALTER would fail on a real box.
+        db = FakeDB()
+        acr.ensure_closure_schema(lambda: _ClosingDB(db))
+        self.assertEqual(self._alters(db), [])
+
+    def test_a_denied_alter_does_not_break_boot(self):
+        # ensure_closure_schema is called on the event path; a missing ALTER
+        # grant must degrade to the previous behaviour, not raise.
+        db = FakeDB()
+        db.column_collation = {"ai_session_outcomes": "utf8mb4_unicode_ci",
+                               "ai_session_commerce": "utf8mb4_unicode_ci"}
+        db.deny_alter = True
+        acr.ensure_closure_schema(lambda: _ClosingDB(db))
 
 
 class _ClosingDB:
