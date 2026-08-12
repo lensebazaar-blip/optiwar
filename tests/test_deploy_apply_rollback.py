@@ -39,7 +39,9 @@ class ApplyRollbackTest(unittest.TestCase):
         self.d.worker_health = lambda since: ("active", "0")
         self.d.remote = self._remote
         self.d.subprocess.run = lambda *a, **k: None
-        self.d.cmd_rollback = lambda args: self.rolled_back.append(args) or 0
+        self.rollback_rc = 0
+        self.d.cmd_rollback = lambda args: (self.rolled_back.append(args),
+                                            self.rollback_rc)[1]
 
     def _remote(self, cmd, check=True):
         self.remote_calls.append(cmd)
@@ -73,6 +75,34 @@ class ApplyRollbackTest(unittest.TestCase):
         self.assertEqual(
             sum("systemctl restart" in c for c in self.remote_calls), 1,
             "the window allows exactly one restart")
+
+    def test_failed_rollback_is_reported_as_worse_than_a_failed_deploy(self):
+        # The site is still down: a caller that cannot tell this apart from a
+        # clean recovery will report a tidy failure and nobody comes.
+        self.d.smoke = lambda: self._smoke(False)
+        self.rollback_rc = 1
+        self.assertEqual(self.d.cmd_apply(self._args()), 2)
+
+    def test_release_escalates_when_the_rollback_did_not_restore_service(self):
+        self.d.cmd_migrate = lambda args: 0
+        self.d.cmd_apply = lambda args: 2
+        self.d.cmd_canary = lambda args: 0
+        self.assertEqual(self.d.cmd_release(self._args()), 3)
+
+    def test_release_rolls_back_when_the_canary_blames_the_release(self):
+        self.d.cmd_migrate = lambda args: 0
+        self.d.cmd_apply = lambda args: 0
+        self.d.cmd_canary = lambda args: 1
+        self.assertEqual(self.d.cmd_release(self._args()), 1)
+        self.assertEqual(len(self.rolled_back), 1)
+
+    def test_release_leaves_a_live_release_alone_when_there_is_no_evidence(self):
+        # A busy model provider must not cost a healthy release.
+        self.d.cmd_migrate = lambda args: 0
+        self.d.cmd_apply = lambda args: 0
+        self.d.cmd_canary = lambda args: 2
+        self.assertEqual(self.d.cmd_release(self._args()), 2)
+        self.assertEqual(self.rolled_back, [])
 
     def test_preflight_block_deploys_nothing_and_does_not_roll_back(self):
         self.d.preflight = lambda: ("side-branch", "abc1234",

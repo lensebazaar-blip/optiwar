@@ -107,6 +107,12 @@ Exit 2 must not roll back: reverting a healthy release because the model
 provider was briefly busy during the deploy window is both a likely and a bad
 outcome.
 
+`release` itself exits `0` proven, `1` failed and recovered, `2` live but
+unproven, and **`3` the storefront is not serving and the rollback did not fix
+it** — the one case that needs a person on the box. `rollback` reports the same
+way: it re-runs the smoke suite after restoring and returns non-zero if the
+service did not come back, so "restored" is verified rather than assumed.
+
 ### Restart window
 
 Orders over the last 90 days, by hour (IST): none at all between 23:00 and
