@@ -435,6 +435,7 @@ def cmd_apply(args):
         if cmd_rollback(args) != 0:
             print("ROLLBACK ALSO FAILED — the box needs hands",
                   file=sys.stderr)
+            return 2
         return 1
     print("\nrelease %s live" % stamp)
     return 0
@@ -463,8 +464,15 @@ def cmd_rollback(args):
     active, errs = worker_health(since)
     print("restored %s (%s), service %s, %s error line(s)"
           % (", ".join(names), rel, active, errs))
-    for label, _u, code, good in smoke():
+    results = smoke()
+    for label, _u, code, good in results:
         print("  %-24s HTTP %-4s %s" % (label, code, "ok" if good else "FAIL"))
+    # A rollback that restored files but left the site down is not a recovery,
+    # and the caller's "the box needs hands" alarm can only fire if the failure
+    # is reported. Same checks the deployment was judged by.
+    if active != "active" or any(not r[3] for r in results):
+        print("ROLLBACK DID NOT RESTORE SERVICE", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -682,10 +690,19 @@ def cmd_release(args):
         return 1
 
     print("\n=== 2/3 APPLY " + "=" * 46)
-    if cmd_apply(args) != 0:
+    rc = cmd_apply(args)
+    if rc == 2:
+        # Deployed, unhealthy, and the restore did not bring the service back.
+        # Nothing here can fix that, so say so as loudly as the exit code
+        # allows rather than reporting a tidy failure.
+        print("\nPRODUCTION IS NOT SERVING — deploy failed and the rollback "
+              "did not restore it.\nThis needs hands on the box now.",
+              file=sys.stderr)
+        return 3
+    if rc != 0:
         # Either nothing was copied (a preflight or provenance block) or the
-        # boot/smoke check failed and cmd_apply has already restored the
-        # previous release. Both are reported above.
+        # boot/smoke check failed and the previous release is back up. Both are
+        # reported above.
         print("\napply failed — nothing left running from this release",
               file=sys.stderr)
         return 1
