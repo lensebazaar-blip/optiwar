@@ -636,4 +636,27 @@ function submitReview(e) {
 }
 </script>
 
+{% if config.GA_MEASUREMENT_ID or config.GA_MEASUREMENT_ID_IN %}
+<script>
+(function(){
+  if (typeof gtag !== 'function') return;
+  var cur = {{ ('INR' if is_india else 'EUR')|tojson }};
+  var price = parseFloat(String({% if is_india %}{{ (product.product_special_price or product.product_price or 0)|tojson }}{% else %}{{ (product.product_special_price_eur or product.product_price_eur or 0)|tojson }}{% endif %}).replace(/[^0-9.]/g,'')) || 0;
+  var item = {
+    item_id: {{ (product.product_code or product.product_id)|tojson }},
+    item_name: {{ product.product_name|tojson }},
+    item_category: {{ (product.product_category or '')|tojson }},
+    price: price,
+    quantity: 1
+  };
+  gtag('event', 'view_item', { currency: cur, value: price, items: [item] });
+  document.querySelectorAll('.pdp-cta form').forEach(function(f){
+    f.addEventListener('submit', function(){
+      try { gtag('event', 'add_to_cart', { currency: cur, value: price, items: [item] }); } catch(e){}
+    });
+  });
+})();
+</script>
+{% endif %}
+
 {% endblock %}

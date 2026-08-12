@@ -128,6 +128,12 @@ def create_app(test_config=None):
     app.config['GOOGLE_OAUTH_CLIENT_ID'] = os.environ.get('GOOGLE_OAUTH_CLIENT_ID', '')
     app.config['GOOGLE_OAUTH_CLIENT_SECRET'] = os.environ.get('GOOGLE_OAUTH_CLIENT_SECRET', '')
 
+    # Google Analytics 4 (gtag.js). Set GA_MEASUREMENT_ID (G-XXXXXXXXXX) to enable
+    # the tag site-wide; leave empty to disable. Optional GA_MEASUREMENT_ID_IN lets
+    # optiwar.in use a separate GA4 data stream (falls back to GA_MEASUREMENT_ID).
+    app.config['GA_MEASUREMENT_ID'] = os.environ.get('GA_MEASUREMENT_ID', '')
+    app.config['GA_MEASUREMENT_ID_IN'] = os.environ.get('GA_MEASUREMENT_ID_IN', '')
+
     # Google Customer Reviews opt-in (order confirmation page). Set
     # GCR_MERCHANT_ID to the Merchant Center account ID to enable the opt-in
     # survey; leave empty to disable. GCR_TRANSIT_DAYS_* add a shipping-transit
