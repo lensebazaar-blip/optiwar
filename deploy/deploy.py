@@ -720,10 +720,16 @@ def cmd_release(args):
         return 2
 
     print("\nRELEASE AT FAULT — rolling back automatically", file=sys.stderr)
-    rc = cmd_rollback(args)
-    print("\nrolled back%s. Schema additions and hardening are deliberately "
-          "left in place." % ("" if rc == 0 else " WITH ERRORS — check the box"),
-          file=sys.stderr)
+    if cmd_rollback(args) != 0:
+        # Same verdict as a failed rollback after a failed smoke test: which
+        # check condemned the release does not change the fact that the store
+        # is down and nothing automated is going to fix it.
+        print("\nPRODUCTION IS NOT SERVING — the canary condemned the release "
+              "and the rollback\ndid not restore it. This needs hands on the "
+              "box now.", file=sys.stderr)
+        return 3
+    print("\nrolled back. Schema additions and hardening are deliberately "
+          "left in place.", file=sys.stderr)
     return 1
 
 
