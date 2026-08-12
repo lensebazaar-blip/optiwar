@@ -1,0 +1,540 @@
+#!/usr/bin/env python3
+"""ACR AI Operations — Daily Report section (Part A).
+
+Appended to the Optiwar 06:00 Operations Report, mirroring the GMC section
+contract: expose ``build()`` returning the section as a string and ``print`` it
+on ``__main__`` so ``run_daily_report.sh`` can append the stdout.
+
+Layered for a mixed audience (executive -> operations -> business -> quality ->
+engineering):
+
+  Layer 1  Executive Summary          (30-second health read)
+  Layer 2  Operations funnel          (where customers leak)
+  Layer 3  AI Business Intelligence    (commercial signal)
+  Layer 4  AI Quality Score            (conversation quality)
+  Layer 5  Engineering                 (technical metrics)
+
+Sourcing (per direction): canonical ACR structured state (``ai_events`` /
+``ai_actions``) first, bridged by the legacy chat tables where the canonical
+stream is not yet emitted. Metrics that need Part-B instrumentation or later
+classification/attribution render as ``n/a (pending instrumentation)`` rather
+than a fabricated 0, so the report never overstates coverage.
+
+Data protection: this is a broad-distribution email. It emits only counts,
+rates, statuses, non-identifying IDs, SKUs and product titles. It never emits
+raw customer messages, transcripts, prescription values, face measurements,
+emails/names/phones, secrets, prompts or model reasoning. "Intents" are shown
+only as business buckets, never verbatim customer wording.
+
+Config (all optional; safe defaults): DB connection is read from the
+environment (never inlined) — set ``ACR_REPORT_DB_*`` or fall back to the
+standard ``MYSQL_*`` vars. Thresholds may be overridden via ``ACR_REPORT_*``
+env vars. Intended to run behind an ``ACR_REPORT_ENABLED`` flag in the
+orchestrator.
+"""
+import os
+import subprocess
+
+WIDTH = 70
+BANNER = "=" * WIDTH
+WINDOW_HOURS = int(os.environ.get("ACR_REPORT_WINDOW_HOURS", "24"))
+
+# Status vocabulary
+GREEN, AMBER, RED = "GREEN", "AMBER", "RED"
+_ORDER = {GREEN: 0, AMBER: 1, RED: 2}
+NA = "n/a (pending instrumentation)"
+
+# Instrumentation coverage below this percentage means the health verdict is
+# built on too little of the picture to be asserted as GREEN. Reporting a
+# confident all-clear while most metrics are n/a is the same false-green
+# failure mode as an executive summary that ignores its own subsections.
+MIN_COVERAGE_PCT = float(os.environ.get("ACR_REPORT_MIN_COVERAGE_PCT", "60"))
+
+
+def _db_conf():
+    return dict(
+        host=os.environ.get("ACR_REPORT_DB_HOST") or os.environ.get("MYSQL_HOST", "localhost"),
+        user=os.environ.get("ACR_REPORT_DB_USER") or os.environ.get("MYSQL_USER", ""),
+        passwd=os.environ.get("ACR_REPORT_DB_PASS") or os.environ.get("MYSQL_PASSWORD", ""),
+        name=(os.environ.get("ACR_REPORT_DB_NAME") or os.environ.get("MYSQL_DB")
+              or os.environ.get("MYSQL_DATABASE", "")),
+    )
+
+
+class SqlError(Exception):
+    pass
+
+
+def run_sql(query):
+    """Run a read-only query via the mysql client; return rows as list of tuples.
+
+    Credentials come from the environment (never inlined). Raises SqlError so the
+    caller can degrade a single metric to n/a without aborting the whole report.
+    """
+    c = _db_conf()
+    if not (c["user"] and c["name"]):
+        raise SqlError("db credentials not configured (ACR_REPORT_DB_* / MYSQL_*)")
+    # --no-defaults: use ONLY the explicit connection params below. A cron/root
+    # my.cnf ([client] user/password) would otherwise override MYSQL_PWD and make
+    # the client authenticate as the wrong (privileged) identity.
+    cmd = ["mysql", "--no-defaults", "-h", c["host"], "-u", c["user"],
+           c["name"], "-N", "-e", query]
+    env = dict(os.environ, MYSQL_PWD=c["passwd"])  # avoid -p on argv
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=env)
+    except Exception as e:  # noqa: BLE001 - degrade to n/a
+        raise SqlError(str(e))
+    if res.returncode != 0:
+        raise SqlError((res.stderr or "query failed").strip().split("\n")[-1])
+    rows = []
+    for line in res.stdout.strip().split("\n"):
+        if line.strip():
+            rows.append(tuple(line.split("\t")))
+    return rows
+
+
+def _scalar(query, default=None):
+    rows = run_sql(query)
+    if not rows or not rows[0]:
+        return default
+    return rows[0][0]
+
+
+def _to_int(v, default=0):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return default
+
+
+# Host normalization: derive .com / .in from the session's page url. Values seen
+# in prod include optiwar.com, in.optiwar.com and optiwar.in.
+HOST_CASE = (
+    "CASE "
+    "WHEN current_page_url LIKE '%optiwar.in%' THEN '.in' "
+    "WHEN current_page_url LIKE '%in.optiwar.com%' THEN '.in' "
+    "WHEN current_page_url LIKE '%optiwar.com%' THEN '.com' "
+    "ELSE 'unknown' END"
+)
+SINCE = "NOW() - INTERVAL %d HOUR" % WINDOW_HOURS
+
+
+def _by_host(counts):
+    com = counts.get(".com", 0)
+    _in = counts.get(".in", 0)
+    unk = counts.get("unknown", 0)
+    return com, _in, com + _in + unk
+
+
+# ─────────────────────────── metric collection ───────────────────────────
+
+def _collect():
+    """Return (metrics dict, errors list). Each metric may be an int, a
+    (com, in, total) tuple, a float rate, or None for n/a."""
+    m = {}
+    errs = []
+
+    def safe(key, fn):
+        try:
+            m[key] = fn()
+        except SqlError as e:
+            m[key] = None
+            errs.append("%s: %s" % (key, e))
+
+    # Sessions started (bridge: chat_events.session_created joined to host)
+    def sessions_started():
+        rows = run_sql(
+            "SELECT %s h, COUNT(*) FROM chat_events e "
+            "JOIN chat_sessions s ON s.session_id=e.session_id "
+            "WHERE e.event_type='session_created' AND e.created_at >= %s "
+            "GROUP BY h" % (HOST_CASE, SINCE))
+        return _by_host({r[0]: _to_int(r[1]) for r in rows})
+    safe("sessions_started", sessions_started)
+
+    safe("sessions_active", lambda: _to_int(_scalar(
+        "SELECT COUNT(*) FROM chat_sessions WHERE status='active'")))
+
+    safe("conversations", lambda: _to_int(_scalar(
+        "SELECT COUNT(*) FROM chat_events WHERE event_type='ai_started' "
+        "AND created_at >= %s" % SINCE)))
+
+    safe("customers_assisted", lambda: _to_int(_scalar(
+        "SELECT COUNT(DISTINCT s.customer_id) FROM chat_sessions s "
+        "JOIN chat_events e ON e.session_id=s.session_id "
+        "WHERE s.customer_id IS NOT NULL AND e.created_at >= %s" % SINCE)))
+
+    # Guest vs authenticated session split
+    def guest_auth():
+        rows = run_sql(
+            "SELECT CASE WHEN s.customer_id IS NULL THEN 'guest' ELSE 'auth' END g, "
+            "COUNT(DISTINCT s.session_id) FROM chat_sessions s "
+            "JOIN chat_events e ON e.session_id=s.session_id "
+            "WHERE e.event_type='session_created' AND e.created_at >= %s "
+            "GROUP BY g" % SINCE)
+        d = {r[0]: _to_int(r[1]) for r in rows}
+        return d.get("guest", 0), d.get("auth", 0)
+    safe("guest_auth", guest_auth)
+
+    # Recommendations (approx from ai_completed carrying an action; T1->T2)
+    safe("recommendations", lambda: _to_int(_scalar(
+        "SELECT COUNT(*) FROM chat_events WHERE event_type='ai_completed' "
+        "AND payload LIKE '%%navigate%%' AND created_at >= %s" % SINCE)))
+
+    # Action lifecycle from the canonical action ledger
+    def action_counts():
+        rows = run_sql(
+            "SELECT status, COUNT(*) FROM ai_actions WHERE action_type='NAVIGATE' "
+            "AND created_at >= %s GROUP BY status" % SINCE)
+        return {r[0]: _to_int(r[1]) for r in rows}
+    safe("nav_actions", action_counts)
+
+    safe("nav_expired_by_time", lambda: _to_int(_scalar(
+        "SELECT COUNT(*) FROM ai_actions WHERE action_type='NAVIGATE' "
+        "AND status='PENDING' AND expires_at IS NOT NULL AND expires_at < NOW() "
+        "AND created_at >= %s" % SINCE)))
+
+    # Human escalations in the window. Counted from the canonical handover signal
+    # only; no all-time fallback (a genuine 0 must report as 0, not history).
+    safe("escalations", lambda: _to_int(_scalar(
+        "SELECT COUNT(DISTINCT session_id) FROM chat_events "
+        "WHERE event_type='agent_reply' AND created_at >= %s" % SINCE)))
+
+    safe("ket_tickets", lambda: _to_int(_scalar(
+        "SELECT COUNT(*) FROM tickets WHERE date_created >= %s" % SINCE)))
+
+    # Average conversation length (messages per conversation, 24h)
+    safe("avg_conv_len", lambda: _avg_conv_len())
+
+    # Outcomes (partial): resolved from chat_events; abandoned from status
+    safe("resolved", lambda: _to_int(_scalar(
+        "SELECT COUNT(*) FROM chat_events WHERE event_type='session_resolved' "
+        "AND created_at >= %s" % SINCE)))
+    safe("abandoned", lambda: _to_int(_scalar(
+        "SELECT COUNT(*) FROM chat_sessions WHERE status='abandoned' "
+        "AND last_activity >= %s" % SINCE)))
+
+    return m, errs
+
+
+def _avg_conv_len():
+    row = run_sql(
+        "SELECT ROUND(AVG(c),1) FROM (SELECT COUNT(*) c FROM chat_messages "
+        "WHERE created_at >= %s GROUP BY session_id) t" % SINCE)
+    return float(row[0][0]) if row and row[0] and row[0][0] not in (None, "NULL") else 0.0
+
+
+# ─────────────────────────── status logic ───────────────────────────
+
+def _worst(*statuses):
+    real = [s for s in statuses if s in _ORDER]
+    if not real:
+        return GREEN
+    return max(real, key=lambda s: _ORDER[s])
+
+
+TERMINAL_STATUSES = ("EXECUTED", "FAILED", "BLOCKED", "EXPIRED")
+
+
+def _nav_execution_rate(nav, expired_extra=0):
+    """executed / terminal outcomes.
+
+    Terminal = the terminal ai_actions statuses (EXECUTED/FAILED/BLOCKED/EXPIRED)
+    PLUS time-expired offers (``expired_extra``): the app never writes an EXPIRED
+    status — expiry is derived from PENDING rows whose ``expires_at`` has passed —
+    so those must be counted here as non-executed, or the rate is inflated.
+    Still-live PENDING and CONFIRMED-but-unresolved actions are in-flight (their
+    outcome hasn't arrived) and are deliberately excluded. Returns None when there
+    are no terminal outcomes yet (rate is not meaningful)."""
+    if not nav:
+        return None
+    terminal = sum(v for k, v in nav.items() if k in TERMINAL_STATUSES) + (expired_extra or 0)
+    if terminal == 0:
+        return None
+    return round(100.0 * nav.get("EXECUTED", 0) / terminal, 1)
+
+
+_COLLECT_CACHE = []
+
+
+def _collect_once():
+    """``_collect`` memoised for the lifetime of one report run.
+
+    ``build()`` and ``findings()`` both need the same numbers; querying twice
+    would double the section's DB load and could report two different states
+    for the same run.
+    """
+    if not _COLLECT_CACHE:
+        _COLLECT_CACHE.append(_collect())
+    return _COLLECT_CACHE[0]
+
+
+def _reset_cache():
+    """Drop the memoised collection (one report run == one snapshot)."""
+    del _COLLECT_CACHE[:]
+
+
+def _coverage(metrics, na_count):
+    """Instrumentation coverage as (live, pending, percent).
+
+    ``live`` counts metrics that actually resolved to a value; ``pending``
+    counts the rendered rows still showing ``n/a``. Deriving pending from the
+    rendered output rather than a hand-maintained list means coverage rises by
+    itself as Part-B metrics are promoted — the number cannot drift out of
+    step with what the report actually shows.
+    """
+    live = sum(1 for v in metrics.values() if v is not None)
+    pending = int(na_count or 0)
+    total = live + pending
+    pct = (100.0 * live / total) if total else 0.0
+    return live, pending, pct
+
+
+def _telemetry_contradiction(metrics):
+    """Detect a self-inconsistent read of the chat tables.
+
+    Active sessions with zero started sessions *and* zero conversations in the
+    same window is not a quiet day — the counters disagree with each other, so
+    the source is incomplete rather than empty. Returns a message or None.
+    """
+    active = metrics.get("sessions_active")
+    started = metrics.get("sessions_started")
+    started_total = started[2] if isinstance(started, tuple) else started
+    conversations = metrics.get("conversations")
+    if not isinstance(active, int) or active <= 0:
+        return None
+    if started_total in (None, 0) and conversations in (None, 0):
+        return ("%d active session(s) but 0 started / 0 conversations in the "
+                "last %dh — counters disagree, coverage incomplete"
+                % (active, WINDOW_HOURS))
+    return None
+
+
+def _rate_status(rate, green_min, amber_min):
+    if rate is None:
+        return None
+    if rate >= green_min:
+        return GREEN
+    if rate >= amber_min:
+        return AMBER
+    return RED
+
+
+# ─────────────────────────── rendering ───────────────────────────
+
+def _fmt_hosts(v):
+    if v is None:
+        return NA
+    if isinstance(v, tuple) and len(v) == 3:
+        return "%-6d  .com %-5d  .in %-5d" % (v[2], v[0], v[1])
+    return str(v)
+
+
+def _val(v):
+    return NA if v is None else str(v)
+
+
+def build():
+    L = []
+    add = L.append
+    from datetime import datetime
+
+    try:
+        m, errs = _collect_once()
+    except Exception as e:  # noqa: BLE001 - never break the daily report
+        return "\n".join([BANNER, "  ACR AI OPERATIONS (Last %dh)" % WINDOW_HOURS,
+                          BANNER, "  [WARN] section unavailable: %s" % e, BANNER])
+
+    # The action ledger (ai_actions) is the core health source. Distinguish
+    # "query degraded / no data" (None) from a genuine zero: when it is None we
+    # must NOT collapse to 0 and print a fabricated GREEN.
+    nav = m.get("nav_actions")
+    nav_available = isinstance(nav, dict)
+    if nav_available:
+        offered = sum(nav.values())
+        executed = nav.get("EXECUTED", 0)
+        failed = nav.get("FAILED", 0)
+        blocked = nav.get("BLOCKED", 0)
+        expired = nav.get("EXPIRED", 0) + (m.get("nav_expired_by_time") or 0)
+        success_rate = _nav_execution_rate(nav, m.get("nav_expired_by_time") or 0)
+    else:
+        offered = executed = failed = blocked = expired = None
+        success_rate = None
+
+    # ---- statuses (v0 thresholds; calibrate during observation) ----
+    st_success = _rate_status(success_rate,
+                              float(os.environ.get("ACR_REPORT_NAV_GREEN", "95")),
+                              float(os.environ.get("ACR_REPORT_NAV_AMBER", "85")))
+    st_failed = (None if failed is None
+                 else GREEN if failed == 0
+                 else AMBER if failed <= 2 else RED)
+    # Core action data unavailable -> the health verdict is not trustworthy;
+    # surface AMBER (data incomplete) rather than a false all-clear GREEN.
+    st_data = AMBER if not nav_available else None
+    data_note = "  (data incomplete)" if not nav_available else ""
+
+    def bar(status):
+        fill = {GREEN: "#" * 14, AMBER: "#" * 9 + "." * 5, RED: "#" * 4 + "." * 10}
+        return "%s %s" % (fill.get(status, "." * 14), status)
+
+    ss = m.get("sessions_started")
+    ss_total = ss[2] if isinstance(ss, tuple) else None
+    ga = m.get("guest_auth")
+
+    # ═══ LAYER 1 — EXECUTIVE SUMMARY ═══
+    # The verdict depends on how much of the section actually resolved, which
+    # is only known once every layer below has rendered. So the status cells
+    # are written as placeholders here and substituted at the end — the same
+    # "compute the summary last" rule the report-level aggregator follows.
+    add(BANNER)
+    add("  ACR AI OPERATIONS (Last %dh)%sSTATUS: %s%s" %
+        (WINDOW_HOURS, " " * max(1, 26 - len(str(WINDOW_HOURS))), "{{STATUS}}",
+         data_note))
+    add(BANNER)
+    add("  AI STATUS   {{BAR}}%s" % data_note)
+    add("  COVERAGE    {{COVERAGE}}")
+    add("")
+    add("  Sessions              %s" % _val(ss_total))
+    add("  Customers assisted    %s" % _val(m.get("customers_assisted")))
+    add("  Recommendations       %s" % _val(m.get("recommendations")))
+    add("  Purchases assisted    %s" % NA)   # T3: needs GA4/attribution
+    add("  Revenue assisted      %s" % NA)   # T3: needs GA4/attribution
+    add("  Escalations           %s" % _val(m.get("escalations")))
+    add("  Failures              %s" % _val(failed))  # NA (not 0) when data unavailable
+    add("  Unsafe actions        %s" % NA)   # T2: needs UNSAFE_URL_REJECTED event
+    add("  Overall               {{STATUS}}")
+    add("")
+
+    # ═══ LAYER 2 — OPERATIONS: CUSTOMER JOURNEY FUNNEL ═══
+    add("  " + "-" * (WIDTH - 4))
+    add("  OPERATIONS — CUSTOMER JOURNEY")
+    add("  " + "-" * (WIDTH - 4))
+    add("    Landing / sessions        %s" % _fmt_hosts(ss))
+    add("    Recommendation            %s" % _val(m.get("recommendations")))
+    add("    Navigation offered        %s" % _val(offered))
+    add("    Navigation confirmed      %s" % NA)  # T2: ACTION_CONFIRMED event
+    add("    Product viewed            %s" % NA)  # T2: journey event
+    add("    Cart                      %s" % NA)  # T2: cart_added event
+    add("    Checkout                  %s" % NA)  # T2: checkout_started event
+    add("    Payment                   %s" % NA)  # T2: payment_started event
+    add("    Purchase                  %s" % NA)  # T3: attribution
+    add("    (guest / authenticated)   %s" %
+        ("%d / %d" % ga if ga else NA))
+    add("")
+
+    # ═══ LAYER 3 — AI BUSINESS INTELLIGENCE ═══
+    add("  " + "-" * (WIDTH - 4))
+    add("  AI BUSINESS INTELLIGENCE")
+    add("  " + "-" * (WIDTH - 4))
+    add("    Top recommended products      %s" % NA)  # needs RECOMMENDATION_GENERATED.sku
+    add("    Products bought after AI      %s" % NA)  # needs attribution
+    add("    Frequently rejected products  %s" % NA)  # needs rejection signal
+    add("    Questions AI couldn't answer  %s" % NA)  # needs unanswered classification
+    add("    Zero-recommendation categories %s" % NA)
+    add("    Most abandoned journeys       %s" % NA)
+    add("    (aggregate only; no customer wording or PII)")
+    add("")
+
+    # ═══ LAYER 4 — AI QUALITY SCORE ═══
+    add("  " + "-" * (WIDTH - 4))
+    add("  AI QUALITY SCORE")
+    add("  " + "-" * (WIDTH - 4))
+    add("    Excellent / Good / Needs-Review   %s" % NA)  # needs QC scoring
+    add("    Reasons (nav-failed, incomplete, repeat, handover, timeout, halluc.)")
+    add("       %s" % NA)
+    add("")
+
+    # ═══ LAYER 5 — ENGINEERING ═══
+    add("  " + "-" * (WIDTH - 4))
+    add("  ENGINEERING")
+    add("  " + "-" * (WIDTH - 4))
+    add("    Action lifecycle (NAVIGATE):")
+    add("      offered %s | confirmed %s | executed %s | failed %s | blocked %s | expired %s"
+        % (_val(offered), NA, _val(executed), _val(failed), _val(blocked), _val(expired)))
+    add("      nav execution rate (executed/terminal)   %s   [%s]" %
+        (("%.1f%%" % success_rate) if success_rate is not None else NA, st_success or "-"))
+    add("      promise-without-action       %s" % NA)  # T2: PROMISE_WITHOUT_ACTION
+    add("      unsafe-url rejected          %s" % NA)  # T2: UNSAFE_URL_REJECTED
+    add("    AI health (wrapper — pending event sourcing):")
+    add("      p95 latency                  %s" % NA)  # T2: MODEL_CALL
+    add("      model timeouts / adm-503     %s" % NA)  # T2
+    add("      provider failures            %s" % NA)  # T2
+    add("      provider/model distribution  %s" % NA)  # T2
+    add("      estimated provider cost      %s" % NA)  # T2/T3
+    add("    Ops Console auth failures      %s" % NA)  # T2
+    add("    Session rebind / not-found     %s" % NA)  # T2
+    add("")
+    add("    Conversations %s | avg length %s msgs | active sessions %s"
+        % (_val(m.get("conversations")), _val(m.get("avg_conv_len")),
+           _val(m.get("sessions_active"))))
+    add("    Escalations %s | KET tickets %s | resolved %s | abandoned %s"
+        % (_val(m.get("escalations")), _val(m.get("ket_tickets")),
+           _val(m.get("resolved")), _val(m.get("abandoned"))))
+
+    # ---- coverage verdict, computed once the whole section has rendered ----
+    live, pending, pct = _coverage(m, sum(1 for ln in L if NA in ln))
+    contradiction = _telemetry_contradiction(m)
+    st_coverage = AMBER if (pct < MIN_COVERAGE_PCT or contradiction) else None
+    overall = _worst(st_success, st_failed, st_data, st_coverage)
+
+    coverage_txt = "%d/%d metrics live (%.0f%%)" % (live, live + pending, pct)
+    if pct < MIN_COVERAGE_PCT:
+        coverage_txt += " — AMBER: instrumentation coverage incomplete"
+
+    add("")
+    add("  DATA COVERAGE  %s" % coverage_txt)
+    if contradiction:
+        add("  [coverage] %s" % contradiction)
+    for e in errs[:6]:
+        add("  [degraded] %s" % e)
+    add("  Source: canonical ai_events/ai_actions + bridge chat tables. "
+        "n/a rows await Part-B event instrumentation.")
+    add("  Generated %s" % datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    add(BANNER)
+
+    out = "\n".join(L)
+    return (out.replace("{{STATUS}}", overall)
+               .replace("{{BAR}}", bar(overall))
+               .replace("{{COVERAGE}}", coverage_txt))
+
+
+def findings():
+    """Severity findings this section contributes to the executive summary.
+
+    Kept separate from :func:`build` so the report-level aggregator can reason
+    about ACR health without parsing rendered text. Failing to produce the
+    section is itself reported, so an ACR outage cannot read as healthy.
+    """
+    from reports.report_severity import ACTION, WARNING, Finding
+
+    try:
+        m, errs = _collect_once()
+    except Exception as e:  # noqa: BLE001 - never break the daily report
+        return [Finding(ACTION, "acr", "ACR section unavailable: %s" % e, "acr")]
+
+    out = []
+    nav = m.get("nav_actions")
+    if not isinstance(nav, dict):
+        out.append(Finding(WARNING, "acr",
+                           "action ledger unavailable — AI health verdict is "
+                           "not trustworthy", "acr"))
+    contradiction = _telemetry_contradiction(m)
+    if contradiction:
+        out.append(Finding(WARNING, "acr", contradiction, "acr"))
+    for e in errs[:6]:
+        out.append(Finding(WARNING, "acr", "degraded metric %s" % e, "acr"))
+    return out
+
+
+def main():
+    """Print the section and publish findings for the executive aggregator."""
+    text = build()
+    try:
+        from reports.report_severity import emit
+        emit("acr", findings())
+    except Exception:  # noqa: BLE001 - the section still stands on its own
+        pass
+    print(text)
+
+
+if __name__ == "__main__":
+    main()

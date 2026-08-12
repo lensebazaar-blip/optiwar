@@ -97,6 +97,26 @@ def create_app(test_config=None):
     # webhook verifier fails closed (rejects all KET calls).
     app.config['OPTIWAR_WEBHOOK_SECRET'] = os.environ.get('OPTIWAR_WEBHOOK_SECRET', '')
 
+    # Live in-widget human takeover. Default OFF: KET remains ticket-based
+    # escalation only. When off, an authenticated KET agent-reply push is
+    # accepted (HMAC still verified) but does not deliver into the widget or flip
+    # the session to human_open. Flip to true only when the joint live-handover
+    # acceptance programme signs off (mirrors KET's LIVE_HANDOVER_ENABLED).
+    app.config['LIVE_HANDOVER_ENABLED'] = os.environ.get('LIVE_HANDOVER_ENABLED', 'false').lower() == 'true'
+
+    # Shared Bearer token for /ops/* endpoints and the read-only ACR Ops Console.
+    # Server-side only, no fallback: when unset the Bearer path fails closed
+    # (admin sessions still work). See ops._require_ops_auth.
+    app.config['OPS_API_TOKEN'] = os.environ.get('OPS_API_TOKEN', '')
+
+    # ACR (A1/A2/A3) canary gate. ACR_ACTIONS_ENABLED master switch (default off
+    # => legacy stable chat path for everyone). ACR_CANARY_ONLY restricts ACR to
+    # approved canary sessions (signed ow_acr_canary cookie or an email in
+    # ACR_CANARY_EMAILS). Set ACR_CANARY_ONLY=false for full rollout after canary.
+    app.config['ACR_ACTIONS_ENABLED'] = os.environ.get('ACR_ACTIONS_ENABLED', 'false').lower() == 'true'
+    app.config['ACR_CANARY_ONLY'] = os.environ.get('ACR_CANARY_ONLY', 'true').lower() == 'true'
+    app.config['ACR_CANARY_EMAILS'] = os.environ.get('ACR_CANARY_EMAILS', '')
+
     # ═══ TEST_PAY: Set to False to disable the test payment button on checkout ═══
     # To disable: change True to False below and restart gunicorn
     #   sudo systemctl restart gunicorn
@@ -113,6 +133,15 @@ def create_app(test_config=None):
     # optiwar.in use a separate GA4 data stream (falls back to GA_MEASUREMENT_ID).
     app.config['GA_MEASUREMENT_ID'] = os.environ.get('GA_MEASUREMENT_ID', '')
     app.config['GA_MEASUREMENT_ID_IN'] = os.environ.get('GA_MEASUREMENT_ID_IN', '')
+
+    # Google Customer Reviews opt-in (order confirmation page). Set
+    # GCR_MERCHANT_ID to the Merchant Center account ID to enable the opt-in
+    # survey; leave empty to disable. GCR_TRANSIT_DAYS_* add a shipping-transit
+    # allowance on top of the dispatch date so the estimated delivery date
+    # reflects arrival (survey timing), differentiated India vs. international.
+    app.config['GCR_MERCHANT_ID'] = os.environ.get('GCR_MERCHANT_ID', '')
+    app.config['GCR_TRANSIT_DAYS_IN'] = int(os.environ.get('GCR_TRANSIT_DAYS_IN', '3'))
+    app.config['GCR_TRANSIT_DAYS_INTL'] = int(os.environ.get('GCR_TRANSIT_DAYS_INTL', '10'))
 
     mail.init_app(app)
     Session(app)
