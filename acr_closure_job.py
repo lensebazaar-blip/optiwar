@@ -146,9 +146,15 @@ def main():
         try:
             # The ledger table is additive; ensure it exists (idempotent). In a
             # least-privilege deployment CREATE may be denied — that is fine once
-            # the table has been created once by the migration step.
+            # the table has been created once by the migration step. A dry run
+            # only reports the schema work: the collation alignment rebuilds a
+            # primary key, which a run that writes nothing must not do.
             try:
-                acr.ensure_closure_schema(_connect)
+                pending = acr.ensure_closure_schema(_connect,
+                                                    allow_ddl=not dry_run)
+                for item in (pending or []):
+                    _log("schema %s: %s" % (
+                        "pending (dry run)" if dry_run else "applied", item))
             except Exception as e:
                 _log("ensure_closure_schema skipped (%s)" % e)
 

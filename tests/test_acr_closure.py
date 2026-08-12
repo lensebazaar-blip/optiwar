@@ -164,6 +164,9 @@ class _FakeCursor:
             if row and row["event_id"] is None and not self.db.fail_backfill:
                 row["event_id"] = eid
                 self.rowcount = 1
+        elif s.startswith("SELECT COUNT(*) FROM information_schema.TABLES"):
+            self._result = [{"c": 1 if params[0] in self.db.column_collation
+                             else 0}]
         elif s.startswith("SELECT COLLATION_NAME FROM information_schema.COLUMNS"):
             coll = self.db.column_collation.get(params[0])
             self._result = [{"COLLATION_NAME": coll}] if coll else []
@@ -666,6 +669,39 @@ class LedgerCollationAlignmentTests(unittest.TestCase):
         db = FakeDB()
         acr.ensure_closure_schema(lambda: _ClosingDB(db))
         self.assertEqual(self._alters(db), [])
+
+    def test_a_dry_run_reports_the_mismatch_and_writes_nothing(self):
+        # The ALTER rebuilds a primary key. A preview run that promises to change
+        # nothing must not be the thing that rewrites a production table.
+        db = FakeDB()
+        db.column_collation = {"ai_session_outcomes": "utf8mb4_unicode_ci",
+                               "ai_session_commerce": "utf8mb4_unicode_ci"}
+        pending = acr.ensure_closure_schema(lambda: _ClosingDB(db),
+                                            allow_ddl=False)
+        self.assertEqual(len(pending), 2)
+        for item in pending:
+            self.assertIn("needs utf8mb4_general_ci", item)
+        written = [s for s, _p in db.executed
+                   if s.strip().startswith(("ALTER TABLE", "CREATE TABLE"))]
+        self.assertEqual(written, [])
+
+    def test_a_dry_run_reports_a_missing_ledger_instead_of_creating_it(self):
+        db = FakeDB()          # no table exists in this fake
+        pending = acr.ensure_closure_schema(lambda: _ClosingDB(db),
+                                            allow_ddl=False)
+        self.assertEqual(len(pending), 2)
+        for item in pending:
+            self.assertIn("needs CREATE", item)
+        self.assertEqual([s for s, _p in db.executed
+                          if s.strip().startswith("CREATE TABLE")], [])
+
+    def test_a_live_run_returns_what_it_applied(self):
+        db = FakeDB()
+        db.column_collation = {"ai_session_outcomes": "utf8mb4_unicode_ci",
+                               "ai_session_commerce": acr.LEDGER_COLLATION}
+        applied = acr.ensure_closure_schema(lambda: _ClosingDB(db))
+        self.assertEqual(len(applied), 1)
+        self.assertIn("ai_session_outcomes", applied[0])
 
     def test_a_denied_alter_does_not_break_boot(self):
         # ensure_closure_schema is called on the event path; a missing ALTER
