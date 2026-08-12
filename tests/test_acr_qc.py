@@ -189,6 +189,17 @@ class SweptConfirmationTests(unittest.TestCase):
         self.assertEqual(
             detail(r, qc.QC_FAILED_NAVIGATION)["confirmed_not_executed"], 1)
 
+    def test_one_stranded_action_is_one_failure_not_two(self):
+        # Without action rows the arithmetic already counts the stranded
+        # confirmation; adding the expiry event on top would double it.
+        r = qc.review_session("no-rows", [
+            ev(acr.EV_ACTION_CONFIRMED),
+            ev(acr.EV_ACTION_EXPIRED, failure_code="confirmed_never_executed",
+               payload={"from_status": "CONFIRMED"}),
+        ], [])
+        self.assertEqual(
+            detail(r, qc.QC_FAILED_NAVIGATION)["confirmed_not_executed"], 1)
+
     def test_an_expiry_nobody_answered_is_not_a_failed_navigation(self):
         r = qc.review_session("s", [
             ev(acr.EV_NAVIGATION_OFFERED),

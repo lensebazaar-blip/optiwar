@@ -207,16 +207,21 @@ def review_session(session_id, events, messages=(), outcome=None, actions=()):
         stuck = sum(1 for a in actions if (a.get("status") or "") == "CONFIRMED")
         failed = sum(1 for a in actions
                      if (a.get("status") or "") in ("FAILED", "BLOCKED"))
+        # A swept action leaves CONFIRMED for EXPIRED, so counting only live
+        # CONFIRMED rows would let the closure sweep erase the very defect this
+        # signal exists to report. The expiry event carries which status it came
+        # from, and only the confirmed one is a broken journey.
+        #
+        # Only the row-based branch needs this. The arithmetic below already
+        # counts a stranded confirmation, whose ACTION_CONFIRMED is still in the
+        # stream with no ACTION_EXECUTED, so adding the expiry there would report
+        # one broken navigation as two.
+        stuck += sum(1 for e in events
+                     if e.get("event_type") == acr.EV_ACTION_EXPIRED
+                     and _from_confirmed(e))
     else:
         stuck = max(confirmed - executed, 0)
         failed = ev.get(acr.EV_ACTION_FAILED, 0) + ev.get(acr.EV_ACTION_BLOCKED, 0)
-    # A swept action leaves CONFIRMED for EXPIRED, so counting only live
-    # CONFIRMED rows would let the closure sweep erase the very defect this
-    # signal exists to report. The expiry event carries which status it came
-    # from, and only the confirmed one is a broken journey.
-    stuck += sum(1 for e in events
-                 if e.get("event_type") == acr.EV_ACTION_EXPIRED
-                 and _from_confirmed(e))
     if stuck or failed:
         add(QC_FAILED_NAVIGATION, confirmed_not_executed=stuck, failed=failed)
 
