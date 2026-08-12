@@ -576,5 +576,53 @@ class CommerceAttributionTests(unittest.TestCase):
         self.assertEqual(db.commerce["s1"]["event_id"], db.events[0][0])
 
 
+class LedgerAntiJoinCollationTests(unittest.TestCase):
+    """chat_sessions and the ledger tables need not share a collation — on
+    production they do not, and an unqualified comparison between them is an
+    error (1267), not a mismatch. Both anti-joins must therefore say which
+    collation the comparison uses."""
+
+    def _join_sql(self, finder):
+        db = FakeDB()
+        finder(db)
+        joins = [sql for sql, _p in db.executed if "LEFT JOIN" in sql]
+        self.assertEqual(len(joins), 1)
+        return " ".join(joins[0].split())
+
+    def test_outcome_anti_join_states_its_collation(self):
+        sql = self._join_sql(acr.find_sessions_awaiting_outcome)
+        self.assertIn("ai_session_outcomes", sql)
+        self.assertIn("s.session_id COLLATE utf8mb4_general_ci", sql)
+
+    def test_commerce_anti_join_states_its_collation(self):
+        sql = self._join_sql(acr.find_sessions_awaiting_attribution)
+        self.assertIn("ai_session_commerce", sql)
+        self.assertIn("s.session_id COLLATE utf8mb4_general_ci", sql)
+
+    def test_ledger_ddl_pins_the_same_collation(self):
+        # Otherwise the tables inherit the server default, which differs between
+        # MySQL 5.7 and 8.0, and a new node would reintroduce the mismatch.
+        db = FakeDB()
+        acr.ensure_closure_schema(lambda: _ClosingDB(db))
+        ddl = [" ".join(s.split()) for s, _p in db.executed]
+        self.assertEqual(len(ddl), 2)
+        for stmt in ddl:
+            self.assertIn("session_id VARCHAR(64) COLLATE utf8mb4_general_ci",
+                          " ".join(stmt.split()))
+
+
+class _ClosingDB:
+    """ensure_closure_schema owns the connection it is given and closes it."""
+
+    def __init__(self, db):
+        self._db = db
+
+    def cursor(self):
+        return self._db.cursor()
+
+    def close(self):
+        pass
+
+
 if __name__ == "__main__":
     unittest.main()

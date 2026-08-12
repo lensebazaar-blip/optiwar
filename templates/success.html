@@ -456,22 +456,4 @@
 {% endif %}
 </div>
 
-{% if gcr and gcr.email and gcr.delivery_country %}
-<!-- Google Customer Reviews opt-in -->
-<script src="https://apis.google.com/js/platform.js?onload=renderOptIn" async defer></script>
-<script>
-  window.renderOptIn = function() {
-    window.gapi.load('surveyoptin', function() {
-      window.gapi.surveyoptin.render({
-        "merchant_id": {{ gcr.merchant_id|int }},
-        "order_id": {{ gcr.order_id|tojson }},
-        "email": {{ gcr.email|tojson }},
-        "delivery_country": {{ gcr.delivery_country|tojson }},
-        "estimated_delivery_date": {{ gcr.estimated_delivery_date|tojson }}
-      });
-    });
-  };
-</script>
-{% endif %}
-
 {% endblock %}
