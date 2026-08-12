@@ -90,11 +90,12 @@ rollback leaves them alone.
 
 ### Unattended release
 
-`release` runs migrate → apply → canary as one operation and, unlike the
-individual commands, **acts on the canary's verdict**. `apply` already restores
-the previous release on a failed boot or a failed smoke test; the canary ran
-afterwards and only printed the rollback command, which is fine with an
-operator watching and useless at 02:00 with nobody there.
+`release` runs migrate → apply → canary as one operation and **acts on the
+verdict at every step**. Neither `apply` nor `canary` used to: both printed the
+rollback command and stopped, which is fine with an operator watching and
+useless at 02:00 with nobody there — the new code is already live and serving by
+then. `apply` now restores the previous release itself when the service fails to
+come up or any smoke test fails.
 
 | canary | `release` does |
 |---|---|

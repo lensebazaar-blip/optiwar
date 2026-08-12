@@ -426,8 +426,15 @@ def cmd_apply(args):
     for label, _u, code, good in results:
         print("  %-24s HTTP %-4s %s" % (label, code, "ok" if good else "FAIL"))
     if failed or active != "active":
-        print("\nSMOKE FAILED — roll back with: "
-              "python3 deploy/deploy.py rollback --confirm", file=sys.stderr)
+        # The new code is already live and serving: printing the rollback
+        # command and stopping leaves a broken storefront up for as long as it
+        # takes someone to read the output. Restore it here, where the failure
+        # is known, rather than making recovery depend on an audience.
+        print("\nSMOKE FAILED — restoring the previous release",
+              file=sys.stderr)
+        if cmd_rollback(args) != 0:
+            print("ROLLBACK ALSO FAILED — the box needs hands",
+                  file=sys.stderr)
         return 1
     print("\nrelease %s live" % stamp)
     return 0
@@ -618,8 +625,8 @@ def cmd_canary(args):
     # Scoped to this session rather than a time window, so a concurrent
     # shopper's events cannot be mistaken for the canary's.
     ok, counts = remote_try(
-        "mysql -N -e \"SELECT event_type, COUNT(*) FROM optiwar2.ai_events "
-        "WHERE session_id='%s' GROUP BY event_type\"" % sid)
+        "mysql -N -e \"SELECT event_type, COUNT(*) FROM %s.ai_events "
+        "WHERE session_id='%s' GROUP BY event_type\"" % (DB, sid))
     if not ok:
         # An unreadable ai_events proves nothing about the release, and reading
         # its silence as "no events were written" would send a good deployment
@@ -635,9 +642,9 @@ def cmd_canary(args):
     missing = [e for e in CANARY_EVENTS if e not in seen]
 
     legacy = remote(
-        "mysql -N -e \"SELECT event_type, COUNT(*) FROM optiwar2.ai_events "
-        "WHERE created_at > NOW() - INTERVAL 7 DAY AND event_type LIKE 'AI\\_%%' "
-        "GROUP BY event_type\"", check=False)
+        "mysql -N -e \"SELECT event_type, COUNT(*) FROM %s.ai_events "
+        "WHERE created_at > NOW() - INTERVAL 7 DAY AND event_type LIKE 'AI\\_%%%%' "
+        "GROUP BY event_type\"" % DB, check=False)
     if legacy:
         print("\n  legacy names still emitted in the last 7 days:")
         for ln in legacy.splitlines():
@@ -676,9 +683,11 @@ def cmd_release(args):
 
     print("\n=== 2/3 APPLY " + "=" * 46)
     if cmd_apply(args) != 0:
-        # cmd_apply has already restored the previous release on a failed boot
-        # or a failed smoke test.
-        print("\napply failed — see above for rollback state", file=sys.stderr)
+        # Either nothing was copied (a preflight or provenance block) or the
+        # boot/smoke check failed and cmd_apply has already restored the
+        # previous release. Both are reported above.
+        print("\napply failed — nothing left running from this release",
+              file=sys.stderr)
         return 1
 
     print("\n=== 3/3 CANARY " + "=" * 45)
