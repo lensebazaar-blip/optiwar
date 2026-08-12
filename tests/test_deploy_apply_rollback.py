@@ -96,6 +96,15 @@ class ApplyRollbackTest(unittest.TestCase):
         self.assertEqual(self.d.cmd_release(self._args()), 1)
         self.assertEqual(len(self.rolled_back), 1)
 
+    def test_release_escalates_when_the_canary_rollback_leaves_it_down(self):
+        # Which check condemned the release does not change the verdict: both
+        # rollback call sites must report an unrecovered box the same way.
+        self.d.cmd_migrate = lambda args: 0
+        self.d.cmd_apply = lambda args: 0
+        self.d.cmd_canary = lambda args: 1
+        self.rollback_rc = 1
+        self.assertEqual(self.d.cmd_release(self._args()), 3)
+
     def test_release_leaves_a_live_release_alone_when_there_is_no_evidence(self):
         # A busy model provider must not cost a healthy release.
         self.d.cmd_migrate = lambda args: 0
