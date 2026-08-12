@@ -83,6 +83,13 @@ _SENTENCE_END_RE = re.compile(r"[.!?]")
 # something, whatever it opened with.
 MAX_REFUSAL_WORDS = 12
 
+# How long a confirmed action may take to report arrival before it is treated as
+# stranded. Measured from the confirmation, not from the offer: expires_at is
+# the offer's deadline, so a customer who accepts one second before it lapses
+# would otherwise get a one-second grace while one who accepts immediately gets
+# the full offer TTL. The browser reports arrival in seconds.
+EXECUTION_TTL_SECONDS = 120
+
 _WORD_RE = re.compile(r"[a-z0-9]+")
 _STOPWORDS = frozenset(
     "a an the is are do does did have has had get got i you my me we it to of "
@@ -230,13 +237,14 @@ def review_session(session_id, events, messages=(), outcome=None, actions=()):
     # second supersedes the first — subtracting the totals would invent a
     # failure. A row still sitting at CONFIRMED is the real thing.
     if actions:
-        # A confirmation is only stranded once its TTL has passed. Between the
-        # customer saying yes and the browser reporting arrival there is a
-        # legitimate in-flight window of seconds, and counting that as a failure
-        # would make every conversation happening right now look broken — worst
-        # exactly when someone is watching a live window. `overdue` is computed
-        # in SQL against the row's own expires_at; without that evidence the
-        # action is treated as in flight rather than assumed dead.
+        # A confirmation is only stranded once the execution window has passed.
+        # Between the customer saying yes and the browser reporting arrival
+        # there is a legitimate in-flight window of seconds, and counting that
+        # as a failure would make every conversation happening right now look
+        # broken — worst exactly when someone is watching a live window.
+        # `overdue` is computed in SQL from the confirmation time (see
+        # EXECUTION_TTL_SECONDS); without that evidence the action is treated as
+        # in flight rather than assumed dead.
         stuck = sum(1 for a in actions
                     if (a.get("status") or "") == "CONFIRMED" and a.get("overdue"))
         failed = sum(1 for a in actions
@@ -380,9 +388,12 @@ def review_one(db, session_id):
                 for r in (cur.fetchall() or [])]
     cur.execute(
         """SELECT action_id, status,
-                  (expires_at IS NOT NULL AND expires_at < NOW()) AS overdue
+                  (CASE WHEN status='CONFIRMED' AND resolved_at IS NOT NULL
+                        THEN resolved_at < DATE_SUB(NOW(), INTERVAL %s SECOND)
+                        ELSE (expires_at IS NOT NULL AND expires_at < NOW())
+                   END) AS overdue
              FROM ai_actions WHERE session_id=%s ORDER BY created_at""",
-        (session_id,),
+        (EXECUTION_TTL_SECONDS, session_id),
     )
     actions = [dict(action_id=_col(r, "action_id"), status=_col(r, "status"),
                     overdue=bool(_col(r, "overdue")))

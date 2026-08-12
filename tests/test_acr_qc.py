@@ -192,10 +192,44 @@ class InFlightConfirmationTests(unittest.TestCase):
             dict(action_id="a", status="CONFIRMED", overdue=True)])
         self.assertIn(qc.QC_FAILED_NAVIGATION, signals(r))
 
+    def test_the_grace_period_is_measured_from_the_confirmation(self):
+        # expires_at is the *offer's* deadline. Reading it directly would give a
+        # customer who accepts one second before it lapses a one-second grace,
+        # and one who accepts immediately the full 30 minutes. The SQL keys on
+        # resolved_at for CONFIRMED rows so every confirmation gets the same
+        # window; this asserts the query says so.
+        sql = _review_sql_for_actions()
+        self.assertIn("resolved_at < DATE_SUB(NOW(), INTERVAL", sql)
+        self.assertIn("status='CONFIRMED' AND resolved_at IS NOT NULL", sql)
+
     def test_missing_expiry_evidence_does_not_assume_death(self):
         r = qc.review_session("unknown", self.EVENTS, [], actions=[
             dict(action_id="a", status="CONFIRMED")])
         self.assertNotIn(qc.QC_FAILED_NAVIGATION, signals(r))
+
+
+def _review_sql_for_actions():
+    """The ai_actions SELECT issued by review_one, as text."""
+    class _Cur(object):
+        def __init__(self):
+            self.sql = []
+
+        def execute(self, sql, params=None):
+            self.sql.append(sql)
+
+        def fetchall(self):
+            return []
+
+    class _DB(object):
+        def __init__(self):
+            self.cur = _Cur()
+
+        def cursor(self):
+            return self.cur
+
+    db = _DB()
+    qc.review_one(db, "s")
+    return [s for s in db.cur.sql if "ai_actions" in s][0]
 
 
 class ApologyThatAnswersTests(unittest.TestCase):
