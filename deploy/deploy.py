@@ -59,9 +59,12 @@ SERVICE = os.environ.get("OPTIWAR_SERVICE", "gunicorn")
 DB = os.environ.get("OPTIWAR_DB", "optiwar2")
 RELEASES = os.environ.get("OPTIWAR_RELEASES", "/root/deploy_releases")
 
-# The ACR Part B canonical instrumentation, and nothing else. Every other file
-# either matches main already or is *ahead* of it; see the module docstring.
-DEPLOY_SET = ("acr.py", "ai_client.py", "chat_gateway.py")
+# The ACR Part B canonical instrumentation, plus crm.py for the MSG91 delivery
+# webhook. crm.py could not be here until #3 was merged: production ran main +
+# #3, so a crm.py built from main alone would have reverted the live
+# ticket-notification retry. Every other file either matches main already or is
+# still *ahead* of it; see the module docstring.
+DEPLOY_SET = ("acr.py", "ai_client.py", "chat_gateway.py", "crm.py")
 
 # Smoke tests. A deployment that breaks any of these is rolled back, so keep
 # them to things that are unambiguous from outside the app.
@@ -74,6 +77,11 @@ SMOKE = (
     ("support status", "https://optiwar.com/support/status", 200),
     ("ops rejects anonymous",
      "https://optiwar.com/api/chat/admin/ops-console", 401),
+    # 405 on a GET proves the delivery webhook route is registered. A broken
+    # crm.py import would 404 here while every page above still answered 200,
+    # and a webhook that 404s is auto-paused by MSG91 within minutes.
+    ("delivery webhook registered",
+     "https://optiwar.com/support/msg91_delivery_event", 405),
 )
 
 # Canonical events a single canary conversation must produce. Their absence

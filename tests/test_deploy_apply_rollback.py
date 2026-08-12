@@ -134,3 +134,28 @@ class ApplyRollbackTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DeploySetTest(unittest.TestCase):
+    """The scope guard is the reason a whole-tree deploy cannot silently revert a
+    live feature, so what is in it and what is not is worth pinning."""
+
+    def setUp(self):
+        self.d = _load_deploy()
+
+    def test_the_credential_bearing_divergences_stay_out(self):
+        # These five carry credentials hardcoded on the box that exist nowhere in
+        # git; deploying the repo's version would blank them into empty strings,
+        # silently, because os.environ.get(NAME, "") is a valid string.
+        for name in ("pricing.py", "delhivery_union.py", "missing_order_search.py",
+                     "dashboard_admin_streamlit.py", "models.py"):
+            self.assertNotIn(name, self.d.DEPLOY_SET)
+
+    def test_crm_is_in_scope_for_the_delivery_webhook(self):
+        self.assertIn("crm.py", self.d.DEPLOY_SET)
+
+    def test_the_smoke_suite_proves_the_delivery_webhook_is_routed(self):
+        # A crm.py that fails to import 404s this route while every page still
+        # answers 200 — and MSG91 auto-pauses a webhook that stops returning 2xx.
+        urls = [url for _label, url, _want in self.d.SMOKE]
+        self.assertIn("https://optiwar.com/support/msg91_delivery_event", urls)
