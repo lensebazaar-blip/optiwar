@@ -239,9 +239,14 @@ def send_contact_email(name, email, phone, subject, message, ticket_id):
     Sends an internal admin notification for a new support ticket.
 
     This is a best-effort, out-of-transaction notification: it NEVER raises and
-    NEVER blocks ticket creation or the customer-facing confirmation. A transient
+    never fails ticket creation or the customer-facing confirmation. A transient
     SMTP failure is retried a bounded number of times and, if still failing, is
     logged for follow-up rather than propagated to the request.
+
+    It does run inside the request, so "never blocks" is a bound and not an
+    absolute: MAIL_TIMEOUT (5s) x 3 attempts + 3s of backoff is the worst case a
+    customer can wait on an unreachable mail host. Moving the notification off
+    the request path is the real fix and is not this change.
 
     :param name: Name of the user submitting the form
     :param email: Email of the user submitting the form
@@ -285,10 +290,17 @@ def send_contact_email(name, email, phone, subject, message, ticket_id):
     msg['Reply-To'] = email
     msg.set_content(email_content)
 
+    # This runs inside the request, before the customer sees their confirmation,
+    # so the retries need a ceiling in seconds and not only in attempts: an
+    # unreachable mail host would otherwise block on the socket default, which is
+    # no timeout at all. 3 attempts x timeout + 1s + 2s of backoff.
+    timeout = float(current_app.config.get('MAIL_TIMEOUT', 5))
     max_attempts = 3
     for attempt in range(1, max_attempts + 1):
         try:
-            with smtplib.SMTP(current_app.config['MAIL_SERVER'], current_app.config['MAIL_PORT']) as server:
+            with smtplib.SMTP(current_app.config['MAIL_SERVER'],
+                              current_app.config['MAIL_PORT'],
+                              timeout=timeout) as server:
                 server.starttls()
                 server.login(current_app.config['MAIL_USERNAME'], current_app.config['MAIL_PASSWORD'])
                 server.send_message(msg)

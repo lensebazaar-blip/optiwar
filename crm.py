@@ -1601,9 +1601,14 @@ def parse_msg91_reports(payload):
 def msg91_delivery_event():
     """MSG91 delivery-status callback (sent/delivered/read/failed).
 
-    Optional shared-token auth via MSG91_DELIVERY_TOKEN (header X-MSG91-Token or
-    ?token=). Only known msg91_request_id values are folded into the outbox row;
-    every callback is stored in msg91_delivery_events for the audit trail.
+    Shared-token auth via MSG91_DELIVERY_TOKEN (header X-MSG91-Token or ?token=),
+    required: this endpoint writes to the delivery ledger and can flip an outbox
+    row's status, so with no token configured it refuses rather than accepting
+    writes from anyone. Refusing is loud — MSG91 pauses the webhook and says so —
+    where an open writer is silent.
+
+    Only known msg91_request_id values are folded into the outbox row; every
+    callback is stored in msg91_delivery_events for the audit trail.
 
     Only authentication and storage failures answer non-2xx. A body we cannot
     parse is acknowledged with 200 and its *key names* logged: MSG91 auto-pauses
@@ -1612,10 +1617,13 @@ def msg91_delivery_event():
     """
     from flask import jsonify
     token = current_app.config.get('MSG91_DELIVERY_TOKEN', '')
-    if token:
-        supplied = request.headers.get('X-MSG91-Token') or request.args.get('token', '')
-        if not hmac.compare_digest(str(supplied), str(token)):
-            return jsonify({"error": "unauthorized"}), 401
+    if not token:
+        current_app.logger.error(
+            "[KET-EVENT] delivery callback refused: MSG91_DELIVERY_TOKEN unset")
+        return jsonify({"error": "unauthorized"}), 401
+    supplied = request.headers.get('X-MSG91-Token') or request.args.get('token', '')
+    if not hmac.compare_digest(str(supplied), str(token)):
+        return jsonify({"error": "unauthorized"}), 401
 
     data = request.get_json(force=True, silent=True)
     reports = parse_msg91_reports(data)
@@ -1629,24 +1637,39 @@ def msg91_delivery_event():
         return jsonify({"status": "ignored",
                         "reason": "unrecognised report shape"}), 200
 
+    # Each report is committed on its own and MSG91 redelivers the whole body,
+    # so abandoning a part-stored batch would record the stored reports twice.
+    # The batch therefore runs to the end, and only a batch that stored *nothing*
+    # is retryable — the one case where redelivery cannot duplicate anything.
     matched_count = 0
+    stored_count = 0
+    failed = []
     for rep in reports:
         try:
             if _store_delivery_event(rep['request_id'], rep['status'],
                                      rep['failure_reason'], rep['provider_ts']):
                 matched_count += 1
+            stored_count += 1
         except Exception as e:  # noqa: BLE001
+            failed.append(rep['request_id'])
             current_app.logger.error(
                 f"[KET-EVENT] delivery event store failed rid={rep['request_id']}: {e}")
-            # Retryable: let MSG91 redeliver rather than lose the report.
-            return jsonify({"error": "temporary storage failure"}), 503
+            continue
         current_app.logger.info(
             f"[KET-EVENT] delivery status rid={rep['request_id']} status={rep['status']}")
 
+    if failed and stored_count == 0:
+        _audit('delivery_status', whatsapp_status='store_failed',
+               detail=f"reports={len(reports)} stored=0")
+        # Retryable: let MSG91 redeliver rather than lose the report.
+        return jsonify({"error": "temporary storage failure"}), 503
+
     _audit('delivery_status', whatsapp_status=reports[-1]['status'],
-           detail=f"reports={len(reports)} matched={matched_count}")
+           detail=(f"reports={len(reports)} stored={stored_count} "
+                   f"matched={matched_count} failed={len(failed)}"))
     return jsonify({"status": "recorded", "reports": len(reports),
-                    "matched": matched_count}), 200
+                    "stored": stored_count, "matched": matched_count,
+                    "failed": len(failed)}), 200
 
 
 # ---------------------------------------------------------------------------

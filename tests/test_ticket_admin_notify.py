@@ -84,9 +84,11 @@ class _FakeSMTP:
     sent = []
     attempts = 0
     fail_times = 0
+    timeouts = []
 
     def __init__(self, server, port, timeout=None):
         type(self).attempts += 1
+        type(self).timeouts.append(timeout)
         self._should_fail = type(self).attempts <= type(self).fail_times
 
     def __enter__(self):
@@ -111,6 +113,7 @@ class _FakeSMTP:
         cls.sent = []
         cls.attempts = 0
         cls.fail_times = fail_times
+        cls.timeouts = []
 
 
 class TicketAdminNotifyTests(unittest.TestCase):
@@ -179,3 +182,49 @@ class TicketAdminNotifyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RequestLatencyBoundTests(unittest.TestCase):
+    """The notification runs inside the request, before the customer sees their
+    ticket confirmation, so its worst case has to be bounded in seconds. Without
+    an explicit timeout smtplib uses the socket default — no timeout at all — and
+    an unreachable mail host would hold the customer for as long as it liked."""
+
+    def setUp(self):
+        for name in ("flask", "flaskr", "flaskr.db", "flaskr.mail"):
+            sys.modules.pop(name, None)
+
+    def _prep(self, config_extra=None):
+        config = dict(BASE_CONFIG)
+        config["APP_TICKET_EMAIL_ENABLED"] = True
+        config.update(config_extra or {})
+        _install_flask_stub(config)
+        mail = _load_mail()
+        _FakeSMTP.reset()
+        mail.smtplib.SMTP = _FakeSMTP
+        mail.time.sleep = lambda *a, **k: None
+        return mail
+
+    def _send(self, mail):
+        return mail.send_contact_email(
+            name="A", email="a@x.com", phone="1", subject="Sub",
+            message="Body", ticket_id="T-1")
+
+    def test_every_attempt_carries_an_explicit_timeout(self):
+        mail = self._prep()
+        self._send(mail)
+        self.assertTrue(_FakeSMTP.timeouts)
+        for t in _FakeSMTP.timeouts:
+            self.assertIsInstance(t, float)
+            self.assertGreater(t, 0)
+
+    def test_the_timeout_is_configurable(self):
+        mail = self._prep({"MAIL_TIMEOUT": 2})
+        self._send(mail)
+        self.assertEqual(_FakeSMTP.timeouts, [2.0])
+
+    def test_a_failing_host_is_still_bounded_on_every_retry(self):
+        mail = self._prep({"MAIL_TIMEOUT": 3})
+        _FakeSMTP.reset(fail_times=3)
+        self.assertFalse(self._send(mail))
+        self.assertEqual(_FakeSMTP.timeouts, [3.0, 3.0, 3.0])
