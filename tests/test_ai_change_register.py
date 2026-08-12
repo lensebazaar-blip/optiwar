@@ -2,7 +2,8 @@ import os
 import sys
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO)
 
 import ai_change_register as reg  # noqa: E402
 
@@ -83,6 +84,28 @@ class DeployedInTests(unittest.TestCase):
 
     def test_no_manifests_means_nothing_is_known_to_be_deployed(self):
         self.assertIsNone(reg.deployed_in("x", [], lambda a, b: True))
+
+
+class DeclaredPathsTests(unittest.TestCase):
+    def test_every_declared_path_exists_in_the_tree(self):
+        # A register naming a file the tree does not have is a register quietly
+        # missing history: it looks configured and matches nothing.
+        for path in reg.AI_PATHS:
+            self.assertTrue(os.path.isfile(os.path.join(REPO, path)),
+                            "AI_PATHS names %s, which does not exist" % path)
+
+    def test_paths_are_repo_relative_so_subdirectories_match(self):
+        # git log --name-only emits repo-relative paths; a bare basename here
+        # would never match a module kept in a subdirectory.
+        self.assertIn("reports/acr_report_section.py", reg.AI_PATHS)
+        self.assertEqual(
+            reg.classify(["reports/acr_report_section.py"], "canonical coverage"),
+            {"instrumentation"})
+
+    def test_the_report_section_history_is_in_the_register(self):
+        entries = reg.build(since="2026-01-01", manifests_dir=None)
+        paths = {p for e in entries for p in e["paths"]}
+        self.assertIn("reports/acr_report_section.py", paths)
 
 
 class AgainstThisRepoTests(unittest.TestCase):
