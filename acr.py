@@ -676,7 +676,7 @@ LEDGER_COLLATION = 'utf8mb4_general_ci'
 _LEDGER_TABLES = ('ai_session_outcomes', 'ai_session_commerce')
 
 
-def _align_ledger_collation(cur):
+def _align_ledger_collation(cur, allow_ddl=True):
     """Convert an existing ledger's session_id to the collation the sweeps join
     in. CREATE TABLE IF NOT EXISTS is a no-op on a ledger created before the
     collation was stated, so on those installations the anti-joins would still
@@ -684,7 +684,13 @@ def _align_ledger_collation(cur):
 
     Best-effort and idempotent: reads the current collation first and only
     alters on a genuine mismatch, so a correct table is never rewritten and a
-    missing ALTER grant degrades to the previous behaviour."""
+    missing ALTER grant degrades to the previous behaviour.
+
+    With ``allow_ddl`` false the mismatch is only *reported*. That distinction
+    matters: this ALTER rebuilds a primary key, and a preview run that claims to
+    write nothing must not rewrite a production table to make its own query
+    work. Returns the DDL a live run would issue, as descriptions."""
+    pending = []
     for table in _LEDGER_TABLES:
         try:
             cur.execute(
@@ -695,20 +701,26 @@ def _align_ledger_collation(cur):
             )
             row = cur.fetchone()
             if not row:
+                # No such column: the table does not exist yet, so the CREATE
+                # above either made it correctly or was itself suppressed.
                 continue
             current = (row[0] if isinstance(row, (list, tuple))
                        else list(row.values())[0])
             if current and current != LEDGER_COLLATION:
-                cur.execute(
-                    "ALTER TABLE %s MODIFY session_id VARCHAR(64) "
-                    "COLLATE %s NOT NULL" % (table, LEDGER_COLLATION))
+                pending.append("%s.session_id is %s, needs %s"
+                               % (table, current, LEDGER_COLLATION))
+                if allow_ddl:
+                    cur.execute(
+                        "ALTER TABLE %s MODIFY session_id VARCHAR(64) "
+                        "COLLATE %s NOT NULL" % (table, LEDGER_COLLATION))
         except Exception:
             # Insufficient grant / replica / concurrent DDL — the sweep will
             # report the collation error rather than this being silently wrong.
             pass
+    return pending
 
 
-def ensure_closure_schema(get_conn):
+def ensure_closure_schema(get_conn, allow_ddl=True):
     """Create the additive SESSION_OUTCOME idempotency ledger if absent. The
     session_id PRIMARY KEY is the one-per-session guarantee (atomic claim), not
     a SELECT-then-INSERT. Best-effort.
@@ -717,12 +729,22 @@ def ensure_closure_schema(get_conn):
     collation with the one the sweeps join in — a ledger created before that
     collation was stated cannot be joined at all.
 
+    ``allow_ddl=False`` makes this a report: nothing is created or altered and
+    the schema work a live run would do is returned instead. A preview run that
+    promises to change nothing cannot be the thing that rebuilds a primary key,
+    so the caller that suppresses every write suppresses this too.
+
     event_id references the SESSION_OUTCOME row in ai_events and stays NULL until
     that event has actually landed; a NULL therefore means "claimed but not yet
-    proven", which is what makes a failed event write retryable."""
+    proven", which is what makes a failed event write retryable.
+
+    Returns the DDL a live run would issue, as descriptions ([] when the schema
+    is already correct)."""
     conn = get_conn()
     try:
         cur = conn.cursor()
+        if not allow_ddl:
+            return _report_ledger_schema(cur)
         cur.execute(
             """CREATE TABLE IF NOT EXISTS ai_session_outcomes (
                 session_id VARCHAR(64) COLLATE utf8mb4_general_ci PRIMARY KEY,
@@ -749,9 +771,29 @@ def ensure_closure_schema(get_conn):
                 KEY idx_created (created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
         )
-        _align_ledger_collation(cur)
+        return _align_ledger_collation(cur)
     finally:
         conn.close()
+
+
+def _report_ledger_schema(cur):
+    """What a live run would create or alter, writing nothing."""
+    pending = []
+    for table in _LEDGER_TABLES:
+        try:
+            cur.execute(
+                """SELECT COUNT(*) FROM information_schema.TABLES
+                   WHERE table_schema=DATABASE() AND table_name=%s""",
+                (table,),
+            )
+            row = cur.fetchone()
+            exists = (row[0] if isinstance(row, (list, tuple))
+                      else list(row.values())[0]) if row else 0
+            if not exists:
+                pending.append("%s does not exist, needs CREATE" % table)
+        except Exception:
+            pass
+    return pending + _align_ledger_collation(cur, allow_ddl=False)
 
 
 def find_due_actions(db, limit=500):
