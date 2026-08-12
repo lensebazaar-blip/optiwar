@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>ACR — AI Operations Console</title>
+  <style>
+    :root{--bg:#0f172a;--card:#1e293b;--line:#334155;--txt:#e2e8f0;--muted:#94a3b8;
+          --ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;--accent:#38bdf8}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+         background:var(--bg);color:var(--txt);font-size:14px}
+    header{padding:16px 24px;border-bottom:1px solid var(--line);display:flex;
+           align-items:baseline;gap:16px;flex-wrap:wrap}
+    header h1{font-size:18px;margin:0}
+    header .sub{color:var(--muted);font-size:12px}
+    header .ro{margin-left:auto;font-size:11px;color:var(--muted);border:1px solid var(--line);
+               padding:3px 8px;border-radius:12px}
+    .stats{display:flex;flex-wrap:wrap;gap:12px;padding:16px 24px}
+    .stat{background:var(--card);border:1px solid var(--line);border-radius:10px;
+          padding:10px 14px;min-width:120px}
+    .stat .n{font-size:22px;font-weight:600}
+    .stat .l{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+    .stat.bad .n{color:var(--bad)}
+    table{width:100%;border-collapse:collapse;margin:8px 0 40px}
+    th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);
+          vertical-align:top;max-width:320px;overflow-wrap:anywhere}
+    th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;
+       position:sticky;top:0;background:var(--bg)}
+    .pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;
+          border:1px solid var(--line);white-space:nowrap}
+    .pill.active{color:var(--ok);border-color:var(--ok)}
+    .pill.human_open,.pill.human_pending{color:var(--warn);border-color:var(--warn)}
+    .pill.EXECUTED,.pill.CONFIRMED{color:var(--ok);border-color:var(--ok)}
+    .pill.FAILED{color:var(--bad);border-color:var(--bad)}
+    .pill.PENDING{color:var(--accent);border-color:var(--accent)}
+    .muted{color:var(--muted)}
+    .wrap{padding:0 24px}
+    code{font-size:11px;color:var(--accent)}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>ACR — AI Operations Console</h1>
+    <span class="sub">Live AI sessions · pending actions · outcomes · handover — last {{ hours }}h</span>
+    <span class="ro">READ-ONLY (A3)</span>
+  </header>
+
+  <div class="stats">
+    <div class="stat"><div class="n">{{ sessions|length }}</div><div class="l">Sessions shown</div></div>
+    <div class="stat"><div class="n">{{ stats.actions.get('EXECUTED', 0) }}</div><div class="l">Actions executed</div></div>
+    <div class="stat"><div class="n">{{ stats.actions.get('CONFIRMED', 0) }}</div><div class="l">Actions confirmed</div></div>
+    <div class="stat"><div class="n">{{ stats.actions.get('PENDING', 0) }}</div><div class="l">Actions pending</div></div>
+    <div class="stat {% if stats.actions.get('FAILED', 0) %}bad{% endif %}">
+      <div class="n">{{ stats.actions.get('FAILED', 0) }}</div><div class="l">Action failures</div></div>
+    <div class="stat {% if stats.events.get('AI_PROMISE_WITHOUT_ACTION', 0) %}bad{% endif %}">
+      <div class="n">{{ stats.events.get('AI_PROMISE_WITHOUT_ACTION', 0) }}</div>
+      <div class="l">Promise w/o action</div></div>
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Customer</th><th>Status</th><th>Current page</th>
+          <th>Last message</th><th>Last action</th><th>Result</th><th>Last activity</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in sessions %}
+        <tr>
+          <td>
+            <div>{{ s.contact_name or '—' }}</div>
+            <div class="muted">{{ s.contact_email or '' }}</div>
+            <div class="muted"><code>{{ s.session_id }}</code></div>
+          </td>
+          <td><span class="pill {{ s.status }}">{{ s.status }}</span></td>
+          <td class="muted">{{ s.current_page_url or '—' }}</td>
+          <td>
+            <span class="muted">{{ s.last_source or '' }}:</span>
+            {{ (s.last_message or '')[:160] }}
+          </td>
+          <td>
+            {% if s.last_action %}
+              <div>{{ s.last_action.action_type }}</div>
+              <div class="muted">{{ (s.last_action.target or '')[:60] }}</div>
+            {% else %}<span class="muted">—</span>{% endif %}
+          </td>
+          <td>
+            {% if s.last_action %}
+              <span class="pill {{ s.last_action.status }}">{{ s.last_action.status }}</span>
+              {% if s.last_action.result_code %}
+                <div class="muted">{{ s.last_action.result_code }}</div>
+              {% endif %}
+            {% else %}<span class="muted">—</span>{% endif %}
+          </td>
+          <td class="muted">{{ s.last_activity or '—' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="muted">No sessions yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</body>
+</html>

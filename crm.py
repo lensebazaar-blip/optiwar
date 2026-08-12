@@ -334,17 +334,7 @@ def create_ticket():
             )
 
 
-            # Send email to admin
-            send_contact_email(
-                name=requester_name,
-                email=requester_email,
-                subject=subject,
-                phone=phone,
-                message=description,
-                ticket_id=ticket_id
-            )
-
-            # --- Forward to KET Support ---
+            # --- Forward to KET Support (system of record) ---
             ket = _forward_to_ket(
                 name=requester_name,
                 email=requester_email,
@@ -363,6 +353,18 @@ def create_ticket():
 
             session['ticket_id'] = ticket_id
             logging.debug(f"Session contents: %s ", dict(session))
+
+            # Internal admin notification: best-effort, out-of-transaction.
+            # Never allowed to block ticket creation / customer confirmation.
+            send_contact_email(
+                name=requester_name,
+                email=requester_email,
+                subject=subject,
+                phone=phone,
+                message=description,
+                ticket_id=ticket_id
+            )
+
             return render_template('contact_us.html', ticket_id=ticket_id)
 
         except RuntimeError as e:
@@ -430,16 +432,7 @@ def submit_ticket_ajax():
             message=description
         )
 
-        send_contact_email(
-            name=requester_name,
-            email=requester_email,
-            subject=subject,
-            phone=phone,
-            message=description,
-            ticket_id=ticket_id
-        )
-
-        # --- Forward to KET Support ---
+        # --- Forward to KET Support (system of record) ---
         ket = _forward_to_ket(
             name=requester_name,
             email=requester_email,
@@ -457,6 +450,17 @@ def submit_ticket_ajax():
         _notify_ticket_created(requester_name, requester_email, phone, ticket_id, subject)
 
         session['ticket_id'] = ticket_id
+
+        # Internal admin notification: best-effort, out-of-transaction.
+        send_contact_email(
+            name=requester_name,
+            email=requester_email,
+            subject=subject,
+            phone=phone,
+            message=description,
+            ticket_id=ticket_id
+        )
+
         return jsonify({'success': True, 'ticket_id': ticket_id, 'message': f'Support ticket #{ticket_id} created successfully! Our team will respond shortly.'})
 
     except Exception as e:
@@ -636,19 +640,6 @@ def ai_submit_ticket():
             message=description
         )
 
-        # Send notification email
-        try:
-            send_contact_email(
-                name=name,
-                email=email,
-                subject=subject,
-                phone=phone,
-                message=f"[AI-Assisted] {description}",
-                ticket_id=ticket_id
-            )
-        except Exception:
-            pass  # Don't fail ticket creation if email fails
-
         # --- Forward to KET Support (with chat transcript) ---
         chat_transcript = json_mod.dumps(chat_history) if chat_history else None
         ket = _forward_to_ket(
@@ -664,6 +655,17 @@ def ai_submit_ticket():
 
         # WhatsApp ack (Optiwar-owned, best-effort, after KET forward)
         _notify_ticket_created(name, email, phone, ticket_id, subject)
+
+        # Internal admin notification: best-effort, out-of-transaction.
+        send_contact_email(
+            name=name,
+            email=email,
+            subject=subject,
+            phone=phone,
+            message=f"[AI-Assisted] {description}",
+            ticket_id=ticket_id
+        )
+
 
         # Log AI chat to ai_chat_logs table
         ai_chat_log_id = None
@@ -1520,6 +1522,81 @@ def ket_ticket_event():
     return jsonify({"status": "accepted", "event": event, "ticket_ref": ticket_ref, "event_id": event_id}), 200
 
 
+_REPORT_ID_KEYS = ('request_id', 'requestId', 'message_id', 'messageId',
+                   'msgId', 'id')
+_REPORT_STATUS_KEYS = ('status', 'event', 'eventName', 'eventType')
+_REPORT_REASON_KEYS = ('failure_reason', 'reason', 'error', 'errorReason',
+                       'description')
+_REPORT_TS_KEYS = ('timestamp', 'provider_ts', 'statusUpdatedAt', 'ts',
+                   'eventTime')
+# Envelopes MSG91 wraps reports in. WhatsApp's "On Outbound Report Received"
+# nests them under messages/reports rather than sending one flat object like SMS.
+_REPORT_LIST_KEYS = ('messages', 'reports', 'data', 'events', 'payload')
+
+
+def _first(mapping, keys):
+    for key in keys:
+        val = mapping.get(key)
+        if val not in (None, ''):
+            return val
+    return ''
+
+
+def _collect_msg91_reports(payload, depth):
+    """Possibly-incomplete reports, innermost first.
+
+    Incompleteness is the point: WhatsApp puts the status on each message and
+    the request id on the envelope around them, so neither level is a report on
+    its own and a child must be able to inherit what its parent knows.
+    """
+    if depth > 3 or payload in (None, ''):
+        return []
+    if isinstance(payload, list):
+        out = []
+        for item in payload:
+            out.extend(_collect_msg91_reports(item, depth + 1))
+        return out
+    if not isinstance(payload, dict):
+        return []
+
+    here = {
+        'request_id': str(_first(payload, _REPORT_ID_KEYS)).strip()[:191],
+        'status': str(_first(payload, _REPORT_STATUS_KEYS)).strip().lower()[:32],
+        'failure_reason': str(_first(payload, _REPORT_REASON_KEYS))[:250],
+        'provider_ts': str(_first(payload, _REPORT_TS_KEYS))[:64],
+    }
+
+    children = []
+    for key in _REPORT_LIST_KEYS:
+        if key not in payload:
+            continue
+        for child in _collect_msg91_reports(payload[key], depth + 1):
+            for field, value in here.items():
+                child[field] = child[field] or value
+            children.append(child)
+    if children:
+        # An envelope describes its children, not itself.
+        return children
+    return [here] if (here['request_id'] or here['status']) else []
+
+
+def parse_msg91_reports(payload):
+    """Delivery reports found in an MSG91 callback body, in the order given.
+
+    One provider sends several shapes for the same event: SMS posts a flat
+    object, WhatsApp posts an envelope with a ``messages`` list, and either can
+    arrive as a bare list. Accepting all of them is not politeness — a report we
+    cannot read is a report we cannot count, and refusing it costs the whole
+    webhook, because MSG91 auto-pauses on non-2xx and a paused webhook loses the
+    reports we *can* read too.
+
+    Returns [] for anything with no recognisable report, which the caller
+    acknowledges rather than refuses.
+    """
+    return [r for r in _collect_msg91_reports(payload, 0)
+            if r['request_id'] and r['status']]
+
+
 @bp.route('/support/msg91_delivery_event', methods=['POST'])
 def msg91_delivery_event():
     """MSG91 delivery-status callback (sent/delivered/read/failed).
@@ -1527,6 +1604,11 @@ def msg91_delivery_event():
     Optional shared-token auth via MSG91_DELIVERY_TOKEN (header X-MSG91-Token or
     ?token=). Only known msg91_request_id values are folded into the outbox row;
     every callback is stored in msg91_delivery_events for the audit trail.
+
+    Only authentication and storage failures answer non-2xx. A body we cannot
+    parse is acknowledged with 200 and its *key names* logged: MSG91 auto-pauses
+    a webhook that answers non-2xx, and a paused webhook loses every report, not
+    only the unreadable one. Values are never logged — they carry phone numbers.
     """
     from flask import jsonify
     token = current_app.config.get('MSG91_DELIVERY_TOKEN', '')
@@ -1536,34 +1618,35 @@ def msg91_delivery_event():
             return jsonify({"error": "unauthorized"}), 401
 
     data = request.get_json(force=True, silent=True)
-    if not isinstance(data, dict):
-        return jsonify({"error": "invalid json body"}), 400
+    reports = parse_msg91_reports(data)
+    if not reports:
+        shape = (sorted(data.keys())[:12] if isinstance(data, dict)
+                 else type(data).__name__)
+        current_app.logger.warning(
+            f"[KET-EVENT] unrecognised delivery report shape keys={shape}")
+        _audit('delivery_status', whatsapp_status='unparsed',
+               detail=f"unrecognised report shape keys={shape}")
+        return jsonify({"status": "ignored",
+                        "reason": "unrecognised report shape"}), 200
 
-    # MSG91's "On Outbound Report Received" payload uses requestId / eventName / ts.
-    msg91_request_id = str(
-        data.get('request_id') or data.get('requestId')
-        or data.get('message_id') or ''
-    ).strip()
-    status = (
-        data.get('status') or data.get('event') or data.get('eventName') or ''
-    ).strip().lower()
-    failure_reason = str(data.get('failure_reason') or data.get('reason') or '')[:250]
-    provider_ts = str(
-        data.get('timestamp') or data.get('provider_ts')
-        or data.get('statusUpdatedAt') or data.get('ts') or ''
-    )[:64]
-    if not msg91_request_id or not status:
-        return jsonify({"error": "request_id and status required"}), 400
+    matched_count = 0
+    for rep in reports:
+        try:
+            if _store_delivery_event(rep['request_id'], rep['status'],
+                                     rep['failure_reason'], rep['provider_ts']):
+                matched_count += 1
+        except Exception as e:  # noqa: BLE001
+            current_app.logger.error(
+                f"[KET-EVENT] delivery event store failed rid={rep['request_id']}: {e}")
+            # Retryable: let MSG91 redeliver rather than lose the report.
+            return jsonify({"error": "temporary storage failure"}), 503
+        current_app.logger.info(
+            f"[KET-EVENT] delivery status rid={rep['request_id']} status={rep['status']}")
 
-    try:
-        matched = _store_delivery_event(msg91_request_id, status, failure_reason, provider_ts)
-    except Exception as e:  # noqa: BLE001
-        current_app.logger.error(f"[KET-EVENT] delivery event store failed rid={msg91_request_id}: {e}")
-        return jsonify({"error": "temporary storage failure"}), 503
-
-    current_app.logger.info(f"[KET-EVENT] delivery status rid={msg91_request_id} status={status} matched={matched}")
-    _audit('delivery_status', whatsapp_status=status, detail=f"rid={msg91_request_id} matched={matched}")
-    return jsonify({"status": "recorded", "matched": matched}), 200
+    _audit('delivery_status', whatsapp_status=reports[-1]['status'],
+           detail=f"reports={len(reports)} matched={matched_count}")
+    return jsonify({"status": "recorded", "reports": len(reports),
+                    "matched": matched_count}), 200
 
 
 # ---------------------------------------------------------------------------

@@ -88,17 +88,7 @@
       "returnFees": "https://schema.org/ReturnFeesCustomerResponsibility",
       "description": "Dead-on-arrival items only. Proof of damage required. Refund within 1-7 business days after courier verification."
     }
-    }{% if is_india and product.product_special_price_eur %},
-    {
-      "@type": "Offer",
-      "price": "{{ product.product_special_price_eur }}",
-      "priceCurrency": "EUR",
-      "availability": "{% if product.product_quantity > 0 %}https://schema.org/InStock{% else %}https://schema.org/OutOfStock{% endif %}",
-      "url": "{{ site_url }}/categories/{{ product.product_category|lower|replace(' ', '-') }}/{{ product.product_slug }}?pid={{ product.product_id }}",
-      "eligibleRegion": {"@type": "Place", "name": "Global"},
-      "priceValidUntil": "2027-12-31",
-      "seller": {"@type": "Organization", "name": "Optiwar"}
-    }{% endif %}
+    }
   ]
 }
 </script>

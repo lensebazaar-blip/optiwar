@@ -1,0 +1,130 @@
+{
+  "_comment": [
+    "Golden conversations: recorded turns with the classification the platform",
+    "must produce for them. These are the regression tests to run BEFORE",
+    "promoting any AI behaviour change (prompt, model, temperature, tool set).",
+    "",
+    "Each turn declares only what policy is allowed to decide from text:",
+    "  offer      the reply offers to navigate, so a pending action may be seeded",
+    "  promise    the reply claims a navigation it did not perform",
+    "  confirm    the customer message is a bare confirmation of an earlier offer",
+    "  safe_url   the model-proposed target is allowed by the navigation gate",
+    "Add a conversation by adding an object here; no test code changes."
+  ],
+  "conversations": [
+    {
+      "name": "face shape recommendation, offer then yes",
+      "why": "The core shopping journey: recommend, offer, confirm. The offer must",
+      "why2": "seed an action and the bare 'yes' must resolve it rather than being re-inferred.",
+      "turns": [
+        {
+          "customer": "I have a round face, which frames suit me?",
+          "assistant": "Rectangular and square frames balance a round face nicely. Would you like me to take you to those frames?",
+          "target": "/eyeglasses/all-spectacle-frames.html",
+          "expect": {"offer": true, "promise": false, "confirm": false, "safe_url": true}
+        },
+        {
+          "customer": "yes",
+          "assistant": "Opening that for you now.",
+          "target": "/eyeglasses/all-spectacle-frames.html",
+          "expect": {"offer": false, "promise": false, "confirm": true, "safe_url": true}
+        }
+      ]
+    },
+    {
+      "name": "frame size question, no navigation at all",
+      "why": "An informational answer must not seed an action; nothing to confirm later.",
+      "turns": [
+        {
+          "customer": "what does 52-18-140 mean on my old glasses?",
+          "assistant": "Those are lens width, bridge and temple length in millimetres. Your frame width is about 52mm.",
+          "target": null,
+          "expect": {"offer": false, "promise": false, "confirm": false, "safe_url": true}
+        }
+      ]
+    },
+    {
+      "name": "prescription lens journey",
+      "why": "Prescription talk is not a navigation offer even though it mentions lenses.",
+      "turns": [
+        {
+          "customer": "I have -2.5 with cylinder -0.75, can you make these?",
+          "assistant": "Yes, that is well within our single-vision range, and we can add anti-glare too.",
+          "target": null,
+          "expect": {"offer": false, "promise": false, "confirm": false, "safe_url": true}
+        }
+      ]
+    },
+    {
+      "name": "promise without a target",
+      "why": "The failure this instrumentation exists for: the model says it has",
+      "why2": "navigated while emitting no destination. Must be detected, not silently believed.",
+      "turns": [
+        {
+          "customer": "show me titanium frames",
+          "assistant": "I'm taking you to our titanium frames now.",
+          "target": null,
+          "expect": {"offer": false, "promise": true, "confirm": false, "safe_url": true}
+        }
+      ]
+    },
+    {
+      "name": "offsite target proposed by the model",
+      "why": "A model-proposed off-site URL must be refused by the gate regardless of how",
+      "why2": "confident the reply sounds. This is the cross-host leakage boundary.",
+      "turns": [
+        {
+          "customer": "where can I compare prices?",
+          "assistant": "Would you like me to take you to these frames?",
+          "target": "https://competitor.example.com/frames",
+          "expect": {"offer": true, "promise": false, "confirm": false, "safe_url": false}
+        }
+      ]
+    },
+    {
+      "name": "escalation to a human",
+      "why": "A support escalation offer must not read as a navigation offer, so a later",
+      "why2": "'yes' cannot be turned into an unexpected redirect.",
+      "turns": [
+        {
+          "customer": "my order is late and I want to speak to someone",
+          "assistant": "I'm sorry about that. Shall I connect you to my supervisor? Yes or No",
+          "target": null,
+          "expect": {"offer": false, "promise": false, "confirm": false, "safe_url": true}
+        },
+        {
+          "customer": "yes",
+          "assistant": "Connecting you now.",
+          "target": null,
+          "expect": {"offer": false, "promise": false, "confirm": true, "safe_url": true}
+        }
+      ]
+    },
+    {
+      "name": "zero results",
+      "why": "No inventory match must produce an honest answer and no navigation offer;",
+      "why2": "recommending nothing is correct, inventing something is not.",
+      "turns": [
+        {
+          "customer": "do you have rimless frames in size 60?",
+          "assistant": "I could not find rimless frames that wide in stock right now.",
+          "target": null,
+          "expect": {"offer": false, "promise": false, "confirm": false, "safe_url": true}
+        }
+      ]
+    },
+    {
+      "name": "purchase intent stays customer-controlled",
+      "why": "The assistant may recommend and offer to navigate; it must never read as",
+      "why2": "having placed an order. Checkout stays a customer action.",
+      "turns": [
+        {
+          "customer": "just buy the BB44 for me",
+          "assistant": "I can take you straight to BB44 and you can complete the purchase there. Would you like me to take you to that frame?",
+          "target": "/catalog/item?pid=294",
+          "expect": {"offer": true, "promise": false, "confirm": false, "safe_url": true}
+        }
+      ]
+    }
+  ]
+}
