@@ -3577,6 +3577,13 @@ def google_merchant_feed():
         host, currency, title_suffix = 'in.optiwar.com', 'INR', 'Optiwar (India)'
     base = 'https://' + host
 
+    # 178 = "Sunglasses" in Google's taxonomy, wrong for prescription eyeglass
+    # frames. Default-remove the legacy hardcoded category so Google
+    # auto-categorizes; a verified replacement is adopted only after taxonomy +
+    # Merchant Center evidence. Flag lets us restore the old value instantly.
+    _remove_legacy_cat = os.environ.get(
+        'GMC_REMOVE_LEGACY_CATEGORY', 'true').lower() in ('1', 'true', 'yes', 'on')
+
     db = get_db()
     cur = db.cursor()
     cur.execute("""
@@ -3671,7 +3678,10 @@ def google_merchant_feed():
             '      <g:condition>new</g:condition>',
             '      <g:brand>Optiwar</g:brand>',
             '      <g:mpn>%s</g:mpn>' % _xesc(str(p.get('product_code') or '')),
-            '      <g:google_product_category>178</g:google_product_category>',  # Apparel > Eyewear
+        ]
+        if not _remove_legacy_cat:
+            parts.append('      <g:google_product_category>178</g:google_product_category>')
+        parts += [
             '      <g:product_type>%s</g:product_type>' % _xesc(p.get('product_category') or 'Spectacles Frame'),
         ]
         if color:
