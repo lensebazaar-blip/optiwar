@@ -164,7 +164,7 @@ class SupersededActionTests(unittest.TestCase):
 
     def test_an_action_still_sitting_at_confirmed_is_the_real_failure(self):
         r = qc.review_session("s", self.EVENTS, [], actions=[
-            dict(action_id="a", status="CONFIRMED"),
+            dict(action_id="a", status="CONFIRMED", overdue=True),
             dict(action_id="b", status="EXECUTED"),
         ])
         self.assertEqual(
@@ -173,6 +173,48 @@ class SupersededActionTests(unittest.TestCase):
     def test_without_ai_actions_the_event_arithmetic_still_applies(self):
         r = qc.review_session("s", self.EVENTS, [])
         self.assertIn(qc.QC_FAILED_NAVIGATION, signals(r))
+
+
+class InFlightConfirmationTests(unittest.TestCase):
+    """Between the customer saying yes and the browser reporting arrival there
+    is a legitimate window of seconds. Counting it as a failure would make every
+    conversation happening right now look broken."""
+
+    EVENTS = [ev(acr.EV_NAVIGATION_OFFERED), ev(acr.EV_ACTION_CONFIRMED)]
+
+    def test_a_confirmation_within_its_ttl_is_not_a_failure(self):
+        r = qc.review_session("live", self.EVENTS, [], actions=[
+            dict(action_id="a", status="CONFIRMED", overdue=False)])
+        self.assertNotIn(qc.QC_FAILED_NAVIGATION, signals(r))
+
+    def test_the_same_confirmation_past_its_ttl_is(self):
+        r = qc.review_session("stranded", self.EVENTS, [], actions=[
+            dict(action_id="a", status="CONFIRMED", overdue=True)])
+        self.assertIn(qc.QC_FAILED_NAVIGATION, signals(r))
+
+    def test_missing_expiry_evidence_does_not_assume_death(self):
+        r = qc.review_session("unknown", self.EVENTS, [], actions=[
+            dict(action_id="a", status="CONFIRMED")])
+        self.assertNotIn(qc.QC_FAILED_NAVIGATION, signals(r))
+
+
+class ApologyThatAnswersTests(unittest.TestCase):
+    """A refusal opener proves nothing on its own; many good answers start with
+    one. Over-counting unanswered questions inflates the single number an
+    operator would act on."""
+
+    def test_an_apology_followed_by_a_list_is_an_answer(self):
+        self.assertFalse(qc.is_incomplete_answer(
+            "Sorry, here is what I found:\n- Frame A\n- Frame B"))
+
+    def test_a_long_single_line_apology_that_answers_is_an_answer(self):
+        self.assertFalse(qc.is_incomplete_answer(
+            "Sorry, we do not have that in black, but we do have it in "
+            "tortoise, navy and clear, all in stock in your size"))
+
+    def test_a_bare_refusal_is_still_incomplete(self):
+        self.assertTrue(qc.is_incomplete_answer("Sorry, I can't help with that."))
+        self.assertTrue(qc.is_incomplete_answer("Unfortunately no results"))
 
 
 class SilenceIsNotQualityTests(unittest.TestCase):
@@ -286,7 +328,7 @@ class ReadOnlyQueryTests(unittest.TestCase):
         cur = _Cur([
             [dict(event_type=acr.EV_ACTION_EXECUTED, success=1, payload=None)],
             [dict(role="user", content="hi")],
-            [dict(action_id="a", status="EXECUTED")],
+            [dict(action_id="a", status="EXECUTED", overdue=0)],
         ])
         r = qc.review_one(_DB(cur), "sess-1")
         self.assertIn(qc.QC_JOURNEY_COMPLETED, signals(r))
@@ -324,7 +366,7 @@ class ReadOnlyQueryTests(unittest.TestCase):
 
     def test_tuple_cursors_are_supported_too(self):
         cur = _Cur([[(acr.EV_ACTION_EXECUTED, 1, None)], [("user", "hi")],
-                    [("a", "EXECUTED")]])
+                    [("a", "EXECUTED", 0)]])
         r = qc.review_one(_DB(cur), "sess-4")
         self.assertIn(qc.QC_JOURNEY_COMPLETED, signals(r))
 
