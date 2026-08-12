@@ -21,6 +21,13 @@ month.
 Run it to see the declared registry beside what the code will actually use:
 
     python3 ai_model_registry.py
+
+The runtime half resolves from the *process* environment, so it answers "which
+model would this process call", not "which model does the repo prefer". Those
+differ in production today: the repo default is `deepseek-chat` while the
+gunicorn unit sets `DEEPSEEK_CHAT_MODEL=deepseek-v4-flash`, which is what the
+canonical `MODEL_CALL` events record. Run it under the service environment to
+get the production answer.
 """
 from __future__ import annotations
 
