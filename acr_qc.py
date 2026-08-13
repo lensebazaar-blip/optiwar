@@ -71,13 +71,24 @@ SIGNALS = {
     QC_MODEL_FAILURE: FAIL,
 }
 
-# Replies that answer nothing: a refusal, an apology, or an empty turn. Matched
-# on the whole reply, so a message that opens with an apology and then answers
-# is not flagged.
-_EMPTY_ANSWER_RE = re.compile(
+# Openers of a reply that declines. On their own they prove nothing: plenty of
+# good answers begin with an apology and then answer.
+_REFUSAL_OPENER_RE = re.compile(
     r"^\W*(i'?m sorry|sorry|unfortunately|i (?:can'?t|cannot|don'?t)\b|"
-    r"i (?:do not|don'?t) have\b|no results?|nothing found)"
-    r"[^.!?]*[.!?]?\W*$", re.I)
+    r"i (?:do not|don'?t) have\b|no results?|nothing found)", re.I)
+
+_SENTENCE_END_RE = re.compile(r"[.!?]")
+
+# A reply that declines and stops there is short. Anything longer has said
+# something, whatever it opened with.
+MAX_REFUSAL_WORDS = 12
+
+# How long a confirmed action may take to report arrival before it is treated as
+# stranded. Measured from the confirmation, not from the offer: expires_at is
+# the offer's deadline, so a customer who accepts one second before it lapses
+# would otherwise get a one-second grace while one who accepts immediately gets
+# the full offer TTL. The browser reports arrival in seconds.
+EXECUTION_TTL_SECONDS = 120
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
 _STOPWORDS = frozenset(
@@ -140,10 +151,32 @@ def count_repeated_questions(messages, threshold=REPEAT_SIMILARITY):
 
 
 def is_incomplete_answer(text):
-    """True when an assistant turn declines or apologises and stops there."""
-    if not (text or "").strip():
+    """True when an assistant turn declines or apologises and stops there.
+
+    The opener is necessary but nowhere near sufficient. "Sorry, here is what I
+    found:" followed by a list of frames is a good answer, and counting it as an
+    unanswered question would inflate the one number an operator would act on.
+    So a reply is incomplete only when the refusal is the whole of it: single
+    line, nothing after the first sentence ends, and short.
+    """
+    body = (text or "").strip()
+    if not body:
         return True
-    return bool(_EMPTY_ANSWER_RE.match(text.strip()))
+    if not _REFUSAL_OPENER_RE.match(body):
+        return False
+    if "\n" in body:
+        return False
+    _head, _end, tail = _split_first_sentence(body)
+    if tail.strip():
+        return False
+    return len(body.split()) <= MAX_REFUSAL_WORDS
+
+
+def _split_first_sentence(body):
+    m = _SENTENCE_END_RE.search(body)
+    if not m:
+        return body, "", ""
+    return body[:m.start()], m.group(0), body[m.end():]
 
 
 def _counts(events):
@@ -204,7 +237,16 @@ def review_session(session_id, events, messages=(), outcome=None, actions=()):
     # second supersedes the first — subtracting the totals would invent a
     # failure. A row still sitting at CONFIRMED is the real thing.
     if actions:
-        stuck = sum(1 for a in actions if (a.get("status") or "") == "CONFIRMED")
+        # A confirmation is only stranded once the execution window has passed.
+        # Between the customer saying yes and the browser reporting arrival
+        # there is a legitimate in-flight window of seconds, and counting that
+        # as a failure would make every conversation happening right now look
+        # broken — worst exactly when someone is watching a live window.
+        # `overdue` is computed in SQL from the confirmation time (see
+        # EXECUTION_TTL_SECONDS); without that evidence the action is treated as
+        # in flight rather than assumed dead.
+        stuck = sum(1 for a in actions
+                    if (a.get("status") or "") == "CONFIRMED" and a.get("overdue"))
         failed = sum(1 for a in actions
                      if (a.get("status") or "") in ("FAILED", "BLOCKED"))
         # A swept action leaves CONFIRMED for EXPIRED, so counting only live
@@ -366,11 +408,16 @@ def review_one(db, session_id):
     messages = [dict(role=_col(r, "role"), content=_col(r, "content"))
                 for r in (cur.fetchall() or [])]
     cur.execute(
-        """SELECT action_id, status FROM ai_actions
-             WHERE session_id=%s ORDER BY created_at""",
-        (session_id,),
+        """SELECT action_id, status,
+                  (CASE WHEN status='CONFIRMED' AND resolved_at IS NOT NULL
+                        THEN resolved_at < DATE_SUB(NOW(), INTERVAL %s SECOND)
+                        ELSE (expires_at IS NOT NULL AND expires_at < NOW())
+                   END) AS overdue
+             FROM ai_actions WHERE session_id=%s ORDER BY created_at""",
+        (EXECUTION_TTL_SECONDS, session_id),
     )
-    actions = [dict(action_id=_col(r, "action_id"), status=_col(r, "status"))
+    actions = [dict(action_id=_col(r, "action_id"), status=_col(r, "status"),
+                    overdue=bool(_col(r, "overdue")))
                for r in (cur.fetchall() or [])]
     outcome = None
     for e in events:
@@ -385,7 +432,7 @@ def _col(row, name):
         return row.get(name)
     order = {"session_id": 0, "event_type": 0, "success": 1, "payload": 2,
              "failure_code": 3, "role": 0, "content": 1, "action_id": 0,
-             "status": 1}
+             "status": 1, "overdue": 2}
     try:
         return row[order[name]]
     except (KeyError, IndexError, TypeError):
