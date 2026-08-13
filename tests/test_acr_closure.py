@@ -114,11 +114,17 @@ class _FakeCursor:
         s = " ".join(sql.split())
         self.rowcount = 0
         self._result = []
-        if s.startswith("SELECT action_id, session_id, action_type FROM ai_actions"):
-            self._result = [dict(r) for r in self.db.pending_actions]
+        if s.startswith("SELECT action_id, session_id, action_type, status FROM ai_actions"):
+            self._result = [dict(r) for r in self.db.pending_actions
+                            if r.get("status", "PENDING") in acr.UNRESOLVED_STATUSES]
+            if self.db.mutate_after_select:
+                self.db.mutate_after_select()
         elif s.startswith("UPDATE ai_actions SET status='EXPIRED'"):
-            aid = params[0]
-            hit = [r for r in self.db.pending_actions if r["action_id"] == aid]
+            # The sweep claims the exact status it observed, so a row that moved
+            # under it must not transition.
+            aid, want = params
+            hit = [r for r in self.db.pending_actions
+                   if r["action_id"] == aid and r.get("status", "PENDING") == want]
             if hit:
                 self.db.pending_actions.remove(hit[0])
                 self.db.expired_ids.append(aid)
@@ -243,6 +249,8 @@ class FakeDB:
         # table -> session_id collation; absent means the table does not exist.
         self.column_collation = {}
         self.deny_alter = False
+        # Lets a test move a row between the sweep's SELECT and its UPDATE.
+        self.mutate_after_select = None
 
     def cursor(self):
         return _FakeCursor(self)
@@ -252,8 +260,10 @@ class ExpireActionsTests(unittest.TestCase):
     def _db(self):
         db = FakeDB()
         db.pending_actions = [
-            {"action_id": "a1", "session_id": "s1", "action_type": "NAVIGATE"},
-            {"action_id": "a2", "session_id": "s2", "action_type": "NAVIGATE"},
+            {"action_id": "a1", "session_id": "s1", "action_type": "NAVIGATE",
+             "status": "PENDING"},
+            {"action_id": "a2", "session_id": "s2", "action_type": "NAVIGATE",
+             "status": "PENDING"},
         ]
         return db
 
@@ -291,6 +301,67 @@ class ExpireActionsTests(unittest.TestCase):
         self.assertEqual(sorted(c["action_id"] for c in r["event_failed"]),
                          ["a1", "a2"])
         self.assertEqual(db.events, [])
+
+
+class ConfirmedNeverExecutedTests(unittest.TestCase):
+    """A confirmed action whose browser result never arrived used to have no
+    terminal state at all: supersede and the expiry sweep both matched only
+    PENDING, so it sat at CONFIRMED forever and the session never closed."""
+
+    def _db(self):
+        db = FakeDB()
+        db.pending_actions = [
+            {"action_id": "p1", "session_id": "s1", "action_type": "NAVIGATE",
+             "status": "PENDING"},
+            {"action_id": "c1", "session_id": "s2", "action_type": "NAVIGATE",
+             "status": "CONFIRMED"},
+        ]
+        return db
+
+    def test_a_confirmed_action_past_expiry_is_swept(self):
+        db = self._db()
+        r = acr.expire_due_actions(db, dry_run=False)
+        self.assertEqual(sorted(db.expired_ids), ["c1", "p1"])
+        self.assertEqual(len(r["expired"]), 2)
+
+    def test_the_two_expiries_are_not_the_same_fact(self):
+        # "nobody answered the offer" is a conversion metric; "the customer said
+        # yes and nothing happened" is a defect. One failure_code for both would
+        # lose the only signal that separates them.
+        db = self._db()
+        acr.expire_due_actions(db, dry_run=False)
+        codes = {e[2]: e[8] for e in db.events}   # session_id -> failure_code
+        self.assertEqual(codes["s1"], "expired")
+        self.assertEqual(codes["s2"], "confirmed_never_executed")
+
+    def test_the_claim_is_guarded_by_the_status_it_observed(self):
+        # The action executes between the SELECT and the UPDATE: the sweep must
+        # lose the race rather than expire an action that completed.
+        db = self._db()
+
+        def executes_underneath():
+            for row in db.pending_actions:
+                if row["action_id"] == "c1":
+                    row["status"] = "EXECUTED"
+            db.mutate_after_select = None
+
+        db.mutate_after_select = executes_underneath
+        acr.expire_due_actions(db, dry_run=False)
+        self.assertEqual(db.expired_ids, ["p1"])
+
+    def test_a_dry_run_still_writes_nothing(self):
+        db = self._db()
+        r = acr.expire_due_actions(db, dry_run=True)
+        self.assertEqual(len(r["candidates"]), 2)
+        self.assertEqual(db.expired_ids, [])
+        self.assertEqual(db.events, [])
+
+    def test_a_new_offer_supersedes_a_stranded_confirmation(self):
+        db = FakeDB()
+        acr.create_pending_action(db, "s1", "NAVIGATE", "/frames")
+        supersede = [sql for sql, _ in db.executed if "SUPERSEDED" in sql][0]
+        self.assertIn("status IN ('PENDING','CONFIRMED')",
+                      " ".join(supersede.split()))
 
 
 class FinalizeOutcomeTests(unittest.TestCase):
