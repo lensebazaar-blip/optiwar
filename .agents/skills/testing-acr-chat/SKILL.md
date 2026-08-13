@@ -1,6 +1,6 @@
 ---
 name: testing-acr-chat
-description: Run the Optiwar AI chat widget end-to-end locally (real chat_gateway backend + real chat-widget.js) against a local MariaDB with a scripted LLM. Use when verifying AI chat / ACR action-integrity, fallback buttons, action-result recording, the read-only Ops Console, or Part-B canonical ai_events emission.
+description: Run the Optiwar AI chat widget end-to-end locally (real chat_gateway backend + real chat-widget.js) against a local MariaDB with a scripted LLM. Use when verifying AI chat / ACR action-integrity, fallback buttons, action-result recording, the read-only Ops Console, the QC conversation-review layer, action lifecycle/expiry sweeps, or Part-B canonical ai_events emission.
 ---
 
 # Testing the Optiwar AI chat widget (ACR) locally
@@ -113,6 +113,40 @@ false-positives on the legitimate `input_tokens`/`output_tokens` payload keys.
   authenticated** and the console loads without a fresh login. To show the 401 gate on camera, clear the
   site's cookies mid-recording (Ctrl+Shift+Delete → "Cookies and other site data" → Delete data, or
   address-bar site-info → Cookies), then reload → `{"error":"unauthorized"}`.
+
+## Making the QC layer visible on screen (`/harness-qc`)
+QC (`acr_qc`) has no UI of its own, so a browser test of it otherwise reduces to reading a shell.
+Add a harness-only route that renders `qc.review_window(db, hours=2)` as a signals table plus the
+newest `ai_actions` rows, with severity colour-coded (FAIL red / WARN amber / INFO green). Two
+traps, both of which produced misleading screens before they were fixed:
+- The gateway hands out a **dict cursor**, so `for c in row` yields *column names*. The table will
+  cheerfully render `session_id  action_id  status` in every row and look plausible. Index by
+  name (`row[c]`) with a tuple fallback.
+- Any `overdue`-style column you compute in the harness must use the **same expression as
+  `acr_qc`**, or the table will contradict the verdict printed directly above it.
+- The db helper is `cg._get_db()` (underscore-prefixed); there is no `cg.get_db`.
+
+## Testing action-lifecycle states through the UI
+- **A genuinely stranded confirmation** (customer says yes, never arrives): send the confirmation,
+  then `ctrl+w` the tab immediately. The auto-navigate fires ~1.5s after the reply
+  (`chat-widget.js`), so closing the tab beats it and the destination never posts
+  `/action-result`. This is a real customer behaviour, not a hand-written DB row — much better
+  evidence than inserting a `CONFIRMED` row yourself. **Verify by absence:** grep the harness log
+  and assert no `POST /api/chat/action-result` for that `session_id`.
+- **Ageing an action** for expiry/staleness tests: which column you move matters, because they
+  answer different questions. `expires_at` is the *offer's* deadline and drives
+  `expire_due_actions`; `resolved_at` is stamped at confirmation and drives QC's in-flight window
+  (`acr_qc.EXECUTION_TTL_SECONDS`). To show "QC now reports it" move `resolved_at`; to show "the
+  sweep terminates it" move `expires_at`. Moving only one and expecting both to change is a
+  common false conclusion.
+- **Assert the sweep does not erase the defect.** After `expire_due_actions(dry_run=False)` the row
+  leaves `CONFIRMED`, so a QC layer that counts only live rows would silently go green. Re-load the
+  QC view *after* the sweep and assert the signal is still reported, exactly once.
+- `ai_actions` has **no `failure_code` column** — the failure code lives on the `ai_events`
+  `ACTION_EXPIRED` row, together with `payload {"from_status": ...}`. Selecting it from
+  `ai_actions` fails with `Unknown column 'failure_code'`.
+- The sweep is global, so it will also expire **unrelated stale rows** left by earlier runs. Note
+  which rows were pre-existing before claiming your action caused a count to change.
 
 ## Live production staff-only canary (real site, real LLM)
 When testing the deployed canary on `optiwar.com`/`optiwar.in` (not the local harness):
