@@ -58,6 +58,22 @@ ORDERS_DDL = """CREATE TABLE IF NOT EXISTS orders (
     KEY idx_customer (customer_id, date_created)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
 
+# Likewise for the conversation table the rule correlates against. CI starts
+# from an empty database, where every one of these tests failed on a missing
+# chat_sessions until this existed; the collation is stated because the anti-join
+# in acr compares session ids across tables (see #31/#34).
+CHAT_SESSIONS_DDL = """CREATE TABLE IF NOT EXISTS chat_sessions (
+    session_id       VARCHAR(64) NOT NULL PRIMARY KEY,
+    customer_id      BIGINT NULL,
+    contact_email    VARCHAR(255) NULL,
+    contact_name     VARCHAR(255) NULL,
+    status           VARCHAR(24) NOT NULL DEFAULT 'active',
+    current_page_url TEXT NULL,
+    created_at       DATETIME NULL,
+    last_activity    DATETIME NULL,
+    resolved_at      DATETIME NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci"""
+
 BASE = datetime(2026, 6, 1, 9, 0, 0)
 
 # An unauthenticated shopper. A sentinel rather than None, because None is the
@@ -93,6 +109,12 @@ class NearestPrecedingAttributionTests(unittest.TestCase):
         cls.db = _connect()
         cur = cls.db.cursor()
         cur.execute(ORDERS_DDL)
+        cur.execute(CHAT_SESSIONS_DDL)
+        # Both, in order: ensure_schema owns ai_actions/ai_events and
+        # ensure_closure_schema owns the ledgers. On a database that already has
+        # them this is a no-op; on CI's empty one it is the difference between
+        # twelve tests and twelve 1146s.
+        acr.ensure_schema(lambda: _connect())
         acr.ensure_closure_schema(lambda: _connect())
 
     @classmethod
@@ -149,10 +171,21 @@ class NearestPrecedingAttributionTests(unittest.TestCase):
         return oid
 
     def _attributed(self):
-        """{session_id: order_id} as the live sweep records it."""
+        """{session_id: order_id} as the live sweep records it, this test only.
+
+        The sweep is database-wide by design, so its result is filtered to the
+        sessions this test created. Without that, rows another test (or an
+        earlier interrupted run) left behind read as this test's own
+        attributions — which is precisely how a green suite hides a rule that
+        credits the wrong session.
+        """
         result = acr.attribute_archived_session_commerce(self.db, dry_run=False)
-        self.assertEqual(result["already_claimed"], [], "one order, two sessions")
-        return {c["session_id"]: c["order_id"] for c in result["attributed"]}
+        mine = set(self.sessions)
+        self.assertEqual([c for c in result["already_claimed"]
+                          if c.get("session_id") in mine],
+                         [], "one order, two sessions")
+        return {c["session_id"]: c["order_id"] for c in result["attributed"]
+                if c["session_id"] in mine}
 
     # ── the rule ──
 
@@ -271,7 +304,9 @@ class NearestPrecedingAttributionTests(unittest.TestCase):
         self._session(0)
         self._order(30)
         result = acr.attribute_archived_session_commerce(self.db, dry_run=True)
-        self.assertEqual(len(result["candidates"]), 1)
+        self.assertEqual([c["session_id"] for c in result["candidates"]
+                          if c["session_id"] in set(self.sessions)],
+                         self.sessions)
         self.cur.execute(
             """SELECT COUNT(*) AS n FROM ai_session_commerce
                WHERE session_id LIKE %s""", ("attr_%s%%" % self.tag,))
