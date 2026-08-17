@@ -203,8 +203,13 @@ def review_session(session_id, events, messages=(), outcome=None, actions=()):
     ``events`` are canonical ``ai_events`` rows (dicts with at least
     ``event_type``, optionally ``success``/``payload``); ``messages`` are chat
     turns (``role``/``content``); ``actions`` are ``ai_actions`` rows, which
-    carry the authoritative per-action status. Returns signals and counts only —
-    never text.
+    carry the authoritative per-action status. A CONFIRMED action row must also
+    carry ``overdue``: a boolean the caller computes from ``resolved_at`` plus
+    EXECUTION_TTL_SECONDS (see ``review_one``) saying its in-flight window has
+    passed. It gates whether a confirmation counts as a stranded navigation, so
+    a caller that omits it — ``overdue`` is a computed alias, not a column of
+    ``ai_actions`` — will see every confirmation read as still in flight.
+    Returns signals and counts only — never text.
     """
     ev = _counts(events)
     signals = []
