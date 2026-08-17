@@ -236,6 +236,10 @@ class SupersedingAConfirmationKeepsTheEvidenceTests(unittest.TestCase):
     def test_a_stranded_confirmation_that_is_replaced_is_recorded_as_such(self):
         cur = self._Cur(["old1"])
         new_id = acr.create_pending_action(self._DB(cur), "s1", "NAVIGATE", "/b")
+        # Terminal state and evidence, using the sweep's vocabulary: one fact
+        # must not have two names depending on which code path ended it.
+        self.assertTrue(any("SET status='EXPIRED'" in s and "old1" in str(p)
+                            for s, p in zip(cur.sql, cur.params)))
         expiries = [p for p in self._events(cur)
                     if acr.EV_ACTION_EXPIRED in p
                     and "confirmed_never_executed" in p]
@@ -270,6 +274,20 @@ class SupersedingAConfirmationKeepsTheEvidenceTests(unittest.TestCase):
         self.assertIn(acr.EXECUTION_TTL_SECONDS, params)
         self.assertEqual([p for p in self._events(cur)
                           if acr.EV_ACTION_EXPIRED in p], [])
+
+    def test_a_confirmation_still_in_flight_is_left_for_the_sweep_to_judge(self):
+        # The row is the only thing that can answer the question later, so the
+        # bulk supersede must not touch CONFIRMED at all: "in flight" has to mean
+        # decide later, not written off. Otherwise a customer whose next message
+        # arrives within the window loses the evidence permanently — QC cannot
+        # see a SUPERSEDED row and the sweep only reaches PENDING/CONFIRMED.
+        cur = self._Cur([])
+        acr.create_pending_action(self._DB(cur), "s1", "NAVIGATE", "/b")
+        bulk = [s for s in cur.sql if "SET status='SUPERSEDED'" in s]
+        self.assertEqual(len(bulk), 1)
+        self.assertIn("status='PENDING'", bulk[0])
+        self.assertNotIn("CONFIRMED", bulk[0])
+        self.assertEqual([s for s in cur.sql if "SET status='EXPIRED'" in s], [])
 
     def test_an_unanswered_offer_is_not_reported_as_a_broken_journey(self):
         # Superseding a PENDING row is ordinary conversation, not a defect: the
