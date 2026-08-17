@@ -61,6 +61,13 @@ _NAV_OFFER_TARGET_RE = re.compile(
 )
 
 PENDING_TTL_SECONDS = 1800  # 30 min
+
+# How long a confirmed action may take to report arrival before it counts as
+# stranded, measured from the confirmation. Lives here rather than in acr_qc
+# because both the read side (QC) and the write side (superseding a confirmed
+# action) have to answer "is this still in flight?" the same way.
+EXECUTION_TTL_SECONDS = 120
+
 FRAMES_LISTING_FALLBACK = "/eyeglasses/all-spectacle-frames.html"
 
 # ─── Step 5: closure/sweeper constants ───
@@ -543,8 +550,23 @@ def create_pending_action(db, session_id, action_type, target, source_message_id
     Best-effort: if the additive tables are missing (schema creation is itself
     best-effort at boot) this returns None instead of raising into the chat
     reply path, so action bookkeeping can never break a customer conversation."""
+    stranded = []
     try:
         cur = db.cursor()
+        # An action the customer *accepted* that is about to be replaced is a
+        # broken journey, and SUPERSEDED does not say so. Read those rows before
+        # the update, because afterwards the only difference between "nobody
+        # answered the offer" and "the customer said yes and nothing happened"
+        # is gone — and the second is the defect worth reporting.
+        cur.execute(
+            """SELECT action_id FROM ai_actions
+               WHERE session_id=%s AND action_type=%s AND status='CONFIRMED'
+                 AND resolved_at IS NOT NULL
+                 AND resolved_at < DATE_SUB(NOW(), INTERVAL %s SECOND)""",
+            (session_id, action_type, EXECUTION_TTL_SECONDS),
+        )
+        for row in (cur.fetchall() or ()):
+            stranded.append(row['action_id'] if isinstance(row, dict) else row[0])
         cur.execute(
             # CONFIRMED counts as live. A confirmed action whose browser result
             # never arrived is not finished, and leaving it out of the supersede
@@ -556,6 +578,15 @@ def create_pending_action(db, session_id, action_type, target, source_message_id
             (session_id, action_type),
         )
         action_id = uuid.uuid4().hex
+        # Recorded before the replacement row exists: if the insert fails the
+        # supersede has already happened, and the evidence must not depend on
+        # the rest of this function succeeding.
+        for old in stranded:
+            log_event(db, EV_ACTION_EXPIRED, session_id=session_id, action_id=old,
+                      action_type=action_type, journey_stage=STAGE_NAVIGATION,
+                      success=False, failure_code='confirmed_never_executed',
+                      payload={'from_status': 'CONFIRMED', 'reason': 'superseded',
+                               'superseded_by': action_id})
         cur.execute(
             """INSERT INTO ai_actions
                   (action_id, session_id, action_type, target, status,

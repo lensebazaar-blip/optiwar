@@ -194,5 +194,93 @@ class EventLoggingTests(unittest.TestCase):
         acr.log_event(BoomDB(), "AI_TEST_EVENT", session_id="s1")
 
 
+class SupersedingAConfirmationKeepsTheEvidenceTests(unittest.TestCase):
+    """`SUPERSEDED` does not say why. Since the gateway confirms every navigation
+    immediately, an action whose arrival never came is normally *replaced* by the
+    customer's next request rather than swept — so without an event here the
+    broken journey leaves no trace at all: the row is no longer CONFIRMED for QC
+    to see, and no longer PENDING/CONFIRMED for the sweep to reach."""
+
+    class _Cur(object):
+        def __init__(self, stranded):
+            self.stranded = list(stranded)
+            self.sql = []
+            self.params = []
+
+        def execute(self, sql, params=None):
+            self.sql.append(" ".join(sql.split()))
+            self.params.append(params)
+            self._rows = ([{"action_id": a} for a in self.stranded]
+                          if sql.strip().upper().startswith("SELECT") else [])
+
+        def fetchall(self):
+            return getattr(self, "_rows", [])
+
+        def fetchone(self):
+            return None
+
+    class _DB(object):
+        def __init__(self, cur):
+            self._cur = cur
+
+        def cursor(self):
+            return self._cur
+
+    def _events(self, cur):
+        out = []
+        for sql, params in zip(cur.sql, cur.params):
+            if sql.startswith("INSERT INTO ai_events"):
+                out.append(params)
+        return out
+
+    def test_a_stranded_confirmation_that_is_replaced_is_recorded_as_such(self):
+        cur = self._Cur(["old1"])
+        new_id = acr.create_pending_action(self._DB(cur), "s1", "NAVIGATE", "/b")
+        expiries = [p for p in self._events(cur)
+                    if acr.EV_ACTION_EXPIRED in p
+                    and "confirmed_never_executed" in p]
+        self.assertEqual(len(expiries), 1)
+        self.assertIn("old1", expiries[0])
+        payload = [v for v in expiries[0] if isinstance(v, str) and v.startswith("{")][0]
+        self.assertIn('"from_status": "CONFIRMED"', payload)
+        self.assertIn('"reason": "superseded"', payload)
+        # The replacement is named, so the two rows can be read as one journey.
+        self.assertIn(new_id, payload)
+
+    def test_the_evidence_is_written_before_the_replacement_row(self):
+        # The supersede has already happened by then; if the insert of the new
+        # action fails, the defect must still be on the record.
+        cur = self._Cur(["old1"])
+        acr.create_pending_action(self._DB(cur), "s1", "NAVIGATE", "/b")
+        expiry_at = next(i for i, s in enumerate(cur.sql)
+                         if s.startswith("INSERT INTO ai_events"))
+        insert_at = next(i for i, s in enumerate(cur.sql)
+                         if s.startswith("INSERT INTO ai_actions"))
+        self.assertLess(expiry_at, insert_at)
+
+    def test_a_confirmation_still_in_flight_is_not_accused(self):
+        # Selected, not filtered in Python: an in-flight confirmation must never
+        # reach the loop, and the window is the one acr_qc reads.
+        cur = self._Cur([])
+        acr.create_pending_action(self._DB(cur), "s1", "NAVIGATE", "/b")
+        select = next(s for s in cur.sql if s.startswith("SELECT action_id"))
+        self.assertIn("status='CONFIRMED'", select)
+        self.assertIn("resolved_at < DATE_SUB(NOW(), INTERVAL %s SECOND)", select)
+        params = cur.params[cur.sql.index(select)]
+        self.assertIn(acr.EXECUTION_TTL_SECONDS, params)
+        self.assertEqual([p for p in self._events(cur)
+                          if acr.EV_ACTION_EXPIRED in p], [])
+
+    def test_an_unanswered_offer_is_not_reported_as_a_broken_journey(self):
+        # Superseding a PENDING row is ordinary conversation, not a defect: the
+        # customer never said yes. Only the CONFIRMED select feeds the loop.
+        cur = self._Cur([])
+        acr.create_pending_action(self._DB(cur), "s1", "NAVIGATE", "/b")
+        offered = [p for p in self._events(cur) if acr.EV_NAVIGATION_OFFERED in p]
+        self.assertEqual(len(offered), 1)
+        self.assertEqual([p for p in self._events(cur)
+                          if acr.EV_ACTION_EXPIRED in p], [])
+
+
 if __name__ == "__main__":
     unittest.main()

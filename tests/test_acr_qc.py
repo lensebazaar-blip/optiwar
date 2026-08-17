@@ -276,6 +276,23 @@ class SweptConfirmationTests(unittest.TestCase):
         self.assertEqual(
             detail(r, qc.QC_FAILED_NAVIGATION)["confirmed_not_executed"], 1)
 
+    def test_a_replaced_confirmation_is_reported_from_its_superseded_row(self):
+        # The commoner path than the sweep: the customer asked for something else,
+        # so the stranded row is SUPERSEDED, which the row branch cannot see. The
+        # event acr.create_pending_action writes is the only remaining evidence,
+        # and it must count exactly once for the two rows of one journey.
+        r = qc.review_session("s", [
+            ev(acr.EV_NAVIGATION_OFFERED),
+            ev(acr.EV_ACTION_CONFIRMED),
+            ev(acr.EV_ACTION_EXPIRED, failure_code="confirmed_never_executed",
+               payload={"from_status": "CONFIRMED", "reason": "superseded",
+                        "superseded_by": "new"}),
+            ev(acr.EV_NAVIGATION_OFFERED),
+        ], [], actions=[dict(action_id="old", status="SUPERSEDED"),
+                        dict(action_id="new", status="PENDING")])
+        self.assertEqual(
+            detail(r, qc.QC_FAILED_NAVIGATION)["confirmed_not_executed"], 1)
+
     def test_an_expiry_nobody_answered_is_not_a_failed_navigation(self):
         r = qc.review_session("s", [
             ev(acr.EV_NAVIGATION_OFFERED),
