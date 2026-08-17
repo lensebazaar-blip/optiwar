@@ -1,0 +1,10 @@
+# What the test suite needs, which is far less than requirements.txt (a full
+# freeze of the production box, PyQt5 and all). Kept separate so CI installs in
+# seconds and a missing production dependency cannot be mistaken for a test
+# failure.
+Flask
+Jinja2
+requests
+# Only the MariaDB-backed tests in tests/integration need a driver; the rest of
+# the suite runs on fakes.
+PyMySQL
