@@ -8,6 +8,7 @@ tiny in-memory fake that mimics just enough of the DB-API cursor contract
     python3 -m unittest tests.test_acr_closure
 """
 import importlib.util
+import json
 import os
 import unittest
 
@@ -143,14 +144,23 @@ class _FakeCursor:
                 or self.db.ledger[r["session_id"]]["event_id"] is None]
         elif s.startswith("INSERT IGNORE INTO ai_session_commerce"):
             sid = params[0]
-            if sid in self.db.commerce:
+            claimed = {r["order_id"] for r in self.db.commerce.values()}
+            if sid in self.db.commerce or params[1] in claimed:
+                # PRIMARY KEY(session_id) or UNIQUE(order_id): one order is
+                # credited once, whichever session reaches it first.
                 self.rowcount = 0
             else:
-                self.db.commerce[sid] = {"order_id": params[1],
-                                         "attribution_type": params[2],
-                                         "attribution_window_hours": params[3],
-                                         "event_id": None}
+                self.db.commerce[sid] = {
+                    "order_id": params[1],
+                    "attribution_type": params[2],
+                    "attribution_window_hours": params[3],
+                    "attribution_delta_seconds": params[4],
+                    "event_id": None}
                 self.rowcount = 1
+        elif s.startswith("SELECT 1 FROM ai_session_commerce"):
+            sid, oid = params
+            row = self.db.commerce.get(sid)
+            self._result = [{"1": 1}] if row and row["order_id"] == oid else []
         elif s.startswith("UPDATE ai_session_commerce SET event_id"):
             eid, sid = params
             row = self.db.commerce.get(sid)
@@ -170,6 +180,16 @@ class _FakeCursor:
             if row and row["event_id"] is None and not self.db.fail_backfill:
                 row["event_id"] = eid
                 self.rowcount = 1
+        elif (s.startswith("SELECT COUNT(*) FROM information_schema.COLUMNS")
+              and "attribution_delta_seconds" in s):
+            self._result = [{"c": 1 if self.db.commerce_has_delta else 0}]
+        elif s.startswith("SELECT COUNT(*) FROM information_schema.STATISTICS"):
+            self._result = [{"c": 1 if self.db.commerce_unique_order else 0}]
+        elif "GROUP BY order_id HAVING COUNT(*) > 1" in s:
+            seen = {}
+            for row in self.db.commerce.values():
+                seen[row["order_id"]] = seen.get(row["order_id"], 0) + 1
+            self._result = [{"c": sum(1 for n in seen.values() if n > 1)}]
         elif s.startswith("SELECT COUNT(*) FROM information_schema.TABLES"):
             self._result = [{"c": 1 if params[0] in self.db.column_collation
                              else 0}]
@@ -187,11 +207,17 @@ class _FakeCursor:
                 raise RuntimeError("simulated ai_events write failure")
             self.db.events.append(params)
             self.rowcount = 1
-        elif s.startswith("SELECT order_id FROM orders"):
+        elif s.startswith("SELECT o.order_id AS order_id"):
+            # The nearest-preceding NOT EXISTS is SQL a fake cannot evaluate; it
+            # is asserted as a contract here and exercised for real in
+            # tests/test_acr_lifecycle_mariadb.py.
             self._deny_if_unreadable("orders")
             self.db.order_probes.append(params)
             oid = self.db.truth.get("order_id")
-            self._result = [{"order_id": oid}] if oid else []
+            self._result = ([{"order_id": oid,
+                              "delta_seconds": self.db.truth.get(
+                                  "order_delta_seconds", 0)}]
+                            if oid else [])
         elif "event_type='agent_reply'" in s:
             self._deny_if_unreadable("chat_events")
             self._result = [{"1": 1}] if self.db.truth.get("agent_reply") else []
@@ -249,6 +275,10 @@ class FakeDB:
         # table -> session_id collation; absent means the table does not exist.
         self.column_collation = {}
         self.deny_alter = False
+        # Attribution ledger already at the decided rule's shape unless a test
+        # says otherwise.
+        self.commerce_has_delta = True
+        self.commerce_unique_order = True
         # Lets a test move a row between the sweep's SELECT and its UPDATE.
         self.mutate_after_select = None
 
@@ -569,16 +599,31 @@ class CommerceAttributionTests(unittest.TestCase):
         db.unreadable = set(unreadable)
         return db
 
-    def test_attribution_records_order_id_type_and_window(self):
-        db = self._db({"order_id": "ORD-1"})
+    def test_attribution_records_the_basis_of_its_claim(self):
+        db = self._db({"order_id": "ORD-1", "order_delta_seconds": 3600})
         r = acr.attribute_archived_session_commerce(db, dry_run=False)
         row = db.commerce["s1"]
         self.assertEqual(row["order_id"], "ORD-1")
-        self.assertEqual(row["attribution_type"], acr.ATTRIBUTION_SESSION_WINDOW)
+        self.assertEqual(row["attribution_type"], acr.ATTRIBUTION_NEAREST_PRECEDING)
         self.assertEqual(row["attribution_window_hours"],
                          acr.PURCHASE_ATTRIBUTION_HOURS)
+        # Method, ceiling and delta together are what make the number auditable:
+        # a reported figure can be re-derived instead of taken on trust.
+        self.assertEqual(row["attribution_delta_seconds"], 3600)
         self.assertEqual([e[1] for e in db.events], [acr.EV_COMMERCE_OUTCOME])
         self.assertEqual(r["attributed"][0]["order_id"], "ORD-1")
+
+    def test_the_event_carries_the_same_basis_as_the_ledger_row(self):
+        db = self._db({"order_id": "ORD-1", "order_delta_seconds": 42})
+        acr.attribute_archived_session_commerce(db, dry_run=False)
+        payload = json.loads([e for e in db.events
+                              if e[1] == acr.EV_COMMERCE_OUTCOME][0][10])
+        self.assertEqual(payload["order_id"], "ORD-1")
+        self.assertEqual(payload["attribution_type"],
+                         acr.ATTRIBUTION_NEAREST_PRECEDING)
+        self.assertEqual(payload["attribution_window_hours"],
+                         acr.PURCHASE_ATTRIBUTION_HOURS)
+        self.assertEqual(payload["attribution_delta_seconds"], 42)
 
     def test_attribution_window_is_bounded_at_both_ends(self):
         # Without an upper bound one later order would attribute to every
@@ -590,7 +635,60 @@ class CommerceAttributionTests(unittest.TestCase):
         self.assertIn("2026-01-02", params)   # upper bound: last activity + horizon
         self.assertIn(acr.PURCHASE_ATTRIBUTION_HOURS, params)
         sql = [s for s, _ in db.executed if "FROM orders" in s][0]
-        self.assertIn("date_created <=", " ".join(sql.split()))
+        self.assertIn("o.date_created <=", " ".join(sql.split()))
+
+    def test_only_the_nearest_preceding_session_may_claim_an_order(self):
+        # The rule the business decided, as a query contract: a later session of
+        # the same customer that still precedes the order disqualifies this one,
+        # and the tie-break keeps two same-second sessions from both winning.
+        # Evaluated for real in tests/test_acr_lifecycle_mariadb.py.
+        db = self._db({"order_id": "ORD-1"})
+        acr.attribute_archived_session_commerce(db, dry_run=True)
+        sql = " ".join([s for s, _ in db.executed if "FROM orders" in s][0].split())
+        self.assertIn("NOT EXISTS", sql)
+        self.assertIn("FROM chat_sessions s2", sql)
+        self.assertIn("s2.created_at <= o.date_created", sql)
+        self.assertIn("(s2.created_at, s2.session_id) > (%s, %s)", sql)
+
+    def test_an_order_already_credited_elsewhere_is_not_credited_twice(self):
+        # The unique key is the backstop behind the query: if the two ever
+        # disagree the order is reported, not counted a second time.
+        db = self._db({"order_id": "ORD-1"})
+        db.archived_sessions.append(
+            {"session_id": "s2", "customer_id": 10, "created_at": "2026-01-01",
+             "last_activity": "2026-01-02"})
+        r = acr.attribute_archived_session_commerce(db, dry_run=False)
+        self.assertEqual([c["session_id"] for c in r["attributed"]], ["s1"])
+        self.assertEqual([c["session_id"] for c in r["already_claimed"]], ["s2"])
+        self.assertEqual(len([e for e in db.events
+                             if e[1] == acr.EV_COMMERCE_OUTCOME]), 1)
+
+    def test_a_guest_is_left_unattributed_rather_than_guessed(self):
+        db = self._db({"order_id": "ORD-1"})
+        db.archived_sessions = [
+            {"session_id": "s1", "customer_id": None, "created_at": "2026-01-01",
+             "last_activity": "2026-01-02"}]
+        r = acr.attribute_archived_session_commerce(db, dry_run=False)
+        self.assertEqual(r["attributed"], [])
+        self.assertEqual(db.commerce, {})
+        self.assertEqual(db.order_probes, [])   # not even asked
+
+    def test_a_ledger_holding_the_old_rules_duplicates_is_reported_not_rewritten(self):
+        # Deciding which of two historical claims to delete is an analytics
+        # decision, so the migration states the problem instead of choosing.
+        db = FakeDB()
+        db.column_collation = {"ai_session_outcomes": "utf8mb4_general_ci",
+                               "ai_session_commerce": "utf8mb4_general_ci"}
+        db.commerce_unique_order = False
+        db.commerce = {
+            "s1": {"order_id": "ORD-1", "event_id": None},
+            "s2": {"order_id": "ORD-1", "event_id": None},
+        }
+        pending = acr.ensure_closure_schema(lambda: _ClosingDB(db), allow_ddl=True)
+        self.assertTrue(any("claimed by more than one" in p for p in pending),
+                        pending)
+        self.assertEqual([s for s, _ in db.executed
+                          if "ADD UNIQUE KEY uq_order" in s], [])
 
     def test_purchase_does_not_change_the_conversation_outcome(self):
         """The chat was answered; the purchase is a separate, additional fact."""

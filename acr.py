@@ -15,6 +15,7 @@ Scope implemented here is ONLY the approved near-term items:
 No existing table is modified; two additive tables are created if absent.
 """
 import json
+import os
 import re
 import uuid
 
@@ -75,12 +76,17 @@ ABANDONMENT_CANDIDATE_MINUTES = 120
 # immutable outcome once it reaches this status (set by archive_stale_sessions).
 TERMINAL_SESSION_STATUS = "archived"
 
-# Purchase attribution horizon. An order is attributed to a session only if it
-# was placed between the session start and this many hours after the session's
-# last activity. This bounds *commerce attribution* only — it is recorded as the
-# attribution_window alongside the order, and never rewrites the conversation's
+# Purchase attribution horizon: an order is eligible for a session only if it was
+# placed between the session start and this many hours after the session's last
+# activity. This bounds *commerce attribution* only — it is recorded as
+# attribution_window_hours on every row, so a reported number always states the
+# ceiling it was computed under, and it never rewrites the conversation's
 # immutable outcome.
-PURCHASE_ATTRIBUTION_HOURS = 24
+#
+# Configurable because it is an analytics parameter, not a fact: changing it
+# changes what future rows say and leaves existing rows exactly as they were.
+PURCHASE_ATTRIBUTION_HOURS = int(
+    os.environ.get("ACR_PURCHASE_ATTRIBUTION_HOURS", "24"))
 
 # ─── Tri-state truth ───
 # An authoritative probe answers TRUE, FALSE or UNKNOWN. UNKNOWN is what a
@@ -770,13 +776,15 @@ def ensure_closure_schema(get_conn, allow_ddl=True):
                 order_id         VARCHAR(64) NOT NULL,
                 attribution_type VARCHAR(32) NOT NULL,
                 attribution_window_hours INT NOT NULL,
+                attribution_delta_seconds INT NULL,
                 event_id         VARCHAR(36) NULL,
                 created_at       DATETIME NOT NULL,
-                KEY idx_order (order_id),
+                UNIQUE KEY uq_order (order_id),
                 KEY idx_created (created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
         )
-        return _align_ledger_collation(cur)
+        return (_align_ledger_collation(cur)
+                + _align_commerce_ledger(cur, allow_ddl=True))
     finally:
         conn.close()
 
@@ -798,7 +806,59 @@ def _report_ledger_schema(cur):
                 pending.append("%s does not exist, needs CREATE" % table)
         except Exception:
             pass
-    return pending + _align_ledger_collation(cur, allow_ddl=False)
+    return (pending + _align_ledger_collation(cur, allow_ddl=False)
+            + _align_commerce_ledger(cur, allow_ddl=False))
+
+
+def _align_commerce_ledger(cur, allow_ddl=True):
+    """Bring an attribution ledger created under the old rule up to the decided
+    one: a delta column, and uniqueness on order_id.
+
+    The unique key is the enforcement of "one order is credited once" — the
+    nearest-preceding SELECT decides *which* session, and this makes it
+    impossible for two concurrent sweeps to disagree. It is added only when the
+    existing rows already satisfy it: a ledger holding duplicates from the
+    previous rule is **reported, not rewritten**, because deciding which of two
+    historical claims to delete is an analytics decision and not a migration's
+    to make.
+    """
+    pending = []
+    try:
+        cur.execute(
+            """SELECT COUNT(*) FROM information_schema.COLUMNS
+               WHERE table_schema=DATABASE() AND table_name='ai_session_commerce'
+                 AND column_name='attribution_delta_seconds'""")
+        if not _scalar1(cur):
+            pending.append("ai_session_commerce needs attribution_delta_seconds")
+            if allow_ddl:
+                cur.execute("ALTER TABLE ai_session_commerce "
+                            "ADD COLUMN attribution_delta_seconds INT NULL")
+        cur.execute(
+            """SELECT COUNT(*) FROM information_schema.STATISTICS
+               WHERE table_schema=DATABASE() AND table_name='ai_session_commerce'
+                 AND index_name='uq_order'""")
+        if _scalar1(cur):
+            return pending
+        cur.execute(
+            """SELECT COUNT(*) FROM (
+                   SELECT order_id FROM ai_session_commerce
+                   GROUP BY order_id HAVING COUNT(*) > 1) d""")
+        dupes = _scalar1(cur) or 0
+        if dupes:
+            pending.append(
+                "ai_session_commerce has %d order_id(s) claimed by more than one "
+                "session under the previous rule; uq_order not added" % dupes)
+            return pending
+        pending.append("ai_session_commerce needs UNIQUE uq_order (order_id)")
+        if allow_ddl:
+            cur.execute("ALTER TABLE ai_session_commerce "
+                        "DROP INDEX IF EXISTS idx_order, "
+                        "ADD UNIQUE KEY uq_order (order_id)")
+    except Exception:
+        # Insufficient grant, replica, concurrent DDL. Reported by the sweep
+        # rather than silently assumed done.
+        pass
+    return pending
 
 
 # Statuses a sweep may still resolve. PENDING is an offer nobody answered;
@@ -928,6 +988,27 @@ def _probe_value(db, sql, params):
         return TRUTH_UNKNOWN, None
 
 
+def _probe_row(db, sql, params, columns):
+    """Fetch one row as ``(truth, dict)`` under the same tri-state contract.
+
+    ``columns`` names the selected expressions so a tuple-cursor and a
+    dict-cursor give the caller the same shape; an attribution decision has to
+    be recorded with its basis, and reading that basis positionally is how a
+    reordered SELECT silently swaps two audit fields.
+    """
+    try:
+        cur = db.cursor()
+        cur.execute(sql, params)
+        row = cur.fetchone()
+        if not row:
+            return TRUTH_FALSE, None
+        if not isinstance(row, dict):
+            row = dict(zip(columns, row))
+        return TRUTH_TRUE, row
+    except Exception:
+        return TRUTH_UNKNOWN, None
+
+
 # Events that demonstrate the journey carried on working after a failure. A
 # provider timeout followed by a recommendation the customer then acted on is a
 # recovered blip, not a failed conversation.
@@ -1021,46 +1102,83 @@ def gather_session_truth(db, session_id):
             'normally_resolved': normally_resolved}
 
 
-# How an order was tied to a session. Only one method exists today; naming it
-# explicitly means later methods (click-through, cart handoff) are
-# distinguishable in analytics instead of silently changing what the column
-# means.
+# How an order was tied to a session. Naming the method on every row means a
+# later one (click-through, cart handoff) is distinguishable in analytics instead
+# of silently changing what the column means.
+#
+# session_window was the first rule and is kept only so historical rows stay
+# readable. It asked "did this session's customer order inside the window?",
+# which credits one order to *every* session preceding it — the Step-5 dry run
+# resolved 29 sessions onto 5 orders and would have reported one order as
+# attributable revenue eighteen times.
 ATTRIBUTION_SESSION_WINDOW = "session_window"
+# The decided rule: one order -> at most one session, the nearest eligible
+# session preceding it.
+ATTRIBUTION_NEAREST_PRECEDING = "nearest_preceding_session"
 
 
 def attribute_session_commerce(db, session_id, customer_id, session_created_at,
                                session_last_activity=None):
     """Find the order attributable to this session, if any.
 
-    Returns ``(truth, record)``. ``record`` carries order_id, attribution_type
-    and attribution_window so the basis of the claim is auditable rather than
-    implied by a bare PURCHASED label.
+    One order is credited to **at most one** AI session: the nearest eligible
+    session preceding it. Eligibility is deterministic and needs no model — same
+    authenticated ``customer_id``, the session starts before the order, the order
+    falls within ``PURCHASE_ATTRIBUTION_HOURS`` of the session's last activity.
+    One session may legitimately assist several orders; the reverse may not
+    happen. Attribution is analytics only and never touches order or payment
+    truth.
 
-    The window is bounded at both ends — session start to last activity plus
-    PURCHASE_ATTRIBUTION_HOURS. A lower bound alone would let one order be
-    attributed to every earlier session that shopper ever had.
+    The ``NOT EXISTS`` is what makes "nearest" true rather than merely intended:
+    an order is not this session's if the same shopper started another session
+    after this one and still before the order. Without it, "one order, one
+    session" would depend on which session a sweep happened to visit first.
+
+    Returns ``(truth, record)``; ``record`` carries the order, the method, the
+    ceiling in force and the time delta, so a BI figure can be traced back to the
+    decision that produced it instead of being implied by a bare PURCHASED label.
+
+    Two deliberate exclusions:
+
+    - a guest (``customer_id IS NULL``) is ``FALSE``, never a guess. Matching on
+      weak identifiers would credit one shopper's purchase to another shopper's
+      conversation, and a ledger that does that is worse than an empty one.
+    - the row comparison tie-breaks on ``session_id``, so two sessions created
+      in the same second still resolve to one winner rather than to whichever
+      the optimiser returned first.
     """
     if customer_id is None:
         return TRUTH_FALSE, None
-    truth, order_id = _probe_value(
+    truth, row = _probe_row(
         db,
-        """SELECT order_id FROM orders
-           WHERE customer_id=%s AND is_test=0
-             AND (%s IS NULL OR date_created >= %s)
+        """SELECT o.order_id AS order_id,
+                  TIMESTAMPDIFF(SECOND, %s, o.date_created) AS delta_seconds
+           FROM orders o
+           WHERE o.customer_id=%s AND o.is_test=0
+             AND (%s IS NULL OR o.date_created >= %s)
              AND (%s IS NULL OR
-                  date_created <= %s + INTERVAL %s HOUR)
-           ORDER BY date_created ASC LIMIT 1""",
-        (customer_id, session_created_at, session_created_at,
+                  o.date_created <= %s + INTERVAL %s HOUR)
+             AND NOT EXISTS (
+                 SELECT 1 FROM chat_sessions s2
+                 WHERE s2.customer_id = o.customer_id
+                   AND (s2.created_at, s2.session_id) > (%s, %s)
+                   AND s2.created_at <= o.date_created)
+           ORDER BY o.date_created ASC LIMIT 1""",
+        (session_created_at, customer_id,
+         session_created_at, session_created_at,
          session_last_activity, session_last_activity,
-         PURCHASE_ATTRIBUTION_HOURS),
+         PURCHASE_ATTRIBUTION_HOURS,
+         session_created_at, session_id),
+        columns=('order_id', 'delta_seconds'),
     )
     if truth != TRUTH_TRUE:
         return truth, None
     return TRUTH_TRUE, {
         'session_id': session_id,
-        'order_id': order_id,
-        'attribution_type': ATTRIBUTION_SESSION_WINDOW,
+        'order_id': row['order_id'],
+        'attribution_type': ATTRIBUTION_NEAREST_PRECEDING,
         'attribution_window_hours': PURCHASE_ATTRIBUTION_HOURS,
+        'attribution_delta_seconds': row['delta_seconds'],
     }
 
 
@@ -1197,8 +1315,13 @@ def attribute_archived_session_commerce(db, dry_run=True, limit=500):
     Recording "no purchase" because the orders table was unreadable would
     understate revenue attribution permanently.
 
+    ``already_claimed`` holds candidates whose order is credited to a different
+    session. The nearest-preceding rule should make that empty; the unique key on
+    order_id is the guarantee, and this list is how a disagreement between the
+    two becomes visible instead of becoming double-counted revenue.
+
     Returns {'candidates': [...], 'attributed': [...], 'deferred': [...],
-    'event_failed': [...]}.
+    'already_claimed': [...], 'event_failed': [...]}.
     """
     rows = find_sessions_awaiting_attribution(db, limit=limit)
     candidates = []
@@ -1218,20 +1341,24 @@ def attribute_archived_session_commerce(db, dry_run=True, limit=500):
             candidates.append(record)
     if dry_run:
         return {'candidates': candidates, 'attributed': list(candidates),
-                'deferred': deferred, 'event_failed': []}
+                'deferred': deferred, 'already_claimed': [],
+                'event_failed': []}
     _record_deferrals(db, deferred)
     attributed = []
     event_failed = []
+    already_claimed = []
     for c in candidates:
         try:
             cur = db.cursor()
             cur.execute(
                 """INSERT IGNORE INTO ai_session_commerce
                      (session_id, order_id, attribution_type,
-                      attribution_window_hours, event_id, created_at)
-                   VALUES (%s,%s,%s,%s,NULL,NOW())""",
+                      attribution_window_hours, attribution_delta_seconds,
+                      event_id, created_at)
+                   VALUES (%s,%s,%s,%s,%s,NULL,NOW())""",
                 (c['session_id'], c['order_id'], c['attribution_type'],
-                 c['attribution_window_hours']),
+                 c['attribution_window_hours'],
+                 c.get('attribution_delta_seconds')),
             )
             fresh_claim = bool(cur.rowcount and cur.rowcount > 0)
             if not fresh_claim:
@@ -1240,13 +1367,21 @@ def attribute_archived_session_commerce(db, dry_run=True, limit=500):
                 if existing:
                     _backfill_commerce_event_id(db, c['session_id'], existing)
                     continue
+                # The claim was refused and this session has no event: the
+                # order_id is already credited elsewhere. That is the rule
+                # working, so it is reported rather than retried forever.
+                if not _holds_attribution(db, c['session_id'], c['order_id']):
+                    already_claimed.append(c)
+                    continue
             event_id = log_event(db, EV_COMMERCE_OUTCOME,
                                  session_id=c['session_id'], success=True,
                                  payload={'outcome': COMMERCE_PURCHASED,
                                           'order_id': c['order_id'],
                                           'attribution_type': c['attribution_type'],
                                           'attribution_window_hours':
-                                              c['attribution_window_hours']})
+                                              c['attribution_window_hours'],
+                                          'attribution_delta_seconds':
+                                              c.get('attribution_delta_seconds')})
             if event_id:
                 _backfill_commerce_event_id(db, c['session_id'], event_id)
                 attributed.append(c)
@@ -1255,7 +1390,22 @@ def attribute_archived_session_commerce(db, dry_run=True, limit=500):
         except Exception:
             pass
     return {'candidates': candidates, 'attributed': attributed,
-            'deferred': deferred, 'event_failed': event_failed}
+            'deferred': deferred, 'already_claimed': already_claimed,
+            'event_failed': event_failed}
+
+
+def _holds_attribution(db, session_id, order_id):
+    """True when this session is the one holding that order's attribution row.
+
+    Distinguishes "my claim already exists" (retry the event write) from "another
+    session owns this order" (the rule refused a second credit).
+    """
+    return _probe(
+        db,
+        """SELECT 1 FROM ai_session_commerce
+           WHERE session_id=%s AND order_id=%s LIMIT 1""",
+        (session_id, order_id),
+    ) == TRUTH_TRUE
 
 
 def _backfill_commerce_event_id(db, session_id, event_id):
