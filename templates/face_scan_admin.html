@@ -42,10 +42,26 @@
     <div id="out" class="muted"></div>
   </form>
 
+  <form class="new" id="recv" enctype="multipart/form-data">
+    <div style="flex:1 1 100%"><b>Photo already received?</b>
+      <span class="muted">If the customer sent it on WhatsApp or by mail, file it here —
+        it goes through the same validation, audit and retention as a link upload.</span></div>
+    <div><div class="muted">Name</div><input type="text" name="name" placeholder="Customer name"></div>
+    <div><div class="muted">Phone</div><input type="text" name="phone" placeholder="9198…"></div>
+    <div><div class="muted">Customer id (optional)</div><input type="text" name="customer_id"></div>
+    <div><div class="muted">Photo</div><input type="file" name="photo" accept="image/*" required></div>
+    <label class="muted" style="flex:1 1 100%">
+      <input type="checkbox" name="consent_confirmed" value="1" required>
+      The customer sent us this photo for measurement, and I am recording that consent.
+    </label>
+    <button type="submit">File photo</button>
+    <div id="rout" class="muted"></div>
+  </form>
+
   <table>
     <tr>
       <th>Customer</th><th>Status</th><th>Requested</th><th>Photo</th>
-      <th>Measurements</th><th>Measured by</th>
+      <th>Measurements</th><th>Measured by</th><th>Source</th>
     </tr>
     {% for r in rows %}
     <tr>
@@ -67,6 +83,7 @@
         {% if r.pd_mm %}PD {{ r.pd_mm }}mm · width {{ r.face_width_mm }}mm{% else %}<span class="muted">—</span>{% endif %}
       </td>
       <td class="muted">{{ r.measured_by or '—' }}{% if r.measured_at %}<div>{{ r.measured_at }}</div>{% endif %}</td>
+      <td class="muted">{{ r.image_source or '—' }}{% if r.received_by %}<div>{{ r.received_by }}</div>{% endif %}</td>
     </tr>
     {% endfor %}
   </table>
@@ -85,6 +102,20 @@ document.getElementById('new').addEventListener('submit', function (e) {
       out.innerHTML = 'WhatsApp: <b>' + d.whatsapp + '</b>'
         + (d.whatsapp_error ? ' (' + d.whatsapp_error + ')' : '')
         + '<br>Link: <code>' + d.link + '</code>';
+    })
+    .catch(function () { out.textContent = 'Request failed.'; });
+});
+
+document.getElementById('recv').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var out = document.getElementById('rout');
+  out.textContent = 'Filing…';
+  fetch("{{ url_for('face_scan.admin_receive') }}", { method: 'POST', body: new FormData(e.target) })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d.success) { window.location = d.next; return; }
+      out.textContent = d.error === 'consent_not_confirmed'
+        ? 'Please confirm the customer sent the photo for this purpose.' : d.error;
     })
     .catch(function () { out.textContent = 'Request failed.'; });
 });

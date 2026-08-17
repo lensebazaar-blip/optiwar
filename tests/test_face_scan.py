@@ -118,6 +118,10 @@ class FaceScanJourneyTests(unittest.TestCase):
 
     def setUp(self):
         self.authorised[0] = True
+        # A staff action must be attributable to a person, so the client carries
+        # an admin session and the tests assert that name is what gets recorded.
+        with self.client.session_transaction() as sess:
+            sess['user_email'] = 'admin@optiwar.com'
         self.created = []
         self.ctx = self.app.test_request_context()
         self.ctx.push()
@@ -365,6 +369,85 @@ class FaceScanJourneyTests(unittest.TestCase):
         cur.close()
         self.fs.purge_due_images(self.db)
         self.assertNotIn(rid, self.fs.purge_due_images(self.db))
+
+    # ── a photo that arrived by another channel ──
+
+    def test_staff_can_file_a_photo_the_customer_already_sent(self):
+        resp = self.client.post(
+            "/admin/face-scan/receive",
+            data={"photo": (io.BytesIO(JPEG), "from_whatsapp.jpg"),
+                  "name": "Anita", "phone": "919812345678",
+                  "consent_confirmed": "1"},
+            content_type="multipart/form-data")
+        body = resp.get_json()
+        self.assertTrue(body["success"], body)
+        rid = body["request_id"]
+        self.created.append(rid)
+        row = self.fs._by_id(self.db, rid)
+        self.assertEqual(row["status"], self.fs.ST_UPLOADED)
+        # provenance is recorded rather than implied: this consent is asserted by
+        # a named staff member, not ticked by the customer
+        self.assertEqual(row["image_source"], self.fs.SRC_STAFF_UPLOAD)
+        self.assertEqual(row["received_by"], "admin@optiwar.com")
+        self.assertIsNotNone(row["consent_at"])
+        ok, error = self.fs.record_measurements(self.db, rid, 62.0, 134.0,
+                                                actor="staff@optiwar.com")
+        self.assertTrue(ok, error)
+
+    def test_staff_can_attach_to_a_request_still_waiting(self):
+        rid, token = self._request()
+        resp = self.client.post(
+            "/admin/face-scan/%s/photo" % rid,
+            data={"photo": (io.BytesIO(PNG), "sent_by_mail.png"),
+                  "consent_confirmed": "1"},
+            content_type="multipart/form-data")
+        self.assertTrue(resp.get_json()["success"], resp.get_json())
+        self.assertEqual(self.fs._by_id(self.db, rid)["image_source"],
+                         self.fs.SRC_STAFF_UPLOAD)
+        # and the customer's own link is spent by it, so a later upload cannot
+        # silently replace the photo staff already measured
+        self.assertEqual(self._upload(token).get_json()["error"], "used")
+
+    def test_a_staff_upload_still_needs_consent_recorded(self):
+        rid, _ = self._request()
+        resp = self.client.post(
+            "/admin/face-scan/%s/photo" % rid,
+            data={"photo": (io.BytesIO(JPEG), "x.jpg")},
+            content_type="multipart/form-data")
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.get_json()["error"], "consent_not_confirmed")
+        self.assertIsNone(self.fs._by_id(self.db, rid)["image_path"])
+
+    def test_a_staff_upload_is_validated_like_any_other(self):
+        rid, _ = self._request()
+        resp = self.client.post(
+            "/admin/face-scan/%s/photo" % rid,
+            data={"photo": (io.BytesIO(b"MZ" + b"\x00" * 4096), "x.jpg"),
+                  "consent_confirmed": "1"},
+            content_type="multipart/form-data")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("not the image type", resp.get_json()["error"])
+
+    def test_staff_cannot_overwrite_a_photo_that_is_already_there(self):
+        rid, token = self._request()
+        self._upload(token)
+        resp = self.client.post(
+            "/admin/face-scan/%s/photo" % rid,
+            data={"photo": (io.BytesIO(PNG), "other.png"),
+                  "consent_confirmed": "1"},
+            content_type="multipart/form-data")
+        self.assertEqual(resp.status_code, 409)
+        self.assertEqual(resp.get_json()["error"], "used")
+
+    def test_filing_a_photo_needs_admin_authority(self):
+        rid, _ = self._request()
+        self.authorised[0] = False
+        for url in ("/admin/face-scan/receive", "/admin/face-scan/%s/photo" % rid):
+            resp = self.client.post(
+                url, data={"photo": (io.BytesIO(JPEG), "x.jpg"),
+                           "consent_confirmed": "1"},
+                content_type="multipart/form-data")
+            self.assertEqual(resp.status_code, 401, url)
 
     # ── audit ──
 

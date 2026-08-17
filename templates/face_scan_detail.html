@@ -42,10 +42,23 @@
         <img src="{{ url_for('face_scan.admin_image', request_id=r.request_id) }}"
              alt="Customer face photo with scale reference">
         <div class="muted">{{ r.image_bytes }} bytes · sha256 {{ r.image_sha256[:16] }}…
-          · uploaded {{ r.uploaded_at }}</div>
+          · uploaded {{ r.uploaded_at }}
+          {% if r.image_source == 'staff_upload' %}· filed by {{ r.received_by }}
+          {% else %}· sent by the customer{% endif %}</div>
       {% else %}
         <p class="muted">No photo yet. The link{% if r.sent_at %} was sent {{ r.sent_at }} and{% endif %}
           expires {{ r.expires_at }}.</p>
+        <form id="attach" enctype="multipart/form-data" style="text-align:left">
+          <label>Already have the photo? File it here
+            <input type="file" name="photo" accept="image/*" required></label>
+          <div class="check">
+            <input type="checkbox" name="consent_confirmed" id="cc" value="1" required>
+            <label for="cc" style="font-weight:400;margin:0">The customer sent us this photo for
+              measurement, and I am recording that consent.</label>
+          </div>
+          <button type="submit">Attach photo</button>
+          <div id="aout"></div>
+        </form>
       {% endif %}
     </div>
 
@@ -81,7 +94,9 @@
       <dl>
         <dt>Request</dt><dd><code>{{ r.request_id }}</code></dd>
         <dt>Created</dt><dd>{{ r.created_at }} by {{ r.created_by or '—' }}</dd>
-        <dt>Consent</dt><dd>{{ r.consent_at or 'not given' }}</dd>
+        <dt>Consent</dt><dd>{{ r.consent_at or 'not given' }}
+          {% if r.image_source == 'staff_upload' %}(recorded by {{ r.received_by }}){% endif %}</dd>
+        <dt>Source</dt><dd>{{ r.image_source or '—' }}</dd>
         <dt>Attempts</dt><dd>{{ r.upload_attempts }}</dd>
         <dt>Delete after</dt><dd>{{ r.purge_after or '—' }}</dd>
         {% if r.msg91_request_id %}<dt>MSG91</dt><dd>{{ r.msg91_request_id }}</dd>{% endif %}
@@ -90,6 +105,25 @@
     </div>
   </div>
 </div>
+{% if not r.image_path and not r.purged_at %}
+<script>
+document.getElementById('attach').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var out = document.getElementById('aout');
+  out.textContent = 'Uploading…';
+  fetch("{{ url_for('face_scan.admin_upload', request_id=r.request_id) }}",
+        { method: 'POST', body: new FormData(e.target) })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d.success) { window.location.reload(); return; }
+      out.style.color = '#b3261e';
+      out.textContent = d.error === 'consent_not_confirmed'
+        ? 'Please confirm the customer sent the photo for this purpose.' : d.error;
+    })
+    .catch(function () { out.style.color = '#b3261e'; out.textContent = 'Request failed.'; });
+});
+</script>
+{% endif %}
 {% if r.image_path and not r.purged_at %}
 <script>
 document.getElementById('m').addEventListener('submit', function (e) {

@@ -73,6 +73,12 @@ ST_CANCELLED = 'CANCELLED'
 # arrives the link is spent, which is what makes it single-use.
 OPEN_STATUSES = (ST_REQUESTED, ST_SENT, ST_SEND_FAILED)
 
+# Where a photo came from. A customer who followed their own link ticked the
+# consent box themselves; a photo a staff member received on WhatsApp or by mail
+# did not, so the staff member asserts it and is recorded as having done so.
+SRC_CUSTOMER_LINK = 'customer_link'
+SRC_STAFF_UPLOAD = 'staff_upload'
+
 _SCHEMA_READY = False
 
 
@@ -121,6 +127,8 @@ def ensure_schema(db):
                image_path      VARCHAR(255) NULL,
                image_bytes     INT NULL,
                image_sha256    CHAR(64) NULL,
+               image_source    VARCHAR(24) NULL,
+               received_by     VARCHAR(191) NULL,
                purge_after     DATETIME NULL,
                purged_at       DATETIME NULL,
                pd_mm           DECIMAL(5,1) NULL,
@@ -145,6 +153,19 @@ def ensure_schema(db):
                KEY idx_request (request_id, occurred_at),
                KEY idx_action (action, occurred_at)
            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+    # A ledger created before provenance was recorded still has to answer "who
+    # gave us this photo", so the two columns are added rather than assumed.
+    cur.execute("""SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                    WHERE TABLE_SCHEMA=DATABASE()
+                      AND TABLE_NAME='face_scan_requests'
+                      AND COLUMN_NAME IN ('image_source','received_by')""")
+    have = {r['COLUMN_NAME'] for r in cur.fetchall()}
+    if 'image_source' not in have:
+        cur.execute("""ALTER TABLE face_scan_requests
+                         ADD COLUMN image_source VARCHAR(24) NULL""")
+    if 'received_by' not in have:
+        cur.execute("""ALTER TABLE face_scan_requests
+                         ADD COLUMN received_by VARCHAR(191) NULL""")
     db.commit()
     cur.close()
     _SCHEMA_READY = True
@@ -275,11 +296,16 @@ def _valid_image(file_storage):
     return ext, size, None
 
 
-def store_upload(db, row, file_storage):
+def store_upload(db, row, file_storage, source=SRC_CUSTOMER_LINK, actor=None):
     """Save a validated photo against an open request. Returns (ok, error).
 
     The attempt is counted before the file is examined, so a caller cannot use
     repeated rejections as an unlimited probe of the validator.
+
+    ``source`` records who produced the file: the customer through their own
+    link, or a staff member attaching a photo the customer sent by some other
+    channel. Both are legitimate; conflating them is not, because only one of
+    them carries the customer's own consent tick.
     """
     cur = db.cursor()
     cur.execute("""UPDATE face_scan_requests SET upload_attempts=upload_attempts+1
@@ -308,11 +334,12 @@ def store_upload(db, row, file_storage):
     cur.execute(
         """UPDATE face_scan_requests
               SET status=%s, uploaded_at=%s, consent_at=COALESCE(consent_at,%s),
-                  image_path=%s, image_bytes=%s, image_sha256=%s, purge_after=%s
+                  image_path=%s, image_bytes=%s, image_sha256=%s, purge_after=%s,
+                  image_source=%s, received_by=%s
             WHERE request_id=%s AND status IN %s""",
         (ST_UPLOADED, now, now, filename, size, digest,
-         now + timedelta(days=_retention_days()), row['request_id'],
-         OPEN_STATUSES))
+         now + timedelta(days=_retention_days()), source, actor,
+         row['request_id'], OPEN_STATUSES))
     claimed = cur.rowcount == 1
     db.commit()
     cur.close()
@@ -322,8 +349,8 @@ def store_upload(db, row, file_storage):
         except OSError:
             pass
         return False, 'This link has already been used.'
-    audit(db, row['request_id'], 'UPLOADED',
-          detail='%s bytes, sha256 %s' % (size, digest[:12]))
+    audit(db, row['request_id'], 'UPLOADED', actor=actor,
+          detail='%s, %s bytes, sha256 %s' % (source, size, digest[:12]))
     return True, None
 
 
@@ -534,6 +561,78 @@ def admin_create():
                     'link': upload_link(token, request.host),
                     'whatsapp': send.get('status'),
                     'whatsapp_error': send.get('error') or ''})
+
+
+@bp.route('/admin/face-scan/<request_id>/photo', methods=['POST'])
+def admin_upload(request_id):
+    """Attach a photo the customer sent us by some other channel.
+
+    A customer who was already asked for a scan, and replied on WhatsApp or by
+    mail, has a photo we cannot fetch programmatically: MSG91 hands over inbound
+    media only through a webhook we do not have. So staff attach it here and it
+    joins the same validated, audited, retained path as a link upload.
+
+    The customer's own consent tick is missing by definition, so the staff member
+    asserts consent explicitly and is recorded as the one who did.
+    """
+    if not _require_ops_auth():
+        return jsonify({'error': 'unauthorized'}), 401
+    data = request.form
+    if data.get('consent_confirmed') not in ('1', 'true', 'on', 'yes'):
+        return jsonify({'error': 'consent_not_confirmed'}), 400
+    file_storage = request.files.get('photo')
+    if not file_storage or not file_storage.filename:
+        return jsonify({'error': 'no_file'}), 400
+    db = get_db()
+    row = _by_id(db, request_id)
+    if not row:
+        return jsonify({'error': 'not_found'}), 404
+    state = token_state(row)
+    if state:
+        return jsonify({'error': state}), 409
+    actor = session.get('user_email') or 'bearer_token'
+    ok, error = store_upload(db, row, file_storage,
+                             source=SRC_STAFF_UPLOAD, actor=actor)
+    if not ok:
+        return jsonify({'error': error}), 400
+    return jsonify({'success': True, 'request_id': request_id})
+
+
+@bp.route('/admin/face-scan/receive', methods=['POST'])
+def admin_receive():
+    """One step for a customer already asked: create the record and attach the photo.
+
+    Nobody should have to create a link they are never going to send in order to
+    file a photo that has already arrived.
+    """
+    if not _require_ops_auth():
+        return jsonify({'error': 'unauthorized'}), 401
+    data = request.form
+    if data.get('consent_confirmed') not in ('1', 'true', 'on', 'yes'):
+        return jsonify({'error': 'consent_not_confirmed'}), 400
+    file_storage = request.files.get('photo')
+    if not file_storage or not file_storage.filename:
+        return jsonify({'error': 'no_file'}), 400
+    customer_id = data.get('customer_id') or None
+    try:
+        customer_id = int(customer_id) if customer_id else None
+    except (TypeError, ValueError):
+        return jsonify({'error': 'customer_id must be numeric'}), 400
+    db = get_db()
+    actor = session.get('user_email') or 'bearer_token'
+    request_id, _token = create_request(
+        db, customer_id=customer_id,
+        contact_name=(data.get('name') or '').strip() or None,
+        contact_phone=(data.get('phone') or '').strip() or None,
+        created_by=actor)
+    row = _by_id(db, request_id)
+    ok, error = store_upload(db, row, file_storage,
+                             source=SRC_STAFF_UPLOAD, actor=actor)
+    if not ok:
+        return jsonify({'error': error, 'request_id': request_id}), 400
+    return jsonify({'success': True, 'request_id': request_id,
+                    'next': url_for('face_scan.admin_detail',
+                                    request_id=request_id)})
 
 
 @bp.route('/admin/face-scan/<request_id>', methods=['GET'])

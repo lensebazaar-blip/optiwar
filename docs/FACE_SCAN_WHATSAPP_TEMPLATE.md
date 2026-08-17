@@ -52,6 +52,26 @@ sends today.
 WhatsApp, so it must be absolute and must point at the storefront the customer expects
 (`.in` or `.com`), not at whichever host happened to serve the admin request.
 
+## A customer who was already asked — where the photo comes from
+
+There are only three places a face photo can reach us, and only one of them is automatic:
+
+1. **The customer used their link** → it is already on `/admin/face-scan`, with the
+   measurement form beside it. `image_source = customer_link`.
+2. **The customer replied on WhatsApp with the photo** → we cannot fetch it. MSG91 hands over
+   inbound media only through its *On Message Received* webhook, which this application does
+   not implement (and which is paused). The photo is in the WhatsApp Business inbox on the
+   provider side; save it from there and file it with **Photo already received?** on
+   `/admin/face-scan`, or *Attach photo* on an existing request. `image_source = staff_upload`.
+3. **The customer emailed it** → same as 2: save the attachment and file it.
+
+A staff-filed photo takes the same validation, audit, retention and measurement path as a
+link upload. The one difference is consent: the customer did not tick the box, so the staff
+member asserts it and `received_by` records who did.
+
+Filing a photo consumes the customer's link for that request, so a photo staff have already
+measured cannot later be silently replaced by a late upload.
+
 ## Retention
 
 `face_scan.purge_due_images(db)` deletes photos whose `purge_after` has passed and keeps
