@@ -17,7 +17,7 @@ import json
 import os
 import sys
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -148,6 +148,19 @@ class DocumentIdentityTests(unittest.TestCase):
         a, _ = _model_for("chat_abc")
         b, _ = _model_for("chat_abc")
         self.assertEqual(export.document_id(a), export.document_id(b))
+
+    def test_re_exporting_the_same_window_later_gives_the_same_id(self):
+        # The id names the findings, not the printing. Two copies of one review
+        # taken an hour apart must be recognisable as one review — otherwise the
+        # traceability the id exists for is lost exactly when it is needed, with
+        # two pages on two desks that cannot be shown to be the same page.
+        db_a = _one_session_db()
+        db_b = _one_session_db()
+        _, first = export.export(db_a, hours=24, actor="admin@ket.ltd", now=WHEN)
+        _, later = export.export(db_b, hours=24, actor="admin@ket.ltd",
+                                 now=WHEN + timedelta(hours=1))
+        self.assertEqual(first["document_id"], later["document_id"])
+        self.assertNotEqual(first["generated_at"], later["generated_at"])
 
     def test_different_findings_give_a_different_id(self):
         a, _ = _model_for("chat_abc")

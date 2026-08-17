@@ -85,8 +85,15 @@ def _iso(when):
 
 
 def document_id(model):
-    """A stable id for these findings: sha256 of the canonical model, 16 hex."""
-    canonical = json.dumps(model, sort_keys=True, separators=(",", ":"),
+    """A stable id for these findings: sha256 of the canonical model, 16 hex.
+
+    ``generated_at`` is excluded, so re-exporting an unchanged window yields the
+    same id: the digest names *the findings*, not the moment of printing. Two
+    copies of one review on two desks must be recognisable as one review, and
+    the audit stream already records when each was taken.
+    """
+    findings = {k: v for k, v in model.items() if k != "generated_at"}
+    canonical = json.dumps(findings, sort_keys=True, separators=(",", ":"),
                            default=str)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
