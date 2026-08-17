@@ -1906,6 +1906,47 @@ def acr_ops_console():
     return render_template('acr_ops_console.html', sessions=sessions, stats=stats, hours=hours)
 
 
+@bp.route('/admin/journey/<session_id>', methods=['GET'])
+def acr_journey_timeline(session_id):
+    """ACR Gate-1 C: the read-only timeline of one AI-assisted journey.
+
+    ``?format=json`` for the data, ``?order=1`` to include the attributed order
+    reference. Same admin authority as the Ops Console, and audited the same way:
+    a timeline is operational evidence, so who read it is part of the record.
+    """
+    from flask import session
+    from .ops import _require_ops_auth
+    from . import acr_journey
+    if not _require_ops_auth():
+        _dbf = _get_db()
+        try:
+            _fwd = request.headers.get('X-Forwarded-For', '')
+            _ip = (_fwd.split(',')[0].strip() if _fwd else request.remote_addr)
+            acr.log_event(_dbf, acr.EV_OPS_CONSOLE_AUTH_FAILURE, success=False,
+                          failure_code='unauthorized', payload={'ip': _ip})
+        finally:
+            _dbf.close()
+        return jsonify({'error': 'unauthorized'}), 401
+    include_order = request.args.get('order') in ('1', 'true', 'yes')
+    db = _get_db()
+    try:
+        actor = session.get('user_email') or 'bearer_token'
+        fwd = request.headers.get('X-Forwarded-For', '')
+        client_ip = (fwd.split(',')[0].strip() if fwd else request.remote_addr)
+        acr.log_event(db, acr.EV_OPS_CONSOLE_ACCESS,
+                      payload={'actor': actor, 'ip': client_ip,
+                               'scope': {'journey': session_id,
+                                         'order_visible': include_order},
+                               'format': request.args.get('format', 'html')})
+        timeline = acr_journey.timeline(db, session_id,
+                                       include_order=include_order)
+    finally:
+        db.close()
+    if request.args.get('format') == 'json':
+        return jsonify(timeline)
+    return render_template('acr_journey.html', t=timeline)
+
+
 @bp.route('/status', methods=['GET'])
 def chat_status():
     """Check session status for a user (used by widget on load)."""
