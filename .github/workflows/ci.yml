@@ -1,0 +1,63 @@
+# The gate that stops a PR claiming green because somebody ran the tests on
+# their own box. Deliberately small: the same Python as production, the
+# dependencies the suite actually needs, a database for the tests that need one,
+# a compile pass, and the suite.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+
+    services:
+      # The ACR lifecycle tests answer questions that need a clock and real rows
+      # (is this confirmation past its window?), so a service is not decoration.
+      # They skip themselves when it is unreachable rather than fail.
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: ci_root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+
+    env:
+      OPTIWAR_TEST_MYSQL_HOST: 127.0.0.1
+      OPTIWAR_TEST_MYSQL_USER: oslb6
+      OPTIWAR_TEST_MYSQL_PASSWORD: testpw
+      OPTIWAR_TEST_MYSQL_DB: optiwar2
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Production runs 3.11 (see deploy/DEPLOYMENT.md). Testing on anything
+          # else tests a different interpreter than the one serving customers.
+          python-version: '3.11'
+
+      - name: Install test dependencies
+        # Not requirements.txt: that is a freeze of the production box, PyQt5
+        # and all, and none of it is needed to run the suite.
+        run: pip install -r requirements-test.txt
+
+      - name: Create the test database
+        env:
+          OPTIWAR_TEST_DB_ROOT_PW: ci_root
+        run: |
+          sudo apt-get update && sudo apt-get install -y mariadb-client
+          bash scripts/setup_test_db.sh
+
+      - name: Byte-compile every module
+        # Catches the syntax error that reaches production as a 500 on the first
+        # request to an unimported module, which no test would have touched.
+        run: python -m compileall -q .
+
+      - name: Unit and integration tests
+        run: python -m unittest discover -s tests -v
