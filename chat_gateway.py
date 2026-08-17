@@ -10,7 +10,8 @@ import time
 import re
 from datetime import datetime, timedelta
 
-from flask import Blueprint, request, jsonify, current_app, make_response, g, render_template
+from flask import (Blueprint, request, jsonify, current_app, make_response, g,
+                   render_template, Response)
 from itsdangerous import URLSafeSerializer, BadSignature
 from openai import OpenAI
 from . import acr
@@ -1904,6 +1905,52 @@ def acr_ops_console():
     if request.args.get('format') == 'json':
         return jsonify({'sessions': sessions, 'stats': stats, 'hours': hours})
     return render_template('acr_ops_console.html', sessions=sessions, stats=stats, hours=hours)
+
+
+@bp.route('/admin/qc-export.pdf', methods=['GET'])
+def acr_qc_export_pdf():
+    """Gate-1 B: the QC review of a window as an audited PDF (admin only).
+
+    Fails closed twice over: unauthorised requests are logged and denied, and a
+    request whose QC_EXPORT audit row cannot be written gets a 503 instead of a
+    document — see acr_qc_export for why this differs from the console.
+    """
+    from flask import session
+    from .ops import _require_ops_auth
+    from . import acr_qc_export
+    if not _require_ops_auth():
+        _dbf = _get_db()
+        try:
+            _fwd = request.headers.get('X-Forwarded-For', '')
+            _ip = (_fwd.split(',')[0].strip() if _fwd else request.remote_addr)
+            acr.log_event(_dbf, acr.EV_OPS_CONSOLE_AUTH_FAILURE, success=False,
+                          failure_code='unauthorized',
+                          payload={'ip': _ip, 'target': 'qc_export'})
+        finally:
+            _dbf.close()
+        return jsonify({'error': 'unauthorized'}), 401
+    try:
+        hours = max(1, min(int(request.args.get('hours', 24)), 720))
+    except (TypeError, ValueError):
+        hours = 24
+    actor = session.get('user_email') or 'bearer_token'
+    fwd = request.headers.get('X-Forwarded-For', '')
+    client_ip = (fwd.split(',')[0].strip() if fwd else request.remote_addr)
+    db = _get_db()
+    try:
+        pdf, meta = acr_qc_export.export(db, hours=hours, actor=actor,
+                                         ip=client_ip)
+    except acr_qc_export.AuditWriteFailed:
+        current_app.logger.error('QC export refused: audit row not written')
+        return jsonify({'error': 'export_not_audited'}), 503
+    finally:
+        db.close()
+    return Response(pdf, mimetype='application/pdf', headers={
+        'Content-Disposition': 'attachment; filename="optiwar-qc-%s-%dh.pdf"'
+                               % (meta['document_id'], hours),
+        'X-QC-Document-Id': meta['document_id'],
+        'Cache-Control': 'no-store',
+    })
 
 
 @bp.route('/status', methods=['GET'])
