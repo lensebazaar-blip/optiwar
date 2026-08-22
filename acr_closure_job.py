@@ -201,9 +201,21 @@ def main():
             _log("commerce: %d attributable; %s %d [%.1f ms]" % (
                 len(r3["candidates"]), verb, len(r3["attributed"]), dt3))
             for c in r3["attributed"]:
-                _log("  session %s -> PURCHASED order=%s (%s, %dh window)" % (
-                    c["session_id"], c["order_id"], c["attribution_type"],
-                    c["attribution_window_hours"]))
+                # The two numbers are measured from different points and the
+                # production dry run showed why saying so matters: an order
+                # +163887s after the session *started* read as a contradiction
+                # of the 24h ceiling, which is measured from last activity.
+                _log("  session %s -> PURCHASED order=%s (%s, ordered +%ss "
+                     "after session start, within %dh of last activity)" % (
+                         c["session_id"], c["order_id"], c["attribution_type"],
+                         c.get("attribution_delta_seconds"),
+                         c["attribution_window_hours"]))
+            # An order the query offered to a second session is the rule and the
+            # unique key disagreeing, which is worth a warning rather than a
+            # silent skip: it is how double-counted revenue would begin.
+            for c in r3.get("already_claimed") or []:
+                _log("  WARNING order %s already attributed to another session; "
+                     "session %s not credited" % (c["order_id"], c["session_id"]))
             _log_deferrals(r3, "commerce")
             for c in r3.get("event_failed") or []:
                 _log("  WARNING session %s claimed but COMMERCE_OUTCOME event "
