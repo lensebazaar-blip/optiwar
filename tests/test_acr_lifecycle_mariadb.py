@@ -55,6 +55,23 @@ def _connect():
                            autocommit=True, connect_timeout=5, **DB_CONF)
 
 
+# acr_qc reads the transcript for its content-derived signals, and CI's database
+# is empty, so the table has to be created rather than assumed. Only the columns
+# the QC query selects and orders by are declared: a test fixture that mirrors
+# the whole storefront schema is a second schema to keep in step.
+CHAT_MESSAGES_DDL = """CREATE TABLE IF NOT EXISTS chat_messages (
+    id         BIGINT AUTO_INCREMENT PRIMARY KEY,
+    session_id VARCHAR(64) NULL,
+    source     VARCHAR(24) NULL,
+    role       VARCHAR(24) NULL,
+    content    MEDIUMTEXT NULL,
+    status     VARCHAR(24) NULL,
+    metadata   TEXT NULL,
+    created_at DATETIME NULL,
+    KEY idx_session (session_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci"""
+
+
 def _available():
     try:
         _connect().close()
@@ -73,6 +90,7 @@ class ActionLifecycleOnRealMySQLTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.db = _connect()
+        cls.db.cursor().execute(CHAT_MESSAGES_DDL)
         # The schema creation path itself is worth exercising: it runs at boot on
         # a live node, and CREATE TABLE IF NOT EXISTS / index guards are exactly
         # the statements a fake cursor cannot validate.
