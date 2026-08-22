@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>ACR — AI Journey Timeline</title>
+  <style>
+    :root{--bg:#0f172a;--card:#1e293b;--line:#334155;--txt:#e2e8f0;--muted:#94a3b8;
+          --ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;--accent:#38bdf8}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+         background:var(--bg);color:var(--txt);font-size:14px}
+    header{padding:16px 24px;border-bottom:1px solid var(--line);display:flex;
+           align-items:baseline;gap:16px;flex-wrap:wrap}
+    header h1{font-size:18px;margin:0}
+    header .sub{color:var(--muted);font-size:12px}
+    header .ro{margin-left:auto;font-size:11px;color:var(--muted);
+               border:1px solid var(--line);padding:3px 8px;border-radius:12px}
+    .wrap{padding:0 24px 40px}
+    .facts{display:flex;flex-wrap:wrap;gap:12px;padding:16px 0}
+    .fact{background:var(--card);border:1px solid var(--line);border-radius:10px;
+          padding:10px 14px;min-width:130px}
+    .fact .n{font-size:16px;font-weight:600;overflow-wrap:anywhere}
+    .fact .l{color:var(--muted);font-size:11px;text-transform:uppercase;
+             letter-spacing:.04em}
+    .pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;
+          border:1px solid var(--line);white-space:nowrap}
+    .pill.ok{color:var(--ok);border-color:var(--ok)}
+    .pill.bad{color:var(--bad);border-color:var(--bad)}
+    .pill.warn{color:var(--warn);border-color:var(--warn)}
+    ol.tl{list-style:none;margin:0;padding:0;border-left:2px solid var(--line);
+          margin-left:8px}
+    ol.tl li{position:relative;padding:12px 0 12px 22px}
+    ol.tl li::before{content:"";position:absolute;left:-7px;top:18px;width:10px;
+                     height:10px;border-radius:50%;background:var(--accent)}
+    ol.tl li.fail::before{background:var(--bad)}
+    .step-head{display:flex;gap:10px;flex-wrap:wrap;align-items:baseline}
+    .step-head .et{font-weight:600}
+    .meta{color:var(--muted);font-size:12px;margin-top:4px;overflow-wrap:anywhere}
+    code{font-size:11px;color:var(--accent)}
+    table{width:100%;border-collapse:collapse;margin:8px 0 24px}
+    th,td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--line);
+          vertical-align:top;overflow-wrap:anywhere}
+    th{color:var(--muted);font-size:11px;text-transform:uppercase;
+       letter-spacing:.04em}
+    .muted{color:var(--muted)}
+    h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;
+       color:var(--muted);margin:24px 0 4px}
+  </style>
+</head>
+<body>
+<header>
+  <h1>AI Journey Timeline</h1>
+  <span class="sub">session <code>{{ t.session_id }}</code></span>
+  <span class="ro">read-only</span>
+</header>
+
+<div class="wrap">
+  {% if not t.reviewable %}
+    <p class="pill warn">No canonical events for this session — nothing to show.
+      A session recorded before instrumentation is not a journey in which nothing
+      happened.</p>
+  {% endif %}
+
+  <div class="facts">
+    <div class="fact"><div class="l">Site</div>
+      <div class="n">{{ t.summary.sites|join(', ') or '—' }}</div></div>
+    <div class="fact"><div class="l">Customer</div>
+      <div class="n">{{ 'authenticated' if t.session and t.session.authenticated
+                        else 'guest' }}</div></div>
+    <div class="fact"><div class="l">Session status</div>
+      <div class="n">{{ t.session.status if t.session else '—' }}</div></div>
+    <div class="fact"><div class="l">Steps</div>
+      <div class="n">{{ t.summary.steps }}</div></div>
+    <div class="fact"><div class="l">Failures</div>
+      <div class="n">{{ t.summary.failures|length }}{% if t.summary.failures and
+        t.summary.recovered %} <span class="pill ok">recovered</span>{% endif %}</div></div>
+    <div class="fact"><div class="l">Models</div>
+      <div class="n">{{ t.summary.models|join(', ') or '—' }}</div></div>
+  </div>
+
+  <h2>Stages reached</h2>
+  <p>{% for s in t.summary.stages %}<span class="pill">{{ s }}</span> {% endfor %}
+     {% if not t.summary.stages %}<span class="muted">—</span>{% endif %}</p>
+
+  <h2>Commerce attribution</h2>
+  {% if t.attribution and t.attribution.known %}
+    <p><span class="pill ok">attributed</span>
+      {{ t.attribution.attribution_type }},
+      +{{ t.attribution.attribution_delta_seconds }}s after session start,
+      {{ t.attribution.attribution_window_hours }}h eligibility ceiling
+      {% if t.attribution.order_visible %}
+        — order <code>{{ t.attribution.order_id }}</code>
+      {% else %}
+        — <span class="muted">order reference withheld</span>
+      {% endif %}
+    </p>
+  {% elif t.attribution and not t.attribution.known %}
+    <p class="pill warn">attribution ledger unreadable — not the same as
+      unattributed</p>
+  {% else %}
+    <p class="muted">unattributed</p>
+  {% endif %}
+
+  <h2>Timeline</h2>
+  <ol class="tl">
+    {% for s in t.steps %}
+      <li class="{{ 'fail' if s.failure else '' }}">
+        <div class="step-head">
+          <span class="muted">{{ s.at }}</span>
+          <span class="pill">{{ s.canonical_stage }}</span>
+          <span class="et">{{ s.event_type }}</span>
+          {% if s.failure %}<span class="pill bad">{{ s.failure_code or 'failure' }}</span>{% endif %}
+          {% if s.site %}<span class="pill">{{ s.site }}</span>{% endif %}
+        </div>
+        <div class="meta">
+          {% if s.action_id %}action <code>{{ s.action_id }}</code>{% endif %}
+          {% if s.action_type %} · {{ s.action_type }}{% endif %}
+          {% if s.model %} · {{ s.provider }}/{{ s.model }}{% endif %}
+          {% if s.workload %} · {{ s.workload }}{% endif %}
+          {% if s.duration_ms %} · {{ s.duration_ms }}ms{% endif %}
+          {% if s.url %}<br>{{ s.url }}{% endif %}
+          {% if s.detail %}<br>{% for k, v in s.detail.items() %}{{ k }}={{ v }}
+            {% endfor %}{% endif %}
+          {% if s.omitted %}<br><span class="muted">not shown:
+            {{ s.omitted|join(', ') }}</span>{% endif %}
+          <br><span class="muted">event <code>{{ s.event_id }}</code>{% if s.request_id %}
+            · request <code>{{ s.request_id }}</code>{% endif %}</span>
+        </div>
+      </li>
+    {% endfor %}
+  </ol>
+
+  <h2>Actions</h2>
+  <table>
+    <tr><th>action</th><th>type</th><th>status</th><th>created</th>
+        <th>confirmed</th><th>offer expires</th></tr>
+    {% for a in t.actions %}
+      <tr><td><code>{{ a.action_id }}</code></td><td>{{ a.action_type }}</td>
+          <td><span class="pill {{ 'ok' if a.status == 'EXECUTED' else
+                                   ('bad' if a.status in ('FAILED','EXPIRED')
+                                    else 'warn') }}">{{ a.status }}</span></td>
+          <td>{{ a.created_at }}</td><td>{{ a.resolved_at or '—' }}</td>
+          <td>{{ a.expires_at or '—' }}</td></tr>
+    {% endfor %}
+    {% if not t.actions %}<tr><td colspan="6" class="muted">no actions</td></tr>{% endif %}
+  </table>
+
+  <p class="muted">Canonical <code>ai_events</code> / <code>ai_actions</code>,
+    ordered by <code>(created_at, event_id)</code>. No message text, prompts or
+    model reasoning are read; payload fields outside the allow-list are named,
+    not shown.</p>
+</div>
+</body>
+</html>

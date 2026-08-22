@@ -73,7 +73,8 @@
           <td>
             <div>{{ s.contact_name or '—' }}</div>
             <div class="muted">{{ s.contact_email or '' }}</div>
-            <div class="muted"><code>{{ s.session_id }}</code></div>
+            <div class="muted"><a href="{{ url_for('chat_gateway.acr_journey_timeline',
+              session_id=s.session_id) }}"><code>{{ s.session_id }}</code></a></div>
           </td>
           <td><span class="pill {{ s.status }}">{{ s.status }}</span></td>
           <td class="muted">{{ s.current_page_url or '—' }}</td>
