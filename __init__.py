@@ -384,6 +384,18 @@ def create_app(test_config=None):
 
     from . import ai_api
     app.register_blueprint(ai_api.bp)
+
+    from . import face_scan
+    app.register_blueprint(face_scan.bp)
+    app.config.setdefault('FACE_SCAN_TOKEN_HOURS',
+                          os.environ.get('FACE_SCAN_TOKEN_HOURS', 72))
+    app.config.setdefault('FACE_SCAN_RETENTION_DAYS',
+                          os.environ.get('FACE_SCAN_RETENTION_DAYS', 90))
+    # Template-only sending: unset means the link is created but not messaged.
+    app.config.setdefault('FACE_SCAN_WA_TEMPLATE',
+                          os.environ.get('FACE_SCAN_WA_TEMPLATE', ''))
+    app.config.setdefault('FACE_SCAN_LINK_BASE',
+                          os.environ.get('FACE_SCAN_LINK_BASE', ''))
     # Register custom chat gateway blueprint
     app.register_blueprint(chat_gateway_bp)
     init_chat_gateway(app)

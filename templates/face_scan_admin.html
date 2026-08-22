@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Face scans — Optiwar admin</title>
+<style>
+  body { margin:0; font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         color:#1b2733; background:#f6f8fa; }
+  .wrap { max-width:1080px; margin:0 auto; padding:20px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .muted { color:#667; }
+  table { width:100%; border-collapse:collapse; background:#fff; border:1px solid #e3e8ee;
+          border-radius:10px; overflow:hidden; margin-top:14px; }
+  th, td { text-align:left; padding:9px 11px; border-bottom:1px solid #eef2f6; vertical-align:top; }
+  th { background:#f1f4f8; font-size:12px; text-transform:uppercase; letter-spacing:.03em; color:#556; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:600; }
+  .REQUESTED, .SENT { background:#e7f0fb; color:#14539a; }
+  .SEND_FAILED, .CANCELLED { background:#fdecea; color:#b3261e; }
+  .UPLOADED { background:#fff4d6; color:#8a5a00; }
+  .MEASURED { background:#e6f6ec; color:#0b7a3b; }
+  form.new { background:#fff; border:1px solid #e3e8ee; border-radius:10px; padding:14px; margin-top:14px;
+             display:flex; gap:10px; flex-wrap:wrap; align-items:end; }
+  input[type=text] { padding:8px 10px; border:1px solid #ccd4dd; border-radius:8px; }
+  button { padding:9px 14px; border:0; border-radius:8px; background:#1b2733; color:#fff; font-weight:600; }
+  code { font-size:12px; }
+  #out { margin-top:10px; font-size:13px; word-break:break-all; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Face scan requests</h1>
+  <div class="muted">A photo is requested by link, measured by a person, and deleted when its retention
+    period ends. Nothing here infers a measurement.</div>
+
+  <form class="new" id="new">
+    <div><div class="muted">Name</div><input type="text" name="name" placeholder="Customer name"></div>
+    <div><div class="muted">Phone (with country code)</div><input type="text" name="phone" placeholder="9198…" required></div>
+    <div><div class="muted">Customer id (optional)</div><input type="text" name="customer_id" placeholder="e.g. 10432"></div>
+    <button type="submit">Create link</button>
+    <div id="out" class="muted"></div>
+  </form>
+
+  <form class="new" id="recv" enctype="multipart/form-data">
+    <div style="flex:1 1 100%"><b>Photo already received?</b>
+      <span class="muted">If the customer sent it on WhatsApp or by mail, file it here —
+        it goes through the same validation, audit and retention as a link upload.</span></div>
+    <div><div class="muted">Name</div><input type="text" name="name" placeholder="Customer name"></div>
+    <div><div class="muted">Phone</div><input type="text" name="phone" placeholder="9198…"></div>
+    <div><div class="muted">Customer id (optional)</div><input type="text" name="customer_id"></div>
+    <div><div class="muted">Photo</div><input type="file" name="photo" accept="image/*" required></div>
+    <label class="muted" style="flex:1 1 100%">
+      <input type="checkbox" name="consent_confirmed" value="1" required>
+      The customer sent us this photo for measurement, and I am recording that consent.
+    </label>
+    <button type="submit">File photo</button>
+    <div id="rout" class="muted"></div>
+  </form>
+
+  <table>
+    <tr>
+      <th>Customer</th><th>Status</th><th>Requested</th><th>Photo</th>
+      <th>Measurements</th><th>Measured by</th><th>Source</th>
+    </tr>
+    {% for r in rows %}
+    <tr>
+      <td>
+        <div><a href="{{ url_for('face_scan.admin_detail', request_id=r.request_id) }}">{{ r.contact_name or '—' }}</a></div>
+        <div class="muted">{{ r.contact_phone or '' }}{% if r.customer_id %} · #{{ r.customer_id }}{% endif %}</div>
+      </td>
+      <td>
+        <span class="pill {{ r.status }}">{{ r.status }}</span>
+        {% if r.send_error %}<div class="muted">{{ r.send_error }}</div>{% endif %}
+      </td>
+      <td class="muted">{{ r.created_at }}<div>expires {{ r.expires_at }}</div></td>
+      <td class="muted">
+        {% if r.purged_at %}deleted {{ r.purged_at }}
+        {% elif r.uploaded_at %}{{ r.uploaded_at }}
+        {% else %}—{% endif %}
+      </td>
+      <td>
+        {% if r.pd_mm %}PD {{ r.pd_mm }}mm · width {{ r.face_width_mm }}mm{% else %}<span class="muted">—</span>{% endif %}
+      </td>
+      <td class="muted">{{ r.measured_by or '—' }}{% if r.measured_at %}<div>{{ r.measured_at }}</div>{% endif %}</td>
+      <td class="muted">{{ r.image_source or '—' }}{% if r.received_by %}<div>{{ r.received_by }}</div>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+<script>
+document.getElementById('new').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var out = document.getElementById('out');
+  out.textContent = 'Creating…';
+  fetch("{{ url_for('face_scan.admin_create') }}", { method: 'POST', body: new FormData(e.target) })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d.error) { out.textContent = d.error; return; }
+      // The link is shown whatever the send did: an unapproved template must not
+      // stop staff getting the customer their link by another route.
+      out.innerHTML = 'WhatsApp: <b>' + d.whatsapp + '</b>'
+        + (d.whatsapp_error ? ' (' + d.whatsapp_error + ')' : '')
+        + '<br>Link: <code>' + d.link + '</code>';
+    })
+    .catch(function () { out.textContent = 'Request failed.'; });
+});
+
+document.getElementById('recv').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var out = document.getElementById('rout');
+  out.textContent = 'Filing…';
+  fetch("{{ url_for('face_scan.admin_receive') }}", { method: 'POST', body: new FormData(e.target) })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d.success) { window.location = d.next; return; }
+      out.textContent = d.error === 'consent_not_confirmed'
+        ? 'Please confirm the customer sent the photo for this purpose.' : d.error;
+    })
+    .catch(function () { out.textContent = 'Request failed.'; });
+});
+</script>
+</body>
+</html>

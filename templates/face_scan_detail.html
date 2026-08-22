@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Face scan {{ r.contact_name or r.request_id[:8] }} — Optiwar admin</title>
+<style>
+  body { margin:0; font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         color:#1b2733; background:#f6f8fa; }
+  .wrap { max-width:1080px; margin:0 auto; padding:20px; }
+  h1 { font-size:20px; margin:0 0 2px; }
+  .muted { color:#667; }
+  .cols { display:flex; gap:18px; flex-wrap:wrap; margin-top:16px; }
+  .card { background:#fff; border:1px solid #e3e8ee; border-radius:10px; padding:16px; }
+  .photo { flex:1 1 460px; text-align:center; }
+  .photo img { max-width:100%; border-radius:8px; }
+  .panel { flex:0 1 320px; }
+  label { display:block; margin:12px 0 4px; font-weight:600; }
+  input[type=text], textarea { width:100%; padding:9px 10px; border:1px solid #ccd4dd; border-radius:8px;
+                               box-sizing:border-box; }
+  .check { display:flex; gap:9px; margin:14px 0; font-size:13.5px; }
+  button { width:100%; padding:12px; border:0; border-radius:8px; background:#1b2733; color:#fff;
+           font-weight:600; font-size:15px; }
+  #out { margin-top:12px; font-weight:600; }
+  dl { margin:0; display:grid; grid-template-columns:auto 1fr; gap:4px 12px; font-size:13px; }
+  dt { color:#667; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>{{ r.contact_name or 'Customer' }} <span class="muted">· {{ r.status }}</span></h1>
+  <div class="muted">{{ r.contact_phone or '' }}{% if r.customer_id %} · customer #{{ r.customer_id }}{% endif %}
+    · <a href="{{ url_for('face_scan.admin_list') }}">all requests</a></div>
+
+  <div class="cols">
+    <div class="card photo">
+      {% if r.purged_at %}
+        <p class="muted">The photo was deleted on {{ r.purged_at }} under the retention policy.
+          {% if r.pd_mm %}The measurements read from it remain below.{% endif %}</p>
+      {% elif r.image_path %}
+        <img src="{{ url_for('face_scan.admin_image', request_id=r.request_id) }}"
+             alt="Customer face photo with scale reference">
+        <div class="muted">{{ r.image_bytes }} bytes · sha256 {{ r.image_sha256[:16] }}…
+          · uploaded {{ r.uploaded_at }}
+          {% if r.image_source == 'staff_upload' %}· filed by {{ r.received_by }}
+          {% else %}· sent by the customer{% endif %}</div>
+      {% else %}
+        <p class="muted">No photo yet. The link{% if r.sent_at %} was sent {{ r.sent_at }} and{% endif %}
+          expires {{ r.expires_at }}.</p>
+        <form id="attach" enctype="multipart/form-data" style="text-align:left">
+          <label>Already have the photo? File it here
+            <input type="file" name="photo" accept="image/*" required></label>
+          <div class="check">
+            <input type="checkbox" name="consent_confirmed" id="cc" value="1" required>
+            <label for="cc" style="font-weight:400;margin:0">The customer sent us this photo for
+              measurement, and I am recording that consent.</label>
+          </div>
+          <button type="submit">Attach photo</button>
+          <div id="aout"></div>
+        </form>
+      {% endif %}
+    </div>
+
+    <div class="card panel">
+      {% if r.pd_mm %}
+        <div><b>PD {{ r.pd_mm }}mm · face width {{ r.face_width_mm }}mm</b></div>
+        <div class="muted">read by {{ r.measured_by }} on {{ r.measured_at }}</div>
+        {% if r.measurement_note %}<div class="muted">{{ r.measurement_note }}</div>{% endif %}
+        <hr>
+      {% endif %}
+
+      {% if r.image_path and not r.purged_at %}
+      <form id="m">
+        <label>Face width (mm)
+          <input type="text" name="face_width_mm" inputmode="decimal"
+                 placeholder="{{ width_range[0]|int }}–{{ width_range[1]|int }}" required></label>
+        <label>Pupillary distance (mm)
+          <input type="text" name="pd_mm" inputmode="decimal"
+                 placeholder="{{ pd_range[0]|int }}–{{ pd_range[1]|int }}" required></label>
+        <label>Note (optional)
+          <textarea name="note" rows="2" placeholder="e.g. card slightly angled, measured twice"></textarea></label>
+        <div class="check">
+          <input type="checkbox" name="scale_confirmed" id="sc" value="1" required>
+          <label for="sc" style="font-weight:400;margin:0">I measured against the card in the photo,
+            not by eye.</label>
+        </div>
+        <button type="submit">{% if r.pd_mm %}Replace measurements{% else %}Save measurements{% endif %}</button>
+        <div id="out"></div>
+      </form>
+      {% endif %}
+
+      <hr>
+      <dl>
+        <dt>Request</dt><dd><code>{{ r.request_id }}</code></dd>
+        <dt>Created</dt><dd>{{ r.created_at }} by {{ r.created_by or '—' }}</dd>
+        <dt>Consent</dt><dd>{{ r.consent_at or 'not given' }}
+          {% if r.image_source == 'staff_upload' %}(recorded by {{ r.received_by }}){% endif %}</dd>
+        <dt>Source</dt><dd>{{ r.image_source or '—' }}</dd>
+        <dt>Attempts</dt><dd>{{ r.upload_attempts }}</dd>
+        <dt>Delete after</dt><dd>{{ r.purge_after or '—' }}</dd>
+        {% if r.msg91_request_id %}<dt>MSG91</dt><dd>{{ r.msg91_request_id }}</dd>{% endif %}
+        {% if r.send_error %}<dt>Send error</dt><dd>{{ r.send_error }}</dd>{% endif %}
+      </dl>
+    </div>
+  </div>
+</div>
+{% if not r.image_path and not r.purged_at %}
+<script>
+document.getElementById('attach').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var out = document.getElementById('aout');
+  out.textContent = 'Uploading…';
+  fetch("{{ url_for('face_scan.admin_upload', request_id=r.request_id) }}",
+        { method: 'POST', body: new FormData(e.target) })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d.success) { window.location.reload(); return; }
+      out.style.color = '#b3261e';
+      out.textContent = d.error === 'consent_not_confirmed'
+        ? 'Please confirm the customer sent the photo for this purpose.' : d.error;
+    })
+    .catch(function () { out.style.color = '#b3261e'; out.textContent = 'Request failed.'; });
+});
+</script>
+{% endif %}
+{% if r.image_path and not r.purged_at %}
+<script>
+document.getElementById('m').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var out = document.getElementById('out');
+  out.textContent = 'Saving…'; out.style.color = '#667';
+  fetch("{{ url_for('face_scan.admin_measure', request_id=r.request_id) }}",
+        { method: 'POST', body: new FormData(e.target) })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d.success) {
+        out.style.color = '#0b7a3b';
+        out.textContent = 'Saved: PD ' + d.pd_mm + 'mm, face width ' + d.face_width_mm + 'mm.';
+      } else {
+        out.style.color = '#b3261e';
+        out.textContent = d.error === 'scale_reference_not_confirmed'
+          ? 'Please confirm you measured against the card.' : d.error;
+      }
+    })
+    .catch(function () { out.style.color = '#b3261e'; out.textContent = 'Request failed.'; });
+});
+</script>
+{% endif %}
+</body>
+</html>

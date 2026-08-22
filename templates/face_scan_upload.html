@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Send us your photo — Optiwar</title>
+<style>
+  :root { --ink:#1b2733; --muted:#667; --line:#e3e8ee; --ok:#0b7a3b; --bad:#b3261e; }
+  body { margin:0; font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         color:var(--ink); background:#f6f8fa; }
+  .wrap { max-width:520px; margin:0 auto; padding:22px 18px 48px; }
+  h1 { font-size:22px; margin:8px 0 4px; }
+  p.lead { color:var(--muted); margin:0 0 18px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:18px; margin-bottom:16px; }
+  ol { padding-left:20px; margin:0; }
+  ol li { margin-bottom:10px; }
+  .why { background:#fffbe6; border:1px solid #f3e2a9; border-radius:10px; padding:12px 14px;
+         font-size:14.5px; margin:14px 0 0; }
+  label.consent { display:flex; gap:10px; align-items:flex-start; font-size:14.5px; margin:14px 0; }
+  input[type=file] { width:100%; padding:12px; border:1px dashed #c3ccd6; border-radius:10px; background:#fafcfe; }
+  button { width:100%; padding:14px; font-size:17px; font-weight:600; color:#fff; background:#1b2733;
+           border:0; border-radius:10px; margin-top:14px; }
+  button[disabled] { background:#9aa5b1; }
+  .msg { margin-top:14px; font-weight:600; }
+  .msg.ok { color:var(--ok); } .msg.bad { color:var(--bad); }
+  .fine { color:var(--muted); font-size:13px; margin-top:18px; }
+  .closed { text-align:center; padding:26px 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+{% if state %}
+  <div class="card closed">
+    <h1>This link is no longer usable</h1>
+    <p class="lead">
+      {% if state == 'used' %}We already have your photo — thank you. Our team will confirm your measurements.
+      {% elif state == 'expired' %}The link has expired.
+      {% elif state == 'cancelled' %}This request was cancelled.
+      {% elif state == 'too_many_attempts' %}Too many attempts were made on this link.
+      {% else %}We could not find this request.{% endif %}
+    </p>
+    <p class="fine">If you still need to send a photo, reply to our WhatsApp message and we will send you a fresh link.</p>
+  </div>
+{% else %}
+  <h1>Hello{% if name %} {{ name }}{% endif %} — one photo, and we can size your frames</h1>
+  <p class="lead">It takes about a minute. Please read step 2: without it we cannot work out your measurements.</p>
+
+  <div class="card">
+    <ol>
+      <li>Face the camera straight on, in good light, with your eyes open and hair off your face.</li>
+      <li><strong>Hold a bank or credit card flat under your eyes</strong>, against your cheeks, numbers facing the camera.</li>
+      <li>Hold the phone at arm's length, at eye level, and take the photo.</li>
+    </ol>
+    <p class="why"><strong>Why the card?</strong> Every bank card is exactly the same size worldwide, so it
+      tells us the real scale of the photo. Without something of known size in the picture, a photo cannot
+      give millimetres — and a guessed measurement means glasses that do not sit correctly.</p>
+  </div>
+
+  <form class="card" id="f">
+    <input type="file" name="photo" id="photo" accept="image/*" capture="user" required>
+    <label class="consent">
+      <input type="checkbox" name="consent" id="consent" value="1" required>
+      <span>I agree to Optiwar storing this photo so your team can measure my face for spectacles.
+        I understand it is kept for up to {{ retention_days }} days and then deleted.</span>
+    </label>
+    <button type="submit" id="go">Send photo</button>
+    <div class="msg" id="msg"></div>
+  </form>
+
+  <p class="fine">The photo is used only to measure your pupillary distance and face width for your order.
+    It is stored securely, is not published anywhere, and is deleted after {{ retention_days }} days.</p>
+{% endif %}
+
+</div>
+{% if not state %}
+<script>
+document.getElementById('f').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var msg = document.getElementById('msg'), go = document.getElementById('go');
+  var file = document.getElementById('photo').files[0];
+  if (!file) { msg.className = 'msg bad'; msg.textContent = 'Please choose a photo first.'; return; }
+  var body = new FormData();
+  body.append('photo', file);
+  body.append('consent', document.getElementById('consent').checked ? '1' : '0');
+  go.disabled = true; msg.className = 'msg'; msg.textContent = 'Sending your photo…';
+  fetch(window.location.pathname, { method: 'POST', body: body })
+    .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+    .then(function (res) {
+      if (res.ok && res.d.success) {
+        msg.className = 'msg ok';
+        msg.textContent = res.d.message;
+        document.getElementById('photo').disabled = true;
+        return;                       // link is spent: no second submit
+      }
+      msg.className = 'msg bad';
+      msg.textContent = res.d.error === 'consent_required'
+        ? 'Please tick the box so we may store your photo.'
+        : (res.d.error || 'Something went wrong. Please try again.');
+      go.disabled = false;
+    })
+    .catch(function () {
+      msg.className = 'msg bad';
+      msg.textContent = 'Your photo did not reach us. Please check your connection and try again.';
+      go.disabled = false;
+    });
+});
+</script>
+{% endif %}
+</body>
+</html>
