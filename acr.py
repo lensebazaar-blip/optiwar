@@ -236,6 +236,10 @@ EV_COMMERCE_OUTCOME = "COMMERCE_OUTCOME"
 EV_OUTCOME_DEFERRED = "OUTCOME_DEFERRED"
 EV_OPS_CONSOLE_ACCESS = "OPS_CONSOLE_ACCESS"
 EV_OPS_CONSOLE_AUTH_FAILURE = "OPS_CONSOLE_AUTH_FAILURE"
+# A QC review left the platform as a document. Unlike console access this is
+# recorded before the document exists, and the export is refused if the record
+# fails: paper outlives the session that produced it.
+EV_QC_EXPORT = "QC_EXPORT"
 
 # Journey stages (coarse, safe to store).
 STAGE_LANDING = "LANDING"
