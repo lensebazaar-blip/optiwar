@@ -61,6 +61,13 @@ _NAV_OFFER_TARGET_RE = re.compile(
 )
 
 PENDING_TTL_SECONDS = 1800  # 30 min
+
+# How long a confirmed action may take to report arrival before it counts as
+# stranded, measured from the confirmation. Lives here rather than in acr_qc
+# because both the read side (QC) and the write side (superseding a confirmed
+# action) have to answer "is this still in flight?" the same way.
+EXECUTION_TTL_SECONDS = 120
+
 FRAMES_LISTING_FALLBACK = "/eyeglasses/all-spectacle-frames.html"
 
 # ─── Step 5: closure/sweeper constants ───
@@ -229,6 +236,10 @@ EV_COMMERCE_OUTCOME = "COMMERCE_OUTCOME"
 EV_OUTCOME_DEFERRED = "OUTCOME_DEFERRED"
 EV_OPS_CONSOLE_ACCESS = "OPS_CONSOLE_ACCESS"
 EV_OPS_CONSOLE_AUTH_FAILURE = "OPS_CONSOLE_AUTH_FAILURE"
+# A QC review left the platform as a document. Unlike console access this is
+# recorded before the document exists, and the export is refused if the record
+# fails: paper outlives the session that produced it.
+EV_QC_EXPORT = "QC_EXPORT"
 
 # Journey stages (coarse, safe to store).
 STAGE_LANDING = "LANDING"
@@ -537,25 +548,65 @@ def log_event(db, event_type, session_id=None, action_id=None, journey_stage=Non
 
 def create_pending_action(db, session_id, action_type, target, source_message_id=None,
                           ttl_seconds=PENDING_TTL_SECONDS):
-    """Persist a pending action, superseding any earlier live one of the same
-    type for the session so a later confirmation resolves the latest offer.
+    """Persist a pending action, replacing any earlier live one of the same type
+    for the session so a later confirmation resolves the latest offer.
+
+    What happens to the earlier action depends on what the customer did with it:
+
+    ==========================  ==================================================
+    earlier action              becomes
+    ==========================  ==================================================
+    ``PENDING``                 ``SUPERSEDED``, silently: nobody answered the offer
+    ``CONFIRMED``, past window  ``EXPIRED`` + ``ACTION_EXPIRED`` evidence
+    ``CONFIRMED``, in window    left alone, for the closure sweep to adjudicate
+    ==========================  ==================================================
 
     Best-effort: if the additive tables are missing (schema creation is itself
     best-effort at boot) this returns None instead of raising into the chat
     reply path, so action bookkeeping can never break a customer conversation."""
+    stranded = []
     try:
         cur = db.cursor()
+        # An offer nobody answered is ordinary conversation: replace it silently.
+        # A *confirmed* action is a different fact and is handled below, because
+        # SUPERSEDED cannot express "the customer said yes and nothing happened"
+        # and the row is unreachable afterwards.
         cur.execute(
-            # CONFIRMED counts as live. A confirmed action whose browser result
-            # never arrived is not finished, and leaving it out of the supersede
-            # means a new offer strands it at CONFIRMED with no terminal state
-            # for any sweep to reach.
             """UPDATE ai_actions SET status='SUPERSEDED', resolved_at=NOW()
-               WHERE session_id=%s AND action_type=%s
-                 AND status IN ('PENDING','CONFIRMED')""",
+               WHERE session_id=%s AND action_type=%s AND status='PENDING'""",
             (session_id, action_type),
         )
+        # Read the confirmations past their execution window before touching them.
+        cur.execute(
+            """SELECT action_id FROM ai_actions
+               WHERE session_id=%s AND action_type=%s AND status='CONFIRMED'
+                 AND resolved_at IS NOT NULL
+                 AND resolved_at < DATE_SUB(NOW(), INTERVAL %s SECOND)""",
+            (session_id, action_type, EXECUTION_TTL_SECONDS),
+        )
+        for row in (cur.fetchall() or ()):
+            stranded.append(row['action_id'] if isinstance(row, dict) else row[0])
         action_id = uuid.uuid4().hex
+        # Terminal state and evidence together, and before the replacement row
+        # exists: if the insert fails the defect must still be on the record.
+        # EXPIRED rather than SUPERSEDED because this is the same fact the
+        # closure sweep records, and one fact should not have two names.
+        for old in stranded:
+            cur.execute(
+                """UPDATE ai_actions SET status='EXPIRED', resolved_at=NOW()
+                   WHERE action_id=%s AND status='CONFIRMED'""",
+                (old,),
+            )
+            log_event(db, EV_ACTION_EXPIRED, session_id=session_id, action_id=old,
+                      action_type=action_type, journey_stage=STAGE_NAVIGATION,
+                      success=False, failure_code='confirmed_never_executed',
+                      payload={'from_status': 'CONFIRMED', 'reason': 'superseded',
+                               'superseded_by': action_id})
+        # A confirmation still inside its execution window is deliberately left
+        # CONFIRMED. The browser may yet report arrival, and if it does not the
+        # closure sweep adjudicates it at the offer's deadline. Superseding it
+        # here would destroy the only row that can answer the question later:
+        # "still in flight" must mean *decide later*, not *written off*.
         cur.execute(
             """INSERT INTO ai_actions
                   (action_id, session_id, action_type, target, status,

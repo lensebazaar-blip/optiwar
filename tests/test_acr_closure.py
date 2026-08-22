@@ -356,12 +356,16 @@ class ConfirmedNeverExecutedTests(unittest.TestCase):
         self.assertEqual(db.expired_ids, [])
         self.assertEqual(db.events, [])
 
-    def test_a_new_offer_supersedes_a_stranded_confirmation(self):
+    def test_a_new_offer_leaves_a_live_confirmation_for_this_sweep(self):
+        # A new offer must not put a confirmation the customer accepted beyond
+        # this sweep's reach. It only ever ends the ones already past their
+        # execution window, and those end as EXPIRED with the same failure_code
+        # the sweep writes, so the two paths cannot disagree about one action.
         db = FakeDB()
         acr.create_pending_action(db, "s1", "NAVIGATE", "/frames")
         supersede = [sql for sql, _ in db.executed if "SUPERSEDED" in sql][0]
-        self.assertIn("status IN ('PENDING','CONFIRMED')",
-                      " ".join(supersede.split()))
+        self.assertIn("status='PENDING'", " ".join(supersede.split()))
+        self.assertNotIn("CONFIRMED", supersede)
 
 
 class FinalizeOutcomeTests(unittest.TestCase):
