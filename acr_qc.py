@@ -88,7 +88,19 @@ MAX_REFUSAL_WORDS = 12
 # the offer's deadline, so a customer who accepts one second before it lapses
 # would otherwise get a one-second grace while one who accepts immediately gets
 # the full offer TTL. The browser reports arrival in seconds.
-EXECUTION_TTL_SECONDS = 120
+#
+# Defined in `acr` because the write side needs the same window: two different
+# answers to "is this confirmation still in flight?" would let a journey be
+# stranded by one and healthy by the other.
+EXECUTION_TTL_SECONDS = acr.EXECUTION_TTL_SECONDS
+
+# The one definition of "this confirmation is past its window", as SQL, so a
+# second consumer of ai_actions cannot answer it differently. Takes
+# EXECUTION_TTL_SECONDS as its single parameter.
+OVERDUE_SQL = """(CASE WHEN status='CONFIRMED' AND resolved_at IS NOT NULL
+                       THEN resolved_at < DATE_SUB(NOW(), INTERVAL %s SECOND)
+                       ELSE (expires_at IS NOT NULL AND expires_at < NOW())
+                  END)"""
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
 _STOPWORDS = frozenset(
@@ -205,6 +217,14 @@ def review_session(session_id, events, messages=(), outcome=None, actions=()):
     turns (``role``/``content``); ``actions`` are ``ai_actions`` rows, which
     carry the authoritative per-action status. Returns signals and counts only —
     never text.
+
+    Each action row must also carry ``overdue`` — not an ``ai_actions`` column
+    but the computed flag :func:`review_one` selects (``resolved_at`` older than
+    ``EXECUTION_TTL_SECONDS`` for a ``CONFIRMED`` row, else ``expires_at`` in the
+    past). A caller that omits it gets "in flight" for every confirmation, which
+    is deliberate: absence of information must not manufacture a defect, the
+    rule ``UNREVIEWABLE`` already follows. Callers reading rows themselves
+    should select :data:`OVERDUE_SQL` rather than reinvent the comparison.
     """
     ev = _counts(events)
     signals = []
@@ -408,11 +428,7 @@ def review_one(db, session_id):
     messages = [dict(role=_col(r, "role"), content=_col(r, "content"))
                 for r in (cur.fetchall() or [])]
     cur.execute(
-        """SELECT action_id, status,
-                  (CASE WHEN status='CONFIRMED' AND resolved_at IS NOT NULL
-                        THEN resolved_at < DATE_SUB(NOW(), INTERVAL %s SECOND)
-                        ELSE (expires_at IS NOT NULL AND expires_at < NOW())
-                   END) AS overdue
+        """SELECT action_id, status, """ + OVERDUE_SQL + """ AS overdue
              FROM ai_actions WHERE session_id=%s ORDER BY created_at""",
         (EXECUTION_TTL_SECONDS, session_id),
     )
