@@ -105,6 +105,9 @@
 .osp-grand{display:flex;justify-content:space-between;align-items:center;background:linear-gradient(135deg,#f0fdf4,#ecfdf5);border:1.5px solid #86efac;border-radius:14px;padding:18px 20px;margin-bottom:24px;}
 .osp-grand-label{font-size:15px;font-weight:700;color:#166534;}
 .osp-grand-val{font-size:22px;font-weight:800;color:#16a34a;}
+.osp-grand--unpaid{background:#f8fafc;border-color:#cbd5e1;}
+.osp-grand--unpaid .osp-grand-label{color:#334155;}
+.osp-grand--unpaid .osp-grand-val{color:#1e293b;}
 
 /* ===== Right sidebar cards ===== */
 .osp-right{display:flex;flex-direction:column;gap:14px;}
@@ -385,8 +388,8 @@
       </div>
 
       <!-- Grand Total -->
-      <div class="osp-grand">
-        <span class="osp-grand-label">Grand Total you Paid:</span>
+      <div class="osp-grand{% if pay_state != 'paid' %} osp-grand--unpaid{% endif %}">
+        <span class="osp-grand-label">{% if pay_state == 'paid' %}Grand Total you Paid:{% else %}Grand Total payable:{% endif %}</span>
         <span class="osp-grand-val">{% if is_india %}&#8377;{% else %}&euro;{% endif %} {{ grand_total }}</span>
       </div>
     </div>
