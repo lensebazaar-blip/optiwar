@@ -296,16 +296,17 @@ def update_order_status_table_for_order_id():
 
         order_id = input("Enter the order id: ")
 
-        update_query = """
-        UPDATE order_status
-        SET order_status_name = 'Shipped'
-        WHERE order_id = %s;
-        """
-        cursor.execute(update_query, (order_id,))
+        # Append the new status: the previous UPDATE rewrote every status row
+        # this order had, so a later Complete became Shipped again.
+        cursor.execute(
+            "INSERT INTO order_status (order_status_name, order_id) VALUES ('Shipped', %s)",
+            (order_id,))
         conn.commit()
-        print("Order Status changed from Processed to Shipped successfully!")
+        print("Order Status Shipped recorded successfully!")
 
-        cursor.execute("SELECT o.order_id FROM orders o JOIN order_status os ON os.order_id=o.order_id where o.order_id =%s;")
+        cursor.execute(
+            "SELECT os.order_status_id, os.order_status_name FROM order_status os "
+            "WHERE os.order_id = %s ORDER BY os.order_status_id;", (order_id,))
         print(cursor.fetchall())
     except Exception as e:
         print(f"An error occurred: {e}")

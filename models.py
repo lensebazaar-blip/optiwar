@@ -2,7 +2,9 @@ import requests as http_requests
 import random
 import functools
 from .mail import send_order_confirmation
-from .payments import initiate_payment, PaytmChecksum, verify_payment_status, create_razorpay_order, verify_razorpay_payment, fetch_razorpay_payment
+from .payments import initiate_payment, PaytmChecksum, verify_payment_status, create_razorpay_order, verify_razorpay_payment, fetch_razorpay_payment, verify_razorpay_webhook
+from .paid_orders import apply_paid_order, append_status, order_amount_minor
+from .razorpay_events import PAID_EVENTS, payment_entity
 from flaskr.notifications import notify_payment_attempted, notify_payment_success, notify_payment_failed, notify_order_confirmed, notify_order_shipped
 import os
 import MySQLdb
@@ -3161,23 +3163,14 @@ def payment_callback():
                         cursor = db.cursor()
 
                         _paytm_ref = data.get('TXNID') or order_id
-                        try:
-                            cursor.execute('insert into payment_collector (order_id, payment_ref, payment_dump, status) values (%s, %s, %s, %s)', (order_id, _paytm_ref, data, txn_status))
-                        except MySQLdb.IntegrityError:
-                            db.rollback()
-                            current_app.logger.info(f"Paytm duplicate callback ignored order:{order_id} ref:{_paytm_ref}")
+                        _paid = apply_paid_order(
+                            db, order_id, _paytm_ref, data,
+                            currency='INR', site=request.host, gateway='paytm',
+                            logger=current_app.logger)
+                        if not _paid['applied']:
                             _dup_resp = redirect(url_for('main.success', order_id=order_id))
                             _dup_resp.set_cookie('session', '', expires=0)
                             return _dup_resp
-
-
-
-                        # Inserting order status
-                        cursor.execute(
-                            'UPDATE order_status SET order_status_name = %s WHERE order_id = %s AND order_status_name <> %s',
-                            ('Processed', order_id, 'Processed')
-                        )
-                        db.commit()
                         current_app.logger.info('Order committed to DB')
 
                         # Get customer email
@@ -3258,81 +3251,20 @@ def razorpay_verify():
             db = get_db()
             cursor = db.cursor()
 
-            import json as _json
-            payment_dump = _json.dumps({
-                'razorpay_payment_id': razorpay_payment_id,
-                'razorpay_order_id': razorpay_order_id,
-                'razorpay_signature': razorpay_signature,
-                'gateway': 'razorpay'
-            })
-            try:
-                cursor.execute(
-                    'INSERT INTO payment_collector (order_id, payment_ref, payment_dump, status) VALUES (%s, %s, %s, %s)',
-                    (order_id, razorpay_payment_id, payment_dump, 'TXN_SUCCESS')
-                )
-            except MySQLdb.IntegrityError:
-                db.rollback()
-                current_app.logger.info(f"Razorpay duplicate callback ignored order:{order_id} payment_id:{razorpay_payment_id}")
+            _paid = apply_paid_order(
+                db, order_id, razorpay_payment_id,
+                {
+                    'razorpay_payment_id': razorpay_payment_id,
+                    'razorpay_order_id': razorpay_order_id,
+                    'razorpay_signature': razorpay_signature,
+                    'gateway': 'razorpay'
+                },
+                currency='INR' if _req_is_india() else 'EUR',
+                site=request.host, gateway='razorpay',
+                logger=current_app.logger)
+            if not _paid['applied']:
                 return jsonify({'status': 'success', 'redirect': url_for('main.success', order_id=order_id)})
-
-            # Inventory deduction on paid order: atomic, non-negative, per line item.
-            # The conditional UPDATE is the concurrency gate (only stock-many payments win).
-            # Test orders (is_test=1) are excluded from deduction and sales logging.
-            _dec_cur = db.cursor()
-            _dec_cur.execute("SELECT MAX(is_test) AS t FROM orders WHERE order_id=%s", (order_id,))
-            _isr = _dec_cur.fetchone()
-            _order_is_test = bool(_isr and _isr.get('t'))
-            _sale_currency = 'INR' if _req_is_india() else 'EUR'
-            _sale_site = request.host
-            _fulfilled_count = 0
-            _refund_lines = []
-            if not _order_is_test:
-                _dec_cur.execute("SELECT order_line_id, product_id, order_quantity, order_total FROM orders WHERE order_id=%s", (order_id,))
-                _lines = _dec_cur.fetchall()
-                for _ln in _lines:
-                    _pid = _ln['product_id']
-                    _qty = _ln['order_quantity'] or 0
-                    _ltot = _ln['order_total'] or 0
-                    _dec_cur.execute(
-                        "UPDATE products SET product_quantity = product_quantity - %s "
-                        "WHERE product_id = %s AND product_quantity >= %s",
-                        (_qty, _pid, _qty)
-                    )
-                    if _dec_cur.rowcount == 1:
-                        _fulfilled_count += 1
-                        _dec_cur.execute("UPDATE orders SET fulfillment_status='fulfilled' WHERE order_line_id=%s", (_ln['order_line_id'],))
-                        _dec_cur.execute("UPDATE products SET sold_out_at=NOW() WHERE product_id=%s AND product_quantity<=0 AND sold_out_at IS NULL", (_pid,))
-                        # Lifecycle dual-write: ACTIVE -> OUT_OF_STOCK only (never
-                        # overrides a manual SEASONAL/DISCONTINUED/ARCHIVED state).
-                        _dec_cur.execute(
-                            "UPDATE products SET product_status='OUT_OF_STOCK', status_changed_at=NOW(), "
-                            "status_changed_by='system-stock', status_reason='auto: stock depleted' "
-                            "WHERE product_id=%s AND product_quantity<=0 AND product_status='ACTIVE'", (_pid,))
-                        if _dec_cur.rowcount == 1:
-                            _dec_cur.execute(
-                                "INSERT INTO product_status_history (product_id, old_status, new_status, reason, changed_by) "
-                                "VALUES (%s,'ACTIVE','OUT_OF_STOCK','auto: stock depleted','system-stock')", (_pid,))
-                        _unit = (float(_ltot) / _qty) if _qty else float(_ltot)
-                        _dec_cur.execute(
-                            "INSERT INTO sales_log (order_id, product_id, qty, unit_price, currency, site, is_test) "
-                            "VALUES (%s, %s, %s, %s, %s, %s, 0)",
-                            (order_id, _pid, _qty, _unit, _sale_currency, _sale_site)
-                        )
-                    else:
-                        _dec_cur.execute("UPDATE orders SET fulfillment_status='refund_pending' WHERE order_line_id=%s", (_ln['order_line_id'],))
-                        _dec_cur.execute("SELECT product_code FROM products WHERE product_id=%s", (_pid,))
-                        _pcr = _dec_cur.fetchone()
-                        _pcode = (_pcr.get('product_code') if _pcr else '') or ''
-                        _refund_lines.append({'product_id': _pid, 'product_code': _pcode, 'qty': _qty, 'amount': _ltot})
-                        current_app.logger.error(
-                            f"[{_sale_site}] ACTIVITY:OVERSOLD_REFUND_PENDING order:{order_id} product:{_pid} code:{_pcode} qty:{_qty} amount:{_ltot} currency:{_sale_currency}"
-                        )
-
-            cursor.execute(
-                'UPDATE order_status SET order_status_name = %s WHERE order_id = %s AND order_status_name <> %s',
-                ('Processed', order_id, 'Processed')
-            )
-            db.commit()
+            _fulfilled_count = _paid['fulfilled_count']
             _host = request.host
             _ip = request.headers.get('X-Forwarded-For', request.remote_addr)
             _uid = session.get('user_id', 'anon')
@@ -3402,6 +3334,97 @@ def razorpay_verify():
     except Exception as e:
         current_app.logger.error(f"Razorpay verify error: {e}", exc_info=True)
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@bp.route('/razorpay/webhook', methods=['POST'])
+def razorpay_webhook():
+    """Apply a Razorpay payment reported out-of-band.
+
+    Refuses anything it cannot prove: an unsigned or wrongly signed delivery, an
+    order id it cannot resolve, an order that does not exist, or an amount short
+    of what the order costs. Everything it accepts goes through the same
+    pipeline as the browser callback, which is idempotent on payment reference —
+    so Razorpay's retries, and a webhook racing the browser, apply once.
+    """
+    raw = request.get_data()
+    if not verify_razorpay_webhook(raw, request.headers.get('X-Razorpay-Signature', '')):
+        current_app.logger.warning(
+            "ACTIVITY:RAZORPAY_WEBHOOK_REJECTED reason:bad_signature ip:%s"
+            % request.headers.get('X-Forwarded-For', request.remote_addr))
+        return jsonify({'status': 'error', 'message': 'invalid signature'}), 400
+
+    try:
+        event = json_mod.loads(raw.decode('utf-8'))
+    except ValueError:
+        return jsonify({'status': 'error', 'message': 'invalid payload'}), 400
+
+    kind = event.get('event', '')
+    if kind not in PAID_EVENTS:
+        return jsonify({'status': 'ignored', 'event': kind}), 200
+
+    payment, order_id = payment_entity(event)
+    payment_id = payment.get('id', '')
+    if not order_id or not payment_id:
+        current_app.logger.error(
+            f"ACTIVITY:RAZORPAY_WEBHOOK_UNMATCHED event:{kind} payment:{payment_id}")
+        return jsonify({'status': 'error', 'message': 'no order reference'}), 200
+    if payment.get('status') != 'captured':
+        return jsonify({'status': 'ignored', 'reason': 'payment not captured'}), 200
+
+    db = get_db()
+    cursor = db.cursor()
+    expected_minor = order_amount_minor(cursor, order_id)
+    if not expected_minor:
+        current_app.logger.error(
+            f"ACTIVITY:RAZORPAY_WEBHOOK_NO_ORDER order:{order_id} payment:{payment_id}")
+        return jsonify({'status': 'error', 'message': 'unknown order'}), 200
+    paid_minor = int(payment.get('amount') or 0)
+    if paid_minor < expected_minor:
+        current_app.logger.error(
+            "ACTIVITY:RAZORPAY_WEBHOOK_AMOUNT_MISMATCH order:%s payment:%s paid:%s expected:%s"
+            % (order_id, payment_id, paid_minor, expected_minor))
+        return jsonify({'status': 'error', 'message': 'amount mismatch'}), 200
+
+    currency = payment.get('currency') or ('INR' if _req_is_india() else 'EUR')
+    paid = apply_paid_order(
+        db, order_id, payment_id, {'gateway': 'razorpay', 'event': kind,
+                                   'payment': payment},
+        currency=currency, site=request.host, gateway='razorpay',
+        source='razorpay-webhook', logger=current_app.logger)
+    if not paid['applied']:
+        return jsonify({'status': 'success', 'reason': paid['reason']}), 200
+
+    current_app.logger.info(
+        "ACTIVITY:PAYMENT_SUCCESS source:webhook order:%s gateway:razorpay payment_id:%s "
+        "fulfilled:%s refund_pending:%s"
+        % (order_id, payment_id, paid['fulfilled_count'], len(paid['refund_lines'])))
+    try:
+        cursor.execute(
+            "SELECT c.customer_name, c.customer_email, c.customer_phone, "
+            "ca.delivery_email, ca.delivery_phone "
+            "FROM customers c JOIN orders o ON o.customer_id=c.customer_id "
+            "LEFT JOIN customers_address ca ON ca.address_id=o.address_id "
+            "WHERE o.order_id=%s LIMIT 1", (order_id,))
+        cust = cursor.fetchone()
+        if cust and not paid['is_test']:
+            to_email = cust.get('delivery_email') or cust['customer_email']
+            to_phone = cust.get('delivery_phone') or cust.get('customer_phone', '')
+            total = expected_minor / 100.0
+            symbol = '\u20b9' if currency == 'INR' else '\u20ac'
+            notify_payment_success(to_email, to_phone, order_id, total, symbol,
+                                   request.host, 'razorpay',
+                                   profile_email=cust['customer_email'])
+            if paid['fulfilled_count'] > 0:
+                notify_order_confirmed(to_email, to_phone,
+                                       cust.get('customer_name', 'Customer'),
+                                       order_id, total, symbol, request.host,
+                                       profile_email=cust['customer_email'])
+    except Exception as exc:
+        current_app.logger.error(f"EWS:ERROR payment_success_razorpay_webhook {exc}")
+
+    return jsonify({'status': 'success', 'order_id': order_id,
+                    'fulfilled': paid['fulfilled_count'],
+                    'refund_pending': len(paid['refund_lines'])}), 200
 
 
 @bp.route('/success/<order_id>', methods=['GET'])

@@ -83,6 +83,8 @@ import razorpay
 import hmac
 import hashlib
 
+from .razorpay_events import verify_webhook_signature
+
 def get_razorpay_client():
     """Get Razorpay client instance."""
     return razorpay.Client(auth=(
@@ -122,6 +124,13 @@ def verify_razorpay_payment(razorpay_order_id, razorpay_payment_id, razorpay_sig
         hashlib.sha256
     ).hexdigest()
     return generated_signature == razorpay_signature
+
+def verify_razorpay_webhook(raw_body, signature):
+    """Verify a Razorpay webhook against the raw request body."""
+    return verify_webhook_signature(
+        raw_body, signature,
+        current_app.config.get('RAZORPAY_WEBHOOK_SECRET', ''))
+
 
 def fetch_razorpay_payment(payment_id):
     """Fetch payment details from Razorpay."""
