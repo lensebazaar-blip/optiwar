@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %} Order Success {% endblock %}
+{% block title %}{% if payment_state|default('pending') == 'paid' %} Order Success {% elif payment_state == 'failed' %} Payment Failed {% else %} Payment Pending {% endif %}{% endblock %}
 {% block content %}
 
 <style>
@@ -17,6 +17,12 @@
 .osp-hero h1{font-size:24px;font-weight:800;color:#1e293b;line-height:1.3;margin:0 0 4px;}
 .osp-hero h1 span{color:#16a34a;}
 .osp-hero .osp-thanks{color:#64748b;font-size:14px;margin:0;}
+.osp-hero--unpaid h1 span{color:#b45309;}
+.osp-hero--failed h1 span{color:#b91c1c;}
+.osp-paynote{max-width:640px;margin:0 auto 20px;border-radius:14px;padding:14px 18px;font-size:13px;line-height:1.5;}
+.osp-paynote--pending{background:#fffbeb;border:1px solid #fde68a;color:#92400e;}
+.osp-paynote--failed{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;}
+.osp-paynote strong{font-weight:700;}
 
 /* Email card */
 .osp-email-card{display:flex;align-items:center;gap:14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:14px 18px;margin-bottom:20px;max-width:640px;margin-left:auto;margin-right:auto;}
@@ -167,7 +173,10 @@
 
 <div class="osp">
 {% if order_details %}
+  {% set pay_state = payment_state|default('pending') %}
+
   <!-- Hero -->
+  {% if pay_state == 'paid' %}
   <div class="osp-hero">
     <div class="osp-check">
       <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/><path d="M8 12.5l2.5 2.5 5-5" stroke="#16a34a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -178,6 +187,37 @@
     <h1>Your order <span>{{ order_details[0]['order_id'] }}</span><br>is a success!</h1>
     <p class="osp-thanks">Thank you for shopping with us.</p>
   </div>
+  {% elif pay_state == 'failed' %}
+  <div class="osp-hero osp-hero--failed">
+    <div class="osp-check">
+      <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/><path d="M9 9l6 6M15 9l-6 6" stroke="#dc2626" stroke-width="2" stroke-linecap="round"/></svg>
+    </div>
+    <h1>Payment failed for order <span>{{ order_details[0]['order_id'] }}</span></h1>
+    <p class="osp-thanks">This order is not confirmed. No amount has been collected.</p>
+  </div>
+  {% else %}
+  <div class="osp-hero osp-hero--unpaid">
+    <div class="osp-check">
+      <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/><path d="M12 7v5l3.5 2" stroke="#d97706" stroke-width="2" stroke-linecap="round"/></svg>
+    </div>
+    <h1>Order <span>{{ order_details[0]['order_id'] }}</span><br>is awaiting payment</h1>
+    <p class="osp-thanks">We have saved your details. The order is confirmed once payment is received.</p>
+  </div>
+  {% endif %}
+
+  {% if pay_state == 'pending' %}
+  <div class="osp-paynote osp-paynote--pending">
+    <strong>Payment pending.</strong> We have not received payment for this order, so it is not
+    in production yet and nothing has been dispatched. Use the payment link we emailed you, or
+    call us on +91-8010077770 and we will send it again.
+  </div>
+  {% elif pay_state == 'failed' %}
+  <div class="osp-paynote osp-paynote--failed">
+    <strong>Payment failed.</strong> Your bank did not complete the payment and you have not been
+    charged. If money left your account it is reversed by your bank automatically. Place the order
+    again or call us on +91-8010077770.
+  </div>
+  {% endif %}
 
   <!-- Email notification -->
   <div class="osp-email-card">

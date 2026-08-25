@@ -40,6 +40,49 @@ class DuplicatePayment(Exception):
     """The gateway sent this payment reference before; it was already applied."""
 
 
+# Cash on delivery is confirmed without any money having arrived: it is paid to
+# the courier, so the customer must not be told their order is unpaid.
+COD_STATUSES = ('COD not verified', 'COD verfieid', 'COD verified')
+
+
+def payment_state(has_successful_payment, latest_status):
+    """'paid', 'pending' or 'failed' for what to tell the customer.
+
+    The confirmation page is reachable for any order its owner asks for —
+    including one an operator created for a payment link, and one where the
+    gateway never came back. Saying "your order is a success" in those cases is
+    a lie the customer acts on, so the page needs the real state.
+
+    A successful ``payment_collector`` row is the only proof of money. Failing
+    that, the latest status decides: ``Pending`` (or none) is waiting,
+    ``Payment Failed`` is failed, and anything further along means ops moved the
+    order on deliberately — possibly against a payment taken outside the gateway
+    — which is not ours to contradict."""
+    if has_successful_payment:
+        return 'paid'
+    status = (latest_status or '').strip()
+    if status in COD_STATUSES:
+        return 'paid'
+    if status == 'Payment Failed':
+        return 'failed'
+    if status and status != 'Pending':
+        return 'paid'
+    return 'pending'
+
+
+def order_payment_state(cursor, order_id):
+    """``payment_state`` for a stored order, plus its latest status."""
+    cursor.execute(
+        "SELECT 1 AS found FROM payment_collector "
+        "WHERE order_id=%s AND status='TXN_SUCCESS' LIMIT 1", (order_id,))
+    has_payment = cursor.fetchone() is not None
+    cursor.execute(
+        "SELECT order_status_name FROM order_status WHERE order_id=%s "
+        "ORDER BY order_status_id DESC LIMIT 1", (order_id,))
+    latest = (cursor.fetchone() or {}).get('order_status_name') or ''
+    return payment_state(has_payment, latest), latest
+
+
 def order_amount_minor(cursor, order_id):
     """Total the customer owes for an order, in the gateway's minor units."""
     cursor.execute(
