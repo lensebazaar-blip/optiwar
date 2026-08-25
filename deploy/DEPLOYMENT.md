@@ -91,6 +91,15 @@ payment. Notes specific to it:
   page still answered 200, and a payment nobody records is money taken for an
   order that never ships. Registering the endpoint in the Razorpay dashboard is
   a manual step outside this tool.
+- **The origin guard has to know about it.** Production runs `csrf_guard.py`
+  with `CSRF_ENFORCE=true`, and it answers 403 to any POST without an
+  Origin/Referer — which is every server-to-server delivery Razorpay makes. The
+  endpoint is therefore listed in `CSRF_EXEMPT_ENDPOINTS` (its authentication is
+  the HMAC over the raw body, not a cookie), `csrf_guard.py` is in the deploy
+  set, and a second smoke test POSTs the route with no Origin and requires 400 —
+  the signature check refusing an unsigned body, which only happens if the
+  request reached the view. The first release of the pipeline shipped without
+  this and the route was reachable by `GET` and 403 to Razorpay.
 
 ## Procedure
 

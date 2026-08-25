@@ -68,7 +68,7 @@ RELEASES = os.environ.get("OPTIWAR_RELEASES", "/root/deploy_releases")
 # still *ahead* of it; see the module docstring.
 DEPLOY_SET = ("acr.py", "ai_client.py", "chat_gateway.py", "crm.py",
               "models.py", "payments.py", "paid_orders.py",
-              "razorpay_events.py")
+              "razorpay_events.py", "csrf_guard.py")
 
 # Files that do not exist in production yet. Absence is otherwise a block, so
 # that a path typo or a file missing from the release cannot be mistaken for a
@@ -122,6 +122,13 @@ SMOKE = (
     # import paid_orders would 404 here while every page above still answered.
     ("razorpay webhook registered",
      "https://optiwar.com/razorpay/webhook", 405),
+    # A registered route is not a reachable one. Razorpay POSTs from its own
+    # servers, so the delivery carries no Origin and no Referer, and with
+    # CSRF_ENFORCE on the origin guard answers 403 before the view runs — every
+    # payment silently unprocessed. 400 is the signature check refusing this
+    # unsigned body, which is proof the request reached the view at all.
+    ("razorpay webhook not origin-blocked",
+     "https://optiwar.com/razorpay/webhook", 400, "POST"),
 )
 
 # Canonical events a single canary conversation must produce. Their absence
@@ -346,9 +353,12 @@ def manifest():
 def smoke():
     """Run the smoke suite from the production host itself."""
     results = []
-    for label, url, want in SMOKE:
-        code = remote("curl -s -o /dev/null -w '%%{http_code}' -m 20 %s"
-                      % shlex.quote(url), check=False)
+    for label, url, want, *rest in SMOKE:
+        # No Origin/Referer and no body is deliberate for the POST cases: that
+        # is exactly the shape of a provider's server-to-server delivery.
+        method = "-X %s -H Content-Type:application/json" % rest[0] if rest else ""
+        code = remote("curl -s -o /dev/null -w '%%{http_code}' -m 20 %s %s"
+                      % (method, shlex.quote(url)), check=False)
         ok = (str(code) == str(want) if isinstance(want, int)
               else int(code or 0) in want)
         results.append((label, url, code, ok))

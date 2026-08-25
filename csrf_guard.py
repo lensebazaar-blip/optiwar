@@ -20,6 +20,9 @@ exempt endpoint must carry its own non-cookie authentication:
 - ``chat_gateway.chat_agent_reply`` (KET agent reply push): HMAC signature.
 - ``chat_gateway.chat_resolve`` (KET resolve push; also served to the widget
   owner via signed-cookie ownership check): HMAC signature for the server path.
+- ``main.razorpay_webhook`` (Razorpay server-to-server delivery, no browser and
+  so never any Origin/Referer): HMAC signature over the raw body + idempotent
+  processing.
 NOTE: ``main.razorpay_verify`` is intentionally NOT exempt -- it is a browser
 POST that carries the customer session cookie, so it must pass the Origin/
 Referer check (and later a CSRF token) in addition to the Razorpay signature.
@@ -37,6 +40,7 @@ CSRF_METHODS = {"POST", "PUT", "DELETE", "PATCH"}
 # EXACT server-to-server endpoints only (each has its own non-cookie auth).
 CSRF_EXEMPT_ENDPOINTS = {
     "main.payment_callback",           # Paytm /payment/callbackurl  (checksum + idempotency)
+    "main.razorpay_webhook",           # Razorpay /razorpay/webhook  (HMAC over raw body + idempotency)
     "chat_gateway.chat_agent_reply",   # KET agent reply push  (HMAC)
     "chat_gateway.chat_resolve",       # KET resolve push  (HMAC; widget path uses cookie ownership)
     "crm.ket_ticket_event",            # KET ticket-lifecycle push (resolved/reopened)  (HMAC)
