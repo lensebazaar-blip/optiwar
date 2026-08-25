@@ -59,6 +59,7 @@ DDL = [
         order_total        INT NOT NULL DEFAULT 0,
         fulfillment_status ENUM('pending','fulfilled','refund_pending') NOT NULL DEFAULT 'pending',
         is_test            TINYINT NOT NULL DEFAULT 0,
+        site_from          VARCHAR(64) NULL,
         KEY idx_order (order_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
     """CREATE TABLE IF NOT EXISTS order_status (
@@ -177,14 +178,15 @@ class PaidOrderPipelineTest(unittest.TestCase):
         self._products.append(pid)
         return pid
 
-    def _order(self, lines, status='Pending', is_test=0):
+    def _order(self, lines, status='Pending', is_test=0, site='in.optiwar.com'):
         order_id = uuid.uuid4().hex[:6].upper() + "-TEST"
         self._orders.append(order_id)
         for pid, qty, total in lines:
             self.cur.execute(
                 "INSERT INTO orders (order_id, product_id, order_quantity, order_total, "
-                "fulfillment_status, is_test) VALUES (%s, %s, %s, %s, 'pending', %s)",
-                (order_id, pid, qty, total, is_test))
+                "fulfillment_status, is_test, site_from) "
+                "VALUES (%s, %s, %s, %s, 'pending', %s, %s)",
+                (order_id, pid, qty, total, is_test, site))
         for name in ([status] if isinstance(status, str) else status):
             self.cur.execute(
                 "INSERT INTO order_status (order_status_name, order_id) VALUES (%s, %s)",
@@ -329,6 +331,17 @@ class PaidOrderPipelineTest(unittest.TestCase):
         pid = self._product(9)
         order_id = self._order([(pid, 1, 499), (pid, 2, 998)])
         self.assertEqual(149700, paid_orders.order_amount_minor(self.cur, order_id))
+
+    def test_the_currency_an_order_may_be_paid_in_comes_from_its_storefront(self):
+        pid = self._product(3)
+        india = self._order([(pid, 1, 499)], site='in.optiwar.com')
+        india_new = self._order([(pid, 1, 499)], site='optiwar.in')
+        europe = self._order([(pid, 1, 39)], site='optiwar.com')
+
+        self.assertEqual('INR', paid_orders.order_currency(self.cur, india))
+        self.assertEqual('INR', paid_orders.order_currency(self.cur, india_new))
+        self.assertEqual('EUR', paid_orders.order_currency(self.cur, europe))
+        self.assertIsNone(paid_orders.order_currency(self.cur, 'NOSUCH-000000'))
 
     def test_the_appended_status_carries_its_provenance(self):
         pid = self._product(2)

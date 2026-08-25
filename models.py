@@ -3,7 +3,7 @@ import random
 import functools
 from .mail import send_order_confirmation
 from .payments import initiate_payment, PaytmChecksum, verify_payment_status, create_razorpay_order, verify_razorpay_payment, fetch_razorpay_payment, verify_razorpay_webhook
-from .paid_orders import apply_paid_order, append_status, order_amount_minor
+from .paid_orders import apply_paid_order, append_status, order_amount_minor, order_currency
 from .razorpay_events import PAID_EVENTS, payment_entity
 from flaskr.notifications import notify_payment_attempted, notify_payment_success, notify_payment_failed, notify_order_confirmed, notify_order_shipped
 import os
@@ -3142,6 +3142,7 @@ def payment_callback():
                         _ip = request.headers.get('X-Forwarded-For', request.remote_addr)
                         _uid = session.get('user_id', 'anon')
                         current_app.logger.info(f"[{_host}] ACTIVITY:PAYMENT_SUCCESS IP:{_ip} user:{_uid} order:{order_id} gateway:paytm")
+                        db = get_db()
                         # EWS: Notify payment success (Paytm)
                         try:
                             _ews_cur = db.cursor()
@@ -3159,7 +3160,6 @@ def payment_callback():
                         except Exception as _ews_err:
                             current_app.logger.error(f"EWS:ERROR payment_success_paytm {_ews_err}")
 
-                        db = get_db()
                         cursor = db.cursor()
 
                         _paytm_ref = data.get('TXNID') or order_id
@@ -3341,10 +3341,18 @@ def razorpay_webhook():
     """Apply a Razorpay payment reported out-of-band.
 
     Refuses anything it cannot prove: an unsigned or wrongly signed delivery, an
-    order id it cannot resolve, an order that does not exist, or an amount short
-    of what the order costs. Everything it accepts goes through the same
-    pipeline as the browser callback, which is idempotent on payment reference —
-    so Razorpay's retries, and a webhook racing the browser, apply once.
+    order id it cannot resolve, an order that does not exist, an amount short of
+    what the order costs, or a currency the order was never priced in.
+    Everything it accepts goes through the same pipeline as the browser
+    callback, which is idempotent on payment reference — so Razorpay's retries,
+    and a webhook racing the browser, apply once.
+
+    The HTTP status decides whether Razorpay retries. 200 ends delivery and is
+    the right answer to anything a retry cannot change: a failed payment, an
+    unresolvable reference, a wrong currency. A missing order or a short amount
+    answer 500, because those are usually this webhook overtaking the write that
+    creates the order or settles its total, and the retry minutes later
+    succeeds; 200 there loses the payment silently.
     """
     raw = request.get_data()
     if not verify_razorpay_webhook(raw, request.headers.get('X-Razorpay-Signature', '')):
@@ -3377,15 +3385,25 @@ def razorpay_webhook():
     if not expected_minor:
         current_app.logger.error(
             f"ACTIVITY:RAZORPAY_WEBHOOK_NO_ORDER order:{order_id} payment:{payment_id}")
-        return jsonify({'status': 'error', 'message': 'unknown order'}), 200
+        return jsonify({'status': 'error', 'message': 'unknown order'}), 500
     paid_minor = int(payment.get('amount') or 0)
     if paid_minor < expected_minor:
         current_app.logger.error(
             "ACTIVITY:RAZORPAY_WEBHOOK_AMOUNT_MISMATCH order:%s payment:%s paid:%s expected:%s"
             % (order_id, payment_id, paid_minor, expected_minor))
-        return jsonify({'status': 'error', 'message': 'amount mismatch'}), 200
+        return jsonify({'status': 'error', 'message': 'amount mismatch'}), 500
+    if paid_minor > expected_minor:
+        current_app.logger.warning(
+            "ACTIVITY:RAZORPAY_WEBHOOK_OVERPAID order:%s payment:%s paid:%s expected:%s"
+            % (order_id, payment_id, paid_minor, expected_minor))
 
-    currency = payment.get('currency') or ('INR' if _req_is_india() else 'EUR')
+    currency = order_currency(cursor, order_id)
+    paid_currency = payment.get('currency') or currency
+    if paid_currency != currency:
+        current_app.logger.error(
+            "ACTIVITY:RAZORPAY_WEBHOOK_CURRENCY_MISMATCH order:%s payment:%s paid:%s expected:%s"
+            % (order_id, payment_id, paid_currency, currency))
+        return jsonify({'status': 'error', 'message': 'currency mismatch'}), 200
     paid = apply_paid_order(
         db, order_id, payment_id, {'gateway': 'razorpay', 'event': kind,
                                    'payment': payment},

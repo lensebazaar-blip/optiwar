@@ -50,6 +50,24 @@ def order_amount_minor(cursor, order_id):
     return int(round(float(total) * 100))
 
 
+def order_currency(cursor, order_id):
+    """The only currency this order can legitimately be paid in.
+
+    Fixed by the storefront that took it: the India site prices in INR, the
+    global site in EUR. Read from the stored ``site_from`` rather than the
+    request host, so a delivery arriving on the wrong host cannot relabel a
+    sale. ``None`` when the order does not exist.
+    """
+    cursor.execute(
+        "SELECT MIN(site_from) AS site FROM orders WHERE order_id=%s", (order_id,))
+    row = cursor.fetchone()
+    site = (row or {}).get('site')
+    if site is None:
+        return None
+    site = site.lower()
+    return 'INR' if ('in.optiwar.com' in site or 'optiwar.in' in site) else 'EUR'
+
+
 def order_statuses(cursor, order_id):
     cursor.execute(
         "SELECT order_status_name FROM order_status WHERE order_id=%s", (order_id,))
