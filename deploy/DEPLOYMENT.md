@@ -41,7 +41,11 @@ box carries an edit that was never committed, and overwriting it would destroy
 the only copy — the deployment refuses and asks for it to be committed first.
 
 **Scope.** Only `DEPLOY_SET` in `deploy/deploy.py` is touched. Adding a file is
-a deliberate edit that must then survive the provenance guard.
+a deliberate edit that must then survive the provenance guard. Entries are
+paths relative to the application root, so a template ships the same way a
+module does — `templates/success.html` is in the set because it, not just
+`models.py`, decides what the confirmation page tells a customer about their
+money. Only the `*.py` members are byte-compiled.
 
 **Build from git.** A dirty working tree or a `HEAD` behind `origin/main` is a
 hard block. `py_compile` plus the full unit suite run before anything is

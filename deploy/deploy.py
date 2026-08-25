@@ -406,7 +406,7 @@ def cmd_plan(args):
         print("  BLOCKED   %s" % p)
 
     ok, tail = verify_locally()
-    print("\n  py_compile %s: ok" % ", ".join(DEPLOY_SET))
+    print("\n  py_compile %s: ok" % ", ".join(python_set()))
     print("  unit suite: %s" % ("  ".join(tail) if tail else "?"))
 
     rows, blocked, ahead, only_prod = manifest()
