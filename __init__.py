@@ -61,6 +61,9 @@ def create_app(test_config=None):
     # Razorpay (optiwar.com global EUR payments)
     app.config['RAZORPAY_KEY_ID'] = os.environ.get('RAZORPAY_KEY_ID', '')
     app.config['RAZORPAY_KEY_SECRET'] = os.environ.get('RAZORPAY_KEY_SECRET', '')
+    # Signing secret of the dashboard webhook, not the API key secret. Without
+    # it /razorpay/webhook refuses every delivery.
+    app.config['RAZORPAY_WEBHOOK_SECRET'] = os.environ.get('RAZORPAY_WEBHOOK_SECRET', '')
 
     # MSG91 (WhatsApp & SMS notifications)
     app.config['MSG91_AUTH_KEY'] = os.environ.get('MSG91_AUTH_KEY', '')

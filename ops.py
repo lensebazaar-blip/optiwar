@@ -5,6 +5,7 @@ import hmac
 from flask import Blueprint, request, jsonify, current_app, session
 from .db import get_db
 from .notifications import notify_order_shipped, notify_support_ticket_resolved
+from .paid_orders import append_status
 
 bp = Blueprint('ops', __name__, url_prefix='/ops')
 
@@ -66,13 +67,16 @@ def update_order_status():
     cursor = db.cursor()
 
     try:
-        # Update order_status
-        cursor.execute(
-            'UPDATE order_status SET order_status_name=%s WHERE order_id=%s',
-            (new_status, order_id)
-        )
-        if cursor.rowcount == 0:
+        # Status is history: append the new one instead of rewriting every row
+        # this order ever had (which used to turn a Shipped or Complete row into
+        # whatever arrived last).
+        cursor.execute('SELECT COUNT(*) AS n FROM order_status WHERE order_id=%s',
+                       (order_id,))
+        _existing = cursor.fetchone()
+        if not (_existing and _existing['n']):
             return jsonify({'error': f'Order {order_id} not found in order_status'}), 404
+        append_status(cursor, order_id, new_status, source='ops',
+                      note=f'status set to {new_status} via ops API')
 
         # Log to order_history
         site = data.get('site', 'optiwar.com')

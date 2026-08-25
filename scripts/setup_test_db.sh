@@ -10,6 +10,11 @@
 set -euo pipefail
 
 DB="${OPTIWAR_TEST_DB_NAME:-optiwar2}"
+# A second database for the paid-order pipeline tests. They need an orders table
+# shaped like production (one row per line item, order_line_id as the key),
+# which is incompatible with the single-row-per-order fake the attribution tests
+# create under the same name, so the two cannot share a schema.
+PIPELINE_DB="${OPTIWAR_TEST_PIPELINE_DB:-${DB}_pipeline}"
 USER="${OPTIWAR_TEST_DB_USER:-oslb6}"
 PW="${OPTIWAR_TEST_DB_PASSWORD:-testpw}"
 HOST="${OPTIWAR_TEST_DB_HOST:-127.0.0.1}"
@@ -25,11 +30,15 @@ mysql_root() {
 mysql_root <<SQL
 CREATE DATABASE IF NOT EXISTS \`${DB}\`
   DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+CREATE DATABASE IF NOT EXISTS \`${PIPELINE_DB}\`
+  DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
 CREATE USER IF NOT EXISTS '${USER}'@'%' IDENTIFIED BY '${PW}';
 CREATE USER IF NOT EXISTS '${USER}'@'localhost' IDENTIFIED BY '${PW}';
 GRANT ALL PRIVILEGES ON \`${DB}\`.* TO '${USER}'@'%';
 GRANT ALL PRIVILEGES ON \`${DB}\`.* TO '${USER}'@'localhost';
+GRANT ALL PRIVILEGES ON \`${PIPELINE_DB}\`.* TO '${USER}'@'%';
+GRANT ALL PRIVILEGES ON \`${PIPELINE_DB}\`.* TO '${USER}'@'localhost';
 FLUSH PRIVILEGES;
 SQL
 
-echo "test database ${DB} ready for ${USER}@${HOST}"
+echo "test databases ${DB} and ${PIPELINE_DB} ready for ${USER}@${HOST}"
