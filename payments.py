@@ -1,3 +1,4 @@
+import os
 import requests
 import json
 from flask import current_app, url_for
@@ -126,10 +127,16 @@ def verify_razorpay_payment(razorpay_order_id, razorpay_payment_id, razorpay_sig
     return generated_signature == razorpay_signature
 
 def verify_razorpay_webhook(raw_body, signature):
-    """Verify a Razorpay webhook against the raw request body."""
-    return verify_webhook_signature(
-        raw_body, signature,
-        current_app.config.get('RAZORPAY_WEBHOOK_SECRET', ''))
+    """Verify a Razorpay webhook against the raw request body.
+
+    Falls back to the environment when the app config has no entry, so the
+    webhook can be deployed without also deploying the factory that reads it.
+    Fails closed either way: with no secret anywhere, every delivery is
+    rejected.
+    """
+    secret = (current_app.config.get('RAZORPAY_WEBHOOK_SECRET')
+              or os.environ.get('RAZORPAY_WEBHOOK_SECRET', ''))
+    return verify_webhook_signature(raw_body, signature, secret)
 
 
 def fetch_razorpay_payment(payment_id):

@@ -38,6 +38,7 @@ class ApplyRollbackTest(unittest.TestCase):
         self.d.verify_locally = lambda: (True, ["OK"])
         self.d.worker_health = lambda since: ("active", "0")
         self.d.remote = self._remote
+        self.d.remote_script = self._remote_script
         self.d.subprocess.run = lambda *a, **k: None
         self.rollback_rc = 0
         self.d.cmd_rollback = lambda args: (self.rolled_back.append(args),
@@ -46,6 +47,10 @@ class ApplyRollbackTest(unittest.TestCase):
     def _remote(self, cmd, check=True):
         self.remote_calls.append(cmd)
         return "2026-08-12 02:00:00"
+
+    def _remote_script(self, script, check=True):
+        self.remote_calls.append(script)
+        return " ".join(name for name, _why in self.d.REQUIRED_ENV)
 
     def _args(self):
         return argparse.Namespace(confirm=True)
@@ -122,6 +127,17 @@ class ApplyRollbackTest(unittest.TestCase):
         self.assertEqual(self.rolled_back, [])
         self.assertEqual(self.remote_calls, [], "blocked, yet it touched the box")
 
+    def test_a_missing_environment_name_deploys_nothing(self):
+        # The code being deployed reads these from the environment. Copying it
+        # onto a box that does not set one of them replaces a working feature
+        # with an empty string, which raises nothing and fails silently.
+        self.d.remote_script = lambda script, check=True: "MYSQL_USER"
+        self.d.smoke = lambda: self._smoke(True)
+        self.assertEqual(self.d.cmd_apply(self._args()), 1)
+        self.assertEqual(self.rolled_back, [])
+        self.assertEqual(
+            [c for c in self.remote_calls if "systemctl restart" in c], [])
+
     def test_provenance_block_deploys_nothing_and_does_not_roll_back(self):
         self.d.manifest = lambda: ([], ["acr.py: uncommitted edit on the box"],
                                    [], [])
@@ -144,12 +160,37 @@ class DeploySetTest(unittest.TestCase):
         self.d = _load_deploy()
 
     def test_the_credential_bearing_divergences_stay_out(self):
-        # These five carry credentials hardcoded on the box that exist nowhere in
+        # These carry credentials hardcoded on the box that exist nowhere in
         # git; deploying the repo's version would blank them into empty strings,
         # silently, because os.environ.get(NAME, "") is a valid string.
         for name in ("pricing.py", "delhivery_union.py", "missing_order_search.py",
-                     "dashboard_admin_streamlit.py", "models.py"):
+                     "dashboard_admin_streamlit.py"):
             self.assertNotIn(name, self.d.DEPLOY_SET)
+
+    def test_models_is_only_deployable_with_its_credential_moved_to_the_box(self):
+        # models.py was in that list for the same reason: production hardcodes a
+        # Google Maps key where the repo reads GOOGLE_MAPS_API_KEY. It is in
+        # scope now only because the deploy refuses to run until the box sets
+        # that name, so the empty-string failure cannot happen.
+        if "models.py" not in self.d.DEPLOY_SET:
+            return
+        self.assertIn("GOOGLE_MAPS_API_KEY",
+                      [name for name, _why in self.d.REQUIRED_ENV])
+        self.assertIn("models.py", self.d.REVIEWED_DRIFT)
+
+    def test_a_new_module_is_in_scope_only_when_its_absence_is_expected(self):
+        # Every deployed file that production does not have yet must be declared,
+        # so that a path typo reads as a block rather than as a new module.
+        self.assertIn("paid_orders.py", self.d.DEPLOY_SET)
+        for name in self.d.NEW_IN_RELEASE:
+            self.assertIn(name, self.d.DEPLOY_SET)
+
+    def test_the_smoke_suite_proves_the_paid_order_webhook_is_routed(self):
+        # models.py failing to import paid_orders 404s this route while the rest
+        # of the storefront still answers 200, and a payment nobody records is
+        # money taken for an order that never ships.
+        urls = [url for _label, url, _want in self.d.SMOKE]
+        self.assertIn("https://optiwar.com/razorpay/webhook", urls)
 
     def test_crm_is_in_scope_for_the_delivery_webhook(self):
         self.assertIn("crm.py", self.d.DEPLOY_SET)
