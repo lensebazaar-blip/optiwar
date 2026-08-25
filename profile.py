@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, session, flash, jsonify
 from .db import get_db
 from .auth import login_required
+from .rx_powers import normalize_rows
 
 bp = Blueprint('profile', __name__, url_prefix='/profile')
 
@@ -64,6 +65,8 @@ def profile_page():
             (user_email,)
         )
         orders = cursor.fetchall()
+
+    normalize_rows(orders)
 
     # Group orders by order_id for display
     from collections import OrderedDict

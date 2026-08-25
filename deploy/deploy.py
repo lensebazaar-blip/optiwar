@@ -71,15 +71,15 @@ RELEASES = os.environ.get("OPTIWAR_RELEASES", "/root/deploy_releases")
 # their money, and shipping models.py without it says "paid" on an unpaid order.
 DEPLOY_SET = ("acr.py", "ai_client.py", "chat_gateway.py", "crm.py",
               "models.py", "payments.py", "paid_orders.py",
-              "razorpay_events.py", "csrf_guard.py",
-              "templates/success.html")
+              "razorpay_events.py", "csrf_guard.py", "rx_powers.py",
+              "profile.py", "templates/success.html")
 
 # Files that do not exist in production yet. Absence is otherwise a block, so
 # that a path typo or a file missing from the release cannot be mistaken for a
 # new module; listing one here says the absence is expected and the file is to
 # be created. A rollback restores only what it replaced, so these stay behind —
 # harmless, because the code that imports them is reverted with them.
-NEW_IN_RELEASE = ("paid_orders.py", "razorpay_events.py")
+NEW_IN_RELEASE = ("paid_orders.py", "razorpay_events.py", "rx_powers.py")
 
 # Running content that matches no commit but has been read line by line and
 # found safe to replace, keyed by md5. The provenance guard exists to stop a
