@@ -189,8 +189,22 @@ class DeploySetTest(unittest.TestCase):
         # models.py failing to import paid_orders 404s this route while the rest
         # of the storefront still answers 200, and a payment nobody records is
         # money taken for an order that never ships.
-        urls = [url for _label, url, _want in self.d.SMOKE]
+        urls = [row[1] for row in self.d.SMOKE]
         self.assertIn("https://optiwar.com/razorpay/webhook", urls)
+
+    def test_the_smoke_suite_posts_the_webhook_the_way_razorpay_does(self):
+        # Routed is not reachable: the origin guard answers 403 to a delivery
+        # that carries no Origin, which is every real one. Only a POST without
+        # those headers can tell the two apart, and 400 (the signature check
+        # refusing an unsigned body) means the view was actually entered.
+        posts = [row for row in self.d.SMOKE
+                 if row[1].endswith("/razorpay/webhook") and len(row) > 3]
+        self.assertEqual([(r[2], r[3]) for r in posts], [(400, "POST")])
+
+    def test_the_origin_guard_is_deployed_with_the_webhook(self):
+        # The exemption that makes the webhook reachable lives in csrf_guard.py,
+        # so shipping models.py without it deploys a route Razorpay cannot use.
+        self.assertIn("csrf_guard.py", self.d.DEPLOY_SET)
 
     def test_crm_is_in_scope_for_the_delivery_webhook(self):
         self.assertIn("crm.py", self.d.DEPLOY_SET)
@@ -198,5 +212,5 @@ class DeploySetTest(unittest.TestCase):
     def test_the_smoke_suite_proves_the_delivery_webhook_is_routed(self):
         # A crm.py that fails to import 404s this route while every page still
         # answers 200 — and MSG91 auto-pauses a webhook that stops returning 2xx.
-        urls = [url for _label, url, _want in self.d.SMOKE]
+        urls = [row[1] for row in self.d.SMOKE]
         self.assertIn("https://optiwar.com/support/msg91_delivery_event", urls)
