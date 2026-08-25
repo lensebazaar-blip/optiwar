@@ -3,7 +3,8 @@ import random
 import functools
 from .mail import send_order_confirmation
 from .payments import initiate_payment, PaytmChecksum, verify_payment_status, create_razorpay_order, verify_razorpay_payment, fetch_razorpay_payment, verify_razorpay_webhook
-from .paid_orders import apply_paid_order, append_status, order_amount_minor, order_currency
+from .paid_orders import (apply_paid_order, append_status, order_amount_minor,
+                          order_currency, order_payment_state)
 from .razorpay_events import PAID_EVENTS, payment_entity
 from flaskr.notifications import notify_payment_attempted, notify_payment_success, notify_payment_failed, notify_order_confirmed, notify_order_shipped
 import os
@@ -3509,6 +3510,8 @@ def success(order_id):
        grand_total = int(grand_total_result['grand_total']) if grand_total_result and 'grand_total' in grand_total_result else 0
        print(f"Fetched Grand Total for display type is {type(grand_total)}")
 
+       payment_state, latest_status = order_payment_state(cursor, order_id)
+
 
     except Exception as e:
         print(f"Error retreiving your order info: {e}")
@@ -3537,7 +3540,14 @@ def success(order_id):
             'estimated_delivery_date': _delivery.strftime('%Y-%m-%d'),
         }
 
-    return render_template('success.html', order_details=order_details, grand_total=grand_total, ship_date=ship_date, gcr=gcr)
+    if payment_state != 'paid':
+        current_app.logger.info(
+            f"[{request.host}] ACTIVITY:ORDER_SUCCESS_UNPAID order:{order_id} "
+            f"state:{payment_state} status:{latest_status or '-'}")
+
+    return render_template('success.html', order_details=order_details, grand_total=grand_total,
+                           ship_date=ship_date, gcr=gcr, payment_state=payment_state,
+                           latest_status=latest_status)
 
 
 @bp.route('/terms_and_conditions')
