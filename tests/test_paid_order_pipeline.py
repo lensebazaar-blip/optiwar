@@ -8,8 +8,8 @@ a payment arriving after dispatch left the ``Shipped`` row alone.
 
 Skipped, not failed, when no test database is reachable.
 
-    OPTIWAR_TEST_MYSQL_DB=optiwar2 python3 -m unittest \\
-        tests.test_paid_order_pipeline
+    scripts/setup_test_db.sh    # creates optiwar2_pipeline
+    python3 -m unittest tests.test_paid_order_pipeline
 """
 import importlib.util
 import os
@@ -31,17 +31,23 @@ def _load(name):
 
 paid_orders = _load("paid_orders")
 
+# A database of its own, created by scripts/setup_test_db.sh: production's
+# orders table has one row per line item keyed by order_line_id, which cannot
+# coexist with the one-row-per-order fake the attribution tests create under the
+# same name.
+_MAIN_DB = os.environ.get("OPTIWAR_TEST_MYSQL_DB", "optiwar2")
+
 DB_CONF = dict(
     host=os.environ.get("OPTIWAR_TEST_MYSQL_HOST", "127.0.0.1"),
     port=int(os.environ.get("OPTIWAR_TEST_MYSQL_PORT", "3306")),
     user=os.environ.get("OPTIWAR_TEST_MYSQL_USER", "oslb6"),
     password=os.environ.get("OPTIWAR_TEST_MYSQL_PASSWORD", "testpw"),
-    database=os.environ.get("OPTIWAR_TEST_MYSQL_DB", "optiwar2"),
+    database=os.environ.get("OPTIWAR_TEST_PIPELINE_DB", _MAIN_DB + "_pipeline"),
 )
 
-# Only the columns the pipeline touches. Created when absent and never altered,
-# so running this against a database that already has the real tables exercises
-# the real ones.
+# Only the columns the pipeline touches, shaped as production has them. Created
+# when absent and never altered, so pointing OPTIWAR_TEST_PIPELINE_DB at a
+# database that already has the real tables exercises the real ones.
 DDL = [
     """CREATE TABLE IF NOT EXISTS orders (
         order_line_id      BIGINT AUTO_INCREMENT PRIMARY KEY,
