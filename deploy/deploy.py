@@ -19,7 +19,9 @@ Two guards do the real work.
 *Provenance*: every file being replaced must hash-match a blob that exists in
 this repository's history for that path. If it doesn't, production is carrying
 an edit that was never committed, and overwriting it would destroy the only
-copy. The deployment refuses.
+copy. The deployment refuses — unless that exact content is recorded in
+``REVIEWED_DRIFT``, which is how a diff someone has actually read is
+distinguished from one nobody has.
 
 *Scope*: only files in ``DEPLOY_SET`` are touched. ``main`` is currently
 *behind* production on several files — GA4, Google Customer Reviews and the
@@ -64,7 +66,41 @@ RELEASES = os.environ.get("OPTIWAR_RELEASES", "/root/deploy_releases")
 # #3, so a crm.py built from main alone would have reverted the live
 # ticket-notification retry. Every other file either matches main already or is
 # still *ahead* of it; see the module docstring.
-DEPLOY_SET = ("acr.py", "ai_client.py", "chat_gateway.py", "crm.py")
+DEPLOY_SET = ("acr.py", "ai_client.py", "chat_gateway.py", "crm.py",
+              "models.py", "payments.py", "paid_orders.py",
+              "razorpay_events.py")
+
+# Files that do not exist in production yet. Absence is otherwise a block, so
+# that a path typo or a file missing from the release cannot be mistaken for a
+# new module; listing one here says the absence is expected and the file is to
+# be created. A rollback restores only what it replaced, so these stay behind —
+# harmless, because the code that imports them is reverted with them.
+NEW_IN_RELEASE = ("paid_orders.py", "razorpay_events.py")
+
+# Running content that matches no commit but has been read line by line and
+# found safe to replace, keyed by md5. The provenance guard exists to stop a
+# deploy destroying the only copy of an edit; when the whole of that edit is
+# known and deliberately not being kept, recording it here is the audit trail.
+REVIEWED_DRIFT = {
+    # Reviewed 2026-08-25 against origin/main: main is ahead on every hunk
+    # (append-only status writes, the paid-order pipeline, the .com lens
+    # localisation) and the file's only production-unique content is a Google
+    # Maps browser key hardcoded where main reads GOOGLE_MAPS_API_KEY from the
+    # environment. REQUIRED_ENV below makes the deploy refuse until that name
+    # is set on the box, so nothing is lost by replacing it.
+    "models.py": {"0de7d17b5605a8368e353ffc1ca76026":
+                  "hardcoded GOOGLE_MAPS_API_KEY, now read from the environment"},
+}
+
+# Environment names the deployed code reads and production does not set yet.
+# Checked by name only — this tool never reads a secret's value. A missing name
+# is a block, because the symptom otherwise is a feature that silently stops
+# working (an autocomplete that returns nothing, a webhook that rejects every
+# delivery) rather than an error anyone sees.
+REQUIRED_ENV = (
+    ("GOOGLE_MAPS_API_KEY", "models.py reads it for /api/places_autocomplete"),
+    ("RAZORPAY_WEBHOOK_SECRET", "payments.py verifies /razorpay/webhook with it"),
+)
 
 # Smoke tests. A deployment that breaks any of these is rolled back, so keep
 # them to things that are unambiguous from outside the app.
@@ -82,6 +118,10 @@ SMOKE = (
     # and a webhook that 404s is auto-paused by MSG91 within minutes.
     ("delivery webhook registered",
      "https://optiwar.com/support/msg91_delivery_event", 405),
+    # Same reasoning for the paid-order webhook: a models.py that failed to
+    # import paid_orders would 404 here while every page above still answered.
+    ("razorpay webhook registered",
+     "https://optiwar.com/razorpay/webhook", 405),
 )
 
 # Canonical events a single canary conversation must produce. Their absence
@@ -217,6 +257,26 @@ def verify_locally():
     return out.returncode == 0, tail[-3:] if tail else []
 
 
+def missing_env():
+    """``REQUIRED_ENV`` names the running service does not define.
+
+    Names only: the unit file is read on the box and only the presence of each
+    name is brought back, never a value.
+    """
+    # Both sources, because a name set in an EnvironmentFile is invisible to
+    # the unit's own Environment= property, and treating that as unset would
+    # block a correctly configured box.
+    defined = remote_script(
+        "svc=%s\n"
+        "systemctl show \"$svc\" -p Environment --value | tr ' ' '\\n' "
+        "| cut -d= -f1\n"
+        "for f in $(systemctl show \"$svc\" -p EnvironmentFiles --value "
+        "| tr ' ' '\\n' | sed 's/ (ignore_errors=.*//'); do\n"
+        "  [ -r \"$f\" ] && grep -oE '^[A-Za-z_][A-Za-z0-9_]*' \"$f\"\n"
+        "done" % shlex.quote(SERVICE), check=False).split()
+    return [(name, why) for name, why in REQUIRED_ENV if name not in defined]
+
+
 def pending_ddl():
     """Schema ``ensure_schema`` would add at boot, read from production.
 
@@ -254,8 +314,10 @@ def manifest():
     for name in DEPLOY_SET:
         old, new = prod.get(name), md5(os.path.join(REPO, name))
         if old is None:
-            rows.append((name, old, new, None))
-            blocked.append("%s: not present in production" % name)
+            new_ok = name in NEW_IN_RELEASE
+            rows.append((name, old, new, "NEW" if new_ok else None))
+            if not new_ok:
+                blocked.append("%s: not present in production" % name)
             continue
         if old == new:
             rows.append((name, old, new, "HEAD"))
@@ -264,8 +326,9 @@ def manifest():
         subprocess.run(["scp", "-q", "%s:%s/%s" % (HOST, APP_DIR, name), tmp],
                        check=True)
         rev = known_to_git(name, sh("git hash-object %s" % tmp))
-        rows.append((name, old, new, rev))
-        if not rev:
+        reviewed = REVIEWED_DRIFT.get(name, {}).get(old)
+        rows.append((name, old, new, rev or ("reviewed drift" if reviewed else None)))
+        if not rev and not reviewed:
             blocked.append(
                 "%s: the running version is not any committed version of this "
                 "file — it holds an uncommitted edit that a deploy would "
@@ -319,12 +382,23 @@ def cmd_plan(args):
     rows, blocked, ahead, only_prod = manifest()
     print("\n  FILE MANIFEST (old -> new, and the commit production is at)")
     for name, old, new, rev in rows:
+        if old is None:
+            state = "   (new file)" if rev == "NEW" else "   MISSING"
+        elif old == new:
+            state = "   (unchanged)"
+        else:
+            state = "   running = %s" % (rev or "UNCOMMITTED")
         print("    %-18s %s -> %s%s"
-              % (name, (old or "absent")[:12], new[:12],
-                 "   (unchanged)" if old == new
-                 else "   running = %s" % (rev[:9] if rev else "UNCOMMITTED")))
+              % (name, (old or "absent")[:12], new[:12], state))
     for b in blocked:
         print("    BLOCKED  %s" % b)
+
+    absent = missing_env()
+    print("\n  ENVIRONMENT (names only, never values)")
+    if not absent:
+        print("    all %d required name(s) set on %s" % (len(REQUIRED_ENV), SERVICE))
+    for name, why in absent:
+        print("    BLOCKED  %s is not set — %s" % (name, why))
 
     if ahead:
         print("\n  NOT DEPLOYED — production differs from main on these and is\n"
@@ -391,6 +465,8 @@ def cmd_apply(args):
     branch, head, problems = preflight()
     rows, blocked, _ahead, _only = manifest()
     ok, tail = verify_locally()
+    blocked += ["%s is not set on %s — %s" % (name, SERVICE, why)
+                for name, why in missing_env()]
     if problems or blocked or not ok:
         for m in problems + blocked + ([] if ok else ["unit suite failed"]):
             print("BLOCKED: %s" % m, file=sys.stderr)
@@ -402,7 +478,9 @@ def cmd_apply(args):
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     rel = "%s/%s" % (RELEASES, stamp)
     remote("mkdir -p %s" % shlex.quote(rel))
-    for name, _old, _new, _rev in rows:
+    for name, old, _new, _rev in rows:
+        if old is None:
+            continue        # nothing to back up: the file is being created
         remote("cp -p %s/%s %s/%s" % (APP_DIR, name, rel, name))
     with open("/tmp/manifest.txt", "w") as fh:
         fh.write("release %s\nrepo %s @ %s\n" % (stamp, branch, head))
