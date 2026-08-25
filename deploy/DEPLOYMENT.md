@@ -50,6 +50,48 @@ copied, and `py_compile` runs again on the box after the copy.
 **Secrets stay out.** Configuration lives in the systemd unit and
 `/etc/optiwar/optiwar-secrets.env`; the deploy never reads or writes either.
 
+**Environment.** `REQUIRED_ENV` names the variables the deployed code reads.
+Their presence is checked on the box by name — never by value — and a missing
+one is a hard block. Without this, deploying code that reads
+`os.environ.get(NAME, "")` onto a box that does not set `NAME` replaces a
+working feature with an empty string and raises nothing.
+
+## Reviewed drift
+
+`REVIEWED_DRIFT` records running content that matches no commit but has been
+read in full and is deliberately not being kept, keyed by md5. It is the only
+way past the provenance guard, and adding an entry means writing down what the
+production-only content was and why losing it is correct.
+
+Its one entry today is `models.py`: production hardcodes a Google Maps browser
+key where `main` reads `GOOGLE_MAPS_API_KEY` from the environment. That key is
+now set in `/etc/optiwar/optiwar-secrets.env` and listed in `REQUIRED_ENV`, so
+the deploy cannot proceed on a box that would lose it.
+
+## The paid-order pipeline release
+
+`models.py`, `payments.py` and the two new modules `paid_orders.py` and
+`razorpay_events.py` carry one behavioural change: a paid order is applied by a
+single function, `order_status` is append-only, and inventory moves once, on
+payment. Notes specific to it:
+
+- **No schema change.** Every column and table the pipeline writes —
+  `order_status.source/manual_flag/note`, `sales_log`, `product_status_history`,
+  `products.sold_out_at/status_changed_at/status_reason`,
+  `payment_collector.uq_payment_ref` — is already present in production.
+- **New modules.** Files absent from production must be listed in
+  `NEW_IN_RELEASE`; absence is otherwise a block, so that a path typo cannot be
+  mistaken for a new module. A rollback restores only what it replaced, leaving
+  these behind — harmless, because the `models.py` that imports them is
+  reverted with them.
+- **Webhook.** `POST /razorpay/webhook` is verified with
+  `RAZORPAY_WEBHOOK_SECRET` and rejects an unsigned or tampered delivery before
+  parsing it. A smoke test asserts the route answers 405 to a `GET`: a
+  `models.py` that failed to import `paid_orders` would 404 there while every
+  page still answered 200, and a payment nobody records is money taken for an
+  order that never ships. Registering the endpoint in the Razorpay dashboard is
+  a manual step outside this tool.
+
 ## Procedure
 
 ```bash

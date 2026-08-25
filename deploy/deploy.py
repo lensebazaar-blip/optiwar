@@ -465,8 +465,11 @@ def cmd_apply(args):
     branch, head, problems = preflight()
     rows, blocked, _ahead, _only = manifest()
     ok, tail = verify_locally()
-    blocked += ["%s is not set on %s — %s" % (name, SERVICE, why)
-                for name, why in missing_env()]
+    # Only asked once nothing else has already blocked: a deploy that is not
+    # going to happen has no business touching the box.
+    if not (problems or blocked):
+        blocked += ["%s is not set on %s — %s" % (name, SERVICE, why)
+                    for name, why in missing_env()]
     if problems or blocked or not ok:
         for m in problems + blocked + ([] if ok else ["unit suite failed"]):
             print("BLOCKED: %s" % m, file=sys.stderr)
