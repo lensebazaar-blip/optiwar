@@ -66,16 +66,20 @@ RELEASES = os.environ.get("OPTIWAR_RELEASES", "/root/deploy_releases")
 # #3, so a crm.py built from main alone would have reverted the live
 # ticket-notification retry. Every other file either matches main already or is
 # still *ahead* of it; see the module docstring.
+# Paths are relative to the application root, so a template is deployable the
+# same way a module is — success.html decides what a customer is told about
+# their money, and shipping models.py without it says "paid" on an unpaid order.
 DEPLOY_SET = ("acr.py", "ai_client.py", "chat_gateway.py", "crm.py",
               "models.py", "payments.py", "paid_orders.py",
-              "razorpay_events.py", "csrf_guard.py")
+              "razorpay_events.py", "csrf_guard.py", "rx_powers.py",
+              "profile.py", "templates/success.html")
 
 # Files that do not exist in production yet. Absence is otherwise a block, so
 # that a path typo or a file missing from the release cannot be mistaken for a
 # new module; listing one here says the absence is expected and the file is to
 # be created. A rollback restores only what it replaced, so these stay behind —
 # harmless, because the code that imports them is reverted with them.
-NEW_IN_RELEASE = ("paid_orders.py", "razorpay_events.py")
+NEW_IN_RELEASE = ("paid_orders.py", "razorpay_events.py", "rx_powers.py")
 
 # Running content that matches no commit but has been read line by line and
 # found safe to replace, keyed by md5. The provenance guard exists to stop a
@@ -185,6 +189,11 @@ def md5(path):
         return hashlib.md5(fh.read()).hexdigest()
 
 
+def python_set():
+    """The deploy set's modules — the only members that can be compiled."""
+    return tuple(n for n in DEPLOY_SET if n.endswith(".py"))
+
+
 def acr_module():
     """Load the repo's acr.py by path (stdlib only, no package import).
 
@@ -215,9 +224,19 @@ def migration():
 
 
 def remote_md5s():
-    out = remote("cd %s && md5sum *.py" % shlex.quote(APP_DIR))
+    """md5 of every production module, plus the non-module deploy set.
+
+    Templates are named rather than globbed: the tree holds hundreds and only
+    the ones being deployed are being reasoned about. A missing one must not
+    abort the hash of everything else — absence is a manifest decision.
+    """
+    cmd = "cd %s && md5sum *.py" % shlex.quote(APP_DIR)
+    extra = [n for n in DEPLOY_SET if not n.endswith(".py")]
+    if extra:
+        cmd += " " + " ".join(shlex.quote(n) for n in extra)
+    out = remote(cmd, check=False)
     return {name: h for h, name in
-            (ln.split(None, 1) for ln in out.splitlines())}
+            (ln.split(None, 1) for ln in out.splitlines()) if name}
 
 
 def git_blob(path):
@@ -255,7 +274,7 @@ def preflight():
 
 def verify_locally():
     """py_compile the deploy set, then the whole unit suite."""
-    for name in DEPLOY_SET:
+    for name in python_set():
         sh("python3 -m py_compile %s" % shlex.quote(name))
     out = subprocess.run(
         [sys.executable, "-m", "unittest", "discover", "-s", "tests",
@@ -329,7 +348,7 @@ def manifest():
         if old == new:
             rows.append((name, old, new, "HEAD"))
             continue
-        tmp = "/tmp/.deploy_prod_%s" % name
+        tmp = "/tmp/.deploy_prod_%s" % name.replace("/", "_")
         subprocess.run(["scp", "-q", "%s:%s/%s" % (HOST, APP_DIR, name), tmp],
                        check=True)
         rev = known_to_git(name, sh("git hash-object %s" % tmp))
@@ -346,7 +365,8 @@ def manifest():
     ahead = sorted(n for n in prod
                    if n in local and prod[n] != local[n]
                    and n not in DEPLOY_SET)
-    only_prod = sorted(n for n in prod if n not in local)
+    only_prod = sorted(n for n in prod
+                       if n.endswith(".py") and n not in local)
     return rows, blocked, ahead, only_prod
 
 
@@ -386,7 +406,7 @@ def cmd_plan(args):
         print("  BLOCKED   %s" % p)
 
     ok, tail = verify_locally()
-    print("\n  py_compile %s: ok" % ", ".join(DEPLOY_SET))
+    print("\n  py_compile %s: ok" % ", ".join(python_set()))
     print("  unit suite: %s" % ("  ".join(tail) if tail else "?"))
 
     rows, blocked, ahead, only_prod = manifest()
@@ -494,7 +514,9 @@ def cmd_apply(args):
     for name, old, _new, _rev in rows:
         if old is None:
             continue        # nothing to back up: the file is being created
-        remote("cp -p %s/%s %s/%s" % (APP_DIR, name, rel, name))
+        remote("mkdir -p %s && cp -p %s/%s %s/%s"
+               % (shlex.quote(os.path.dirname("%s/%s" % (rel, name))),
+                  APP_DIR, name, rel, name))
     with open("/tmp/manifest.txt", "w") as fh:
         fh.write("release %s\nrepo %s @ %s\n" % (stamp, branch, head))
         for name, old, new, rev in rows:
@@ -508,7 +530,7 @@ def cmd_apply(args):
         subprocess.run(["scp", "-q", os.path.join(REPO, name),
                         "%s:%s/%s" % (HOST, APP_DIR, name)], check=True)
     remote("cd %s && python3 -m py_compile %s"
-           % (APP_DIR, " ".join(DEPLOY_SET)))
+           % (APP_DIR, " ".join(python_set())))
     print("deployed and byte-compiled: %s" % ", ".join(DEPLOY_SET))
 
     since = remote("date '+%Y-%m-%d %H:%M:%S'")
@@ -552,7 +574,9 @@ def cmd_rollback(args):
         print("no previous release recorded — nothing to roll back to",
               file=sys.stderr)
         return 1
-    names = remote("cd %s && ls *.py" % shlex.quote(rel)).split()
+    names = [n for n in remote("cd %s && find . -type f -printf '%%P\\n'"
+                               % shlex.quote(rel)).split()
+             if n != "manifest.txt"]
     for name in names:
         remote("cp -p %s/%s %s/%s" % (rel, name, APP_DIR, name))
     # Deliberately code-only: schema additions are forward-compatible and

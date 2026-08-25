@@ -6,6 +6,7 @@ from .payments import initiate_payment, PaytmChecksum, verify_payment_status, cr
 from .paid_orders import (apply_paid_order, append_status, order_amount_minor,
                           order_currency, order_payment_state)
 from .razorpay_events import PAID_EVENTS, payment_entity
+from .rx_powers import normalize_rows
 from flaskr.notifications import notify_payment_attempted, notify_payment_success, notify_payment_failed, notify_order_confirmed, notify_order_shipped
 import os
 import MySQLdb
@@ -3498,7 +3499,7 @@ def success(order_id):
           ''' , (order_id,))
 
 
-       order_details = cursor.fetchall()
+       order_details = normalize_rows(cursor.fetchall())
        #print(f"Fetched order display: {order_details} and Types display")
        _host = request.host
        _ip = request.headers.get('X-Forwarded-For', request.remote_addr)
