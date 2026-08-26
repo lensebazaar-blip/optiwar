@@ -242,6 +242,18 @@ class OpsRefundApiTest(unittest.TestCase):
         self.assertEqual(r.status_code, 404)
         self.assertEqual(r.get_json()["error"], "refund_not_found")
 
+    def test_the_ledger_json_names_the_payment_it_refunded(self):
+        # Reconciliation starts from the provider payment, so tracking has to say
+        # which payment the refund came out of.
+        row = {'refund_id': 1, 'order_id': 'TEST-1', 'payment_ref': 'pay_abc',
+               'provider_refund_id': 'rfnd_1', 'amount_minor': 99900,
+               'currency': 'INR', 'status': 'PROCESSED', 'provider_state': 'processed',
+               'refund_type': 'FULL', 'reason_code': 'CUSTOMER_REFUND',
+               'idempotency_key': 'k', 'requested_by': 'ops', 'service_identity': 'eu',
+               'requested_at': '2026-01-01 00:00:00', 'completed_at': None,
+               'error_text': None}
+        self.assertEqual(ops_refunds._ledger_json(row)['payment_ref'], 'pay_abc')
+
     def test_a_provider_outage_is_502_not_a_silent_success(self):
         def broken():
             raise ops_refunds.ProviderError("provider unreachable")
