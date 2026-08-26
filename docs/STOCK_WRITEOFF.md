@@ -46,11 +46,17 @@ return; `DISCONTINUED` removes it from browsing for good.
 
 ## What it refuses to do
 
-It **stops** if any unfulfilled, non-test, non-archived order line still expects
-one of those frames, and names the lines. A customer waiting on stock that no
-longer exists is a fulfilment decision, not an inventory one: cancel, refund or
-source a replacement first. `--force` records the write-off anyway and is only
-correct once those lines have been dealt with.
+It **stops** if a customer has *paid* for one of those frames and it has not
+shipped — a successful `payment_collector` row on an unfulfilled, non-test,
+non-archived line — and names the lines. Money taken for stock that no longer
+exists is a fulfilment decision, not an inventory one: refund, cancel or source
+a replacement first. `--force` records the write-off anyway and is only correct
+once those lines have been dealt with.
+
+Unpaid open lines are listed but do **not** block. `fulfillment_status='pending'`
+is also where an abandoned cart comes to rest — there are 383 of those, the
+oldest from 2024 — so treating them as customers waiting would make the tool
+impossible to run for honest reasons.
 
 It leaves a product that is **already** empty completely alone — including its
 `status_reason`. So a frame that sold out through a real order keeps
