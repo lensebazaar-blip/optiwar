@@ -18,6 +18,8 @@ from flask import (
     render_template, redirect, url_for, flash
 )
 from werkzeug.utils import secure_filename
+
+from .catalogue import catalogue_site_filter
 from openai import OpenAI
 
 from .ai_client import call_model, wrapper_enabled_for, http_error_for, ModelError
@@ -162,6 +164,11 @@ def _build_catalog_prompt():
 
     lines = []
     for p in products:
+        # The catalogue file is generated once for both storefronts, so the
+        # vertical boundary is applied here too: the model can only offer what
+        # this prompt contains, and .in must not contain contact lenses.
+        if is_india and (p.get('category') or '') == 'Contact Lenses':
+            continue
         shapes = ','.join(p.get('shapes', []))
         price = p.get('sale_inr') if is_india else p.get('sale_eur')
         currency = 'INR' if is_india else 'EUR'
@@ -491,7 +498,7 @@ def chat_message():
                 db2 = get_db()
                 cur2 = db2.cursor()
                 placeholders2 = ','.join(['%s'] * len(code_matches[:20]))
-                cur2.execute(f'SELECT product_id FROM products WHERE product_code IN ({placeholders2}) AND product_quantity > 0', code_matches[:20])
+                cur2.execute(f'SELECT product_id FROM products WHERE product_code IN ({placeholders2}) AND product_quantity > 0' + catalogue_site_filter(), code_matches[:20])
                 product_ids = [row['product_id'] if isinstance(row, dict) else row[0] for row in cur2.fetchall()]
             except:
                 pass
@@ -510,6 +517,7 @@ def chat_message():
                        product_quantity, product_image, product_type
                 FROM products WHERE product_id IN ({placeholders})
                 AND product_quantity > 0
+                {catalogue_site_filter()}
             """, product_ids[:20])
             products = cursor.fetchall()
             # Convert to serializable

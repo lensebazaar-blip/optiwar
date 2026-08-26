@@ -149,7 +149,8 @@ def favorites():
     if favorites:
        favorites_list = tuple(favorites)
        print(f" Favorites List: {favorites_list}")
-       query = """ select * from products where product_id IN %s AND product_quantity > 0"""
+       query = (""" select * from products where product_id IN %s AND product_quantity > 0"""
+                + catalogue_site_filter())
        try:
           db = get_db()
           cursor = db.cursor()

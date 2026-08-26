@@ -27,6 +27,8 @@ class DeployMigrationTest(unittest.TestCase):
         self.deploy = _load("deploy_under_test",
                             os.path.join(REPO, "deploy", "deploy.py"))
         self.acr = _load("acr_for_deploy_test", os.path.join(REPO, "acr.py"))
+        self.cl = _load("cl_for_deploy_test",
+                        os.path.join(REPO, "contact_lens.py"))
 
     def test_covers_every_column_and_index_ensure_schema_adds(self):
         labels = [label for label, _sql in self.deploy.migration()]
@@ -37,6 +39,11 @@ class DeployMigrationTest(unittest.TestCase):
                      for n, _c in self.acr._AI_EVENTS_EXTRA_IDX]
         expected += ["ai_actions.%s (index)" % n
                      for n, _c in self.acr._AI_ACTIONS_EXTRA_IDX]
+        expected += ["%s (table)" % n for n, _d in self.cl.TABLES]
+        expected += ["products.%s (column)" % n
+                     for n, _d in self.cl.PRODUCTS_COLUMNS]
+        expected += ["products.%s (index)" % n
+                     for n, _c in self.cl.PRODUCTS_INDEXES]
         self.assertEqual(labels, expected)
 
     def test_columns_are_nullable_so_the_old_code_keeps_running(self):
@@ -45,6 +52,19 @@ class DeployMigrationTest(unittest.TestCase):
         for name, decl in self.acr._AI_EVENTS_EXTRA_COLS:
             self.assertIn("NULL", decl.upper(), name)
             self.assertNotIn("NOT NULL", decl.upper(), name)
+
+    def test_products_columns_default_so_the_old_code_keeps_inserting(self):
+        # These three are NOT NULL, unlike the ai_events columns, so the thing
+        # that keeps them additive is the DEFAULT: the running release inserts a
+        # product without naming them, and every existing row reads back as the
+        # eyewear it already was.
+        for name, decl in self.cl.PRODUCTS_COLUMNS:
+            self.assertIn("DEFAULT", decl.upper(), name)
+
+    def test_lens_tables_are_created_before_the_columns_that_reference_them(self):
+        labels = [label for label, _sql in self.deploy.migration()]
+        self.assertLess(labels.index("contact_lens_products (table)"),
+                        labels.index("contact_lens_variants (table)"))
 
     def test_ddl_is_additive_only(self):
         for label, sql in self.deploy.migration():
@@ -65,7 +85,7 @@ class DeployMigrationTest(unittest.TestCase):
         # pending_ddl() splits these to look each object up in
         # information_schema; a label it cannot parse silently checks the
         # wrong name.
-        known = {"ai_events", "ai_actions"}
+        known = {"ai_events", "ai_actions", "products"}
         for label, sql in self.deploy.migration():
             if label.endswith("(table)"):
                 self.assertIn(label.split(" ", 1)[0], sql, label)
