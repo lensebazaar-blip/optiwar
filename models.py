@@ -19,6 +19,10 @@ from .embed_helper import (
     build_media_list, build_media_primary, build_media_one, MEDIA_SCHEMA_VERSION,
     versioned_image_url, versioned_angle_urls, frame_shape, is_merchant_eligible,
 )
+from .catalogue import (
+    catalogue_site_filter, is_product_allowed, is_contact_lens, sellable_here,
+    current_site, strip_ineligible_urls, SITE_IN,
+)
 from .cart_persist import save_cart_to_db, clear_cart_in_db
 from .cl_range_model import add_prescription_of_cl
 from .country_iso import country_to_iso2
@@ -394,6 +398,7 @@ def search_products():
         WHERE {where_clause}
         AND product_image IS NOT NULL AND product_image != '' AND product_image != 'NULL'
         AND product_quantity > 0
+        {catalogue_site_filter()}
         ORDER BY product_name
         LIMIT 20
     """
@@ -517,6 +522,7 @@ def api_search():
         WHERE {where_clause}
         AND product_image IS NOT NULL AND product_image != '' AND product_image != 'NULL'
         AND product_quantity > 0
+        {catalogue_site_filter()}
         ORDER BY product_quantity DESC, product_name
         LIMIT 20
     """
@@ -583,7 +589,8 @@ def api_search():
 def product_images(product_id):
     db = get_db()
     cursor = db.cursor()
-    cursor.execute("SELECT product_image FROM products WHERE product_id = %s", (product_id,))
+    cursor.execute("SELECT product_image FROM products WHERE product_id = %s"
+                   + catalogue_site_filter(), (product_id,))
     row = cursor.fetchone()
     if not row or not row.get('product_image'):
         return jsonify([])
@@ -600,7 +607,9 @@ def autocomplete():
     term = request.args.get('term', '')
     db = get_db()
     cursor = db.cursor()
-    cursor.execute("SELECT DISTINCT product_name FROM products WHERE product_name LIKE %s AND product_quantity > 0 LIMIT 10", (f"%{term}%",))
+    cursor.execute("SELECT DISTINCT product_name FROM products WHERE product_name LIKE %s "
+                   "AND product_quantity > 0" + catalogue_site_filter() + " LIMIT 10",
+                   (f"%{term}%",))
     suggestions = [row for row in cursor.fetchall()]
     cursor.close()
     #conn.close()
@@ -616,7 +625,8 @@ def autocomplete():
 def index():
     db = get_db()
     cursor = db.cursor()
-    cursor.execute("SELECT * FROM products where product_image!='NULL' AND product_quantity!=0 order by RAND()")
+    cursor.execute("SELECT * FROM products where product_image!='NULL' AND product_quantity!=0"
+                   + catalogue_site_filter() + " order by RAND()")
     products = cursor.fetchall()
     # Homepage grid (scripts.js loadProducts) is inlined for ALL products.
     # Attach PRIMARY media only (limit=1), and dump a TRIMMED projection to JS
@@ -670,6 +680,12 @@ def index():
 @bp.route('/add_to_cart', methods=['POST'])
 def add_to_cart():
     product_id = request.form['product_id']
+    _cur = get_db().cursor()
+    try:
+        if not sellable_here(_cur, product_id):
+            return "Product not found", 404
+    finally:
+        _cur.close()
     product_name = request.form['product_name']
     product_special_price = safe_float(request.form['product_special_price'])
     product_code = request.form['product_code']
@@ -727,9 +743,17 @@ def add_to_cart():
 
 @bp.route('/contact_lenses', methods=['GET', 'POST'])
 def contact_lenses():
+    # optiwar.in does not sell contact lenses, so this listing does not exist
+    # there — not an empty page, which would still be a page.
+    if current_site() == SITE_IN:
+        return "Not found", 404
     db = get_db()
     cursor = db.cursor()
-    cursor.execute('select * from products where product_category="Contact Lenses" AND product_quantity > 0')
+    # Lens availability is IN_STOCK/ON_ORDER on the lens profile and is never
+    # frame quantity: lenses are continuously replenished and do not deplete, so
+    # filtering on product_quantity here would hide the whole catalogue.
+    cursor.execute('select * from products where product_category="Contact Lenses"'
+                   + catalogue_site_filter())
     products = cursor.fetchall()
     response = make_response(render_template('contact_lenses.html', products=products))
     return response
@@ -761,6 +785,11 @@ def add_to_cart_wcl():
 
         # Extract and sanitize form inputs
         product_id = request.form.get('product_id', '').strip()
+        # Storefront eligibility, before anything is priced or stored: the form
+        # carries the price and the parameters, so this is the only place the
+        # .in invariant can be enforced for a lens someone posts directly.
+        if not sellable_here(cursor, product_id):
+            return "Product not found", 404
         product_name = request.form.get('product_name', '').strip()
         product_price = safe_float(request.form.get('product_price', 0))
         product_code = request.form['product_code']
@@ -1144,7 +1173,8 @@ def api_frames():
     where_sql = " AND ".join(where_clauses)
 
     # Count query
-    count_sql = "SELECT COUNT(*) as cnt FROM products WHERE " + where_sql
+    count_sql = ("SELECT COUNT(*) as cnt FROM products WHERE " + where_sql
+                 + catalogue_site_filter())
     cursor.execute(count_sql, params)
     total = cursor.fetchone()['cnt']
 
@@ -1159,7 +1189,8 @@ def api_frames():
         order_clause = "ORDER BY RAND(%s)"
         params.append(seed)
 
-    data_sql = "SELECT * FROM products WHERE {} {} LIMIT %s OFFSET %s".format(where_sql, order_clause)
+    data_sql = "SELECT * FROM products WHERE {} {} {} LIMIT %s OFFSET %s".format(
+        where_sql, catalogue_site_filter(), order_clause)
     params.extend([per_page, offset])
     cursor.execute(data_sql, params)
     products = cursor.fetchall()
@@ -1259,6 +1290,11 @@ def product_page(category, product_slug):
     )
     product = cursor.fetchone()
     if not product:
+        return "Product not found", 404
+    # A product this storefront does not sell has no page here, and says so the
+    # same way a nonexistent one does: a 403 or a redirect would confirm it
+    # exists on the other site, and the .in invariant is that it does not exist.
+    if not is_product_allowed(product):
         return "Product not found", 404
 
     expected_slug = product["product_slug"]
@@ -1579,7 +1615,7 @@ def categories(category=None):
     cursor = db.cursor()
     query = CATEGORY_QUERIES.get(category)
     if query:
-         cursor.execute(query)
+         cursor.execute(query + catalogue_site_filter())
          products = cursor.fetchall()
     else:
        products  = []
@@ -3664,6 +3700,7 @@ def google_merchant_feed():
         WHERE (discontinued = 0 OR discontinued IS NULL)
           AND product_image IS NOT NULL AND product_image != ''
           AND product_slug IS NOT NULL AND product_slug != ''
+          """ + catalogue_site_filter() + """
         ORDER BY product_id
     """)
     rows = cur.fetchall()
@@ -3672,6 +3709,13 @@ def google_merchant_feed():
     for p in rows:
         # Feed inclusion policy: ACTIVE + in-stock only (drops OUT_OF_STOCK etc.).
         if not is_merchant_eligible(p):
+            continue
+        # Contact lenses stay out of the feed until they carry manufacturer
+        # identity. Everything below emits brand Optiwar and mpn = our own
+        # product code, which is true of a frame we assemble and false of an
+        # Alcon box that has a real brand, GTIN and MPN — sending ours would be
+        # a disapproval, so the vertical is excluded rather than mislabelled.
+        if is_contact_lens(p):
             continue
         if is_india:
             price = p.get('product_special_price') or p.get('product_price')
@@ -4334,6 +4378,10 @@ def sitemap_xml():
         xml += '</urlset>'
     if _req_is_india():
         xml = xml.replace('https://in.optiwar.com', 'https://optiwar.in').replace('https://optiwar.com', 'https://optiwar.in')
+        # The file is generated once for both storefronts, so the vertical
+        # boundary is applied on the way out: a lens URL regenerated into it
+        # must not become an indexable .in URL by a host string replacement.
+        xml = strip_ineligible_urls(xml, SITE_IN)
     response = make_response(xml)
     response.headers['Content-Type'] = 'application/xml'
     response.headers['Cache-Control'] = 'public, max-age=3600'
@@ -4361,6 +4409,7 @@ def image_sitemap_xml():
         WHERE (discontinued = 0 OR discontinued IS NULL)
           AND product_image IS NOT NULL AND product_image != ''
           AND product_slug IS NOT NULL AND product_slug != ''
+          """ + catalogue_site_filter() + """
         ORDER BY product_id
     """)
     rows = cur.fetchall()
@@ -4458,7 +4507,8 @@ def api_products():
     offset = (page - 1) * per_page
     
     # Count total
-    cursor.execute(f"SELECT COUNT(*) as cnt FROM products WHERE {where_clause}", params)
+    cursor.execute(f"SELECT COUNT(*) as cnt FROM products WHERE {where_clause}"
+                   + catalogue_site_filter(), params)
     total_row = cursor.fetchone()
     total = total_row['cnt'] if isinstance(total_row, dict) else total_row[0]
     
@@ -4477,6 +4527,7 @@ def api_products():
                product_category_browline
         FROM products 
         WHERE {where_clause}
+        {catalogue_site_filter()}
         ORDER BY product_id DESC
         LIMIT %s OFFSET %s
     """, params + [per_page, offset])
@@ -4623,7 +4674,7 @@ def api_product_detail(product_id):
     product = cursor.fetchone()
     cursor.close()
     
-    if not product:
+    if not product or not is_product_allowed(product):
         return jsonify({"error": "Product not found"}), 404
     
     if isinstance(product, dict):
@@ -4902,7 +4953,8 @@ def api_v1_products():
     where = ' AND '.join(conditions)
     
     # Get total count
-    cursor.execute(f"SELECT COUNT(*) FROM products WHERE {where}", params)
+    cursor.execute(f"SELECT COUNT(*) FROM products WHERE {where}"
+                   + catalogue_site_filter(), params)
     row = cursor.fetchone(); total = list(row.values())[0] if isinstance(row, dict) else row[0] if row else 0
     if isinstance(total, dict):
         total = list(total.values())[0]
@@ -4919,6 +4971,7 @@ def api_v1_products():
                product_quantity, product_slug, product_details, product_gender,
                product_image
         FROM products WHERE {where}
+        {catalogue_site_filter()}
         ORDER BY product_id DESC
         LIMIT %s OFFSET %s
     """, params + [per_page, offset])
@@ -5024,7 +5077,7 @@ def api_v1_product_detail(product_id):
     row = cursor.fetchone()
     cursor.close()
     
-    if not row:
+    if not row or not is_product_allowed(row):
         return jsonify({'status': 'error', 'message': 'Product not found'}), 404
     
     price = float(row['product_special_price_eur']) if currency == 'EUR' and row.get('product_special_price_eur') else float(row['product_special_price'] or 0)
@@ -5093,12 +5146,13 @@ def api_v1_product_media(code):
     cur = db.cursor()
     cur.execute("""
         SELECT product_id, product_code, product_name, product_image,
-               product_category, product_slug, color_display, product_color
+               product_category, product_slug, color_display, product_color,
+               product_vertical, sell_on_com, sell_on_in
         FROM products WHERE product_code = %s LIMIT 1
     """, (code,))
     row = cur.fetchone()
     cur.close()
-    if not row:
+    if not row or not is_product_allowed(row):
         return jsonify({'status': 'error', 'message': 'Product not found'}), 404
 
     is_india = _req_is_india()

@@ -13,6 +13,7 @@ from flask import Blueprint, request, jsonify, current_app, g, session
 from openai import OpenAI
 from .ai_client import call_model, wrapper_enabled_for, http_error_for, ModelError
 from .embed_helper import build_media_primary, MEDIA_SCHEMA_VERSION
+from .catalogue import catalogue_site_filter
 
 bp = Blueprint('ai_api', __name__, url_prefix='/api/ai')
 
@@ -347,7 +348,7 @@ def recommend_frame():
             LEFT JOIN products_with_categories pwc ON p.product_code = pwc.product_code
             WHERE p.product_quantity > 0
               AND p.product_diameter BETWEEN %s AND %s
-        """
+        """ + catalogue_site_filter(alias='p')
         params = [lens_min, lens_max]
 
         if face_shape and shape_rec:

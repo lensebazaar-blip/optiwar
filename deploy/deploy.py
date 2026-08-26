@@ -70,7 +70,12 @@ RELEASES = os.environ.get("OPTIWAR_RELEASES", "/root/deploy_releases")
 # Paths are relative to the application root, so a template is deployable the
 # same way a module is — success.html decides what a customer is told about
 # their money, and shipping models.py without it says "paid" on an unpaid order.
-DEPLOY_SET = ("acr.py", "ai_client.py", "chat_gateway.py", "crm.py",
+# catalogue.py and the four files that call it travel together: the site
+# eligibility rule is only true if every read surface applies it, so shipping
+# models.py without chat.py, ai_api.py or orders.py would leave a lens visible
+# on .in through the chat, the fitting API or the favourites list.
+DEPLOY_SET = ("acr.py", "ai_api.py", "ai_client.py", "catalogue.py", "chat.py",
+              "chat_gateway.py", "contact_lens.py", "crm.py", "orders.py",
               "models.py", "payments.py", "paid_orders.py",
               "razorpay_events.py", "csrf_guard.py", "rx_powers.py",
               "profile.py", "refunds.py", "ops_refunds.py",
@@ -82,7 +87,8 @@ DEPLOY_SET = ("acr.py", "ai_client.py", "chat_gateway.py", "crm.py",
 # be created. A rollback restores only what it replaced, so these stay behind —
 # harmless, because the code that imports them is reverted with them.
 NEW_IN_RELEASE = ("paid_orders.py", "razorpay_events.py", "rx_powers.py",
-                  "refunds.py", "ops_refunds.py")
+                  "refunds.py", "ops_refunds.py", "catalogue.py",
+                  "contact_lens.py")
 
 # Running content that matches no commit but has been read line by line and
 # found safe to replace, keyed by md5. The provenance guard exists to stop a
@@ -242,12 +248,31 @@ def refunds_schema():
     raise SystemExit("refunds.py no longer defines SCHEMA")
 
 
+def contact_lens_module():
+    """``contact_lens.py``'s schema declarations, read the way acr.py's are.
+
+    Same reason: the lens tables and the three ``products`` columns are declared
+    once, by the application, so a migration and an ``ensure_schema()`` cannot
+    drift into unplanned DDL during a restart.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "contact_lens_for_deploy", os.path.join(REPO, "contact_lens.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def migration():
     """The additive schema as (label, DDL), in application order.
 
     Additive in both directions: a new table the previous release never reads,
     and nullable columns/indexes on the ACR tables. A rollback leaves all of it
     in place on purpose.
+
+    The contact-lens columns on ``products`` are NOT NULL with defaults rather
+    than nullable, which is additive for the same reason: the running release
+    inserts products without naming them and the default supplies the value, and
+    every existing row reads back as the eyewear it already was.
     """
     items = [("order_refunds (table)", refunds_schema())]
     acr = acr_module()
@@ -259,6 +284,15 @@ def migration():
         items += [("%s.%s (index)" % (table, name),
                    "ALTER TABLE %s ADD KEY %s (%s)" % (table, name, cols))
                   for name, cols in idx]
+    cl = contact_lens_module()
+    items += [("%s (table)" % name, " ".join(ddl.split()))
+              for name, ddl in cl.TABLES]
+    items += [("products.%s (column)" % name,
+               "ALTER TABLE products ADD COLUMN %s %s" % (name, decl))
+              for name, decl in cl.PRODUCTS_COLUMNS]
+    items += [("products.%s (index)" % name,
+               "ALTER TABLE products ADD KEY %s (%s)" % (name, cols))
+              for name, cols in cl.PRODUCTS_INDEXES]
     return items
 
 
@@ -348,22 +382,27 @@ def pending_ddl():
     Reported so the migration is a deliberate step rather than a side effect of
     the restart: DDL and a code swap should not be the same event.
     """
-    cols = remote(
-        "mysql -N -e \"SELECT column_name FROM information_schema.columns "
-        "WHERE table_schema='%s' AND table_name='ai_events'\"" % DB,
-        check=False).split()
-    have = {}
-    for table in ("ai_events", "ai_actions"):
+    # Driven by the application's own list, so an index added to ensure_schema()
+    # and not here can no longer slip through unplanned. Every table named by a
+    # label is read, rather than the two ACR tables by name, so adding DDL on a
+    # further table cannot report "nothing pending" by looking in the wrong
+    # place.
+    tables = remote(
+        "mysql -N -e \"SELECT table_name FROM information_schema.tables "
+        "WHERE table_schema='%s'\"" % DB, check=False).split()
+
+    altered = sorted({label.split(".", 1)[0] for label, _ in migration()
+                      if not label.endswith("(table)")})
+    cols, have = {}, {}
+    for table in altered:
+        cols[table] = remote(
+            "mysql -N -e \"SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='%s' AND table_name='%s'\"" % (DB, table),
+            check=False).split()
         have[table] = remote(
             "mysql -N -e \"SELECT DISTINCT index_name FROM information_schema."
             "statistics WHERE table_schema='%s' AND table_name='%s'\""
             % (DB, table), check=False).split()
-
-    # Driven by the application's own list, so an index added to ensure_schema()
-    # and not here can no longer slip through unplanned.
-    tables = remote(
-        "mysql -N -e \"SELECT table_name FROM information_schema.tables "
-        "WHERE table_schema='%s'\"" % DB, check=False).split()
 
     pending = []
     for label, ddl in migration():
@@ -372,7 +411,7 @@ def pending_ddl():
         else:
             table, rest = label.split(".", 1)
             name = rest.split(" ", 1)[0]
-            missing = (name not in cols if label.endswith("(column)")
+            missing = (name not in cols[table] if label.endswith("(column)")
                        else name not in have[table])
         if missing:
             pending.append((label, ddl))
