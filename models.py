@@ -7,6 +7,7 @@ from .paid_orders import (apply_paid_order, append_status, order_amount_minor,
                           order_currency, order_payment_state)
 from .razorpay_events import PAID_EVENTS, payment_entity
 from .rx_powers import normalize_rows
+from . import ops_refunds
 from flaskr.notifications import notify_payment_attempted, notify_payment_success, notify_payment_failed, notify_order_confirmed, notify_order_shipped
 import os
 import MySQLdb
@@ -32,6 +33,11 @@ import unicodedata
 
 
 bp = Blueprint('main', __name__)
+
+# The EU Ops refund API lives on this blueprint because __init__.py is outside
+# the deployment set: a blueprint of its own could not be registered without
+# editing a file the deploy tool cannot safely replace.
+ops_refunds.register(bp)
 
 @bp.route('/eu/')
 @bp.route('/eu/<path:rest>')
