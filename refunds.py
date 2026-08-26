@@ -423,6 +423,15 @@ def tracking(db, idempotency_key, provider):
     if not row:
         raise RefundRejected('refund_not_found', 'no refund for that key', 404)
     out = dict(row)
+    # A settled refund is not asked about again, so the state the provider gave
+    # when it settled is what the operator is shown - otherwise the page has a
+    # provider refund id and no provider state beside it.
+    if row.get('provider_response'):
+        try:
+            out['provider_state'] = (json.loads(row['provider_response'])
+                                     or {}).get('status')
+        except (ValueError, TypeError, AttributeError):
+            pass
     if row.get('provider_refund_id') and row['status'] not in (PROCESSED, FAILED):
         live = provider.refund_status(row['provider_refund_id'])
         out['provider_state'] = live.get('status')
