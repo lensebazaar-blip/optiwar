@@ -215,6 +215,7 @@ def _ledger_json(row):
     return {
         'refund_id': row['refund_id'],
         'order_id': row['order_id'],
+        'payment_ref': row['payment_ref'],
         'provider_refund_id': row.get('provider_refund_id'),
         'amount_minor': int(row['amount_minor']),
         'amount': refunds.minor_to_major(int(row['amount_minor'])),
