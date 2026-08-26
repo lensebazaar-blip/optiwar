@@ -424,6 +424,18 @@ class RefundTest(unittest.TestCase):
         refunds.tracking(self.db, key, provider)
         self.assertEqual(provider.status_calls, [])
 
+    def test_a_settled_refund_still_reports_the_providers_own_state(self):
+        # The provider is not asked again, so the state it gave when it settled
+        # is what the operator has to be shown next to the provider refund id.
+        order_id = self._order()
+        provider = FakeProvider()
+        key = self._key(order_id)
+        self._refund(order_id, provider, key=key)
+        live = refunds.tracking(self.db, key, provider)
+        self.assertEqual(live['status'], refunds.PROCESSED)
+        self.assertEqual(live['provider_state'], 'processed')
+        self.assertEqual(provider.status_calls, [])
+
     def test_tracking_an_unknown_key_is_a_404(self):
         with self.assertRaises(refunds.RefundRejected) as caught:
             refunds.tracking(self.db, 'nope/refund/1', FakeProvider())
