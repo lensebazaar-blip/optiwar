@@ -35,6 +35,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The AI change register derives itself from git history, so a
+          # single-commit clone makes it report an empty repository — which on a
+          # push to main is a red CI that says nothing about the code.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:

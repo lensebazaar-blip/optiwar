@@ -60,6 +60,8 @@ FRAME_ONLY = (
 
 PRODUCTS_QUERY = re.compile(r"\bfrom\s+products\b", re.IGNORECASE)
 
+SELECT_ALL = re.compile(r"\bselect\s+\*", re.IGNORECASE)
+
 # Surfaces that reach one product by id, code or slug, where a WHERE clause
 # cannot decide anything: the caller already knows which product it wants. These
 # are the routes a .in visitor would use to reach a lens directly — the URL, the
@@ -140,6 +142,28 @@ class SiteFilterCoverageTest(unittest.TestCase):
             missing, [],
             "these reach one product directly and no longer check whether this "
             "storefront sells it: %s" % missing)
+
+    def test_a_row_check_is_given_the_columns_it_decides_on(self):
+        # The quiet failure mode: is_contact_lens() / is_product_allowed() read
+        # the row dict, so a projection that omits product_vertical or the
+        # sell_on_* flags makes them fall back to EYEWEAR and answer "allowed"
+        # for everything. The guard still reads as if it works.
+        needed = {"is_contact_lens": ("product_vertical",),
+                  "is_product_allowed": ("product_vertical", "sell_on_com")}
+        starved = []
+        for module in STOREFRONT:
+            for name, body in _functions(os.path.join(REPO, module)):
+                if not PRODUCTS_QUERY.search(body) or SELECT_ALL.search(body):
+                    continue
+                for check, columns in needed.items():
+                    if check + "(" not in body:
+                        continue
+                    if not any(col in body for col in columns):
+                        starved.append("%s:%s -> %s" % (module, name, check))
+        self.assertEqual(
+            starved, [],
+            "these hand a row to a check whose deciding column the SELECT does "
+            "not fetch, so the check silently passes everything: %s" % starved)
 
     def test_no_module_writes_its_own_version_of_the_predicate(self):
         # Selecting the columns is fine — the media API does, to hand the row to

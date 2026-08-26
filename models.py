@@ -3683,7 +3683,7 @@ def google_merchant_feed():
     cur.execute("""
         SELECT product_id, product_code, product_name, product_details,
                product_category, product_slug, product_image, product_quantity,
-               product_status,
+               product_status, product_vertical,
                product_price, product_special_price,
                product_price_eur, product_special_price_eur,
                color_display, product_color, product_material,
