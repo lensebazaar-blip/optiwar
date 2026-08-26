@@ -46,6 +46,7 @@ CSRF_EXEMPT_ENDPOINTS = {
     "crm.ket_ticket_event",            # KET ticket-lifecycle push (resolved/reopened)  (HMAC)
     "crm.msg91_delivery_event",        # MSG91 delivery-status callback  (optional token)
     "crm.support_preferences",         # customer notification-pref API (no cookie auth; keyed by email/phone)
+    "main.ops_refund_execute",         # EU Ops refund API  (scoped Bearer credential + server-side idempotency)
 }
 
 

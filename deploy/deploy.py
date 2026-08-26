@@ -41,6 +41,7 @@ Usage:
     python3 deploy/deploy.py rollback --confirm
 """
 import argparse
+import ast
 import datetime
 import hashlib
 import importlib.util
@@ -72,14 +73,16 @@ RELEASES = os.environ.get("OPTIWAR_RELEASES", "/root/deploy_releases")
 DEPLOY_SET = ("acr.py", "ai_client.py", "chat_gateway.py", "crm.py",
               "models.py", "payments.py", "paid_orders.py",
               "razorpay_events.py", "csrf_guard.py", "rx_powers.py",
-              "profile.py", "templates/success.html")
+              "profile.py", "refunds.py", "ops_refunds.py",
+              "templates/success.html")
 
 # Files that do not exist in production yet. Absence is otherwise a block, so
 # that a path typo or a file missing from the release cannot be mistaken for a
 # new module; listing one here says the absence is expected and the file is to
 # be created. A rollback restores only what it replaced, so these stay behind —
 # harmless, because the code that imports them is reverted with them.
-NEW_IN_RELEASE = ("paid_orders.py", "razorpay_events.py", "rx_powers.py")
+NEW_IN_RELEASE = ("paid_orders.py", "razorpay_events.py", "rx_powers.py",
+                  "refunds.py", "ops_refunds.py")
 
 # Running content that matches no commit but has been read line by line and
 # found safe to replace, keyed by md5. The provenance guard exists to stop a
@@ -104,6 +107,12 @@ REVIEWED_DRIFT = {
 REQUIRED_ENV = (
     ("GOOGLE_MAPS_API_KEY", "models.py reads it for /api/places_autocomplete"),
     ("RAZORPAY_WEBHOOK_SECRET", "payments.py verifies /razorpay/webhook with it"),
+    # The refund API's own credential, deliberately not OPS_API_TOKEN: it is the
+    # grant that lets EU Ops refund at all, and without it every refund request
+    # is refused. A block here is the handshake, not a bug — the value is set on
+    # the box by whoever owns the storefront and is never read by this tool.
+    ("OPS_REFUND_API_TOKEN",
+     "ops_refunds.py authenticates the EU Ops refund API with it"),
 )
 
 # Smoke tests. A deployment that breaks any of these is rolled back, so keep
@@ -133,6 +142,12 @@ SMOKE = (
     # unsigned body, which is proof the request reached the view at all.
     ("razorpay webhook not origin-blocked",
      "https://optiwar.com/razorpay/webhook", 400, "POST"),
+    # The refund API answering 401 proves two things at once: the route is
+    # registered, and money cannot leave without the scoped credential.
+    ("refund api rejects anonymous",
+     "https://optiwar.com/api/ops/orders/SMOKE-0/refund/preview", 401),
+    ("refund execute rejects anonymous",
+     "https://optiwar.com/api/ops/orders/SMOKE-0/refund", 401, "POST"),
 )
 
 # Canonical events a single canary conversation must produce. Their absence
@@ -209,10 +224,34 @@ def acr_module():
     return mod
 
 
+def refunds_schema():
+    """``refunds.SCHEMA``, read from the source without importing it.
+
+    The application's own DDL, for the same reason acr.py's is read rather than
+    restated: a second copy is a copy that can disagree, and a disagreement
+    means unplanned DDL during a restart. Parsed rather than imported because
+    the module imports its package siblings, which the deploy tool has no
+    business loading.
+    """
+    with open(os.path.join(REPO, "refunds.py"), encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+                getattr(t, "id", None) == "SCHEMA" for t in node.targets):
+            return " ".join(ast.literal_eval(node.value).split())
+    raise SystemExit("refunds.py no longer defines SCHEMA")
+
+
 def migration():
-    """The additive Part-B schema as (label, DDL), in application order."""
+    """The additive schema as (label, DDL), in application order.
+
+    Additive in both directions: a new table the previous release never reads,
+    and nullable columns/indexes on the ACR tables. A rollback leaves all of it
+    in place on purpose.
+    """
+    items = [("order_refunds (table)", refunds_schema())]
     acr = acr_module()
-    items = [("ai_events.%s (column)" % name,
+    items += [("ai_events.%s (column)" % name,
               "ALTER TABLE ai_events ADD COLUMN %s %s" % (name, decl))
              for name, decl in acr._AI_EVENTS_EXTRA_COLS]
     for table, idx in (("ai_events", acr._AI_EVENTS_EXTRA_IDX),
@@ -322,12 +361,19 @@ def pending_ddl():
 
     # Driven by the application's own list, so an index added to ensure_schema()
     # and not here can no longer slip through unplanned.
+    tables = remote(
+        "mysql -N -e \"SELECT table_name FROM information_schema.tables "
+        "WHERE table_schema='%s'\"" % DB, check=False).split()
+
     pending = []
     for label, ddl in migration():
-        table, rest = label.split(".", 1)
-        name = rest.split(" ", 1)[0]
-        missing = (name not in cols if label.endswith("(column)")
-                   else name not in have[table])
+        if label.endswith("(table)"):
+            missing = label.split(" ", 1)[0] not in tables
+        else:
+            table, rest = label.split(".", 1)
+            name = rest.split(" ", 1)[0]
+            missing = (name not in cols if label.endswith("(column)")
+                       else name not in have[table])
         if missing:
             pending.append((label, ddl))
     return pending

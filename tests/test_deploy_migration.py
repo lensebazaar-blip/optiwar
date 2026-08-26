@@ -30,7 +30,8 @@ class DeployMigrationTest(unittest.TestCase):
 
     def test_covers_every_column_and_index_ensure_schema_adds(self):
         labels = [label for label, _sql in self.deploy.migration()]
-        expected = ["ai_events.%s (column)" % n
+        expected = ["order_refunds (table)"]
+        expected += ["ai_events.%s (column)" % n
                     for n, _d in self.acr._AI_EVENTS_EXTRA_COLS]
         expected += ["ai_events.%s (index)" % n
                      for n, _c in self.acr._AI_EVENTS_EXTRA_IDX]
@@ -47,7 +48,18 @@ class DeployMigrationTest(unittest.TestCase):
 
     def test_ddl_is_additive_only(self):
         for label, sql in self.deploy.migration():
-            self.assertRegex(sql, r"^ALTER TABLE \w+ ADD (COLUMN|KEY) ", label)
+            self.assertRegex(
+                sql,
+                r"^(ALTER TABLE \w+ ADD (COLUMN|KEY) "
+                r"|CREATE TABLE IF NOT EXISTS \w+ )", label)
+
+    def test_refund_ledger_ddl_comes_from_the_application(self):
+        # Restating the CREATE TABLE here is what would let plan() report
+        # "nothing pending" while the application still had schema work to do.
+        refunds = _load("refunds_for_deploy_test",
+                        os.path.join(REPO, "refunds.py"))
+        self.assertEqual(self.deploy.refunds_schema(),
+                         " ".join(refunds.SCHEMA.split()))
 
     def test_labels_parse_back_into_table_and_object_name(self):
         # pending_ddl() splits these to look each object up in
@@ -55,6 +67,9 @@ class DeployMigrationTest(unittest.TestCase):
         # wrong name.
         known = {"ai_events", "ai_actions"}
         for label, sql in self.deploy.migration():
+            if label.endswith("(table)"):
+                self.assertIn(label.split(" ", 1)[0], sql, label)
+                continue
             table, rest = label.split(".", 1)
             name = rest.split(" ", 1)[0]
             self.assertIn(table, known, label)

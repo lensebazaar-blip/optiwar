@@ -15,6 +15,9 @@ DB="${OPTIWAR_TEST_DB_NAME:-optiwar2}"
 # which is incompatible with the single-row-per-order fake the attribution tests
 # create under the same name, so the two cannot share a schema.
 PIPELINE_DB="${OPTIWAR_TEST_PIPELINE_DB:-${DB}_pipeline}"
+# And a third for the refund tests, for the same reason: they need the
+# production-shaped orders table plus the refund ledger.
+REFUND_DB="${OPTIWAR_TEST_REFUND_DB:-${DB}_refunds}"
 USER="${OPTIWAR_TEST_DB_USER:-oslb6}"
 PW="${OPTIWAR_TEST_DB_PASSWORD:-testpw}"
 HOST="${OPTIWAR_TEST_DB_HOST:-127.0.0.1}"
@@ -32,13 +35,17 @@ CREATE DATABASE IF NOT EXISTS \`${DB}\`
   DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
 CREATE DATABASE IF NOT EXISTS \`${PIPELINE_DB}\`
   DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+CREATE DATABASE IF NOT EXISTS \`${REFUND_DB}\`
+  DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
 CREATE USER IF NOT EXISTS '${USER}'@'%' IDENTIFIED BY '${PW}';
 CREATE USER IF NOT EXISTS '${USER}'@'localhost' IDENTIFIED BY '${PW}';
 GRANT ALL PRIVILEGES ON \`${DB}\`.* TO '${USER}'@'%';
 GRANT ALL PRIVILEGES ON \`${DB}\`.* TO '${USER}'@'localhost';
 GRANT ALL PRIVILEGES ON \`${PIPELINE_DB}\`.* TO '${USER}'@'%';
 GRANT ALL PRIVILEGES ON \`${PIPELINE_DB}\`.* TO '${USER}'@'localhost';
+GRANT ALL PRIVILEGES ON \`${REFUND_DB}\`.* TO '${USER}'@'%';
+GRANT ALL PRIVILEGES ON \`${REFUND_DB}\`.* TO '${USER}'@'localhost';
 FLUSH PRIVILEGES;
 SQL
 
-echo "test databases ${DB} and ${PIPELINE_DB} ready for ${USER}@${HOST}"
+echo "test databases ${DB}, ${PIPELINE_DB} and ${REFUND_DB} ready for ${USER}@${HOST}"
