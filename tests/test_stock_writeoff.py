@@ -48,6 +48,45 @@ class NeedsChangeTests(unittest.TestCase):
                                          "OUT_OF_STOCK"))
 
 
+class StubCursor(object):
+    def __init__(self, rows):
+        self.rows = rows
+        self.sql = None
+
+    def execute(self, sql, params=None):
+        self.sql = sql
+
+    def fetchall(self):
+        return self.rows
+
+
+class UnfulfilledOrderLineTests(unittest.TestCase):
+    """`pending` is also the resting state of an abandoned cart, so only a
+    successful payment makes an open line a reason to refuse the write-off."""
+
+    def lines(self, rows):
+        cur = StubCursor(rows)
+        paid, unpaid = wo.unfulfilled_order_lines(cur, [785])
+        return cur, paid, unpaid
+
+    def test_an_unpaid_open_line_does_not_block(self):
+        _, paid, unpaid = self.lines([dict(order_id="CXEE-3205", paid_at=None)])
+        self.assertEqual(paid, [])
+        self.assertEqual(len(unpaid), 1)
+
+    def test_a_paid_open_line_blocks(self):
+        _, paid, unpaid = self.lines([dict(order_id="X-1", paid_at="2025-06-29")])
+        self.assertEqual(len(paid), 1)
+        self.assertEqual(unpaid, [])
+
+    def test_only_successful_payments_count_and_shipped_lines_are_excluded(self):
+        cur, _, _ = self.lines([])
+        self.assertIn("p.status = 'TXN_SUCCESS'", cur.sql)
+        self.assertIn("fulfillment_status,'') <> 'fulfilled'", cur.sql)
+        self.assertIn("is_test,0)=0", cur.sql)
+        self.assertIn("archived,0)=0", cur.sql)
+
+
 class RestoreScriptTests(unittest.TestCase):
     def test_the_undo_script_carries_the_prior_quantity_and_status(self):
         rows = [row(784, "AH08", 1, "ACTIVE"), row(789, "AH05", 1, "SEASONAL")]

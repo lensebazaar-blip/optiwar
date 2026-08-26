@@ -69,17 +69,30 @@ def select_products(cur, box, ids):
     return cur.fetchall()
 
 
-def live_order_lines(cur, product_ids):
-    """Order lines that still expect one of these frames to be shippable."""
+def unfulfilled_order_lines(cur, product_ids):
+    """Unfulfilled, live, non-test lines for these frames, split by whether the
+    customer actually paid.
+
+    `fulfillment_status='pending'` is also the resting state of an abandoned
+    cart — 383 such lines exist, the oldest from 2024 — so it cannot decide on
+    its own whether anyone is owed a frame. A successful `payment_collector`
+    row can: that is money taken for stock that no longer exists.
+    """
     marks = ",".join(["%s"] * len(product_ids))
     cur.execute(
-        "SELECT order_line_id, order_id, product_id, order_quantity, date_created,"
-        " fulfillment_status FROM orders"
-        " WHERE product_id IN (%s) AND COALESCE(archived,0)=0"
-        "   AND COALESCE(is_test,0)=0"
-        "   AND COALESCE(fulfillment_status,'') <> 'fulfilled'"
-        " ORDER BY date_created" % marks, tuple(product_ids))
-    return cur.fetchall()
+        "SELECT o.order_line_id, o.order_id, o.product_id, o.order_quantity,"
+        " o.date_created, o.fulfillment_status, p.date_created AS paid_at"
+        " FROM orders o"
+        " LEFT JOIN payment_collector p"
+        "   ON p.order_id = o.order_id AND p.status = 'TXN_SUCCESS'"
+        " WHERE o.product_id IN (%s) AND COALESCE(o.archived,0)=0"
+        "   AND COALESCE(o.is_test,0)=0"
+        "   AND COALESCE(o.fulfillment_status,'') <> 'fulfilled'"
+        " ORDER BY o.date_created" % marks, tuple(product_ids))
+    lines = cur.fetchall()
+    paid = [l for l in lines if l["paid_at"]]
+    unpaid = [l for l in lines if not l["paid_at"]]
+    return paid, unpaid
 
 
 def needs_change(row, target):
@@ -118,7 +131,7 @@ def main():
                          "DISCONTINUED if it is gone for good")
     ap.add_argument("--apply", action="store_true", help="write; otherwise dry run")
     ap.add_argument("--force", action="store_true",
-                    help="proceed despite live order lines")
+                    help="proceed despite paid, unfulfilled order lines")
     ap.add_argument("--restore-file", default=None,
                     help="where to write the undo script (default: ./restore_<stamp>.sql)")
     args = ap.parse_args()
@@ -148,16 +161,22 @@ def main():
         print("\nAlready written off — nothing to change.")
         return 0
 
-    blocking = live_order_lines(cur, [r["product_id"] for r in pending])
-    if blocking:
-        print("\nLIVE ORDER LINES still expecting this stock:")
-        for b in blocking:
+    paid, unpaid = unfulfilled_order_lines(cur, [r["product_id"] for r in pending])
+    if unpaid:
+        print("\nUnpaid open lines (abandoned carts — not blocking):")
+        for b in unpaid:
             print("  line %s  order %s  product %s  %s  %s"
                   % (b["order_line_id"], b["order_id"], b["product_id"],
                      b["date_created"], b["fulfillment_status"]))
+    if paid:
+        print("\nPAID, UNFULFILLED ORDER LINES for this stock:")
+        for b in paid:
+            print("  line %s  order %s  product %s  ordered %s  paid %s  %s"
+                  % (b["order_line_id"], b["order_id"], b["product_id"],
+                     b["date_created"], b["paid_at"], b["fulfillment_status"]))
         if not args.force:
-            print("\nRefusing: a customer is waiting on stock that does not exist.\n"
-                  "Resolve or archive those lines, or re-run with --force.")
+            print("\nRefusing: a paying customer is owed stock that does not exist.\n"
+                  "Refund, cancel or substitute those lines, or re-run with --force.")
             return 2
         print("\n--force given: recording the write-off anyway.")
 
