@@ -57,6 +57,17 @@ PRODUCTS_COLUMNS = (
 # surface until somebody sets it.
 PROFILE_COLUMNS = (
     ("merchant_enabled", "TINYINT(1) NOT NULL DEFAULT 0"),
+    # Where a lens came from, so re-running the importer updates the product it
+    # created last time instead of making a second one.
+    ("source_system", "VARCHAR(32) NULL"),
+    ("source_ref", "VARCHAR(64) NULL"),
+    ("imported_at", "DATETIME NULL"),
+)
+
+# Idempotence is carried by the index, not by the importer remembering: two rows
+# claiming the same source product are refused by the database.
+PROFILE_INDEXES = (
+    ("uq_cl_source", "source_system, source_ref"),
 )
 
 PRODUCTS_INDEXES = (
@@ -86,6 +97,9 @@ CREATE TABLE IF NOT EXISTS contact_lens_products (
     color_enabled         TINYINT(1) NOT NULL DEFAULT 0,
     merchant_enabled      TINYINT(1) NOT NULL DEFAULT 0,
     matrix_version        INT NOT NULL DEFAULT 1,
+    source_system         VARCHAR(32) NULL,
+    source_ref            VARCHAR(64) NULL,
+    imported_at           DATETIME NULL,
     created_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
                               ON UPDATE CURRENT_TIMESTAMP,
@@ -93,6 +107,7 @@ CREATE TABLE IF NOT EXISTS contact_lens_products (
     KEY idx_cl_type (lens_type),
     KEY idx_cl_modality (modality),
     KEY idx_cl_availability (availability),
+    UNIQUE KEY uq_cl_source (source_system, source_ref),
     CONSTRAINT fk_cl_product FOREIGN KEY (product_id)
         REFERENCES products (product_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
@@ -170,6 +185,11 @@ def ensure_schema(cursor):
         if name not in have_profile:
             cursor.execute("ALTER TABLE contact_lens_products ADD COLUMN %s %s"
                            % (name, decl))
+    have_profile_idx = _table_indexes(cursor, "contact_lens_products")
+    for name, cols in PROFILE_INDEXES:
+        if name not in have_profile_idx:
+            cursor.execute("ALTER TABLE contact_lens_products ADD UNIQUE KEY"
+                           " %s (%s)" % (name, cols))
     have = _products_columns(cursor)
     for name, decl in PRODUCTS_COLUMNS:
         if name not in have:
@@ -191,7 +211,11 @@ def _table_columns(cursor, table):
 
 
 def _products_indexes(cursor):
-    cursor.execute("SHOW INDEX FROM products")
+    return _table_indexes(cursor, "products")
+
+
+def _table_indexes(cursor, table):
+    cursor.execute("SHOW INDEX FROM %s" % table)
     return {_col(row, "Key_name", 2) for row in cursor.fetchall()}
 
 
