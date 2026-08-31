@@ -88,6 +88,31 @@ class DeployMigrationTest(unittest.TestCase):
         self.assertEqual(self.deploy.refunds_schema(),
                          " ".join(refunds.SCHEMA.split()))
 
+    def test_a_column_arriving_with_its_own_new_table_is_not_pending(self):
+        # A box without the lens tables: the CREATE brings merchant_enabled
+        # with it, so listing the ALTER as pending makes migrate fail half-way
+        # with "Duplicate column name" — the schema left part-applied and the
+        # deploy stopped after the tables and before the products indexes.
+        replies = {}
+
+        def fake_remote(cmd, check=True):
+            if "information_schema.tables" in cmd:
+                return "products ai_events ai_actions order_refunds"
+            if "information_schema.columns" in cmd:
+                table = cmd.split("table_name='", 1)[1].split("'", 1)[0]
+                return replies.get(("cols", table), "")
+            if "information_schema.statistics" in cmd:
+                return ""
+            raise AssertionError("unexpected remote: %s" % cmd)
+
+        self.deploy.remote = fake_remote
+        labels = [label for label, _sql in self.deploy.pending_ddl()]
+        self.assertIn("contact_lens_products (table)", labels)
+        self.assertNotIn("contact_lens_products.merchant_enabled (column)",
+                         labels)
+        # The columns on a table that already exists are still reported.
+        self.assertIn("products.product_vertical (column)", labels)
+
     def test_labels_parse_back_into_table_and_object_name(self):
         # pending_ddl() splits these to look each object up in
         # information_schema; a label it cannot parse silently checks the

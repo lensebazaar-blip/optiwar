@@ -409,6 +409,15 @@ def pending_ddl():
             "statistics WHERE table_schema='%s' AND table_name='%s'\""
             % (DB, table), check=False).split()
 
+    # A table this run is about to create arrives with its own columns and
+    # indexes, so an ALTER declaring one of them is not pending — it is the same
+    # declaration reached by the other path, for a box that already has the
+    # table. information_schema was read before the CREATE ran, and reporting
+    # from it alone made the migration fail half-way through on a fresh box.
+    creating = {label.split(" ", 1)[0]: ddl for label, ddl in migration()
+                if label.endswith("(table)")
+                and label.split(" ", 1)[0] not in tables}
+
     pending = []
     for label, ddl in migration():
         if label.endswith("(table)"):
@@ -416,8 +425,13 @@ def pending_ddl():
         else:
             table, rest = label.split(".", 1)
             name = rest.split(" ", 1)[0]
-            missing = (name not in cols[table] if label.endswith("(column)")
-                       else name not in have[table])
+            if table in creating:
+                missing = not re.search(r"\b%s\b" % re.escape(name),
+                                        creating[table])
+            elif label.endswith("(column)"):
+                missing = name not in cols[table]
+            else:
+                missing = name not in have[table]
         if missing:
             pending.append((label, ddl))
     return pending
