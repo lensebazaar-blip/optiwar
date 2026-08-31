@@ -52,6 +52,13 @@ PRODUCTS_COLUMNS = (
     ("sell_on_in", "TINYINT(1) NOT NULL DEFAULT 1"),
 )
 
+# Columns added to an existing ``contact_lens_products``. The release flag
+# defaults to 0, so a lens loaded by the importer is in the database and on no
+# surface until somebody sets it.
+PROFILE_COLUMNS = (
+    ("merchant_enabled", "TINYINT(1) NOT NULL DEFAULT 0"),
+)
+
 PRODUCTS_INDEXES = (
     ("idx_vertical_status", "product_vertical, product_status"),
     ("idx_com_listing", "sell_on_com, show_in_listings, product_status"),
@@ -77,6 +84,7 @@ CREATE TABLE IF NOT EXISTS contact_lens_products (
     expected_available_at DATETIME NULL,
     prescription_required TINYINT(1) NOT NULL DEFAULT 1,
     color_enabled         TINYINT(1) NOT NULL DEFAULT 0,
+    merchant_enabled      TINYINT(1) NOT NULL DEFAULT 0,
     matrix_version        INT NOT NULL DEFAULT 1,
     created_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -157,6 +165,11 @@ def ensure_schema(cursor):
         return
     for _name, ddl in TABLES:
         cursor.execute(ddl)
+    have_profile = _table_columns(cursor, "contact_lens_products")
+    for name, decl in PROFILE_COLUMNS:
+        if name not in have_profile:
+            cursor.execute("ALTER TABLE contact_lens_products ADD COLUMN %s %s"
+                           % (name, decl))
     have = _products_columns(cursor)
     for name, decl in PRODUCTS_COLUMNS:
         if name not in have:
@@ -169,7 +182,11 @@ def ensure_schema(cursor):
 
 
 def _products_columns(cursor):
-    cursor.execute("SHOW COLUMNS FROM products")
+    return _table_columns(cursor, "products")
+
+
+def _table_columns(cursor, table):
+    cursor.execute("SHOW COLUMNS FROM %s" % table)
     return {_first(row) for row in cursor.fetchall()}
 
 

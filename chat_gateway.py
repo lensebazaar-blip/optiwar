@@ -15,6 +15,8 @@ from flask import (Blueprint, request, jsonify, current_app, make_response, g,
 from itsdangerous import URLSafeSerializer, BadSignature
 from openai import OpenAI
 from . import acr
+from . import catalogue
+from . import lens_prompt
 from .mail import create_ticket_in_db
 import smtplib
 from email.message import EmailMessage
@@ -406,6 +408,32 @@ SEARCH_PRODUCTS_TOOL = [
 ]
 
 
+def _build_contact_lens_section(is_india=False):
+    """What the model may say about contact lenses, read from the catalogue.
+
+    The text is built in ``lens_prompt``; the only job here is to fetch the rows
+    the release gate allows this storefront, so the model's knowledge of the
+    vertical is exactly the catalogue's and nothing else. A catalogue we cannot
+    read is not a claim we can make, so a failure says "none available" rather
+    than falling back to prose.
+    """
+    if is_india:
+        return lens_prompt.contact_lens_section((), is_india=True)
+    try:
+        db = _get_db()
+        try:
+            cur = db.cursor()
+            lenses = [(row, catalogue.lens_matrix_summary(cur, row["product_id"]))
+                      for row in catalogue.live_lenses(cur, catalogue.SITE_COM)]
+        finally:
+            db.close()
+    except Exception as e:
+        current_app.logger.warning(
+            '[Chat] contact-lens catalogue unavailable: %s', e)
+        return lens_prompt.SECTION_NONE
+    return lens_prompt.contact_lens_section(lenses)
+
+
 def _build_system_prompt(contact_name, is_india=False, user_message='', customer_id=None):
     """Build system prompt for DeepSeek."""
     catalog_section = _build_catalog_summary(is_india)
@@ -451,6 +479,11 @@ CUSTOMER'S FACE MEASUREMENTS (from AI Face Measurement tool):
     if knowledge:
         faqs = []
         for item in knowledge.get('faq', []):
+            # A hand-written FAQ is a second place stating whether a vertical is
+            # for sale, and it goes stale the same way the prompt rule did. The
+            # catalogue section answers this, so the FAQ must not.
+            if lens_prompt.is_lens_availability_faq(item):
+                continue
             faqs.append(f"Q: {item.get('question','')}\nA: {item.get('answer','')}")
         if faqs:
             faq_section = '\nKNOWLEDGE BASE (top FAQs):\n' + '\n\n'.join(faqs[:25])
@@ -471,6 +504,8 @@ CUSTOMER'S FACE MEASUREMENTS (from AI Face Measurement tool):
             lens_section = '\nLENS TYPES WE SELL:\n' + '\n'.join(lens_lines)
 
     # Build lens catalog (what we don't sell + power recommendations)
+    contact_lens_section = _build_contact_lens_section(is_india)
+
     lens_avail_section = ''
     if lens_catalog:
         dont_sell = lens_catalog.get('lenses_we_dont_sell', [])
@@ -526,7 +561,7 @@ RULES:
 16. The ONLY correct browse/category page URL is: https://{domain}/eyeglasses/all-spectacle-frames.html — use this exact URL whenever directing customers to browse frames. NEVER link to /categories/spectacles-frame (without a product slug) as it shows a sold-out error page. NEVER use the text 'spectacles frame category page' as a link.
 17. When recommending frames, suggest the customer use our AI Face Measurement tool at https://{domain}/tryon for better fitting suggestions. Mention this once per session, not every message.
 18. For high-power prescriptions (-6 and above), always recommend Ultra-Thin or Extra-Thin lenses and link to the lens page at https://{domain}/lenses
-19. We DO NOT sell contact lenses on optiwar.com however our associated website EU LensBazaar  website https://eu.lensbazaar.com carries most range of brand contact lenses.
+19. CONTACT LENSES: say nothing about them from your own knowledge. What this store sells, and what it does not, is stated in the CONTACT LENSES section below, which is read from the live catalogue on every message. Follow that section exactly and never contradict it, in either direction.
 20. NAVIGATION: ALWAYS include [ACTION:NAVIGATE:url] at the END of your reply when you recommend frames or the customer asks to browse/see/go to a page.
     - For FRAMES with filters: [ACTION:NAVIGATE:/eyeglasses/all-spectacle-frames.html?PARAMS] — The ONLY valid URL params are: color, facefit, shape. NO other params (temple, pd, width, size, etc.) are supported.
       Valid color values: red/blue/black/green/brown/gold/silver/pink/purple/white/orange/yellow/transparent
@@ -536,6 +571,7 @@ RULES:
     - For LENSES page: [ACTION:NAVIGATE:/lenses]
     - When recommending frames, ALWAYS end with "Would you like me to take you there?" and include the navigate action with color + facefit filters based on the customer's request and measurements.
 {catalog_section}
+{contact_lens_section}
 {lens_section}
 {lens_avail_section}
 {frame_section}

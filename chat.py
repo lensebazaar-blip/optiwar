@@ -19,6 +19,8 @@ from flask import (
 )
 from werkzeug.utils import secure_filename
 
+from . import catalogue
+from . import lens_prompt
 from .catalogue import catalogue_site_filter
 from openai import OpenAI
 
@@ -134,6 +136,11 @@ def _build_knowledge_summary():
                 for item in section_data:
                     if not isinstance(item, dict):
                         continue
+                    # A hand-written answer about what we sell is the same defect
+                    # as a hardcoded prompt rule; the CONTACT LENSES block owns
+                    # that question.
+                    if lens_prompt.is_lens_availability_faq(item):
+                        continue
                     q = item.get('question', item.get('q', ''))
                     a = item.get('answer', item.get('a', ''))
                     if q and a:
@@ -146,6 +153,8 @@ def _build_knowledge_summary():
                     if isinstance(sub_items, list):
                         for item in sub_items:
                             if not isinstance(item, dict):
+                                continue
+                            if lens_prompt.is_lens_availability_faq(item):
                                 continue
                             q = item.get('question', item.get('q', ''))
                             a = item.get('answer', item.get('a', ''))
@@ -164,10 +173,11 @@ def _build_catalog_prompt():
 
     lines = []
     for p in products:
-        # The catalogue file is generated once for both storefronts, so the
-        # vertical boundary is applied here too: the model can only offer what
-        # this prompt contains, and .in must not contain contact lenses.
-        if is_india and (p.get('category') or '') == 'Contact Lenses':
+        # The catalogue file is generated once for both storefronts and carries
+        # no release state, so a lens listed here would be offered before it has
+        # a matrix, images or a price. Lenses come from the CONTACT LENSES block,
+        # built from the database through the release gate; .in has none at all.
+        if (p.get('category') or '') == 'Contact Lenses':
             continue
         shapes = ','.join(p.get('shapes', []))
         price = p.get('sale_inr') if is_india else p.get('sale_eur')
@@ -216,6 +226,25 @@ def _vision_chat(messages, max_tokens, endpoint):
     )
 
 
+def _build_contact_lens_prompt(is_india):
+    """The CONTACT LENSES block, from the catalogue rather than from prose.
+
+    Same gate as the widget gateway uses, for the same reason: what a storefront
+    sells is a property of the catalogue, and any sentence in a prompt asserting
+    it is wrong the day the catalogue changes.
+    """
+    if is_india:
+        return lens_prompt.contact_lens_section((), is_india=True)
+    try:
+        cur = get_db().cursor()
+        lenses = [(row, catalogue.lens_matrix_summary(cur, row['product_id']))
+                  for row in catalogue.live_lenses(cur, catalogue.SITE_COM)]
+    except Exception as e:  # noqa: BLE001
+        current_app.logger.warning('[Chat] contact-lens catalogue unavailable: %s', e)
+        return lens_prompt.SECTION_NONE
+    return lens_prompt.contact_lens_section(lenses)
+
+
 def _build_system_prompt(user_name, user_email, user_phone):
     """Build the system prompt with catalog + knowledge + user context."""
     site = _get_site_from()
@@ -225,6 +254,7 @@ def _build_system_prompt(user_name, user_email, user_phone):
 
     catalog_text = _build_catalog_prompt()
     knowledge_text = _build_knowledge_summary()
+    contact_lens_text = _build_contact_lens_prompt(is_india)
 
     system = f"""You are Optiwar AI Assistant — a friendly, knowledgeable eyewear sales advisor for {site_url}.
 You help customers find frames, answer questions about products/policies/lenses, and handle support requests.
@@ -238,6 +268,7 @@ CURRENCY: {c} ({'INR' if is_india else 'EUR'})
 
 PRODUCT CATALOG (in-stock items):
 {catalog_text}
+{contact_lens_text}
 
 SITE KNOWLEDGE:
 {knowledge_text}
