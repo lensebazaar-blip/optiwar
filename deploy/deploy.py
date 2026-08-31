@@ -76,11 +76,14 @@ RELEASES = os.environ.get("OPTIWAR_RELEASES", "/root/deploy_releases")
 # on .in through the chat, the fitting API or the favourites list.
 DEPLOY_SET = ("acr.py", "ai_api.py", "ai_client.py", "catalogue.py", "chat.py",
               "chat_gateway.py", "contact_lens.py", "lens_prompt.py",
-              "lens_feed.py", "crm.py", "orders.py",
+              "lens_feed.py", "lens_seo.py", "lens_order.py",
+              "crm.py", "orders.py",
               "models.py", "payments.py", "paid_orders.py",
               "razorpay_events.py", "csrf_guard.py", "rx_powers.py",
               "profile.py", "refunds.py", "ops_refunds.py",
-              "templates/success.html")
+              "templates/success.html", "templates/lens_landing.html",
+              "templates/lens_select.html", "templates/product_page.html",
+              "templates/all_frames.html", "templates/guide_frame_shapes.html")
 
 # Files that do not exist in production yet. Absence is otherwise a block, so
 # that a path typo or a file missing from the release cannot be mistaken for a
@@ -89,7 +92,10 @@ DEPLOY_SET = ("acr.py", "ai_api.py", "ai_client.py", "catalogue.py", "chat.py",
 # harmless, because the code that imports them is reverted with them.
 NEW_IN_RELEASE = ("paid_orders.py", "razorpay_events.py", "rx_powers.py",
                   "refunds.py", "ops_refunds.py", "catalogue.py",
-                  "contact_lens.py", "lens_prompt.py", "lens_feed.py")
+                  "contact_lens.py", "lens_prompt.py", "lens_feed.py",
+                  "lens_seo.py", "lens_order.py",
+                  "templates/lens_landing.html",
+                  "templates/lens_select.html")
 
 # Running content that matches no commit but has been read line by line and
 # found safe to replace, keyed by md5. The provenance guard exists to stop a

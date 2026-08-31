@@ -22,9 +22,9 @@ from .embed_helper import (
 from .catalogue import (
     catalogue_site_filter, is_product_allowed, is_contact_lens, sellable_here,
     current_site, strip_ineligible_urls, age_group, ensure_gmc_columns,
-    live_lenses, SITE_IN, SITE_COM,
+    live_lenses, lens_matrix_summary, SITE_IN, SITE_COM,
 )
-from . import lens_feed
+from . import acr, lens_feed, lens_order, lens_seo
 from .cart_persist import save_cart_to_db, clear_cart_in_db
 from .cl_range_model import add_prescription_of_cl
 from .country_iso import country_to_iso2
@@ -745,8 +745,21 @@ def add_to_cart():
 
 @bp.route('/contact_lenses', methods=['GET', 'POST'])
 def contact_lenses():
-    # optiwar.in does not sell contact lenses, so this listing does not exist
-    # there — not an empty page, which would still be a page.
+    # The listing this replaces selected on product_category and showed whatever
+    # was in the table; the canonical one shows released lenses only. Kept as a
+    # redirect so one URL is indexable rather than two showing different sets.
+    if current_site() == SITE_IN:
+        return "Not found", 404
+    return redirect(lens_seo.ROOT_PATH, code=301)
+
+
+def _lens_landing(facet_slug=None, brand_slug=None):
+    """Render a contact-lens shelf, or 404 when this storefront has no such page.
+
+    404 rather than an empty listing for a facet or brand nothing is released in:
+    the release flag decides what exists, so a shelf appears the day a lens is
+    released and not before.
+    """
     if current_site() == SITE_IN:
         return "Not found", 404
     db = get_db()
@@ -754,11 +767,107 @@ def contact_lenses():
     # Lens availability is IN_STOCK/ON_ORDER on the lens profile and is never
     # frame quantity: lenses are continuously replenished and do not deplete, so
     # filtering on product_quantity here would hide the whole catalogue.
-    cursor.execute('select * from products where product_category="Contact Lenses"'
-                   + catalogue_site_filter())
-    products = cursor.fetchall()
-    response = make_response(render_template('contact_lenses.html', products=products))
-    return response
+    rows = live_lenses(cursor, SITE_COM)
+    for row in rows:
+        row['images'] = lens_feed.lens_images(cursor, row['product_id'])
+    view = lens_seo.landing_page(rows, 'https://optiwar.com',
+                                 facet_slug=facet_slug, brand_slug=brand_slug)
+    if not view:
+        return "Not found", 404
+    return make_response(render_template(
+        'lens_landing.html', page=view, brands=view['brands'],
+        shelves=view['shelves'], jsonld=view['jsonld'],
+        root_path=lens_seo.ROOT_PATH))
+
+
+@bp.route('/contact-lenses')
+def lens_index():
+    return _lens_landing()
+
+
+@bp.route('/contact-lenses/brand/<brand_slug>')
+def lens_brand(brand_slug):
+    return _lens_landing(brand_slug=brand_slug)
+
+
+def _released_lens(cursor, product_id):
+    """One released lens by id, or ``None``: the same gate every surface reads."""
+    return next((r for r in live_lenses(cursor, SITE_COM)
+                 if str(r['product_id']) == str(product_id or '')), None)
+
+
+def _lens_selection(lens, rows, errors=(), submitted=None):
+    return make_response(render_template(
+        'lens_select.html', lens=lens,
+        options=lens_order.options(rows),
+        box_price=lens_order.box_price(lens),
+        errors=list(errors), submitted=submitted or {},
+        eyes=lens_order.EYES,
+        max_boxes=lens_order.MAX_BOXES_PER_EYE))
+
+
+@bp.route('/contact-lenses/select', methods=['GET', 'POST'])
+def lens_select():
+    """Choose a prescription per eye, from the combinations that exist."""
+    if current_site() == SITE_IN:
+        return "Not found", 404
+    cursor = get_db().cursor()
+    lens = _released_lens(cursor, request.values.get('product_id'))
+    if not lens:
+        return "Product not found", 404
+    return _lens_selection(lens, lens_order.variants(cursor,
+                                                     lens['product_id']))
+
+
+@bp.route('/contact-lenses/add', methods=['POST'])
+def lens_add_to_cart():
+    """Add a validated per-eye order: boxes × box price, priced from the row.
+
+    The posted price is ignored. What is charged is the catalogue's EUR box
+    price times the boxes, and a combination the matrix does not hold is
+    refused rather than ordered from a manufacturer who does not make it.
+    """
+    if current_site() == SITE_IN:
+        return "Not found", 404
+    db = get_db()
+    cursor = db.cursor()
+    lens = _released_lens(cursor, request.form.get('product_id'))
+    if not lens:
+        return "Product not found", 404
+    rows = lens_order.variants(cursor, lens['product_id'])
+    selections = [lens_order.read_eye(request.form, eye)
+                  for eye in lens_order.EYES]
+    lines, problems = lens_order.validate_detailed(rows, lens, selections)
+    if problems:
+        acr.log_event(db, acr.EV_LENS_ORDER_REFUSED,
+                      failure_code=problems[0][0], success=False,
+                      payload={'product_id': str(lens['product_id']),
+                               'reasons': sorted({c for c, _ in problems})})
+        return _lens_selection(lens, rows, [m for _, m in problems],
+                               request.form)
+    item = lens_order.cart_item(lens, lines)
+    cart = [i for i in session.get('cart', [])
+            if str(i.get('product_id')) != item['product_id']]
+    cart.append(item)
+    session['cart'] = cart
+    session.modified = True
+    if session.get('user_id'):
+        save_cart_to_db()
+    acr.log_event(db, acr.EV_LENS_ORDER_VALIDATED, success=True,
+                  payload={'product_id': item['product_id'],
+                           'boxes': item['order_quantity'],
+                           'eyes': [ln['eye'] for ln in lines],
+                           'availability': item['availability']})
+    current_app.logger.info(
+        '[%s] ACTIVITY:ADD_TO_CART_LENS user:%s product:%s boxes:%s total:%s',
+        request.host, session.get('user_id', 'anon'), item['product_id'],
+        item['order_quantity'], item['ATC_WCL'])
+    return redirect(url_for('main.checkout'))
+
+
+@bp.route('/contact-lenses/<facet_slug>')
+def lens_facet(facet_slug):
+    return _lens_landing(facet_slug=facet_slug)
 
 
 @bp.route('/contact_lenses/<categories>')
@@ -1316,6 +1425,21 @@ def product_page(category, product_slug):
            code=301
        )
 
+    # A contact lens has a page when the release gate says it is finished, and
+    # its own structured data: the frame markup below promises complimentary
+    # prescription lenses, answers a question about frame size and carries a
+    # HowTo about choosing lens type, none of which is true of a box of lenses.
+    lens_jsonld = []
+    lens = None
+    if is_contact_lens(product):
+        lens = _released_lens(cursor, product['product_id'])
+        if not lens:
+            return "Product not found", 404
+        lens['images'] = lens_feed.lens_images(cursor, lens['product_id'])
+        lens_jsonld = lens_seo.jsonld_blocks(
+            lens, 'https://optiwar.com',
+            lens_matrix_summary(cursor, lens['product_id']))
+
     # Log product view
     _host = request.host
     _ip = request.headers.get('X-Forwarded-For', request.remote_addr)
@@ -1458,7 +1582,8 @@ def product_page(category, product_slug):
                            reviews=reviews, avg_rating=avg_rating, review_count=review_count,
                            inr_disc_pct=_inr_disc_pct, eur_disc_pct=_eur_disc_pct,
                            face_match_status=face_match_status, face_fit_label=face_fit_label,
-                           face_decentration=face_decentration, face_meas_data=face_meas_data)
+                           face_decentration=face_decentration, face_meas_data=face_meas_data,
+                           lens_jsonld=lens_jsonld, lens=lens)
 
 
 
@@ -3648,6 +3773,25 @@ Sitemap: https://{_host}/sitemap_index.xml
     return response
 
 
+def _live_lens_rows(cur):
+    """Released lenses with their imagery, [] on .in or if the read fails.
+
+    Shared by the feed and both sitemaps so all three publish the same set: a
+    surface that queried the catalogue itself would be free to disagree with the
+    release gate, which is the defect the gate exists to prevent.
+    """
+    if _req_is_india():
+        return []
+    try:
+        rows = live_lenses(cur, SITE_COM)
+        for row in rows:
+            row['images'] = lens_feed.lens_images(cur, row['product_id'])
+        return rows
+    except Exception as e:  # noqa: BLE001
+        current_app.logger.warning('[SEO] contact lenses omitted: %s', e)
+        return []
+
+
 def _lens_feed_items(cur, base, is_india):
     """Merchant items for every released contact lens, [] on .in.
 
@@ -3658,14 +3802,8 @@ def _lens_feed_items(cur, base, is_india):
     """
     if is_india:
         return []
-    try:
-        rows = live_lenses(cur, SITE_COM)
-        for row in rows:
-            row['images'] = lens_feed.lens_images(cur, row['product_id'])
-        return lens_feed.lens_items(rows, base, is_india=False)
-    except Exception as e:  # noqa: BLE001
-        current_app.logger.warning('[GMC] contact-lens offers omitted: %s', e)
-        return []
+    rows = _live_lens_rows(cur)
+    return lens_feed.lens_items(rows, base, is_india=False)
 
 
 # ============================================================
@@ -4418,6 +4556,16 @@ def sitemap_xml():
         # boundary is applied on the way out: a lens URL regenerated into it
         # must not become an indexable .in URL by a host string replacement.
         xml = strip_ineligible_urls(xml, SITE_IN)
+    else:
+        # Lens URLs are appended at request time rather than written into the
+        # static file: the set is whatever the release flag currently returns,
+        # and a regenerated file would otherwise decide it hours earlier.
+        db = get_db()
+        rows = _live_lens_rows(db.cursor())
+        blocks = lens_seo.sitemap_urls(rows, 'https://optiwar.com')
+        if blocks and '</urlset>' in xml:
+            xml = xml.replace('</urlset>',
+                              '\n'.join(blocks) + '\n</urlset>')
     response = make_response(xml)
     response.headers['Content-Type'] = 'application/xml'
     response.headers['Cache-Control'] = 'public, max-age=3600'
@@ -4440,7 +4588,8 @@ def image_sitemap_xml():
     db = get_db()
     cur = db.cursor()
     cur.execute("""
-        SELECT product_id, product_category, product_slug, product_image
+        SELECT product_id, product_category, product_slug, product_image,
+               product_vertical
         FROM products
         WHERE (discontinued = 0 OR discontinued IS NULL)
           AND product_image IS NOT NULL AND product_image != ''
@@ -4453,7 +4602,13 @@ def image_sitemap_xml():
     parts = ['<?xml version="1.0" encoding="UTF-8"?>',
              '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
              'xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">']
+    parts += lens_seo.image_sitemap_urls(_live_lens_rows(cur), base)
     for p in rows:
+        # Lenses are published above, from the release gate. Storefront
+        # eligibility alone would advertise one the gate holds back, and
+        # advertise a released one twice.
+        if is_contact_lens(p):
+            continue
         angles = versioned_angle_urls(p.get('product_image') or '', base, limit=25)
         if not angles:
             continue

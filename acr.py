@@ -246,6 +246,12 @@ EV_OPS_CONSOLE_AUTH_FAILURE = "OPS_CONSOLE_AUTH_FAILURE"
 # recorded before the document exists, and the export is refused if the record
 # fails: paper outlives the session that produced it.
 EV_QC_EXPORT = "QC_EXPORT"
+# A contact-lens order the prescription matrix accepted, and one it refused.
+# Refusals are the honest measure of whether the matrix we loaded is the matrix
+# customers ask for; both carry the product and a reason code only, never the
+# prescription values a customer typed.
+EV_LENS_ORDER_VALIDATED = "LENS_ORDER_VALIDATED"
+EV_LENS_ORDER_REFUSED = "LENS_ORDER_REFUSED"
 
 # Journey stages (coarse, safe to store).
 STAGE_LANDING = "LANDING"

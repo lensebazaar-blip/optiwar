@@ -1,0 +1,142 @@
+{% extends 'base.html' %}
+{% block title %}{{ lens.product_name }} - choose prescription - Optiwar{% endblock %}
+{% block meta_description %}Select power, cylinder, axis, addition and boxes per eye for {{ lens.product_name }}. Only the combinations {{ lens.brand }} supplies are offered.{% endblock %}
+{# A selection page is not a catalogue page: it exists per customer choice and
+   must not be indexed or offered as an alternate. #}
+{% block robots %}noindex, nofollow{% endblock %}
+{% block canonical_url %}https://optiwar.com/contact-lenses{% endblock %}
+{% block hreflang_in %}https://optiwar.com/contact-lenses{% endblock %}
+{% block hreflang_default %}https://optiwar.com/contact-lenses{% endblock %}
+
+{% block content %}
+<h1>{{ lens.product_name }}</h1>
+<p>{{ lens.brand }} &middot; {{ lens.pack_quantity }} lenses per box &middot;
+&euro;{{ box_price }} per box</p>
+{% if lens.availability == 'ON_ORDER' %}
+<p class="ow-lens-availability">On order{% if lens.lead_time_days %} &mdash;
+ships in about {{ lens.lead_time_days }} days{% endif %}</p>
+{% endif %}
+
+{% if errors %}
+<ul class="ow-form-errors" role="alert">
+  {% for error in errors %}<li>{{ error }}</li>{% endfor %}
+</ul>
+{% endif %}
+
+<form action="{{ url_for('main.lens_add_to_cart') }}" method="post"
+      id="owLensForm">
+  <input type="hidden" name="product_id" value="{{ lens.product_id }}">
+  {% for eye in eyes %}
+  <fieldset class="ow-lens-eye" data-eye="{{ eye }}">
+    <legend>{{ 'Right eye (OD)' if eye == 'right' else 'Left eye (OS)' }}</legend>
+    {% if options.colors %}
+    <label>Colour
+      <select name="{{ eye }}_color" data-role="color">
+        <option value="">Select</option>
+        {% for color in options.colors %}
+        <option value="{{ color.code }}"{% if submitted.get(eye ~ '_color') == color.code %} selected{% endif %}>{{ color.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% else %}
+    <input type="hidden" name="{{ eye }}_color" value="">
+    {% endif %}
+    <label>Power (SPH)
+      <select name="{{ eye }}_sph" data-role="sph">
+        <option value="">Select</option>
+      </select>
+    </label>
+    <label data-role="cyl-wrap">Cylinder (CYL)
+      <select name="{{ eye }}_cyl" data-role="cyl">
+        <option value="">Not applicable</option>
+      </select>
+    </label>
+    <label data-role="axis-wrap">Axis
+      <select name="{{ eye }}_axis" data-role="axis">
+        <option value="">Not applicable</option>
+      </select>
+    </label>
+    <label data-role="add-wrap">Addition (ADD)
+      <select name="{{ eye }}_add" data-role="add">
+        <option value="">Not applicable</option>
+      </select>
+    </label>
+    <label>Boxes
+      <input type="number" name="{{ eye }}_boxes" min="0" max="{{ max_boxes }}"
+             step="1" value="{{ submitted.get(eye ~ '_boxes', 0) }}">
+    </label>
+  </fieldset>
+  {% endfor %}
+  <p>Each eye is ordered separately: the two eyes may have different
+  prescriptions and different numbers of boxes, and you are charged
+  &euro;{{ box_price }} for every box.</p>
+  <button type="submit" class="btn-primary">Add to cart</button>
+</form>
+
+<script type="application/json" id="owLensMatrix">{{ options.tree|tojson }}</script>
+<script>
+(function () {
+  var matrix = JSON.parse(
+    document.getElementById('owLensMatrix').textContent || '{}');
+  var submitted = {{ submitted|tojson }};
+
+  function fill(select, values, keep, emptyLabel) {
+    select.innerHTML = '';
+    var blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = emptyLabel;
+    select.appendChild(blank);
+    values.forEach(function (value) {
+      var option = document.createElement('option');
+      option.value = value;
+      option.textContent = value;
+      if (value === keep) { option.selected = true; }
+      select.appendChild(option);
+    });
+    var wrap = select.closest('label');
+    if (wrap) { wrap.hidden = values.length === 0; }
+  }
+
+  function wire(fieldset) {
+    var eye = fieldset.getAttribute('data-eye');
+    var get = function (role) {
+      return fieldset.querySelector('[data-role="' + role + '"]');
+    };
+    var color = get('color');
+    var sph = get('sph');
+    var cyl = get('cyl');
+    var axis = get('axis');
+    var add = get('add');
+
+    function branch() {
+      var code = color ? color.value : '';
+      return matrix[code] || {};
+    }
+    function refreshSph() {
+      fill(sph, Object.keys(branch()), submitted[eye + '_sph'], 'Select');
+      refreshCyl();
+    }
+    function refreshCyl() {
+      var node = branch()[sph.value] || {};
+      fill(cyl, Object.keys(node).filter(function (k) { return k !== ''; }),
+           submitted[eye + '_cyl'], 'None');
+      refreshAxis();
+    }
+    function refreshAxis() {
+      var node = (branch()[sph.value] || {})[cyl.value] ||
+                 (branch()[sph.value] || {})[''] || {axes: [], adds: []};
+      fill(axis, node.axes || [], submitted[eye + '_axis'], 'Not applicable');
+      fill(add, node.adds || [], submitted[eye + '_add'], 'Not applicable');
+    }
+
+    if (color) { color.addEventListener('change', refreshSph); }
+    sph.addEventListener('change', refreshCyl);
+    cyl.addEventListener('change', refreshAxis);
+    refreshSph();
+  }
+
+  Array.prototype.forEach.call(
+    document.querySelectorAll('.ow-lens-eye'), wire);
+})();
+</script>
+{% endblock %}
