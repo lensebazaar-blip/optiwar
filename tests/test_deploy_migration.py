@@ -8,6 +8,7 @@ labels ``pending_ddl`` parses stay parseable.
 
     python3 -m unittest tests.test_deploy_migration
 """
+import ast
 import importlib.util
 import os
 import unittest
@@ -44,9 +45,27 @@ class DeployMigrationTest(unittest.TestCase):
                      for n, _d in self.cl.PRODUCTS_COLUMNS]
         expected += ["contact_lens_products.%s (column)" % n
                      for n, _d in self.cl.PROFILE_COLUMNS]
+        expected += ["contact_lens_products.%s (index)" % n
+                     for n, _d in self.cl.PROFILE_INDEXES]
         expected += ["products.%s (index)" % n
                      for n, _c in self.cl.PRODUCTS_INDEXES]
+        expected += ["products.%s (column)" % n
+                     for n, _d in self.deploy.catalogue_columns()]
         self.assertEqual(labels, expected)
+
+    def test_the_catalogue_columns_are_the_ones_catalogue_ensures(self):
+        """Read out of the source rather than imported, because catalogue.py
+        imports flask and the deploy tool must not."""
+        with open(os.path.join(REPO, "catalogue.py"), encoding="utf-8") as fh:
+            src = fh.read()
+        declared = None
+        for node in ast.parse(src).body:
+            if isinstance(node, ast.Assign) and any(
+                    getattr(t, "id", None) == "GMC_COLUMNS"
+                    for t in node.targets):
+                declared = list(ast.literal_eval(node.value))
+        self.assertEqual(self.deploy.catalogue_columns(), declared)
+        self.assertIn("def ensure_gmc_columns", src)
 
     def test_columns_are_nullable_so_the_old_code_keeps_running(self):
         # The migration is applied before the code, and stays after a rollback,
@@ -62,11 +81,14 @@ class DeployMigrationTest(unittest.TestCase):
         # eyewear it already was.
         for name, decl in self.cl.PRODUCTS_COLUMNS:
             self.assertIn("DEFAULT", decl.upper(), name)
-        # Same reasoning for a column added to an existing lens profile table:
-        # and its default must be 0, because a lens whose readiness nobody has
-        # asserted is not released.
+        # Same reasoning for a column added to an existing lens profile table,
+        # which is either nullable or defaulted. The release flag's default must
+        # be 0 in particular: a lens whose readiness nobody has asserted is not
+        # released, and an import must not put one on a surface.
         for name, decl in self.cl.PROFILE_COLUMNS:
-            self.assertIn("DEFAULT 0", decl.upper(), name)
+            self.assertRegex(decl.upper(), r"DEFAULT |\bNULL\b", name)
+            if name == "merchant_enabled":
+                self.assertIn("DEFAULT 0", decl.upper(), name)
 
     def test_lens_tables_are_created_before_the_columns_that_reference_them(self):
         labels = [label for label, _sql in self.deploy.migration()]
@@ -77,7 +99,7 @@ class DeployMigrationTest(unittest.TestCase):
         for label, sql in self.deploy.migration():
             self.assertRegex(
                 sql,
-                r"^(ALTER TABLE \w+ ADD (COLUMN|KEY) "
+                r"^(ALTER TABLE \w+ ADD (COLUMN|KEY|UNIQUE KEY) "
                 r"|CREATE TABLE IF NOT EXISTS \w+ )", label)
 
     def test_refund_ledger_ddl_comes_from_the_application(self):

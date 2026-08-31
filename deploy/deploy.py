@@ -263,6 +263,22 @@ def contact_lens_module():
     return mod
 
 
+def catalogue_columns():
+    """``catalogue.GMC_COLUMNS``, read from the source without importing it.
+
+    Parsed rather than imported for refunds.py's reason: the module imports
+    flask, which the deploy tool has no business loading to learn the name of a
+    column.
+    """
+    with open(os.path.join(REPO, "catalogue.py"), encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+                getattr(t, "id", None) == "GMC_COLUMNS" for t in node.targets):
+            return list(ast.literal_eval(node.value))
+    raise SystemExit("catalogue.py no longer defines GMC_COLUMNS")
+
+
 def migration():
     """The additive schema as (label, DDL), in application order.
 
@@ -295,9 +311,16 @@ def migration():
                "ALTER TABLE contact_lens_products ADD COLUMN %s %s"
                % (name, decl))
               for name, decl in cl.PROFILE_COLUMNS]
+    items += [("contact_lens_products.%s (index)" % name,
+               "ALTER TABLE contact_lens_products ADD UNIQUE KEY %s (%s)"
+               % (name, cols))
+              for name, cols in cl.PROFILE_INDEXES]
     items += [("products.%s (index)" % name,
                "ALTER TABLE products ADD KEY %s (%s)" % (name, cols))
               for name, cols in cl.PRODUCTS_INDEXES]
+    items += [("products.%s (column)" % name,
+               "ALTER TABLE products ADD COLUMN %s %s" % (name, decl))
+              for name, decl in catalogue_columns()]
     return items
 
 
