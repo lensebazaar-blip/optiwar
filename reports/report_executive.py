@@ -46,7 +46,7 @@ PLACEHOLDER = "{{EXECUTIVE_STATUS}}"
 
 # Sections expected to contribute every run. A silent section is a coverage gap,
 # not a pass, so these names are what turn silence into a WARNING.
-EXPECTED_SOURCES = ("base", "observatory", "gmc", "acr")
+EXPECTED_SOURCES = ("base", "observatory", "gmc", "acr", "lens")
 
 # Severity markers already printed by sections that predate the sidecar
 # protocol. Each entry is (compiled pattern, severity, category). Patterns are

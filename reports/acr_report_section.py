@@ -33,7 +33,14 @@ env vars. Intended to run behind an ``ACR_REPORT_ENABLED`` flag in the
 orchestrator.
 """
 import os
-import subprocess
+import sys
+
+# Imported by directory rather than by package: this file is executed as a
+# script by the report orchestrator, and resolving a sibling through the cwd is
+# what once let a stale copy of this section win over the current one.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from report_db import NA, SqlError, run_sql, scalar, to_int  # noqa: E402
 
 WIDTH = 70
 BANNER = "=" * WIDTH
@@ -42,7 +49,6 @@ WINDOW_HOURS = int(os.environ.get("ACR_REPORT_WINDOW_HOURS", "24"))
 # Status vocabulary
 GREEN, AMBER, RED = "GREEN", "AMBER", "RED"
 _ORDER = {GREEN: 0, AMBER: 1, RED: 2}
-NA = "n/a (pending instrumentation)"
 
 # Instrumentation coverage below this percentage means the health verdict is
 # built on too little of the picture to be asserted as GREEN. Reporting a
@@ -51,60 +57,9 @@ NA = "n/a (pending instrumentation)"
 MIN_COVERAGE_PCT = float(os.environ.get("ACR_REPORT_MIN_COVERAGE_PCT", "60"))
 
 
-def _db_conf():
-    return dict(
-        host=os.environ.get("ACR_REPORT_DB_HOST") or os.environ.get("MYSQL_HOST", "localhost"),
-        user=os.environ.get("ACR_REPORT_DB_USER") or os.environ.get("MYSQL_USER", ""),
-        passwd=os.environ.get("ACR_REPORT_DB_PASS") or os.environ.get("MYSQL_PASSWORD", ""),
-        name=(os.environ.get("ACR_REPORT_DB_NAME") or os.environ.get("MYSQL_DB")
-              or os.environ.get("MYSQL_DATABASE", "")),
-    )
-
-
-class SqlError(Exception):
-    pass
-
-
-def run_sql(query):
-    """Run a read-only query via the mysql client; return rows as list of tuples.
-
-    Credentials come from the environment (never inlined). Raises SqlError so the
-    caller can degrade a single metric to n/a without aborting the whole report.
-    """
-    c = _db_conf()
-    if not (c["user"] and c["name"]):
-        raise SqlError("db credentials not configured (ACR_REPORT_DB_* / MYSQL_*)")
-    # --no-defaults: use ONLY the explicit connection params below. A cron/root
-    # my.cnf ([client] user/password) would otherwise override MYSQL_PWD and make
-    # the client authenticate as the wrong (privileged) identity.
-    cmd = ["mysql", "--no-defaults", "-h", c["host"], "-u", c["user"],
-           c["name"], "-N", "-e", query]
-    env = dict(os.environ, MYSQL_PWD=c["passwd"])  # avoid -p on argv
-    try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=env)
-    except Exception as e:  # noqa: BLE001 - degrade to n/a
-        raise SqlError(str(e))
-    if res.returncode != 0:
-        raise SqlError((res.stderr or "query failed").strip().split("\n")[-1])
-    rows = []
-    for line in res.stdout.strip().split("\n"):
-        if line.strip():
-            rows.append(tuple(line.split("\t")))
-    return rows
-
-
-def _scalar(query, default=None):
-    rows = run_sql(query)
-    if not rows or not rows[0]:
-        return default
-    return rows[0][0]
-
-
-def _to_int(v, default=0):
-    try:
-        return int(v)
-    except (TypeError, ValueError):
-        return default
+# Aliases: the local names these were introduced under, so a call site does not
+# change because the implementation moved to the shared reader.
+_scalar, _to_int = scalar, to_int
 
 
 # Host normalization: derive .com / .in from the session's page url. Values seen

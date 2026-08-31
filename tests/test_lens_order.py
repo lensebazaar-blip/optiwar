@@ -139,6 +139,29 @@ class Selection(unittest.TestCase):
         _lines, errors = lens_order.validate(VARIANTS, LENS, [sel])
         self.assertIn("at most", errors[0])
 
+    def test_a_refusal_carries_a_reason_code_for_the_event_stream(self):
+        """The customer gets the sentence; the report counts the code."""
+        sel = lens_order.read_eye(
+            _form(right_sph="-4.50", right_cyl="-1.25", right_axis="90",
+                  right_boxes="1"), "right")
+        _lines, problems = lens_order.validate_detailed(VARIANTS, LENS, [sel])
+        self.assertEqual([c for c, _ in problems],
+                         [lens_order.REFUSED_NOT_MADE])
+        self.assertIn("not made for this lens", problems[0][1])
+
+    def test_no_boxes_and_no_price_have_their_own_codes(self):
+        empty = lens_order.read_eye(_form(), "right")
+        _l, problems = lens_order.validate_detailed(VARIANTS, LENS, [empty])
+        self.assertEqual([c for c, _ in problems],
+                         [lens_order.REFUSED_NO_BOXES])
+        priced = lens_order.read_eye(
+            _form(right_sph="-5.00", right_boxes="1"), "right")
+        free = dict(LENS, product_price_eur=0,
+                    product_special_price_eur=None)
+        _l, problems = lens_order.validate_detailed(VARIANTS, free, [priced])
+        self.assertEqual([c for c, _ in problems],
+                         [lens_order.REFUSED_NO_PRICE])
+
 
 class PerEyePricing(unittest.TestCase):
 
@@ -256,7 +279,7 @@ class Wiring(unittest.TestCase):
     def test_the_cart_is_priced_from_the_row_and_not_from_the_form(self):
         body = self.src.split("def lens_add_to_cart(")[1].split(
             "\n@bp.route")[0]
-        self.assertIn("lens_order.validate(", body)
+        self.assertIn("lens_order.validate_detailed(", body)
         self.assertIn("lens_order.cart_item(lens, lines)", body)
         for posted in ("product_price", "product_special_price"):
             self.assertNotIn("request.form.get('%s'" % posted, body)

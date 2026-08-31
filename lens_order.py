@@ -32,6 +32,15 @@ PARAMS = ("sph", "cyl", "axis", "add_power", "color")
 
 MAX_BOXES_PER_EYE = 24
 
+# Why an order was refused, as codes rather than sentences: the sentence is the
+# customer's, the code is what the event stream and the daily report count. A
+# rejection is recorded by code and product only — never with the prescription
+# the customer typed.
+REFUSED_BOXES = "BOXES_ABOVE_LIMIT"
+REFUSED_NOT_MADE = "COMBINATION_NOT_MADE"
+REFUSED_NO_BOXES = "NO_BOXES_CHOSEN"
+REFUSED_NO_PRICE = "NO_PRICE"
+
 
 def variants(cursor, product_id):
     """Every orderable combination for one lens."""
@@ -142,33 +151,42 @@ def box_price(product):
     return 0.0
 
 
-def validate(rows, product, selections):
+def validate_detailed(rows, product, selections):
     """Accept a per-eye order, or say why not.
 
-    Returns ``(lines, errors)``. ``lines`` carry the matched variant and the
-    boxes for each eye that was ordered; a non-empty ``errors`` means nothing
-    should be added to a cart.
+    Returns ``(lines, problems)``. ``lines`` carry the matched variant and the
+    boxes for each eye that was ordered; a non-empty ``problems`` means nothing
+    should be added to a cart. Each problem is ``(code, sentence)`` so the same
+    refusal can be shown to the customer and counted by its reason.
     """
-    errors, lines = [], []
+    problems, lines = [], []
     for sel in selections:
         if not sel.get("boxes"):
             continue
         if sel["boxes"] > MAX_BOXES_PER_EYE:
-            errors.append("%s eye: at most %d boxes per eye"
-                          % (sel["eye"], MAX_BOXES_PER_EYE))
+            problems.append((REFUSED_BOXES, "%s eye: at most %d boxes per eye"
+                             % (sel["eye"], MAX_BOXES_PER_EYE)))
             continue
         variant = find(rows, sel)
         if not variant:
-            errors.append("%s eye: this combination is not made for this lens"
-                          % sel["eye"])
+            problems.append((REFUSED_NOT_MADE,
+                             "%s eye: this combination is not made for this "
+                             "lens" % sel["eye"]))
             continue
         lines.append({"eye": sel["eye"], "boxes": sel["boxes"],
                       "variant": variant})
-    if not lines and not errors:
-        errors.append("Choose the boxes for at least one eye")
-    if not box_price(product) and not errors:
-        errors.append("This lens has no price")
-    return lines, errors
+    if not lines and not problems:
+        problems.append((REFUSED_NO_BOXES,
+                         "Choose the boxes for at least one eye"))
+    if not box_price(product) and not problems:
+        problems.append((REFUSED_NO_PRICE, "This lens has no price"))
+    return lines, problems
+
+
+def validate(rows, product, selections):
+    """``validate_detailed`` for a caller that only shows the sentences."""
+    lines, problems = validate_detailed(rows, product, selections)
+    return lines, [message for _, message in problems]
 
 
 def describe(variant, boxes_ordered):

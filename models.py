@@ -24,7 +24,7 @@ from .catalogue import (
     current_site, strip_ineligible_urls, age_group, ensure_gmc_columns,
     live_lenses, lens_matrix_summary, SITE_IN, SITE_COM,
 )
-from . import lens_feed, lens_order, lens_seo
+from . import acr, lens_feed, lens_order, lens_seo
 from .cart_persist import save_cart_to_db, clear_cart_in_db
 from .cl_range_model import add_prescription_of_cl
 from .country_iso import country_to_iso2
@@ -837,9 +837,14 @@ def lens_add_to_cart():
     rows = lens_order.variants(cursor, lens['product_id'])
     selections = [lens_order.read_eye(request.form, eye)
                   for eye in lens_order.EYES]
-    lines, errors = lens_order.validate(rows, lens, selections)
-    if errors:
-        return _lens_selection(lens, rows, errors, request.form)
+    lines, problems = lens_order.validate_detailed(rows, lens, selections)
+    if problems:
+        acr.log_event(db, acr.EV_LENS_ORDER_REFUSED,
+                      failure_code=problems[0][0], success=False,
+                      payload={'product_id': str(lens['product_id']),
+                               'reasons': sorted({c for c, _ in problems})})
+        return _lens_selection(lens, rows, [m for _, m in problems],
+                               request.form)
     item = lens_order.cart_item(lens, lines)
     cart = [i for i in session.get('cart', [])
             if str(i.get('product_id')) != item['product_id']]
@@ -848,6 +853,11 @@ def lens_add_to_cart():
     session.modified = True
     if session.get('user_id'):
         save_cart_to_db()
+    acr.log_event(db, acr.EV_LENS_ORDER_VALIDATED, success=True,
+                  payload={'product_id': item['product_id'],
+                           'boxes': item['order_quantity'],
+                           'eyes': [ln['eye'] for ln in lines],
+                           'availability': item['availability']})
     current_app.logger.info(
         '[%s] ACTIVITY:ADD_TO_CART_LENS user:%s product:%s boxes:%s total:%s',
         request.host, session.get('user_id', 'anon'), item['product_id'],
