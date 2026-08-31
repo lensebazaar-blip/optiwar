@@ -1,0 +1,304 @@
+"""Ordering a lens: the matrix decides, the eyes are independent, we price it.
+
+The rules asserted here: a combination the matrix does not hold is refused; the
+options offered are nested so a cylinder is only offered where it exists; each
+eye carries its own prescription and its own number of boxes; the charge is the
+catalogue's EUR box price times the boxes and never the posted one; and a lens
+is purchasable while ON_ORDER because frame quantity does not apply to it.
+
+    python3 -m unittest tests.test_lens_order
+"""
+import importlib.util
+import os
+import sys
+import unittest
+
+from jinja2 import (ChoiceLoader, DictLoader, Environment, FileSystemLoader,
+                    select_autoescape)
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO not in sys.path:
+    sys.path.insert(0, REPO)
+
+
+def _load(name):
+    spec = importlib.util.spec_from_file_location(
+        name + "_under_test", os.path.join(REPO, name + ".py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _read(relative):
+    with open(os.path.join(REPO, relative)) as handle:
+        return handle.read()
+
+
+lens_order = _load("lens_order")
+
+LENS = {
+    "product_id": 2001,
+    "product_code": "CL-CV-MDT30",
+    "product_name": "MyDay Toric",
+    "brand": "CooperVision",
+    "pack_quantity": 30,
+    "product_price_eur": "45.00",
+    "product_special_price_eur": "39.90",
+    "availability": "IN_STOCK",
+    "lead_time_days": None,
+}
+
+# A deliberately holed matrix: -4.50 is made in two cylinders, one of which has
+# a single axis, and -5.00 is made spherically only. Nothing here may be
+# recombined into a pair the manufacturer does not list.
+VARIANTS = [
+    {"variant_id": 1, "sph": "-4.50", "cyl": "-0.75", "axis": 180,
+     "add_power": None, "color_code": "", "color_name": None},
+    {"variant_id": 2, "sph": "-4.50", "cyl": "-0.75", "axis": 90,
+     "add_power": None, "color_code": "", "color_name": None},
+    {"variant_id": 3, "sph": "-4.50", "cyl": "-1.25", "axis": 180,
+     "add_power": None, "color_code": "", "color_name": None},
+    {"variant_id": 4, "sph": "-5.00", "cyl": None, "axis": None,
+     "add_power": None, "color_code": "", "color_name": None},
+]
+
+
+def _form(**kwargs):
+    return dict(kwargs)
+
+
+class Options(unittest.TestCase):
+
+    def setUp(self):
+        self.opts = lens_order.options(VARIANTS)
+
+    def test_a_cylinder_is_offered_only_for_the_sphere_that_has_it(self):
+        tree = self.opts["tree"][""]
+        self.assertEqual(sorted(tree.keys()), ["-4.50", "-5.00"])
+        self.assertEqual(sorted(tree["-4.50"].keys()), ["-0.75", "-1.25"])
+        self.assertEqual(list(tree["-5.00"].keys()), [""])
+
+    def test_an_axis_is_offered_only_for_the_pair_that_has_it(self):
+        tree = self.opts["tree"][""]
+        self.assertEqual(sorted(tree["-4.50"]["-0.75"]["axes"]),
+                         ["180", "90"])
+        self.assertEqual(tree["-4.50"]["-1.25"]["axes"], ["180"])
+        self.assertEqual(tree["-5.00"][""]["axes"], [])
+
+
+class Selection(unittest.TestCase):
+
+    def test_a_listed_combination_is_accepted(self):
+        sel = lens_order.read_eye(
+            _form(right_sph="-4.50", right_cyl="-1.25", right_axis="180",
+                  right_boxes="2"), "right")
+        lines, errors = lens_order.validate(VARIANTS, LENS, [sel])
+        self.assertEqual(errors, [])
+        self.assertEqual(lines[0]["variant"]["variant_id"], 3)
+        self.assertEqual(lines[0]["boxes"], 2)
+
+    def test_a_combination_the_matrix_does_not_hold_is_refused(self):
+        # -4.50/-1.25 exists and axis 90 exists, but not together.
+        sel = lens_order.read_eye(
+            _form(right_sph="-4.50", right_cyl="-1.25", right_axis="90",
+                  right_boxes="1"), "right")
+        lines, errors = lens_order.validate(VARIANTS, LENS, [sel])
+        self.assertEqual(lines, [])
+        self.assertIn("not made for this lens", errors[0])
+
+    def test_a_cylinder_on_a_spherical_row_is_refused(self):
+        sel = lens_order.read_eye(
+            _form(right_sph="-5.00", right_cyl="-0.75", right_boxes="1"),
+            "right")
+        _lines, errors = lens_order.validate(VARIANTS, LENS, [sel])
+        self.assertTrue(errors)
+
+    def test_a_power_between_two_listed_steps_is_refused(self):
+        sel = lens_order.read_eye(
+            _form(right_sph="-4.75", right_boxes="1"), "right")
+        _lines, errors = lens_order.validate(VARIANTS, LENS, [sel])
+        self.assertTrue(errors)
+
+    def test_the_form_and_the_database_agree_on_a_number(self):
+        # The form posts -4.5, the row holds Decimal('-4.50').
+        sel = lens_order.read_eye(
+            _form(right_sph="-4.5", right_cyl="-1.25", right_axis="180",
+                  right_boxes="1"), "right")
+        lines, errors = lens_order.validate(VARIANTS, LENS, [sel])
+        self.assertEqual(errors, [])
+        self.assertEqual(lines[0]["variant"]["variant_id"], 3)
+
+    def test_an_order_for_no_eye_is_refused(self):
+        sels = [lens_order.read_eye(_form(), eye) for eye in lens_order.EYES]
+        _lines, errors = lens_order.validate(VARIANTS, LENS, sels)
+        self.assertEqual(errors, ["Choose the boxes for at least one eye"])
+
+    def test_an_absurd_number_of_boxes_is_refused(self):
+        sel = lens_order.read_eye(
+            _form(right_sph="-5.00", right_boxes="500"), "right")
+        _lines, errors = lens_order.validate(VARIANTS, LENS, [sel])
+        self.assertIn("at most", errors[0])
+
+
+class PerEyePricing(unittest.TestCase):
+
+    def setUp(self):
+        sels = [
+            lens_order.read_eye(
+                _form(right_sph="-4.50", right_cyl="-1.25", right_axis="180",
+                      right_boxes="2"), "right"),
+            lens_order.read_eye(
+                _form(left_sph="-5.00", left_boxes="3"), "left"),
+        ]
+        lines, errors = lens_order.validate(VARIANTS, LENS, sels)
+        self.assertEqual(errors, [])
+        self.item = lens_order.cart_item(LENS, lines)
+
+    def test_the_two_eyes_keep_their_own_prescriptions(self):
+        self.assertEqual(self.item["right_pwr"], "-4.50")
+        self.assertEqual(self.item["right_cyl"], "-1.25")
+        self.assertEqual(self.item["right_axis"], "180")
+        self.assertEqual(self.item["left_pwr"], "-5.00")
+        self.assertEqual(self.item["left_cyl"], "")
+        self.assertEqual(self.item["left_axis"], "")
+
+    def test_five_boxes_are_charged_at_the_box_price(self):
+        self.assertEqual(self.item["right_qty"], 2)
+        self.assertEqual(self.item["left_qty"], 3)
+        self.assertEqual(self.item["order_quantity"], 5)
+        self.assertEqual(self.item["product_special_price"], 39.90)
+        self.assertEqual(self.item["ATC_WCL"], round(39.90 * 5, 2))
+
+    def test_one_eye_only_leaves_the_other_unset_rather_than_zero_priced(self):
+        lines, _errors = lens_order.validate(VARIANTS, LENS, [
+            lens_order.read_eye(_form(left_sph="-5.00", left_boxes="1"),
+                                "left")])
+        item = lens_order.cart_item(LENS, lines)
+        self.assertEqual(item["right_qty"], 0)
+        self.assertEqual(item["right_eye"], "No RX selected")
+        self.assertEqual(item["order_quantity"], 1)
+        self.assertEqual(item["ATC_WCL"], 39.90)
+
+    def test_the_line_reads_as_a_prescription(self):
+        self.assertEqual(self.item["right_eye"],
+                         "SPH -4.50 / CYL -1.25 / AXIS 180 / 2 boxes")
+        self.assertEqual(self.item["left_eye"], "SPH -5.00 / 3 boxes")
+
+    def test_the_cart_line_is_the_shape_checkout_already_totals(self):
+        # checkout.html and the order writers total
+        # ATC_total + server_total_price + ATC_WCL.
+        for field in ("product_id", "product_code", "product_name",
+                      "product_category", "order_quantity", "ATC_WCL",
+                      "right_qty", "left_qty", "rx_id"):
+            self.assertIn(field, self.item)
+
+
+class PriceComesFromTheCatalogue(unittest.TestCase):
+
+    def test_the_offer_price_wins_over_the_list_price(self):
+        self.assertEqual(lens_order.box_price(LENS), 39.90)
+
+    def test_the_list_price_is_used_when_there_is_no_offer(self):
+        self.assertEqual(
+            lens_order.box_price(dict(LENS, product_special_price_eur=None)),
+            45.00)
+
+    def test_a_priceless_lens_cannot_be_ordered(self):
+        lens = dict(LENS, product_special_price_eur=0, product_price_eur=0)
+        sel = lens_order.read_eye(_form(right_sph="-5.00", right_boxes="1"),
+                                  "right")
+        _lines, errors = lens_order.validate(VARIANTS, lens, [sel])
+        self.assertEqual(errors, ["This lens has no price"])
+
+
+class Availability(unittest.TestCase):
+
+    def test_an_on_order_lens_is_still_purchasable(self):
+        lens = dict(LENS, availability="ON_ORDER", lead_time_days=10)
+        sel = lens_order.read_eye(_form(right_sph="-5.00", right_boxes="1"),
+                                  "right")
+        lines, errors = lens_order.validate(VARIANTS, lens, [sel])
+        self.assertEqual(errors, [])
+        item = lens_order.cart_item(lens, lines)
+        self.assertEqual(item["availability"], "ON_ORDER")
+        self.assertEqual(item["lead_time_days"], 10)
+
+    def test_frame_quantity_is_not_consulted_anywhere(self):
+        # Named in the module docstring as the thing that does not apply; the
+        # code below it must never read it.
+        self.assertNotIn("product_quantity",
+                         _read("lens_order.py").split('"""', 2)[2])
+
+
+class Wiring(unittest.TestCase):
+    """The routes and the template, read as source: the lens must be reachable."""
+
+    def setUp(self):
+        self.src = _read("models.py")
+        self.pdp = _read(os.path.join("templates", "product_page.html"))
+
+    def test_the_product_page_offers_the_prescription_path_for_a_lens(self):
+        # The frame CTA reads product_quantity and a `category` variable the
+        # route never passes; a lens branches before both.
+        cta = self.pdp.split('<div class="pdp-cta">')[1]
+        self.assertTrue(cta.lstrip().startswith("{% if lens %}"))
+        self.assertIn("url_for('main.lens_select')", cta)
+        self.assertIn("lens=lens", self.src)
+
+    def test_the_release_gate_admits_the_selection_and_the_cart(self):
+        for route in ("/contact-lenses/select", "/contact-lenses/add"):
+            self.assertIn("@bp.route('%s'" % route, self.src)
+        for name in ("def lens_select(", "def lens_add_to_cart("):
+            body = self.src.split(name)[1].split("\n@bp.route")[0]
+            self.assertIn("current_site() == SITE_IN", body)
+            self.assertIn("_released_lens(", body)
+
+    def test_the_cart_is_priced_from_the_row_and_not_from_the_form(self):
+        body = self.src.split("def lens_add_to_cart(")[1].split(
+            "\n@bp.route")[0]
+        self.assertIn("lens_order.validate(", body)
+        self.assertIn("lens_order.cart_item(lens, lines)", body)
+        for posted in ("product_price", "product_special_price"):
+            self.assertNotIn("request.form.get('%s'" % posted, body)
+
+    def test_the_selection_template_ships_with_the_route(self):
+        deploy = _read(os.path.join("deploy", "deploy.py"))
+        for path in ("lens_order.py", "templates/lens_select.html"):
+            self.assertIn('"%s"' % path, deploy)
+
+
+class Render(unittest.TestCase):
+    """The selection page renders, so a Jinja defect fails here, not as a 500."""
+
+    def test_the_page_offers_both_eyes_and_the_matrix(self):
+        env = Environment(
+            loader=ChoiceLoader([
+                DictLoader({"base.html": (
+                    "{% block robots %}{% endblock %}"
+                    "{% block canonical_url %}{% endblock %}"
+                    "{% block hreflang_in %}{% endblock %}"
+                    "{% block hreflang_default %}{% endblock %}"
+                    "{% block title %}{% endblock %}"
+                    "{% block meta_description %}{% endblock %}"
+                    "{% block content %}{% endblock %}")}),
+                FileSystemLoader(os.path.join(REPO, "templates")),
+            ]),
+            autoescape=select_autoescape(["html"]))
+        env.globals["url_for"] = lambda name, **kw: "/" + name
+        html = env.get_template("lens_select.html").render(
+            lens=LENS, options=lens_order.options(VARIANTS),
+            box_price=lens_order.box_price(LENS), errors=[], submitted={},
+            eyes=lens_order.EYES, max_boxes=lens_order.MAX_BOXES_PER_EYE)
+        for field in ("right_sph", "right_cyl", "right_axis", "right_boxes",
+                      "left_sph", "left_boxes"):
+            self.assertIn('name="%s"' % field, html)
+        self.assertIn("noindex", html)
+        self.assertIn("39.9", html)
+        # The matrix travels as data, so the dependent choices cannot be
+        # recombined into a pair that is not listed.
+        self.assertIn("-4.50", html)
+        self.assertIn("owLensMatrix", html)
+
+
+if __name__ == "__main__":
+    unittest.main()

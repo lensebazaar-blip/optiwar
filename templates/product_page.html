@@ -417,7 +417,15 @@ h1.pdp-title { font-size:20px !important; font-weight:700 !important; color:#111
 
       <!-- CTA Buttons -->
       <div class="pdp-cta">
-        {% if product.product_quantity == 0 %}
+        {% if lens %}
+        <form action="{{ url_for('main.lens_select') }}" method="post">
+          <input type="hidden" name="product_id" value="{{ product.product_id }}">
+          <button type="submit" class="btn-primary">Choose prescription &amp; boxes</button>
+        </form>
+        {% if lens.availability == 'ON_ORDER' %}
+        <div class="pdp-lens-lead">On order{% if lens.lead_time_days %} &mdash; ships in about {{ lens.lead_time_days }} days{% endif %}</div>
+        {% endif %}
+        {% elif product.product_quantity == 0 %}
         <div class="pdp-sold-out">This item is currently Sold Out</div>
         {% elif category == "Hearing Aids" %}
         <form action="{{ url_for('main.add_to_cart') }}" method="post">

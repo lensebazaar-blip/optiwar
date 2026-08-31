@@ -24,7 +24,7 @@ from .catalogue import (
     current_site, strip_ineligible_urls, age_group, ensure_gmc_columns,
     live_lenses, lens_matrix_summary, SITE_IN, SITE_COM,
 )
-from . import lens_feed, lens_seo
+from . import lens_feed, lens_order, lens_seo
 from .cart_persist import save_cart_to_db, clear_cart_in_db
 from .cl_range_model import add_prescription_of_cl
 from .country_iso import country_to_iso2
@@ -790,6 +790,71 @@ def lens_brand(brand_slug):
     return _lens_landing(brand_slug=brand_slug)
 
 
+def _released_lens(cursor, product_id):
+    """One released lens by id, or ``None``: the same gate every surface reads."""
+    return next((r for r in live_lenses(cursor, SITE_COM)
+                 if str(r['product_id']) == str(product_id or '')), None)
+
+
+def _lens_selection(lens, rows, errors=(), submitted=None):
+    return make_response(render_template(
+        'lens_select.html', lens=lens,
+        options=lens_order.options(rows),
+        box_price=lens_order.box_price(lens),
+        errors=list(errors), submitted=submitted or {},
+        eyes=lens_order.EYES,
+        max_boxes=lens_order.MAX_BOXES_PER_EYE))
+
+
+@bp.route('/contact-lenses/select', methods=['GET', 'POST'])
+def lens_select():
+    """Choose a prescription per eye, from the combinations that exist."""
+    if current_site() == SITE_IN:
+        return "Not found", 404
+    cursor = get_db().cursor()
+    lens = _released_lens(cursor, request.values.get('product_id'))
+    if not lens:
+        return "Product not found", 404
+    return _lens_selection(lens, lens_order.variants(cursor,
+                                                     lens['product_id']))
+
+
+@bp.route('/contact-lenses/add', methods=['POST'])
+def lens_add_to_cart():
+    """Add a validated per-eye order: boxes × box price, priced from the row.
+
+    The posted price is ignored. What is charged is the catalogue's EUR box
+    price times the boxes, and a combination the matrix does not hold is
+    refused rather than ordered from a manufacturer who does not make it.
+    """
+    if current_site() == SITE_IN:
+        return "Not found", 404
+    db = get_db()
+    cursor = db.cursor()
+    lens = _released_lens(cursor, request.form.get('product_id'))
+    if not lens:
+        return "Product not found", 404
+    rows = lens_order.variants(cursor, lens['product_id'])
+    selections = [lens_order.read_eye(request.form, eye)
+                  for eye in lens_order.EYES]
+    lines, errors = lens_order.validate(rows, lens, selections)
+    if errors:
+        return _lens_selection(lens, rows, errors, request.form)
+    item = lens_order.cart_item(lens, lines)
+    cart = [i for i in session.get('cart', [])
+            if str(i.get('product_id')) != item['product_id']]
+    cart.append(item)
+    session['cart'] = cart
+    session.modified = True
+    if session.get('user_id'):
+        save_cart_to_db()
+    current_app.logger.info(
+        '[%s] ACTIVITY:ADD_TO_CART_LENS user:%s product:%s boxes:%s total:%s',
+        request.host, session.get('user_id', 'anon'), item['product_id'],
+        item['order_quantity'], item['ATC_WCL'])
+    return redirect(url_for('main.checkout'))
+
+
 @bp.route('/contact-lenses/<facet_slug>')
 def lens_facet(facet_slug):
     return _lens_landing(facet_slug=facet_slug)
@@ -1355,9 +1420,9 @@ def product_page(category, product_slug):
     # prescription lenses, answers a question about frame size and carries a
     # HowTo about choosing lens type, none of which is true of a box of lenses.
     lens_jsonld = []
+    lens = None
     if is_contact_lens(product):
-        lens = next((r for r in live_lenses(cursor)
-                     if r['product_id'] == product['product_id']), None)
+        lens = _released_lens(cursor, product['product_id'])
         if not lens:
             return "Product not found", 404
         lens['images'] = lens_feed.lens_images(cursor, lens['product_id'])
@@ -1508,7 +1573,7 @@ def product_page(category, product_slug):
                            inr_disc_pct=_inr_disc_pct, eur_disc_pct=_eur_disc_pct,
                            face_match_status=face_match_status, face_fit_label=face_fit_label,
                            face_decentration=face_decentration, face_meas_data=face_meas_data,
-                           lens_jsonld=lens_jsonld)
+                           lens_jsonld=lens_jsonld, lens=lens)
 
 
 
