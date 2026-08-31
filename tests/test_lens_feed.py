@@ -245,7 +245,10 @@ class FeedWiringTests(unittest.TestCase):
                       self.src)
 
     def test_a_lens_failure_does_not_lose_the_frame_feed(self):
-        helper = self.src.split("def _lens_feed_items(")[1].split("\ndef ")[0]
+        # The read the feed depends on is shared with the sitemaps, so the
+        # failure is contained there: 702 frames must not vanish from Merchant
+        # Center because a lens table is missing.
+        helper = self.src.split("def _live_lens_rows(")[1].split("\ndef ")[0]
         self.assertIn("except Exception", helper)
         self.assertIn("return []", helper)
 

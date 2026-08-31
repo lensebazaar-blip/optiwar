@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+{% block title %}{{ page.heading }} - Optiwar{% endblock %}
+{% block meta_description %}{{ page.label }} contact lenses at Optiwar: {{ page.rows|length }} product{{ '' if page.rows|length == 1 else 's' }} from the manufacturers, EUR prices, prescription selected per eye at checkout.{% endblock %}
+{% block meta_keywords %}contact lenses, {{ page.label|lower }} contact lenses, {{ brands|map(attribute='label')|join(', ')|lower }}{% endblock %}
+{% block og_title %}{{ page.heading }} - Optiwar{% endblock %}
+{% block og_description %}{{ page.label }} contact lenses from {{ brands|map(attribute='label')|join(', ') }} at Optiwar.{% endblock %}
+{% block og_url %}https://optiwar.com{{ page.path }}{% endblock %}
+{% block canonical_url %}https://optiwar.com{{ page.path }}{% endblock %}
+{# Contact lenses are not sold on optiwar.in, so this page has no India
+   alternate to offer: pointing hreflang at a URL that 404s there is the
+   cross-domain defect #65 fixed on the frames page. #}
+{% block hreflang_in %}https://optiwar.com{{ page.path }}{% endblock %}
+{% block hreflang_default %}https://optiwar.com{{ page.path }}{% endblock %}
+
+{% block jsonld_extra %}
+{% for block in jsonld %}
+<script type="application/ld+json">
+{{ block|safe }}
+</script>
+{% endfor %}
+{% endblock %}
+
+{% block content %}
+<nav aria-label="Breadcrumb" class="ow-breadcrumb">
+  <ol>
+    <li><a href="/">Home</a></li>
+    {% if page.path != root_path %}<li><a href="{{ root_path }}">Contact Lenses</a></li>{% endif %}
+    <li>{{ page.label }}</li>
+  </ol>
+</nav>
+
+<h1>{{ page.heading }}</h1>
+
+{% if shelves %}
+<nav aria-label="Contact lens categories">
+  <ul class="ow-lens-shelves">
+    {% for shelf in shelves %}
+    <li><a href="{{ shelf.path }}">{{ shelf.label }}</a></li>
+    {% endfor %}
+  </ul>
+</nav>
+{% endif %}
+
+{% if brands %}
+<nav aria-label="Contact lens brands">
+  <ul class="ow-lens-brands">
+    {% for brand in brands %}
+    <li><a href="{{ brand.path }}">{{ brand.label }}</a></li>
+    {% endfor %}
+  </ul>
+</nav>
+{% endif %}
+
+<ul class="ow-lens-list">
+  {% for lens in page.rows %}
+  <li>
+    <a href="{{ lens.path }}">
+      {% if lens.image %}<img src="{{ lens.image }}" alt="{{ lens.title }}" loading="lazy">{% endif %}
+      <h2>{{ lens.title }}</h2>
+    </a>
+    <p>{{ lens.spec }}</p>
+    <p class="ow-lens-price">&euro;{{ lens.price }}{% if lens.list_price %}
+      <span style="text-decoration: line-through;">&euro;{{ lens.list_price }}</span>{% endif %}
+      per box</p>
+    <p class="ow-lens-availability">{{ lens.availability }}</p>
+  </li>
+  {% endfor %}
+</ul>
+
+<p>Prescription details are selected per eye on the product page. Powers,
+cylinders, axes and additions are limited to the combinations the manufacturer
+supplies.</p>
+{% endblock %}

@@ -108,7 +108,8 @@ def is_contact_lens(product):
 
 # Paths that only exist for a site selling contact lenses. Used to keep the
 # vertical out of the pre-generated sitemap, which is one file for both hosts.
-_LENS_PATHS = ("/contact_lenses", "/categories/contact-lenses/")
+_LENS_PATHS = ("/contact_lenses", "/contact-lenses",
+               "/categories/contact-lenses/")
 
 _URL_BLOCK = re.compile(r"<url>.*?</url>", re.DOTALL)
 

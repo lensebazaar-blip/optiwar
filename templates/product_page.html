@@ -17,6 +17,16 @@
 {% block hreflang_default %}https://optiwar.com/categories/{{ product.product_category|lower|replace(' ', '-') }}/{{ product.product_slug }}?pid={{ product.product_id }}{% endblock %}
 
 {% block jsonld_extra %}
+{# A box of contact lenses gets its own markup: the frame blocks below promise
+   complimentary prescription lenses, brand=Optiwar, mpn=our code, a frame-size
+   FAQ and a HowTo about lens type — every one of them false of a lens. #}
+{% if lens_jsonld %}
+{% for block in lens_jsonld %}
+<script type="application/ld+json">
+{{ block|safe }}
+</script>
+{% endfor %}
+{% else %}
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -141,6 +151,7 @@
   }
 }
 </script>
+{% endif %}
 {% endblock %}
 
 {% block content %}
