@@ -474,6 +474,78 @@ def manifest():
     return rows, blocked, ahead, only_prod
 
 
+_TOP_LEVEL_NAMES = (
+    "import ast,sys\n"
+    "t=ast.parse(open(sys.argv[1]).read())\n"
+    "n=[]\n"
+    "for s in t.body:\n"
+    "    if isinstance(s,(ast.FunctionDef,ast.AsyncFunctionDef,ast.ClassDef)):"
+    " n.append(s.name)\n"
+    "    elif isinstance(s,ast.Assign):\n"
+    "        n+=[x.id for x in s.targets if isinstance(x,ast.Name)]\n"
+    "    elif isinstance(s,ast.AnnAssign) and isinstance(s.target,ast.Name):"
+    " n.append(s.target.id)\n"
+    "    elif isinstance(s,(ast.Import,ast.ImportFrom)):\n"
+    "        n+=[(a.asname or a.name).split('.')[0] for a in s.names]\n"
+    "print('NAMES ' + ' '.join(n))\n"
+)
+
+
+def unresolved_imports():
+    """Names a deployed module imports from a module the deploy leaves behind.
+
+    Production keeps its own copy of every file outside ``DEPLOY_SET`` — it is
+    *ahead* of main on nine of them — so a symbol this repo added to one of
+    those does not exist on the box. ``models.py`` importing
+    ``embed_helper.age_group`` is the case: locally correct, and on production
+    an ``ImportError`` at worker boot, i.e. the whole storefront 502 until the
+    rollback. The smoke test caught it, but only after taking the site down for
+    the length of a restart; this refuses the deploy before it starts.
+
+    Read with ``ast`` on both sides rather than imported: importing production's
+    modules would need its environment, and a module-level side effect would run
+    for a check.
+    """
+    carried = {n[:-3] for n in DEPLOY_SET if n.endswith(".py")}
+    local_modules = {n[:-3] for n in os.listdir(REPO) if n.endswith(".py")}
+    wanted = {}
+    for name in python_set():
+        with open(os.path.join(REPO, name), encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        for node in ast.walk(tree):
+            # Relative only: ``from requests.auth import HTTPBasicAuth`` is a
+            # third-party module that happens to share a name with our auth.py.
+            if not isinstance(node, ast.ImportFrom) or not node.module \
+                    or not node.level:
+                continue
+            mod = node.module
+            if mod in carried or mod not in local_modules:
+                continue
+            for alias in node.names:
+                if alias.name != "*":
+                    wanted.setdefault(mod, set()).add((alias.name, name))
+
+    missing = []
+    for mod, names in sorted(wanted.items()):
+        out = remote("cd %s && python3 -c %s %s.py"
+                     % (shlex.quote(APP_DIR), shlex.quote(_TOP_LEVEL_NAMES),
+                        shlex.quote(mod)), check=False)
+        # The sentinel is what separates "read it, these are the names" from an
+        # ssh banner, a warning on stderr or a file that would not parse — an
+        # answer we cannot identify says nothing, and must not block a deploy.
+        line = next((l for l in out.splitlines() if l.startswith("NAMES ")), None)
+        if line is None:
+            continue
+        have = set(line.split()[1:])
+        for symbol, importer in sorted(names):
+            if symbol not in have:
+                missing.append(
+                    "%s imports %s from %s, which production does not have and "
+                    "this deploy does not carry — the worker would fail to boot"
+                    % (importer, symbol, mod))
+    return missing
+
+
 def smoke():
     """Run the smoke suite from the production host itself."""
     results = []
@@ -514,6 +586,7 @@ def cmd_plan(args):
     print("  unit suite: %s" % ("  ".join(tail) if tail else "?"))
 
     rows, blocked, ahead, only_prod = manifest()
+    blocked += unresolved_imports()
     print("\n  FILE MANIFEST (old -> new, and the commit production is at)")
     for name, old, new, rev in rows:
         if old is None:
@@ -602,6 +675,7 @@ def cmd_apply(args):
     # Only asked once nothing else has already blocked: a deploy that is not
     # going to happen has no business touching the box.
     if not (problems or blocked):
+        blocked += unresolved_imports()
         blocked += ["%s is not set on %s — %s" % (name, SERVICE, why)
                     for name, why in missing_env()]
     if problems or blocked or not ok:

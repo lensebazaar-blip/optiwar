@@ -15,7 +15,7 @@ import unittest
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 
-from embed_helper import age_group  # noqa: E402
+from catalogue import age_group  # noqa: E402
 
 
 class AgeGroupTests(unittest.TestCase):

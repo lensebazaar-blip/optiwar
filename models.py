@@ -18,11 +18,10 @@ from .db import get_db
 from .embed_helper import (
     build_media_list, build_media_primary, build_media_one, MEDIA_SCHEMA_VERSION,
     versioned_image_url, versioned_angle_urls, frame_shape, is_merchant_eligible,
-    age_group,
 )
 from .catalogue import (
     catalogue_site_filter, is_product_allowed, is_contact_lens, sellable_here,
-    current_site, strip_ineligible_urls, SITE_IN,
+    current_site, strip_ineligible_urls, age_group, SITE_IN,
 )
 from .cart_persist import save_cart_to_db, clear_cart_in_db
 from .cl_range_model import add_prescription_of_cl
