@@ -82,7 +82,8 @@ DEPLOY_SET = ("acr.py", "ai_api.py", "ai_client.py", "catalogue.py", "chat.py",
               "razorpay_events.py", "csrf_guard.py", "rx_powers.py",
               "profile.py", "refunds.py", "ops_refunds.py",
               "templates/success.html", "templates/lens_landing.html",
-              "templates/lens_select.html", "templates/product_page.html")
+              "templates/lens_select.html", "templates/product_page.html",
+              "templates/all_frames.html", "templates/guide_frame_shapes.html")
 
 # Files that do not exist in production yet. Absence is otherwise a block, so
 # that a path typo or a file missing from the release cannot be mistaken for a
