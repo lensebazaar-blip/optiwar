@@ -42,6 +42,8 @@ class DeployMigrationTest(unittest.TestCase):
         expected += ["%s (table)" % n for n, _d in self.cl.TABLES]
         expected += ["products.%s (column)" % n
                      for n, _d in self.cl.PRODUCTS_COLUMNS]
+        expected += ["contact_lens_products.%s (column)" % n
+                     for n, _d in self.cl.PROFILE_COLUMNS]
         expected += ["products.%s (index)" % n
                      for n, _c in self.cl.PRODUCTS_INDEXES]
         self.assertEqual(labels, expected)
@@ -60,6 +62,11 @@ class DeployMigrationTest(unittest.TestCase):
         # eyewear it already was.
         for name, decl in self.cl.PRODUCTS_COLUMNS:
             self.assertIn("DEFAULT", decl.upper(), name)
+        # Same reasoning for a column added to an existing lens profile table:
+        # and its default must be 0, because a lens whose readiness nobody has
+        # asserted is not released.
+        for name, decl in self.cl.PROFILE_COLUMNS:
+            self.assertIn("DEFAULT 0", decl.upper(), name)
 
     def test_lens_tables_are_created_before_the_columns_that_reference_them(self):
         labels = [label for label, _sql in self.deploy.migration()]
@@ -85,7 +92,8 @@ class DeployMigrationTest(unittest.TestCase):
         # pending_ddl() splits these to look each object up in
         # information_schema; a label it cannot parse silently checks the
         # wrong name.
-        known = {"ai_events", "ai_actions", "products"}
+        known = {"ai_events", "ai_actions", "products",
+                 "contact_lens_products"}
         for label, sql in self.deploy.migration():
             if label.endswith("(table)"):
                 self.assertIn(label.split(" ", 1)[0], sql, label)

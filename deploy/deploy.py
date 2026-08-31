@@ -75,7 +75,8 @@ RELEASES = os.environ.get("OPTIWAR_RELEASES", "/root/deploy_releases")
 # models.py without chat.py, ai_api.py or orders.py would leave a lens visible
 # on .in through the chat, the fitting API or the favourites list.
 DEPLOY_SET = ("acr.py", "ai_api.py", "ai_client.py", "catalogue.py", "chat.py",
-              "chat_gateway.py", "contact_lens.py", "crm.py", "orders.py",
+              "chat_gateway.py", "contact_lens.py", "lens_prompt.py",
+              "crm.py", "orders.py",
               "models.py", "payments.py", "paid_orders.py",
               "razorpay_events.py", "csrf_guard.py", "rx_powers.py",
               "profile.py", "refunds.py", "ops_refunds.py",
@@ -88,7 +89,7 @@ DEPLOY_SET = ("acr.py", "ai_api.py", "ai_client.py", "catalogue.py", "chat.py",
 # harmless, because the code that imports them is reverted with them.
 NEW_IN_RELEASE = ("paid_orders.py", "razorpay_events.py", "rx_powers.py",
                   "refunds.py", "ops_refunds.py", "catalogue.py",
-                  "contact_lens.py")
+                  "contact_lens.py", "lens_prompt.py")
 
 # Running content that matches no commit but has been read line by line and
 # found safe to replace, keyed by md5. The provenance guard exists to stop a
@@ -290,6 +291,10 @@ def migration():
     items += [("products.%s (column)" % name,
                "ALTER TABLE products ADD COLUMN %s %s" % (name, decl))
               for name, decl in cl.PRODUCTS_COLUMNS]
+    items += [("contact_lens_products.%s (column)" % name,
+               "ALTER TABLE contact_lens_products ADD COLUMN %s %s"
+               % (name, decl))
+              for name, decl in cl.PROFILE_COLUMNS]
     items += [("products.%s (index)" % name,
                "ALTER TABLE products ADD KEY %s (%s)" % (name, cols))
               for name, cols in cl.PRODUCTS_INDEXES]

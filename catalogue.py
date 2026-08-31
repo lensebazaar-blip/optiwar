@@ -144,3 +144,142 @@ def sellable_here(cursor, product_id, site=None):
     if not row:
         return True
     return is_product_allowed(row, site)
+
+
+# ---------------------------------------------------------------------------
+# Release: which contact lenses a customer-facing surface may mention.
+#
+# Site eligibility says a lens *belongs* to this storefront. Release says it is
+# finished: a lens row can exist for weeks with no images, no price and no
+# matrix while the catalogue is loaded, and none of the surfaces — product page,
+# search, sitemap, JSON-LD, the merchant feed, the model's prompt — may show a
+# half-loaded one. One question, asked in one place, so they cannot disagree
+# about what "live" means.
+# ---------------------------------------------------------------------------
+
+LENS_LIVE_SQL = """
+SELECT p.product_id, p.product_code, p.product_name, p.product_slug,
+       p.product_image, p.product_status, p.product_vertical,
+       p.sell_on_com, p.sell_on_in,
+       p.product_price_eur, p.product_special_price_eur,
+       c.brand, c.manufacturer, c.gtin, c.manufacturer_mpn,
+       c.modality, c.lens_type, c.pack_quantity, c.material,
+       c.water_content, c.silicone_hydrogel, c.replacement_days,
+       c.availability, c.lead_time_days, c.expected_available_at,
+       c.prescription_required, c.color_enabled, c.merchant_enabled,
+       (SELECT COUNT(*) FROM contact_lens_variants v
+         WHERE v.product_id = p.product_id AND v.available = 1) AS variant_count,
+       (SELECT COUNT(*) FROM contact_lens_images i
+         WHERE i.product_id = p.product_id) AS image_count
+FROM contact_lens_products c
+JOIN products p ON p.product_id = c.product_id
+WHERE p.product_vertical = %s
+"""
+
+_DEAD_STATUSES = ("DISCONTINUED", "ARCHIVED")
+
+
+def _positive(value):
+    try:
+        return float(value or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def lens_release_blockers(row, site=None):
+    """Why this lens is not live on this storefront, empty when it is.
+
+    Returned as reasons rather than a boolean because every caller that has to
+    explain itself — the daily report, the importer, the merchant readiness
+    check — otherwise re-derives them and gets a different list.
+    """
+    site = site or current_site()
+    missing = []
+    if not is_product_allowed(row, site):
+        missing.append("not sold on %s" % site)
+    try:
+        released = int(row.get("merchant_enabled") or 0) == 1
+    except (TypeError, ValueError):
+        released = False
+    if not released:
+        missing.append("merchant_enabled=0")
+    if (row.get("product_status") or "").strip().upper() in _DEAD_STATUSES:
+        missing.append("status %s" % row.get("product_status"))
+    if not (row.get("product_slug") or "").strip():
+        missing.append("no landing page")
+    if not (row.get("product_image") or "").strip() and not row.get("image_count"):
+        missing.append("no primary image")
+    if not (_positive(row.get("product_special_price_eur"))
+            or _positive(row.get("product_price_eur"))):
+        missing.append("no EUR price")
+    if not (row.get("availability") or "").strip():
+        missing.append("no availability")
+    if not (row.get("brand") or "").strip():
+        missing.append("no brand")
+    if not ((row.get("gtin") or "").strip()
+            or (row.get("manufacturer_mpn") or "").strip()):
+        missing.append("no GTIN or manufacturer MPN")
+    if not row.get("variant_count"):
+        missing.append("no prescription matrix")
+    return tuple(missing)
+
+
+def is_lens_live(row, site=None):
+    return not lens_release_blockers(row, site)
+
+
+def lens_rows(cursor, site=None):
+    """Every contact lens with its profile, released or not, with blockers."""
+    site = site or current_site()
+    cursor.execute(LENS_LIVE_SQL + catalogue_site_filter(site, alias="p"),
+                   (CONTACT_LENS,))
+    rows = list(cursor.fetchall() or ())
+    for row in rows:
+        row["release_blockers"] = lens_release_blockers(row, site)
+    return rows
+
+
+def live_lenses(cursor, site=None):
+    """The lenses this storefront may show, recommend, index and feed.
+
+    On optiwar.in this is empty by construction — the site predicate is in the
+    query and the release check repeats it on the row — so a surface built on
+    this function cannot leak the vertical by forgetting a filter.
+    """
+    return [r for r in lens_rows(cursor, site) if not r["release_blockers"]]
+
+
+LENS_MATRIX_SQL = """
+SELECT COUNT(*) AS variants,
+       MIN(sph) AS sph_min, MAX(sph) AS sph_max,
+       MIN(cyl) AS cyl_min, MAX(cyl) AS cyl_max,
+       MIN(axis) AS axis_min, MAX(axis) AS axis_max,
+       MIN(add_power) AS add_min, MAX(add_power) AS add_max,
+       MIN(base_curve) AS bc_min, MAX(base_curve) AS bc_max,
+       MIN(diameter) AS dia_min, MAX(diameter) AS dia_max
+FROM contact_lens_variants
+WHERE product_id = %s AND available = 1
+"""
+
+LENS_COLORS_SQL = """
+SELECT DISTINCT color_code, color_name
+FROM contact_lens_variants
+WHERE product_id = %s AND available = 1 AND color_code <> ''
+ORDER BY color_name, color_code
+"""
+
+
+def lens_matrix_summary(cursor, product_id):
+    """The range the matrix actually holds for one lens.
+
+    A summary for describing a lens ("−0.50 to −6.00, cyl −0.75 to −1.75"), and
+    explicitly not a way to decide an order: presence of a row is the only thing
+    that makes a combination orderable, because a range says nothing about the
+    step or about the holes real manufacturers leave in it.
+    """
+    cursor.execute(LENS_MATRIX_SQL, (product_id,))
+    summary = dict(cursor.fetchone() or {})
+    cursor.execute(LENS_COLORS_SQL, (product_id,))
+    summary["colors"] = [(r.get("color_code"), r.get("color_name"))
+                         for r in (cursor.fetchall() or ())]
+    return summary
