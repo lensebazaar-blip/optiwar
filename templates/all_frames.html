@@ -14,7 +14,7 @@
   "@type": "CollectionPage",
   "name": "All Spectacle Frames - Optiwar",
   {% if is_india %}"description": "Browse {{ total_count }}+ spectacle frames at factory outlet wholesale prices starting Rs 499. Free prescription lenses included with every frame."{% else %}"description": "Browse {{ total_count }}+ spectacle frames at factory outlet wholesale prices starting €34.99. Free prescription lenses included with every frame."{% endif %},
-  "url": "https://optiwar.com/eyeglasses/all-spectacle-frames.html",
+  "url": "{{ site_url }}/eyeglasses/all-spectacle-frames.html",
   "mainEntity": {
     "@type": "ItemList",
     "name": "All Spectacle Frames",
@@ -28,8 +28,8 @@
   "@context": "https://schema.org",
   "@type": "BreadcrumbList",
   "itemListElement": [
-    {"@type": "ListItem", "position": 1, "name": "Home", "item": "https://optiwar.com/"},
-    {"@type": "ListItem", "position": 2, "name": "All Spectacle Frames", "item": "https://optiwar.com/eyeglasses/all-spectacle-frames.html"}
+    {"@type": "ListItem", "position": 1, "name": "Home", "item": "{{ site_url }}/"},
+    {"@type": "ListItem", "position": 2, "name": "All Spectacle Frames", "item": "{{ site_url }}/eyeglasses/all-spectacle-frames.html"}
   ]
 }
 </script>
