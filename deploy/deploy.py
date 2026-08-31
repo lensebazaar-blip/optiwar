@@ -311,6 +311,10 @@ def migration():
                "ALTER TABLE contact_lens_products ADD COLUMN %s %s"
                % (name, decl))
               for name, decl in cl.PROFILE_COLUMNS]
+    items += [("contact_lens_products.%s (index)" % name,
+               "ALTER TABLE contact_lens_products ADD UNIQUE KEY %s (%s)"
+               % (name, cols))
+              for name, cols in cl.PROFILE_INDEXES]
     items += [("products.%s (index)" % name,
                "ALTER TABLE products ADD KEY %s (%s)" % (name, cols))
               for name, cols in cl.PRODUCTS_INDEXES]

@@ -45,6 +45,8 @@ class DeployMigrationTest(unittest.TestCase):
                      for n, _d in self.cl.PRODUCTS_COLUMNS]
         expected += ["contact_lens_products.%s (column)" % n
                      for n, _d in self.cl.PROFILE_COLUMNS]
+        expected += ["contact_lens_products.%s (index)" % n
+                     for n, _d in self.cl.PROFILE_INDEXES]
         expected += ["products.%s (index)" % n
                      for n, _c in self.cl.PRODUCTS_INDEXES]
         expected += ["products.%s (column)" % n
@@ -79,11 +81,14 @@ class DeployMigrationTest(unittest.TestCase):
         # eyewear it already was.
         for name, decl in self.cl.PRODUCTS_COLUMNS:
             self.assertIn("DEFAULT", decl.upper(), name)
-        # Same reasoning for a column added to an existing lens profile table:
-        # and its default must be 0, because a lens whose readiness nobody has
-        # asserted is not released.
+        # Same reasoning for a column added to an existing lens profile table,
+        # which is either nullable or defaulted. The release flag's default must
+        # be 0 in particular: a lens whose readiness nobody has asserted is not
+        # released, and an import must not put one on a surface.
         for name, decl in self.cl.PROFILE_COLUMNS:
-            self.assertIn("DEFAULT 0", decl.upper(), name)
+            self.assertRegex(decl.upper(), r"DEFAULT |\bNULL\b", name)
+            if name == "merchant_enabled":
+                self.assertIn("DEFAULT 0", decl.upper(), name)
 
     def test_lens_tables_are_created_before_the_columns_that_reference_them(self):
         labels = [label for label, _sql in self.deploy.migration()]
@@ -94,7 +99,7 @@ class DeployMigrationTest(unittest.TestCase):
         for label, sql in self.deploy.migration():
             self.assertRegex(
                 sql,
-                r"^(ALTER TABLE \w+ ADD (COLUMN|KEY) "
+                r"^(ALTER TABLE \w+ ADD (COLUMN|KEY|UNIQUE KEY) "
                 r"|CREATE TABLE IF NOT EXISTS \w+ )", label)
 
     def test_refund_ledger_ddl_comes_from_the_application(self):

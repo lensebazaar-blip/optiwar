@@ -1,0 +1,277 @@
+#!/usr/bin/env python3
+"""Import a contact-lens export into products + profile + matrix.
+
+Dry run by default. Nothing is written until a person types ``--apply``, and
+what is written is decided entirely by ``cl_import.parse()``, so a rejection is
+provable in a test without a database.
+
+    # what would happen
+    python3 scripts/import_contact_lenses.py \
+        --products products.csv --variants variants.csv
+
+    # do it
+    python3 scripts/import_contact_lenses.py \
+        --products products.csv --variants variants.csv --by sudhanshu --apply
+
+CSV (or TSV) is what this reads. An .xlsx is read only if openpyxl happens to be
+installed — the export arrives as a workbook, and one sheet saved as CSV is a
+smaller dependency than a spreadsheet parser in the deployment.
+
+Per product, in one transaction:
+
+    products                  the commercial record, CONTACT_LENS, .com only
+    contact_lens_products     brand, manufacturer, modality, pack, availability
+    contact_lens_variants     the matrix, upserted on (product_id, variant_sig)
+    contact_lens_images       the primary image
+
+Idempotent on (source_system, source_ref): re-running the same export updates
+the same products instead of making new ones. Nothing is ever deleted — a
+combination the manufacturer withdraws becomes ``available = 0``, so an order
+that referenced it stays explicable.
+
+``merchant_enabled`` stays 0. An imported lens is in the database and on no
+surface until somebody releases it.
+
+Connection comes from MYSQL_HOST/MYSQL_USER/MYSQL_PASSWORD/MYSQL_DB, the same
+variables gunicorn runs with, so on the box:
+
+    set -a; . /etc/optiwar.env; set +a
+"""
+import argparse
+import csv
+import datetime
+import os
+import sys
+
+import pymysql
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import cl_import  # noqa: E402
+import contact_lens  # noqa: E402
+
+# The .com-only launch. Site eligibility lives on products because one function
+# in catalogue.py decides it for every vertical and every surface.
+SELL_ON = {"sell_on_com": 1, "sell_on_in": 0}
+
+
+def read_rows(path):
+    if path.lower().endswith((".xlsx", ".xlsm")):
+        return read_workbook(path)
+    with open(path, newline="", encoding="utf-8-sig") as fh:
+        sample = fh.read(4096)
+        fh.seek(0)
+        delimiter = "\t" if "\t" in sample.splitlines()[0] else ","
+        return [dict(row) for row in csv.DictReader(fh, delimiter=delimiter)]
+
+
+def read_workbook(path):
+    try:
+        import openpyxl
+    except ImportError:
+        sys.exit("%s is a workbook and openpyxl is not installed — save the "
+                 "sheet as CSV, or pip install openpyxl" % path)
+    book = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    sheet = book[book.sheetnames[0]]
+    rows = sheet.iter_rows(values_only=True)
+    header = [str(c or "").strip() for c in next(rows)]
+    return [dict(zip(header, row)) for row in rows]
+
+
+def connect():
+    return pymysql.connect(
+        host=os.environ.get("MYSQL_HOST", "localhost"),
+        user=os.environ.get("MYSQL_USER", ""),
+        password=os.environ.get("MYSQL_PASSWORD", ""),
+        database=os.environ.get("MYSQL_DB", ""),
+        cursorclass=pymysql.cursors.DictCursor, autocommit=False)
+
+
+def existing(cursor, product):
+    cursor.execute("SELECT product_id FROM contact_lens_products"
+                   " WHERE source_system = %s AND source_ref = %s",
+                   (product["source_system"], product["source_ref"]))
+    row = cursor.fetchone()
+    return row["product_id"] if row else None
+
+
+def product_code(product):
+    """Our internal offer id. Never sent as the manufacturer's identifier."""
+    return ("CL-" + product["source_ref"].upper())[:20]
+
+
+def slug(product):
+    text = "%s %s" % (product["brand"], product["product_name"])
+    keep = [c.lower() if c.isalnum() else "-" for c in text]
+    return "-".join("".join(keep).split("-")[:12]).strip("-")[:180]
+
+
+def upsert_product(cursor, product, product_id):
+    fields = {
+        "product_code": product_code(product),
+        "product_name": product["product_name"],
+        "product_details": product["product_details"],
+        "product_price_eur": product["price_eur"],
+        "product_special_price_eur": product["special_price_eur"],
+        "product_image": product["image_url"],
+        "product_slug": slug(product),
+        "product_vertical": contact_lens.VERTICAL,
+        "product_status": "ACTIVE",
+    }
+    fields.update(SELL_ON)
+    if product_id:
+        assignments = ", ".join("%s = %%s" % k for k in fields)
+        cursor.execute("UPDATE products SET %s WHERE product_id = %%s"
+                       % assignments,
+                       tuple(fields.values()) + (product_id,))
+        return product_id
+    columns = ", ".join(fields)
+    marks = ", ".join(["%s"] * len(fields))
+    cursor.execute("INSERT INTO products (%s) VALUES (%s)" % (columns, marks),
+                   tuple(fields.values()))
+    return cursor.lastrowid
+
+
+def upsert_profile(cursor, product, product_id):
+    fields = {
+        "product_id": product_id,
+        "brand": product["brand"],
+        "manufacturer": product["manufacturer"],
+        "gtin": product["gtin"] or None,
+        "manufacturer_mpn": product["manufacturer_mpn"] or None,
+        "modality": product["modality"],
+        "lens_type": product["lens_type"],
+        "pack_quantity": product["pack_quantity"],
+        "material": product["material"] or None,
+        "water_content": product["water_content"],
+        "replacement_days": product["replacement_days"],
+        "availability": product["availability"],
+        "lead_time_days": product["lead_time_days"],
+        "source_system": product["source_system"],
+        "source_ref": product["source_ref"],
+        "imported_at": datetime.datetime.now(),
+    }
+    columns = ", ".join(fields)
+    marks = ", ".join(["%s"] * len(fields))
+    # merchant_enabled is absent on purpose: an update must not re-release a
+    # lens somebody withdrew, and an insert takes the column's default of 0.
+    updates = ", ".join("%s = VALUES(%s)" % (k, k) for k in fields
+                        if k != "product_id")
+    cursor.execute("INSERT INTO contact_lens_products (%s) VALUES (%s)"
+                   " ON DUPLICATE KEY UPDATE %s" % (columns, marks, updates),
+                   tuple(fields.values()))
+
+
+def upsert_variants(cursor, product, product_id):
+    """Upsert every stated combination; withdraw the ones no longer stated.
+
+    Withdrawal is ``available = 0`` rather than a DELETE, because an order line
+    that pointed at a combination must remain readable after the manufacturer
+    stops making it.
+    """
+    stated = set()
+    for variant in product["variants"]:
+        cursor.execute(
+            "INSERT INTO contact_lens_variants (product_id, sph, cyl, axis,"
+            " add_power, base_curve, diameter, color_code, color_name,"
+            " available) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+            " ON DUPLICATE KEY UPDATE color_name = VALUES(color_name),"
+            " available = VALUES(available)",
+            (product_id, variant["sph"], variant["cyl"], variant["axis"],
+             variant["add_power"], variant["base_curve"], variant["diameter"],
+             variant["color_code"], variant["color_name"] or None,
+             variant["available"]))
+        stated.add(cl_import.variant_signature(variant))
+    cursor.execute("SELECT variant_id, variant_sig FROM contact_lens_variants"
+                   " WHERE product_id = %s AND available = 1", (product_id,))
+    withdrawn = [r["variant_id"] for r in (cursor.fetchall() or ())
+                 if r["variant_sig"] not in stated]
+    for variant_id in withdrawn:
+        cursor.execute("UPDATE contact_lens_variants SET available = 0"
+                       " WHERE variant_id = %s", (variant_id,))
+    return len(stated), len(withdrawn)
+
+
+def upsert_image(cursor, product, product_id):
+    cursor.execute("SELECT image_id FROM contact_lens_images"
+                   " WHERE product_id = %s AND image_url = %s",
+                   (product_id, product["image_url"]))
+    if cursor.fetchone():
+        return
+    cursor.execute("INSERT INTO contact_lens_images (product_id, color_code,"
+                   " image_url, image_type, sort_order)"
+                   " VALUES (%s, NULL, %s, 'PRIMARY', 0)",
+                   (product_id, product["image_url"]))
+
+
+def import_one(cursor, product):
+    """One product and its whole matrix, inside the caller's transaction."""
+    product_id = existing(cursor, product)
+    product_id = upsert_product(cursor, product, product_id)
+    upsert_profile(cursor, product, product_id)
+    written, withdrawn = upsert_variants(cursor, product, product_id)
+    upsert_image(cursor, product, product_id)
+    return product_id, written, withdrawn
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--products", required=True, help="product sheet (CSV/TSV)")
+    ap.add_argument("--variants", required=True,
+                    help="prescription combinations (CSV/TSV)")
+    ap.add_argument("--only", default=None,
+                    help="comma-separated source_refs — the pilot import")
+    ap.add_argument("--by", default=None, help="who authorised it")
+    ap.add_argument("--apply", action="store_true",
+                    help="write; otherwise dry run")
+    args = ap.parse_args()
+
+    products, errors = cl_import.parse(read_rows(args.products),
+                                       read_rows(args.variants))
+    if args.only:
+        wanted = {r.strip() for r in args.only.split(",") if r.strip()}
+        unknown = wanted - {p["source_ref"] for p in products}
+        if unknown:
+            sys.exit("not importable (rejected or absent): %s"
+                     % ", ".join(sorted(unknown)))
+        products = [p for p in products if p["source_ref"] in wanted]
+
+    print(cl_import.report(products, errors))
+    if not products:
+        sys.exit(1 if errors else 0)
+    if not args.apply:
+        print("\nDRY RUN — nothing written. Re-run with --by and --apply.")
+        return
+    if not args.by:
+        sys.exit("--by is required to write")
+
+    db = connect()
+    cursor = db.cursor()
+    contact_lens.ensure_schema(cursor)
+    db.commit()
+
+    failures = []
+    for product in products:
+        # One transaction per product: a product whose matrix fails leaves
+        # nothing behind, and the products that already succeeded stay.
+        try:
+            product_id, written, withdrawn = import_one(cursor, product)
+            db.commit()
+            print("  imported %-14s product_id=%s  %d variant(s)%s"
+                  % (product["source_ref"], product_id, written,
+                     ", %d withdrawn" % withdrawn if withdrawn else ""))
+        except Exception as exc:                # noqa: BLE001 - reported, not hidden
+            db.rollback()
+            failures.append((product["source_ref"], exc))
+            print("  FAILED   %-14s rolled back: %s"
+                  % (product["source_ref"], exc))
+    print("\n%d imported, %d failed. merchant_enabled stays 0 — release is a "
+          "separate decision." % (len(products) - len(failures), len(failures)))
+    if failures:
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

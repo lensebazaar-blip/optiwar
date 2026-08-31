@@ -41,8 +41,8 @@ Four deliberate divergences. Each is a decision, not an omission.
 `merchant_enabled` is on `contact_lens_products`, defaulting to `0` — a lens is
 in the database and on no surface until somebody asserts readiness.
 
-Two columns are still to be added, by the importer's own PR, because they only
-have meaning once there is an importer (§4):
+Where a lens came from is carried by three columns and a unique key, added with
+the importer because that is what they are for (§4):
 
 ```
 contact_lens_products.source_system   VARCHAR(32) NULL   -- 'lensbazaar'
@@ -50,6 +50,10 @@ contact_lens_products.source_ref      VARCHAR(64) NULL   -- their product id/SKU
 contact_lens_products.imported_at     DATETIME NULL
 UNIQUE KEY uq_cl_source (source_system, source_ref)
 ```
+
+Idempotence is the index's job rather than the importer's memory: two rows
+claiming the same source product are refused by the database, not by a check
+somebody can forget to run.
 
 ## 3. Availability is not frame stock
 
@@ -79,8 +83,9 @@ products + contact_lens_products + contact_lens_variants + images
 
 Non-negotiable properties:
 
-- **Dry run is the default.** `--apply` is typed by a person, and prints an undo
-  script first, in the shape `scripts/classify_vertical.py` already uses.
+- **Dry run is the default.** `--apply` and `--by` are typed by a person;
+  without them the run only reports. `--only` imports named `source_ref`s, which
+  is how the four-product pilot goes in ahead of the rest.
 - **Idempotent by `(source_system, source_ref)`.** Re-running the same export
   upserts; it does not create a second product. Variants upsert on
   `(product_id, variant_sig)`, which is why `variant_sig` exists — MySQL treats
@@ -99,7 +104,30 @@ Non-negotiable properties:
 - **Audit**: `imported_at`, `source_system`, `source_ref` per product, and the
   run's report kept.
 
-Order of work: the four pilot products, production acceptance, then the rest.
+Implemented as `cl_import.py` (parse, validate, refuse — no database and no
+flask, so a rejection is provable in a test) and
+`scripts/import_contact_lenses.py` (the writing, one transaction per product).
+Rules the validator enforces, each because the alternative is selling a lens
+that does not exist or is not the one prescribed:
+
+| Refused | Why |
+| --- | --- |
+| no GTIN **and** no MPN | the offer would have to claim our `product_code` as the manufacturer's |
+| `OUT_OF_STOCK` | not a state a replenished lens has (§3) |
+| `ON_ORDER` with no lead time | a customer told to wait has to be told how long |
+| a power off the quarter-dioptre step | a transcription error in the export, not an exotic lens |
+| plus-form cylinder | manufacturers state minus cylinder; a transposed sign is a different lens |
+| `TORIC` with no axis, `SPHERICAL` with a cylinder, `MULTIFOCAL` with no add | the row landed in the wrong column, or the lens is not orderable |
+| axis outside 0–180 | not a position on the dial |
+| a GTIN two products claim | an identifier two products claim identifies neither |
+| a duplicate combination | reported against its spreadsheet row, rather than surfacing as a key violation mid-import |
+| a product with no available combination | nothing to sell |
+
+A product with any rejected row is held back **whole**, because half a matrix
+would sell the half that loaded. Other products in the same export still import.
+
+Order of work: the four pilot products (`--only`), production acceptance, then
+the rest.
 
 ## 5. What the importer will not do
 
