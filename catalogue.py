@@ -285,40 +285,65 @@ def lens_matrix_summary(cursor, product_id):
     return summary
 
 
-# The catalogue's own words mapped onto Google's five age_group values.
-# Classification is read from the product, never assumed: answering "adult" for
-# the whole catalogue would clear the demotion while mislabelling the six BABY
-# frames we actually list, and a mislabelled child's frame is a worse outcome
-# than a demoted one.
-_AGE_WORDS = (
-    ("newborn", ("newborn",)),
-    ("infant", ("infant", "baby", "babies")),
-    ("toddler", ("toddler",)),
-    ("kids", ("kid", "kids", "child", "children", "childrens", "junior",
-              "juniors", "boy", "boys", "girl", "girls", "teen", "teens")),
-)
+# Google's five permitted values, narrowest first.
+AGE_GROUPS = ("newborn", "infant", "toddler", "kids", "adult")
+
+# The canonical assignment, additive and nullable: a value is put there by a
+# person, and NULL means nobody has decided yet.
+GMC_COLUMNS = (("gmc_age_group", "VARCHAR(20) NULL"),)
+
+_GMC_SCHEMA_READY = False
+
+
+def ensure_gmc_columns(cursor):
+    """Add ``GMC_COLUMNS`` to ``products`` if absent. Once per process.
+
+    ``deploy/deploy.py migrate`` reads the declaration above and applies it
+    deliberately, ahead of the code that selects it; this exists so a fresh
+    database — a test, a new node — is not a special case, and so the feed
+    cannot be deployed onto a schema that would make its query fail.
+    """
+    global _GMC_SCHEMA_READY
+    if _GMC_SCHEMA_READY:
+        return
+    cursor.execute("SHOW COLUMNS FROM products")
+    have = {(row.get("Field") if isinstance(row, dict) else row[0])
+            for row in cursor.fetchall()}
+    for name, decl in GMC_COLUMNS:
+        if name not in have:
+            cursor.execute("ALTER TABLE products ADD COLUMN %s %s"
+                           % (name, decl))
+    _GMC_SCHEMA_READY = True
 
 
 def age_group(product):
-    """Google ``age_group`` for a product, from the catalogue's own words.
+    """Google ``age_group`` for a product, or "" to omit the attribute.
 
-    Returns the narrowest value the product states, "adult" when it states
-    nothing childlike, and "" when there is nothing to read at all — an empty
-    answer keeps a demotion visible rather than converting it into a wrong
-    attribute.
+    Two signals, in order: an assignment somebody made (``gmc_age_group``), then
+    ``product_category_kids`` — the catalogue's own flag for a children's frame.
+
+    Words are deliberately not consulted. "BABY CAT 1402" reads as an infant
+    frame and "LOUIS STYLE K-8003A" reads as an adult one, yet both are
+    ``product_category_kids = 1``; the difference between newborn, infant,
+    toddler and kids is an intended age range, which a product name does not
+    state and a frame size does not imply.
+
+    So a kids frame with no assignment returns "" and stays demoted, which is
+    the smaller harm: a demotion is visible and reversible, while an offer
+    labelled ``adult`` on a children's frame is wrong to every shopper who reads
+    it. "" is also the answer when ``product_category_kids`` was not selected —
+    a signal that was not fetched is not evidence that a product is for adults.
     """
     if not product:
         return ""
-    text = " ".join(str(product.get(f) or "") for f in (
-        "product_name", "product_category", "product_details",
-        "product_gender", "product_code")).lower()
-    if not text.strip():
+    assigned = str(product.get("gmc_age_group") or "").strip().lower()
+    if assigned in AGE_GROUPS:
+        return assigned
+    kids = product.get("product_category_kids")
+    if kids is None:
         return ""
-    # Whole words only: "Kidney-shaped" and "Childishly" are not age signals.
-    words = set(re.findall(r"[a-z]+", text))
-    for value, signals in _AGE_WORDS:
-        if words & set(signals):
-            return value
-    return "adult"
-
-
+    try:
+        kids = int(kids)
+    except (TypeError, ValueError):
+        return ""
+    return "" if kids else "adult"

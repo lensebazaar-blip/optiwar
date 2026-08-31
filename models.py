@@ -21,7 +21,8 @@ from .embed_helper import (
 )
 from .catalogue import (
     catalogue_site_filter, is_product_allowed, is_contact_lens, sellable_here,
-    current_site, strip_ineligible_urls, age_group, SITE_IN,
+    current_site, strip_ineligible_urls, age_group, ensure_gmc_columns,
+    SITE_IN,
 )
 from .cart_persist import save_cart_to_db, clear_cart_in_db
 from .cl_range_model import add_prescription_of_cl
@@ -3680,6 +3681,9 @@ def google_merchant_feed():
 
     db = get_db()
     cur = db.cursor()
+    # The query below selects gmc_age_group, so the column has to exist before
+    # it runs on a database the migration has not reached.
+    ensure_gmc_columns(cur)
     cur.execute("""
         SELECT product_id, product_code, product_name, product_details,
                product_category, product_slug, product_image, product_quantity,
@@ -3689,6 +3693,7 @@ def google_merchant_feed():
                color_display, product_color, product_material,
                product_country_of_manufacture, product_gender,
                product_diameter, product_bridge, product_lenght, product_size,
+               product_category_kids, gmc_age_group,
                product_category_rectangle, product_category_wayfarer,
                product_category_aviator, product_category_cateye,
                product_category_round, product_category_oval,
@@ -3794,8 +3799,9 @@ def google_merchant_feed():
             parts.append('      <g:gender>%s</g:gender>' % _xesc(str(p['product_gender']).lower()))
         # Google demotes an offer whose product type requires age_group and does
         # not carry it — 29 of ours were demoted in DE/FR/GB for exactly this.
-        # The value is derived from the product, so a kids frame is labelled
-        # kids rather than everything being called adult to silence the demotion.
+        # An ordinary frame is adult; one of the 13 product_category_kids frames
+        # is emitted only once somebody has assigned gmc_age_group, and stays
+        # demoted until then rather than being called adult to silence Google.
         _age = age_group(p)
         if _age:
             parts.append('      <g:age_group>%s</g:age_group>' % _xesc(_age))
