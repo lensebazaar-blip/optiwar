@@ -4513,7 +4513,8 @@ def image_sitemap_xml():
     db = get_db()
     cur = db.cursor()
     cur.execute("""
-        SELECT product_id, product_category, product_slug, product_image
+        SELECT product_id, product_category, product_slug, product_image,
+               product_vertical
         FROM products
         WHERE (discontinued = 0 OR discontinued IS NULL)
           AND product_image IS NOT NULL AND product_image != ''
@@ -4528,6 +4529,11 @@ def image_sitemap_xml():
              'xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">']
     parts += lens_seo.image_sitemap_urls(_live_lens_rows(cur), base)
     for p in rows:
+        # Lenses are published above, from the release gate. Storefront
+        # eligibility alone would advertise one the gate holds back, and
+        # advertise a released one twice.
+        if is_contact_lens(p):
+            continue
         angles = versioned_angle_urls(p.get('product_image') or '', base, limit=25)
         if not angles:
             continue

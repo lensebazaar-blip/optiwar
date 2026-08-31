@@ -327,6 +327,12 @@ class WiringTests(unittest.TestCase):
                       self.src)
         self.assertIn("lens_seo.image_sitemap_urls(_live_lens_rows(cur), base)",
                       self.src)
+        # The generic loop must not publish a lens as well: storefront
+        # eligibility alone would advertise one the gate holds back, and a
+        # released one twice.
+        img = self.src.split("def image_sitemap_xml(")[1].split("\ndef ")[0]
+        self.assertIn("product_vertical", img)
+        self.assertIn("if is_contact_lens(p):", img)
         shared = self.src.split("def _live_lens_rows(")[1].split("\ndef ")[0]
         self.assertIn("if _req_is_india():", shared)
         self.assertIn("live_lenses(cur, SITE_COM)", shared)
