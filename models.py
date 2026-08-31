@@ -18,6 +18,7 @@ from .db import get_db
 from .embed_helper import (
     build_media_list, build_media_primary, build_media_one, MEDIA_SCHEMA_VERSION,
     versioned_image_url, versioned_angle_urls, frame_shape, is_merchant_eligible,
+    age_group,
 )
 from .catalogue import (
     catalogue_site_filter, is_product_allowed, is_contact_lens, sellable_here,
@@ -3792,6 +3793,13 @@ def google_merchant_feed():
             parts.append('      <g:material>%s</g:material>' % _xesc(p['product_material']))
         if p.get('product_gender'):
             parts.append('      <g:gender>%s</g:gender>' % _xesc(str(p['product_gender']).lower()))
+        # Google demotes an offer whose product type requires age_group and does
+        # not carry it — 29 of ours were demoted in DE/FR/GB for exactly this.
+        # The value is derived from the product, so a kids frame is labelled
+        # kids rather than everything being called adult to silence the demotion.
+        _age = age_group(p)
+        if _age:
+            parts.append('      <g:age_group>%s</g:age_group>' % _xesc(_age))
         if shape:
             parts.append('      <g:custom_label_0>%s</g:custom_label_0>' % _xesc(shape))
         parts.append('    </item>')

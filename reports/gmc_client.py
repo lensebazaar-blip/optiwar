@@ -17,8 +17,13 @@ REPORTS_URL = ("https://merchantapi.googleapis.com/reports/v1/accounts/%s"
                "/reports:search")
 SCOPE = "https://www.googleapis.com/auth/content"
 
+# feed_label and price come back with the issues on purpose: a currency mismatch
+# cannot be diagnosed without the offer's currency, and an issue on an offer this
+# account never submitted (Google's automatic crawl publishes under its own feed
+# label) is a different problem from a defect in our feed.
 PRODUCT_VIEW_QUERY = (
     "SELECT product_view.id, product_view.offer_id, product_view.title, "
+    "product_view.feed_label, product_view.price, "
     "product_view.aggregated_reporting_context_status, "
     "product_view.item_issues FROM product_view"
 )
