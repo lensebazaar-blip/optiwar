@@ -88,6 +88,35 @@ class DeployMigrationTest(unittest.TestCase):
         self.assertEqual(self.deploy.refunds_schema(),
                          " ".join(refunds.SCHEMA.split()))
 
+    def test_a_symbol_production_does_not_have_blocks_the_deploy(self):
+        # models.py importing embed_helper.age_group booted ImportError on the
+        # box and 502'd both storefronts until the rollback: production keeps
+        # its own embed_helper.py, which this deploy does not carry. The check
+        # reads names, so it must see one that is genuinely absent there and
+        # not complain about the ones that are present.
+        asked = []
+
+        def fake_remote(cmd, check=True):
+            asked.append(cmd)
+            # Production's module, minus whatever main added to it.
+            return "NAMES build_media_list build_media_primary build_media_one"
+
+        self.deploy.remote = fake_remote
+        missing = self.deploy.unresolved_imports()
+        self.assertTrue(any("embed_helper" in m for m in missing), missing)
+        self.assertFalse(any("build_media_list" in m for m in missing), missing)
+        # Never asks about a module the deploy carries: those arrive together.
+        for cmd in asked:
+            self.assertNotIn("catalogue.py", cmd)
+            self.assertNotIn("contact_lens.py", cmd)
+
+    def test_an_unreadable_module_is_not_reported_as_missing_symbols(self):
+        # An answer without the sentinel means the check did not read the file
+        # — an ssh banner, a stderr warning — which says nothing about the
+        # symbols; treating it as absence would block every deploy on a hiccup.
+        self.deploy.remote = lambda cmd, check=True: "bash: python3: not found"
+        self.assertEqual(self.deploy.unresolved_imports(), [])
+
     def test_a_column_arriving_with_its_own_new_table_is_not_pending(self):
         # A box without the lens tables: the CREATE brings merchant_enabled
         # with it, so listing the ALTER as pending makes migrate fail half-way

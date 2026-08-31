@@ -348,43 +348,6 @@ def frame_shape(product):
     return ""
 
 
-# The catalogue's own words mapped onto Google's five age_group values.
-# Classification is read from the product, never assumed: answering "adult" for
-# the whole catalogue would clear the demotion while mislabelling the six BABY
-# frames we actually list, and a mislabelled child's frame is a worse outcome
-# than a demoted one.
-_AGE_WORDS = (
-    ("newborn", ("newborn",)),
-    ("infant", ("infant", "baby", "babies")),
-    ("toddler", ("toddler",)),
-    ("kids", ("kid", "kids", "child", "children", "childrens", "junior",
-              "juniors", "boy", "boys", "girl", "girls", "teen", "teens")),
-)
-
-
-def age_group(product):
-    """Google ``age_group`` for a product, from the catalogue's own words.
-
-    Returns the narrowest value the product states, "adult" when it states
-    nothing childlike, and "" when there is nothing to read at all — an empty
-    answer keeps a demotion visible rather than converting it into a wrong
-    attribute.
-    """
-    if not product:
-        return ""
-    text = " ".join(str(product.get(f) or "") for f in (
-        "product_name", "product_category", "product_details",
-        "product_gender", "product_code")).lower()
-    if not text.strip():
-        return ""
-    # Whole words only: "Kidney-shaped" and "Childishly" are not age signals.
-    words = set(re.findall(r"[a-z]+", text))
-    for value, signals in _AGE_WORDS:
-        if words & set(signals):
-            return value
-    return "adult"
-
-
 def register_image_helpers(app):
     _load(app)
     app.jinja_env.globals["img_has_derivatives"] = img_has_derivatives
