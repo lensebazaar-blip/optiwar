@@ -105,6 +105,10 @@ class DeployMigrationTest(unittest.TestCase):
         missing = self.deploy.unresolved_imports()
         self.assertTrue(any("embed_helper" in m for m in missing), missing)
         self.assertFalse(any("build_media_list" in m for m in missing), missing)
+        # `from requests.auth import HTTPBasicAuth` is third-party and merely
+        # shares a name with our auth.py — reading it as ours blocks the deploy
+        # over a symbol production is not expected to have.
+        self.assertFalse(any("HTTPBasicAuth" in m for m in missing), missing)
         # Never asks about a module the deploy carries: those arrive together.
         for cmd in asked:
             self.assertNotIn("catalogue.py", cmd)

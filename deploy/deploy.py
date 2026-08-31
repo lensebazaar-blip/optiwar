@@ -513,9 +513,12 @@ def unresolved_imports():
         with open(os.path.join(REPO, name), encoding="utf-8") as fh:
             tree = ast.parse(fh.read())
         for node in ast.walk(tree):
-            if not isinstance(node, ast.ImportFrom) or not node.module:
+            # Relative only: ``from requests.auth import HTTPBasicAuth`` is a
+            # third-party module that happens to share a name with our auth.py.
+            if not isinstance(node, ast.ImportFrom) or not node.module \
+                    or not node.level:
                 continue
-            mod = node.module.split(".")[-1]
+            mod = node.module
             if mod in carried or mod not in local_modules:
                 continue
             for alias in node.names:
