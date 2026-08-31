@@ -22,8 +22,9 @@ from .embed_helper import (
 from .catalogue import (
     catalogue_site_filter, is_product_allowed, is_contact_lens, sellable_here,
     current_site, strip_ineligible_urls, age_group, ensure_gmc_columns,
-    SITE_IN,
+    live_lenses, SITE_IN, SITE_COM,
 )
+from . import lens_feed
 from .cart_persist import save_cart_to_db, clear_cart_in_db
 from .cl_range_model import add_prescription_of_cl
 from .country_iso import country_to_iso2
@@ -3647,6 +3648,26 @@ Sitemap: https://{_host}/sitemap_index.xml
     return response
 
 
+def _lens_feed_items(cur, base, is_india):
+    """Merchant items for every released contact lens, [] on .in.
+
+    A lens catalogue that cannot be read must not take the frame feed with it:
+    702 frames disappearing from Merchant Center because a lens table is missing
+    would be a far larger outage than the lenses not appearing, so the failure is
+    logged and the feed is served without them.
+    """
+    if is_india:
+        return []
+    try:
+        rows = live_lenses(cur, SITE_COM)
+        for row in rows:
+            row['images'] = lens_feed.lens_images(cur, row['product_id'])
+        return lens_feed.lens_items(rows, base, is_india=False)
+    except Exception as e:  # noqa: BLE001
+        current_app.logger.warning('[GMC] contact-lens offers omitted: %s', e)
+        return []
+
+
 # ============================================================
 # Google Merchant Center product feed (RSS 2.0 + g: namespace)
 # ============================================================
@@ -3715,11 +3736,11 @@ def google_merchant_feed():
         # Feed inclusion policy: ACTIVE + in-stock only (drops OUT_OF_STOCK etc.).
         if not is_merchant_eligible(p):
             continue
-        # Contact lenses stay out of the feed until they carry manufacturer
-        # identity. Everything below emits brand Optiwar and mpn = our own
-        # product code, which is true of a frame we assemble and false of an
-        # Alcon box that has a real brand, GTIN and MPN — sending ours would be
-        # a disapproval, so the vertical is excluded rather than mislabelled.
+        # A lens is not a frame with a different name: everything below emits
+        # brand Optiwar and mpn = our own product code, true of a frame we
+        # assemble and false of an Alcon box with a real brand, GTIN and MPN.
+        # Lenses are appended after this loop, from lens_feed, which maps the
+        # manufacturer's identity instead of ours.
         if is_contact_lens(p):
             continue
         if is_india:
@@ -3809,6 +3830,8 @@ def google_merchant_feed():
             parts.append('      <g:custom_label_0>%s</g:custom_label_0>' % _xesc(shape))
         parts.append('    </item>')
         items.append('\n'.join(parts))
+
+    items += _lens_feed_items(cur, base, is_india)
 
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
