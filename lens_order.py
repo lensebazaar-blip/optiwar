@@ -248,7 +248,15 @@ class Rules(object):
             found[param] = _selected(selection, param) or None
         found["color_code"] = found.pop("color")
         found["color_name"] = self._label("color", found["color_code"])
-        found["diameter"] = (self.values("diameter") or [None])[0]
+        stated_diameters = self.values("diameter")
+        if len(stated_diameters) > 1:
+            # Nobody is asked for a diameter; it is the one the product is made
+            # in. Two of them means the source states something this shape
+            # cannot express, and choosing for the customer would ship a lens
+            # they did not pick. The importer refuses this, so it is unreachable
+            # from an import — but a row written any other way is refused too.
+            return None
+        found["diameter"] = (stated_diameters or [None])[0]
         return found
 
     def _label(self, param, value):
