@@ -112,7 +112,7 @@ that does not exist or is not the one prescribed:
 
 | Refused | Why |
 | --- | --- |
-| no GTIN **and** no MPN | the offer would have to claim our `product_code` as the manufacturer's |
+| the product's own name or SKU in `manufacturer_mpn` | a supplier's SKU is not a manufacturer part number; no identifier is the honest answer and the feed then sends `identifier_exists=false` |
 | `OUT_OF_STOCK` | not a state a replenished lens has (§3) |
 | `ON_ORDER` with no lead time | a customer told to wait has to be told how long |
 | a power off the quarter-dioptre step | a transcription error in the export, not an exotic lens |

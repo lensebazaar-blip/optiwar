@@ -221,9 +221,11 @@ def lens_release_blockers(row, site=None):
         missing.append("no availability")
     if not (row.get("brand") or "").strip():
         missing.append("no brand")
-    if not ((row.get("gtin") or "").strip()
-            or (row.get("manufacturer_mpn") or "").strip()):
-        missing.append("no GTIN or manufacturer MPN")
+    # A missing identifier does not block release: a supplier that holds no
+    # GTIN and no manufacturer part number for a lens is the ordinary case, and
+    # the honest submission is identifier_exists=false (lens_feed). Inventing
+    # one, or sending our own product_code as the manufacturer's, is the thing
+    # that must not happen — so nothing here supplies a substitute.
     if not _stated(row):
         missing.append("no selectable values stated"
                        if _rule_mode(row) else "no prescription matrix")

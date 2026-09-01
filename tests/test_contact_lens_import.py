@@ -54,13 +54,25 @@ class ProductRowTest(unittest.TestCase):
         self.assertEqual(parsed["price_eur"], decimal.Decimal("39.90"))
         self.assertEqual(parsed["source_system"], cl_import.SOURCE_SYSTEM)
 
-    def test_a_lens_with_neither_gtin_nor_mpn_is_refused(self):
-        # Accepting it would mean the GMC offer claims our product_code as
-        # CooperVision's identifier, which is what the frame feed does and what
-        # a manufacturer's lens must never do.
-        with self.assertRaises(cl_import.RowError) as caught:
-            cl_import.parse_product(product(gtin="", manufacturer_mpn=""))
-        self.assertIn("GTIN", str(caught.exception))
+    def test_a_lens_nobody_holds_an_identifier_for_still_imports(self):
+        # The supplier holds neither for any pilot lens. That is the ordinary
+        # case, and the honest submission is identifier_exists=false; refusing
+        # the import would only invite somebody to type a code in.
+        parsed = cl_import.parse_product(product(gtin="",
+                                                 manufacturer_mpn=""))
+        self.assertEqual(parsed["gtin"], "")
+        self.assertEqual(parsed["manufacturer_mpn"], "")
+
+    def test_the_products_own_name_in_the_mpn_column_is_refused(self):
+        # What the export actually contains: manufacturer_mpn = "MyDay Torics
+        # 30 Pack". Sending it would claim a manufacturer part number that
+        # belongs to whatever product genuinely carries that code.
+        for fake in ("MyDay Toric 30 Pack", "LB-1001"):
+            with self.assertRaises(cl_import.RowError) as caught:
+                cl_import.parse_product(product(gtin="",
+                                                manufacturer_mpn=fake))
+            self.assertIn("not a manufacturer part number",
+                          str(caught.exception))
 
     def test_a_lens_type_we_do_not_model_is_refused(self):
         with self.assertRaises(cl_import.RowError):

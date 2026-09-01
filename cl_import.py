@@ -256,9 +256,17 @@ def parse_product(row):
     if product["availability"] == "ON_ORDER" and not product["lead_time_days"]:
         raise RowError("ON_ORDER without lead_time_days: a customer told to "
                        "wait has to be told how long")
-    if not (product["gtin"] or product["manufacturer_mpn"]):
-        raise RowError("neither GTIN nor manufacturer_mpn: the offer would "
-                       "have to claim our product_code as the manufacturer's")
+    if product["manufacturer_mpn"] and (
+            product["manufacturer_mpn"].strip().lower()
+            in (product["product_name"].strip().lower(),
+                _text(row.get("source_ref")).strip().lower())):
+        # A supplier's own SKU or the product's name in the MPN column is not a
+        # manufacturer part number, and sending it would collide with whatever
+        # product genuinely carries that code. No identifier is the honest
+        # answer; the feed then says identifier_exists=false.
+        raise RowError("manufacturer_mpn %r is the product's own name or SKU, "
+                       "not a manufacturer part number — leave it empty"
+                       % product["manufacturer_mpn"])
     if product["special_price_eur"] and (product["special_price_eur"]
                                          > product["price_eur"]):
         raise RowError("special_price_eur is above price_eur")

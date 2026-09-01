@@ -226,9 +226,11 @@ def lens_details(row):
 def lens_offer(row, base, today=None):
     """One offer as ordered ``(tag, value)`` pairs, or ``None`` if not live.
 
-    ``identifier_exists`` is never emitted: a lens has a real GTIN or a real
-    manufacturer MPN — the release gate requires one of them — and declaring
-    that no identifier exists would be untrue of a manufactured product.
+    Identifiers are the manufacturer's or nobody's: a real GTIN and a real MPN
+    are sent when they exist, and when the supplier holds neither the offer says
+    ``identifier_exists=false`` rather than sending our own ``product_code`` as
+    the manufacturer's part number, which is what makes an offer collide with
+    somebody else's product.
     """
     if row.get("release_blockers"):
         return None
@@ -258,10 +260,13 @@ def lens_offer(row, base, today=None):
         fields.append(("g:sale_price", "%s EUR" % sale))
     fields.append(("g:condition", "new"))
     fields.append(("g:brand", _text(row.get("brand"))))
-    if _text(row.get("gtin")):
-        fields.append(("g:gtin", _text(row.get("gtin"))))
-    if _text(row.get("manufacturer_mpn")):
-        fields.append(("g:mpn", _text(row.get("manufacturer_mpn"))))
+    gtin, mpn = _text(row.get("gtin")), _text(row.get("manufacturer_mpn"))
+    if gtin:
+        fields.append(("g:gtin", gtin))
+    if mpn:
+        fields.append(("g:mpn", mpn))
+    if not (gtin or mpn):
+        fields.append(("g:identifier_exists", "false"))
     # Taxonomy id only when somebody has verified it in Merchant Center, for the
     # reason the frame feed dropped its hardcoded 178: a wrong category is worse
     # than none, because Google categorises a well-described offer itself.
