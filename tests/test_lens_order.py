@@ -73,17 +73,162 @@ class Options(unittest.TestCase):
         self.opts = lens_order.options(VARIANTS)
 
     def test_a_cylinder_is_offered_only_for_the_sphere_that_has_it(self):
-        tree = self.opts["tree"][""]
+        # colour -> base curve -> sphere -> cylinder. Base curve is a parameter
+        # like any other and these rows state none, so its key is ''.
+        tree = self.opts["tree"][""][""]
         self.assertEqual(sorted(tree.keys()), ["-4.50", "-5.00"])
         self.assertEqual(sorted(tree["-4.50"].keys()), ["-0.75", "-1.25"])
         self.assertEqual(list(tree["-5.00"].keys()), [""])
 
     def test_an_axis_is_offered_only_for_the_pair_that_has_it(self):
-        tree = self.opts["tree"][""]
+        tree = self.opts["tree"][""][""]
         self.assertEqual(sorted(tree["-4.50"]["-0.75"]["axes"]),
                          ["180", "90"])
         self.assertEqual(tree["-4.50"]["-1.25"]["axes"], ["180"])
         self.assertEqual(tree["-5.00"][""]["axes"], [])
+
+
+def _rule_lists(**lists):
+    return {param: [{"value": v, "label": v} for v in values]
+            for param, values in lists.items()}
+
+
+# MyDay Toric as its source states it: three independent lists and one base
+# curve. 53 x 4 x 18 combinations are orderable and none of them is a row.
+MYDAY = _rule_lists(
+    sph=["%.2f" % (-9.00 + 0.25 * s) for s in range(53)],
+    cyl=["-0.75", "-1.25", "-1.75", "-2.25"],
+    axis=[str(a) for a in range(10, 181, 10)],
+    base_curve=["8.60"], diameter=["14.50"])
+
+
+class StatedAsRules(unittest.TestCase):
+    """A lens whose source states parameters rather than combinations."""
+
+    def setUp(self):
+        self.shape = lens_order.selectable(MYDAY, "TORIC")
+
+    def test_the_lists_are_offered_and_no_combinations_are_materialised(self):
+        options = self.shape.options()
+        self.assertEqual(options["mode"], "RULES")
+        self.assertEqual(options["tree"], {})
+        self.assertEqual(len(options["lists"]["sph"]), 53)
+        self.assertEqual(len(options["lists"]["axis"]), 18)
+        self.assertEqual([e["value"] for e in options["lists"]["cyl"]],
+                         ["-0.75", "-1.25", "-1.75", "-2.25"])
+
+    def test_a_combination_of_stated_values_is_accepted(self):
+        sel = lens_order.read_eye(
+            _form(right_sph="-4.50", right_cyl="-1.75", right_axis="70",
+                  right_boxes="1"), "right")
+        lines, errors = lens_order.validate(MYDAY, LENS, [sel],
+                                            lens_type="TORIC")
+        self.assertEqual(errors, [])
+        self.assertEqual(lines[0]["variant"]["cyl"], "-1.75")
+        # There is no row, so there is no row id: the selection is the record.
+        self.assertIsNone(lines[0]["variant"]["variant_id"])
+
+    def test_a_value_the_source_never_stated_is_refused(self):
+        for bad in (_form(right_sph="-9.25", right_cyl="-1.75",
+                          right_axis="70", right_boxes="1"),
+                    _form(right_sph="-4.50", right_cyl="-3.00",
+                          right_axis="70", right_boxes="1"),
+                    _form(right_sph="-4.50", right_cyl="-1.75",
+                          right_axis="75", right_boxes="1")):
+            sel = lens_order.read_eye(bad, "right")
+            _lines, errors = lens_order.validate(MYDAY, LENS, [sel],
+                                                 lens_type="TORIC")
+            self.assertTrue(errors, bad)
+
+    def test_a_toric_ordered_without_its_cylinder_or_axis_is_refused(self):
+        sel = lens_order.read_eye(_form(right_sph="-4.50", right_boxes="1"),
+                                  "right")
+        _lines, errors = lens_order.validate(MYDAY, LENS, [sel],
+                                             lens_type="TORIC")
+        self.assertTrue(errors)
+
+    def test_a_parameter_this_lens_is_not_chosen_on_is_refused(self):
+        sel = lens_order.read_eye(
+            _form(right_sph="-4.50", right_cyl="-1.75", right_axis="70",
+                  right_add="2.00", right_boxes="1"), "right")
+        _lines, errors = lens_order.validate(MYDAY, LENS, [sel],
+                                             lens_type="TORIC")
+        self.assertTrue(errors)
+
+    def test_the_one_base_curve_is_filled_in_rather_than_asked(self):
+        sel = lens_order.read_eye(
+            _form(right_sph="-4.50", right_cyl="-1.75", right_axis="70",
+                  right_boxes="1"), "right")
+        lines, errors = lens_order.validate(MYDAY, LENS, [sel],
+                                            lens_type="TORIC")
+        self.assertEqual(errors, [])
+        self.assertEqual(lines[0]["variant"]["base_curve"], "8.60")
+        self.assertEqual(lines[0]["variant"]["diameter"], "14.50")
+
+    def test_a_second_base_curve_becomes_a_choice_that_must_be_made(self):
+        two = dict(MYDAY, base_curve=[{"value": "8.60", "label": "8.6"},
+                                      {"value": "9.00", "label": "9.0"}])
+        sel = lens_order.read_eye(
+            _form(right_sph="-4.50", right_cyl="-1.75", right_axis="70",
+                  right_boxes="1"), "right")
+        _lines, errors = lens_order.validate(two, LENS, [sel],
+                                             lens_type="TORIC")
+        self.assertTrue(errors)
+        chosen = lens_order.read_eye(
+            _form(right_bc="9.00", right_sph="-4.50", right_cyl="-1.75",
+                  right_axis="70", right_boxes="1"), "right")
+        lines, errors = lens_order.validate(two, LENS, [chosen],
+                                            lens_type="TORIC")
+        self.assertEqual(errors, [])
+        self.assertEqual(lines[0]["variant"]["base_curve"], "9.00")
+
+
+class MinimumBoxes(unittest.TestCase):
+    """The supply terms are the product's own, and the storefront's."""
+
+    def setUp(self):
+        self.lens = dict(LENS, min_boxes_single_eye=8,
+                         min_boxes_both_per_eye=4)
+
+    def _order(self, lens, site, **boxes):
+        sels = [lens_order.read_eye(
+            _form(**{"%s_sph" % eye: "-5.00",
+                     "%s_boxes" % eye: str(count)}), eye)
+            for eye, count in boxes.items()]
+        return lens_order.validate_detailed(VARIANTS, lens, sels, site=site)
+
+    def test_one_eye_below_the_single_eye_minimum_is_refused(self):
+        _lines, problems = self._order(self.lens, "optiwar.com", right=4)
+        self.assertEqual([c for c, _ in problems],
+                         [lens_order.REFUSED_MINIMUM])
+        self.assertIn("minimum of 8 boxes", problems[0][1])
+
+    def test_the_both_eyes_minimum_is_per_eye_and_not_a_total(self):
+        # Four per eye: three and five is eight boxes and still refused.
+        _lines, problems = self._order(self.lens, "optiwar.com",
+                                       right=3, left=5)
+        self.assertEqual([c for c, _ in problems],
+                         [lens_order.REFUSED_MINIMUM])
+        lines, problems = self._order(self.lens, "optiwar.com",
+                                      right=4, left=4)
+        self.assertEqual(problems, [])
+        self.assertEqual(sum(ln["boxes"] for ln in lines), 8)
+
+    def test_india_enforces_no_minimum_while_it_sells_no_lens(self):
+        lines, problems = self._order(self.lens, "in.optiwar.com", right=1)
+        self.assertEqual(problems, [])
+        self.assertEqual(lines[0]["boxes"], 1)
+
+    def test_a_lens_with_no_stated_minimum_sells_from_one_box(self):
+        lines, problems = self._order(LENS, "optiwar.com", right=1)
+        self.assertEqual(problems, [])
+        self.assertEqual(lines[0]["boxes"], 1)
+
+    def test_the_page_is_told_the_minimums_it_must_show(self):
+        self.assertEqual(lens_order.minimums(self.lens, "optiwar.com"),
+                         {"single": 8, "both": 4})
+        self.assertEqual(lens_order.minimums(self.lens, "in.optiwar.com"),
+                         {"single": 0, "both": 0})
 
 
 class Selection(unittest.TestCase):
@@ -311,7 +456,8 @@ class Render(unittest.TestCase):
         html = env.get_template("lens_select.html").render(
             lens=LENS, options=lens_order.options(VARIANTS),
             box_price=lens_order.box_price(LENS), errors=[], submitted={},
-            eyes=lens_order.EYES, max_boxes=lens_order.MAX_BOXES_PER_EYE)
+            eyes=lens_order.EYES, max_boxes=lens_order.MAX_BOXES_PER_EYE,
+            minimums=lens_order.minimums(LENS, "optiwar.com"))
         for field in ("right_sph", "right_cyl", "right_axis", "right_boxes",
                       "left_sph", "left_boxes"):
             self.assertIn('name="%s"' % field, html)

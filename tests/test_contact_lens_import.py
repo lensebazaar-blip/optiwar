@@ -54,13 +54,25 @@ class ProductRowTest(unittest.TestCase):
         self.assertEqual(parsed["price_eur"], decimal.Decimal("39.90"))
         self.assertEqual(parsed["source_system"], cl_import.SOURCE_SYSTEM)
 
-    def test_a_lens_with_neither_gtin_nor_mpn_is_refused(self):
-        # Accepting it would mean the GMC offer claims our product_code as
-        # CooperVision's identifier, which is what the frame feed does and what
-        # a manufacturer's lens must never do.
-        with self.assertRaises(cl_import.RowError) as caught:
-            cl_import.parse_product(product(gtin="", manufacturer_mpn=""))
-        self.assertIn("GTIN", str(caught.exception))
+    def test_a_lens_nobody_holds_an_identifier_for_still_imports(self):
+        # The supplier holds neither for any pilot lens. That is the ordinary
+        # case, and the honest submission is identifier_exists=false; refusing
+        # the import would only invite somebody to type a code in.
+        parsed = cl_import.parse_product(product(gtin="",
+                                                 manufacturer_mpn=""))
+        self.assertEqual(parsed["gtin"], "")
+        self.assertEqual(parsed["manufacturer_mpn"], "")
+
+    def test_the_products_own_name_in_the_mpn_column_is_refused(self):
+        # What the export actually contains: manufacturer_mpn = "MyDay Torics
+        # 30 Pack". Sending it would claim a manufacturer part number that
+        # belongs to whatever product genuinely carries that code.
+        for fake in ("MyDay Toric 30 Pack", "LB-1001"):
+            with self.assertRaises(cl_import.RowError) as caught:
+                cl_import.parse_product(product(gtin="",
+                                                manufacturer_mpn=fake))
+            self.assertIn("not a manufacturer part number",
+                          str(caught.exception))
 
     def test_a_lens_type_we_do_not_model_is_refused(self):
         with self.assertRaises(cl_import.RowError):
@@ -245,6 +257,141 @@ class ExportTest(unittest.TestCase):
         self.assertIn("LB-1002", text)
 
 
+def rules_product(**over):
+    row = product(param_mode="RULES",
+                  param_source="LensBazaar EU ordering rule 2026-09")
+    row.update(over)
+    return row
+
+
+def rule(**over):
+    row = {"source_ref": "LB-1001", "parameter": "sph", "value": "-9.00"}
+    row.update(over)
+    return row
+
+
+MYDAY_CYLINDERS = ("-0.75", "-1.25", "-1.75", "-2.25")
+
+
+def myday_rules():
+    """MyDay Toric as the source states it: three lists, and no combinations.
+
+    The supplied PWR range is a quarter-step run, so the powers come from the
+    source's own list of selectable values; nothing here multiplies the three
+    lists together, which is the 4,032-row chart CooperVision never published.
+    """
+    powers = ["%.2f" % (-9.00 + 0.25 * step) for step in range(53)]
+    rows = [rule(parameter="sph", value=p) for p in powers]
+    rows += [rule(parameter="cyl", value=c) for c in MYDAY_CYLINDERS]
+    rows += [rule(parameter="axis", value=str(a))
+             for a in range(10, 181, 10)]
+    rows += [rule(parameter="bc", value="8.6"), rule(parameter="dia",
+                                                    value="14.5")]
+    return rows
+
+
+class RuleRowTest(unittest.TestCase):
+    def test_a_value_parses_with_its_parameter_named_as_the_sheet_writes_it(self):
+        self.assertEqual(cl_import.parse_rule(rule(parameter="PWR"))["parameter"],
+                         "sph")
+        self.assertEqual(cl_import.parse_rule(rule(parameter="BC",
+                                                   value="8.6"))["parameter"],
+                         "base_curve")
+
+    def test_a_parameter_we_do_not_model_is_refused(self):
+        with self.assertRaises(cl_import.RowError):
+            cl_import.parse_rule(rule(parameter="tint_depth", value="3"))
+
+    def test_a_power_off_the_quarter_step_is_refused(self):
+        with self.assertRaises(cl_import.RowError):
+            cl_import.parse_rule(rule(value="-4.30"))
+
+    def test_a_plus_form_cylinder_is_refused(self):
+        with self.assertRaises(cl_import.RowError):
+            cl_import.parse_rule(rule(parameter="cyl", value="+1.25"))
+
+    def test_an_axis_outside_the_dial_is_refused(self):
+        with self.assertRaises(cl_import.RowError):
+            cl_import.parse_rule(rule(parameter="axis", value="200"))
+
+
+class RulesExportTest(unittest.TestCase):
+    """A product whose source states parameters, not combinations."""
+
+    def test_myday_toric_imports_as_stated_values_not_as_a_matrix(self):
+        products, errors = cl_import.parse([rules_product()], [],
+                                           myday_rules())
+        self.assertEqual(errors, [])
+        stated = products[0]["rules"]
+        # 53 powers + 4 cylinders + 18 axes + BC + DIA. Not 53 x 4 x 18.
+        self.assertEqual(len(stated), 77)
+        self.assertEqual({r["parameter"] for r in stated},
+                         {"sph", "cyl", "axis", "base_curve", "diameter"})
+        self.assertEqual(products[0]["variants"], [])
+
+    def test_a_rules_product_that_also_carries_combinations_is_refused(self):
+        products, errors = cl_import.parse([rules_product()], [variant()],
+                                           myday_rules())
+        self.assertEqual(products, [])
+        self.assertTrue(any("RULES with combination rows" in why
+                            for _s, _n, _r, why in errors), errors)
+
+    def test_a_matrix_product_that_also_carries_parameter_rows_is_refused(self):
+        products, errors = cl_import.parse([product()], [variant()],
+                                           [rule()])
+        self.assertEqual(products, [])
+        self.assertTrue(any("MATRIX with parameter rows" in why
+                            for _s, _n, _r, why in errors), errors)
+
+    def test_a_toric_stated_without_axes_is_refused(self):
+        rows = [r for r in myday_rules() if r["parameter"] != "axis"]
+        products, errors = cl_import.parse([rules_product()], [], rows)
+        self.assertEqual(products, [])
+        self.assertTrue(any("no axis values" in why
+                            for _s, _n, _r, why in errors), errors)
+
+    def test_a_spherical_stated_with_cylinders_is_refused(self):
+        products, errors = cl_import.parse(
+            [rules_product(lens_type="Spherical")], [],
+            [rule(), rule(parameter="cyl", value="-1.25")])
+        self.assertEqual(products, [])
+        self.assertTrue(any("with cyl values" in why
+                            for _s, _n, _r, why in errors), errors)
+
+    def test_rules_without_a_named_source_are_refused(self):
+        # An assertion that every combination of the lists is orderable has to
+        # say whose assertion it is.
+        products, errors = cl_import.parse(
+            [rules_product(param_source="")], [], myday_rules())
+        self.assertEqual(products, [])
+        self.assertTrue(any("param_source" in why
+                            for _s, _n, _r, why in errors), errors)
+
+    def test_the_minimum_boxes_are_the_products_own(self):
+        parsed = cl_import.parse_product(
+            rules_product(min_boxes_single_eye="8", min_boxes_both_per_eye="4"))
+        self.assertEqual(parsed["min_boxes_single_eye"], 8)
+        self.assertEqual(parsed["min_boxes_both_per_eye"], 4)
+
+    def test_no_minimum_is_stated_as_no_minimum(self):
+        parsed = cl_import.parse_product(rules_product())
+        self.assertIsNone(parsed["min_boxes_single_eye"])
+        self.assertIsNone(parsed["min_boxes_both_per_eye"])
+
+    def test_the_manufacturers_own_name_is_published_and_the_sources_is_kept(self):
+        parsed = cl_import.parse_product(
+            product(manufacturer="Johnsons and Johnsons"))
+        self.assertEqual(parsed["manufacturer"], "Johnson & Johnson Vision")
+        self.assertEqual(parsed["source_manufacturer"],
+                         "Johnsons and Johnsons")
+
+    def test_the_dry_run_counts_values_not_invented_combinations(self):
+        products, errors = cl_import.parse([rules_product()], [],
+                                           myday_rules())
+        text = cl_import.report(products, errors)
+        self.assertIn("77 stated value(s) in 5 parameter(s)", text)
+
+
 class ImporterContractTest(unittest.TestCase):
     """Properties of the writing script that must not quietly change."""
 
@@ -272,6 +419,16 @@ class ImporterContractTest(unittest.TestCase):
     def test_it_loads_the_vertical_off_and_india_off(self):
         self.assertIn("\"sell_on_com\": 1", self.src)
         self.assertIn("\"sell_on_in\": 0", self.src)
+
+    def test_the_rupee_price_is_derived_from_euro_at_a_stated_rate(self):
+        # EUR is what the supplier quotes; INR is derived once, at a rate the
+        # run was given and records, and never from a previous conversion.
+        script = _load("import_contact_lenses_under_test",
+                       os.path.join(REPO, "scripts",
+                                    "import_contact_lenses.py"))
+        self.assertEqual(script.in_rupees("25.91", 94.5), 2448.49)
+        self.assertIsNone(script.in_rupees("25.91", None))
+        self.assertIn("eur_inr_rate", self.src)
 
     def test_it_commits_per_product(self):
         # One transaction per product: a product whose matrix fails leaves

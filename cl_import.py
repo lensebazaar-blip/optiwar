@@ -7,15 +7,23 @@ sphere steps change across a range and axis availability differs by cylinder, so
 the cross product of the minima and maxima is a list of powers a customer could
 order and nobody could supply.
 
+An export therefore arrives in one of two shapes per product, and says which in
+``param_mode`` (see ``contact_lens.py``):
+
+``MATRIX``  a combinations sheet — one row per orderable combination.
+``RULES``   a parameter sheet — one row per selectable value of one parameter.
+            A source that holds no combination data says this, and saying it is
+            not the same as expanding it: the lists are stored as lists.
+
 No database and no flask here on purpose: a rejection has to be provable in a
 test without a box, and the CLI that writes (``scripts/import_contact_lenses.py``)
 does nothing this module has not already approved.
 
-    products, errors = parse(product_rows, variant_rows)
+    products, errors = parse(product_rows, variant_rows, rule_rows)
 
 ``products`` are whole and importable; ``errors`` name a row and what is wrong
 with it. A product with any error is not in ``products`` at all — a product and
-its matrix arrive together or not at all.
+what may be ordered against it arrive together or not at all.
 """
 import decimal
 
@@ -24,6 +32,56 @@ LENS_TYPES = ("SPHERICAL", "TORIC", "MULTIFOCAL", "TORIC_MULTIFOCAL", "COLOR")
 AVAILABILITIES = ("IN_STOCK", "ON_ORDER")
 
 SOURCE_SYSTEM = "lensbazaar"
+
+PARAM_MODE_RULES = "RULES"
+PARAM_MODE_MATRIX = "MATRIX"
+PARAM_MODES = (PARAM_MODE_RULES, PARAM_MODE_MATRIX)
+
+# The parameters a rules sheet may state, and how each value is written down.
+RULE_PARAMETERS = ("base_curve", "diameter", "sph", "cyl", "axis", "add_power",
+                   "color")
+
+# What each lens type must be configured on when it is stated as rules. A toric
+# with no axis list is not orderable; a spherical with a cylinder list is a
+# sheet whose parameter column says the wrong thing.
+TYPE_RULE_PARAMS = {
+    "SPHERICAL": {"required": ("sph",), "forbidden": ("cyl", "axis",
+                                                      "add_power")},
+    "TORIC": {"required": ("sph", "cyl", "axis"), "forbidden": ("add_power",)},
+    "MULTIFOCAL": {"required": ("sph", "add_power"), "forbidden": ("cyl",
+                                                                   "axis")},
+    "TORIC_MULTIFOCAL": {"required": ("sph", "cyl", "axis", "add_power"),
+                         "forbidden": ()},
+    "COLOR": {"required": ("sph", "color"), "forbidden": ("add_power",)},
+}
+
+# The manufacturers we publish, against the strings sources write them as. The
+# source's own value is kept beside this one: "Johnsons and Johnsons" is
+# provenance, and is never what a customer or Google is shown.
+CANONICAL_MANUFACTURERS = {
+    "ALCON": "Alcon",
+    "COOPERVISION": "CooperVision",
+    "COOPER_VISION": "CooperVision",
+    "JOHNSON_&_JOHNSON": "Johnson & Johnson Vision",
+    "JOHNSON_AND_JOHNSON": "Johnson & Johnson Vision",
+    "JOHNSONS_AND_JOHNSONS": "Johnson & Johnson Vision",
+    "JOHNSON_&_JOHNSON_VISION": "Johnson & Johnson Vision",
+    "J&J": "Johnson & Johnson Vision",
+    "ACUVUE": "Johnson & Johnson Vision",
+    "BAUSCH_AND_LOMB": "Bausch + Lomb",
+    "BAUSCH_+_LOMB": "Bausch + Lomb",
+    "BAUSCH_&_LOMB": "Bausch + Lomb",
+}
+
+
+def canonical_manufacturer(raw):
+    """The manufacturer as we publish it, or the source's own string.
+
+    Unknown names pass through rather than being rejected: a manufacturer we
+    have not met is a normalisation to add, not a reason to refuse a product.
+    """
+    return CANONICAL_MANUFACTURERS.get(_upper(raw), _text(raw))
+
 
 # Quarter-dioptre is the step every manufacturer prescribes in. A value off the
 # step is a transcription error in the export, not an exotic lens.
@@ -153,7 +211,8 @@ def parse_product(row):
     product = {
         "source_system": SOURCE_SYSTEM,
         "source_ref": _text(row.get("source_ref")),
-        "manufacturer": _text(row.get("manufacturer")),
+        "manufacturer": canonical_manufacturer(row.get("manufacturer")),
+        "source_manufacturer": _text(row.get("manufacturer")),
         "brand": _text(row.get("brand")),
         "product_name": _text(row.get("product_name")),
         "gtin": _text(row.get("gtin")),
@@ -173,6 +232,12 @@ def parse_product(row):
         "image_url": _text(row.get("image_url")),
         "product_details": _text(row.get("description")),
         "source_url": _text(row.get("source_url")),
+        "param_mode": _upper(row.get("param_mode")) or PARAM_MODE_MATRIX,
+        "param_source": _text(row.get("param_source")),
+        "min_boxes_single_eye": whole(row.get("min_boxes_single_eye"),
+                                      "min_boxes_single_eye"),
+        "min_boxes_both_per_eye": whole(row.get("min_boxes_both_per_eye"),
+                                        "min_boxes_both_per_eye"),
     }
     missing = [f for f in PRODUCT_REQUIRED if not product.get(f)]
     if missing:
@@ -191,12 +256,29 @@ def parse_product(row):
     if product["availability"] == "ON_ORDER" and not product["lead_time_days"]:
         raise RowError("ON_ORDER without lead_time_days: a customer told to "
                        "wait has to be told how long")
-    if not (product["gtin"] or product["manufacturer_mpn"]):
-        raise RowError("neither GTIN nor manufacturer_mpn: the offer would "
-                       "have to claim our product_code as the manufacturer's")
+    if product["manufacturer_mpn"] and (
+            product["manufacturer_mpn"].strip().lower()
+            in (product["product_name"].strip().lower(),
+                _text(row.get("source_ref")).strip().lower())):
+        # A supplier's own SKU or the product's name in the MPN column is not a
+        # manufacturer part number, and sending it would collide with whatever
+        # product genuinely carries that code. No identifier is the honest
+        # answer; the feed then says identifier_exists=false.
+        raise RowError("manufacturer_mpn %r is the product's own name or SKU, "
+                       "not a manufacturer part number — leave it empty"
+                       % product["manufacturer_mpn"])
     if product["special_price_eur"] and (product["special_price_eur"]
                                          > product["price_eur"]):
         raise RowError("special_price_eur is above price_eur")
+    if product["param_mode"] not in PARAM_MODES:
+        raise RowError("param_mode: %r is not one of %s"
+                       % (row.get("param_mode"), ", ".join(PARAM_MODES)))
+    if product["param_mode"] == PARAM_MODE_RULES and not product["param_source"]:
+        # Rules assert that every combination of the stated values is orderable.
+        # Who asserted it has to be recorded, or nobody can later tell a
+        # supplier's regional terms from a manufacturer's chart.
+        raise RowError("param_mode RULES without param_source: an assertion "
+                       "about what is orderable has to say whose it is")
     return product
 
 
@@ -245,12 +327,57 @@ def parse_variant(row, lens_type):
     return variant
 
 
-def parse(product_rows, variant_rows):
+def parse_rule(row):
+    """One parameter-sheet row -> a selectable value of one parameter."""
+    parameter = _text(row.get("parameter")).lower().replace(" ", "_")
+    parameter = {"power": "sph", "pwr": "sph", "bc": "base_curve",
+                 "dia": "diameter", "add": "add_power",
+                 "colour": "color"}.get(parameter, parameter)
+    if parameter not in RULE_PARAMETERS:
+        raise RowError("parameter: %r is not one of %s"
+                       % (row.get("parameter"), ", ".join(RULE_PARAMETERS)))
+    raw = row.get("value")
+    if parameter in ("sph", "cyl", "add_power"):
+        value = dioptre(raw, parameter,
+                        allow_zero=(parameter == "sph"))
+    elif parameter == "axis":
+        value = axis(raw)
+    elif parameter in ("base_curve", "diameter"):
+        value = millimetres(raw, parameter)
+    else:
+        value = _text(raw)
+    if value is None or value == "":
+        raise RowError("%s: no value" % parameter)
+    if parameter == "cyl" and value > 0:
+        raise RowError("cyl: %s is plus-form; the rules are minus-cylinder"
+                       % value)
+    return {
+        "source_ref": _text(row.get("source_ref")),
+        "parameter": parameter,
+        "value": str(value),
+        "label": _text(row.get("label")) or None,
+        "available": 0 if _text(row.get("available")).lower() in (
+            "0", "no", "false", "discontinued") else 1,
+    }
+
+
+def _check_rule_shape(product):
+    """Whether a rules product states the parameters its type is chosen on."""
+    stated = {r["parameter"] for r in product["rules"] if r["available"]}
+    rules = TYPE_RULE_PARAMS[product["lens_type"]]
+    problems = ["%s lens with no %s values" % (product["lens_type"], p)
+                for p in rules["required"] if p not in stated]
+    problems += ["%s lens with %s values" % (product["lens_type"], p)
+                 for p in rules["forbidden"] if p in stated]
+    return problems
+
+
+def parse(product_rows, variant_rows, rule_rows=()):
     """Validate the export. Returns (products, errors).
 
-    A product is returned only with a matrix, and only when nothing about it or
-    any of its variants was rejected, because a lens whose matrix half-loaded
-    would sell the half that loaded.
+    A product is returned only with what may be ordered against it, and only
+    when nothing about it or any of its rows was rejected, because a lens whose
+    matrix half-loaded would sell the half that loaded.
     """
     errors = []
     products = {}
@@ -267,6 +394,7 @@ def parse(product_rows, variant_rows):
                            "source_ref appears twice in the export"))
             continue
         product["variants"] = []
+        product["rules"] = []
         products[product["source_ref"]] = product
 
     seen_gtin = {}
@@ -305,8 +433,48 @@ def parse(product_rows, variant_rows):
         signatures[ref].add(signature)
         product["variants"].append(variant)
 
+    seen_rules = {}
+    for number, row in enumerate(rule_rows or (), start=2):
+        ref = _text(row.get("source_ref"))
+        product = products.get(ref)
+        if product is None:
+            errors.append(("rules", number, ref,
+                           "no product row with this source_ref"))
+            continue
+        try:
+            rule = parse_rule(row)
+        except RowError as exc:
+            errors.append(("rules", number, ref, str(exc)))
+            continue
+        signature = (rule["parameter"], rule["value"])
+        if signature in seen_rules.setdefault(ref, set()):
+            errors.append(("rules", number, ref, "duplicate %s value %s"
+                           % signature))
+            continue
+        seen_rules[ref].add(signature)
+        product["rules"].append(rule)
+
     rejected |= {ref for _sheet, _n, ref, _why in errors if ref}
     for ref, product in products.items():
+        if product["param_mode"] == PARAM_MODE_RULES:
+            if product["variants"]:
+                # Both shapes for one lens would leave two answers to the same
+                # question, and no way to tell which one served a customer.
+                errors.append(("variants", 0, ref,
+                               "param_mode RULES with combination rows"))
+                rejected.add(ref)
+            for problem in _check_rule_shape(product):
+                errors.append(("rules", 0, ref, problem))
+                rejected.add(ref)
+            if not any(r["available"] for r in product["rules"]):
+                errors.append(("rules", 0, ref,
+                               "no available values: nothing to sell"))
+                rejected.add(ref)
+            continue
+        if product["rules"]:
+            errors.append(("rules", 0, ref,
+                           "param_mode MATRIX with parameter rows"))
+            rejected.add(ref)
         if not any(v["available"] for v in product["variants"]):
             errors.append(("variants", 0, ref,
                            "no available combination: nothing to sell"))
@@ -322,11 +490,16 @@ def report(products, errors):
     lines = ["%d product(s) importable, %d rejection(s)"
              % (len(products), len(errors))]
     for product in products:
-        lines.append("  OK   %-14s %-14s %-28s %s %s pack=%s  %d variant(s)"
+        rules = product.get("param_mode") == PARAM_MODE_RULES
+        stated = ("%d stated value(s) in %d parameter(s)"
+                  % (len(product["rules"]),
+                     len({r["parameter"] for r in product["rules"]}))
+                  if rules else "%d combination(s)" % len(product["variants"]))
+        lines.append("  OK   %-14s %-14s %-28s %s %s pack=%s  %s  %s"
                      % (product["source_ref"], product["manufacturer"],
                         product["product_name"][:28], product["modality"],
                         product["lens_type"], product["pack_quantity"],
-                        len(product["variants"])))
+                        product.get("param_mode", ""), stated))
     for sheet, number, ref, why in errors:
         where = "%s row %s" % (sheet, number) if number else sheet
         lines.append("  REJECT %-14s %-18s %s" % (ref or "-", where, why))

@@ -134,7 +134,6 @@ class ReleaseGateTests(unittest.TestCase):
                                  product_special_price_eur=None),
             "no availability": dict(availability=""),
             "no brand": dict(brand=""),
-            "no GTIN or manufacturer MPN": dict(gtin=None, manufacturer_mpn=""),
             "no prescription matrix": dict(variant_count=0),
         }
         for reason, change in cases.items():
@@ -143,6 +142,26 @@ class ReleaseGateTests(unittest.TestCase):
                 reason,
                 catalogue.lens_release_blockers(row, catalogue.SITE_COM),
                 "%s did not block release" % reason)
+
+    def test_a_missing_identifier_does_not_hold_a_lens_back(self):
+        # No supplier holds a GTIN or a manufacturer part number for these
+        # lenses. Blocking release on it would either stop the pilot or invite
+        # somebody to type a code in; the feed declares identifier_exists=false.
+        row = dict(LIVE, gtin=None, manufacturer_mpn="")
+        self.assertEqual(
+            catalogue.lens_release_blockers(row, catalogue.SITE_COM), ())
+
+    def test_a_lens_stated_as_rules_is_live_on_its_stated_values(self):
+        # A RULES lens has no combination rows and is not half-loaded for it:
+        # the stated values are what make it orderable, and counting only
+        # combinations would hold every such lens back forever.
+        stated = dict(LIVE, param_mode="RULES", variant_count=0, rule_count=75)
+        self.assertEqual(
+            catalogue.lens_release_blockers(stated, catalogue.SITE_COM), ())
+        nothing = dict(stated, rule_count=0)
+        self.assertIn("no selectable values stated",
+                      catalogue.lens_release_blockers(nothing,
+                                                      catalogue.SITE_COM))
 
     def test_a_discontinued_lens_is_not_live(self):
         row = dict(LIVE, product_status="DISCONTINUED")

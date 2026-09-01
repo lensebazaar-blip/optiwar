@@ -796,10 +796,21 @@ def _released_lens(cursor, product_id):
                  if str(r['product_id']) == str(product_id or '')), None)
 
 
-def _lens_selection(lens, rows, errors=(), submitted=None):
+def _lens_choices(cursor, lens):
+    """What this lens states as orderable, in whichever shape it states it."""
+    if (lens.get('param_mode') or '').strip().upper() == 'RULES':
+        return lens_order.selectable(
+            lens_order.param_rules(cursor, lens['product_id']),
+            lens.get('lens_type'))
+    return lens_order.selectable(lens_order.variants(cursor,
+                                                     lens['product_id']))
+
+
+def _lens_selection(lens, shape, errors=(), submitted=None):
     return make_response(render_template(
         'lens_select.html', lens=lens,
-        options=lens_order.options(rows),
+        options=shape.options(),
+        minimums=lens_order.minimums(lens, SITE_COM),
         box_price=lens_order.box_price(lens),
         errors=list(errors), submitted=submitted or {},
         eyes=lens_order.EYES,
@@ -815,8 +826,7 @@ def lens_select():
     lens = _released_lens(cursor, request.values.get('product_id'))
     if not lens:
         return "Product not found", 404
-    return _lens_selection(lens, lens_order.variants(cursor,
-                                                     lens['product_id']))
+    return _lens_selection(lens, _lens_choices(cursor, lens))
 
 
 @bp.route('/contact-lenses/add', methods=['POST'])
@@ -834,16 +844,17 @@ def lens_add_to_cart():
     lens = _released_lens(cursor, request.form.get('product_id'))
     if not lens:
         return "Product not found", 404
-    rows = lens_order.variants(cursor, lens['product_id'])
+    shape = _lens_choices(cursor, lens)
     selections = [lens_order.read_eye(request.form, eye)
                   for eye in lens_order.EYES]
-    lines, problems = lens_order.validate_detailed(rows, lens, selections)
+    lines, problems = lens_order.validate_detailed(shape, lens, selections,
+                                                   site=SITE_COM)
     if problems:
         acr.log_event(db, acr.EV_LENS_ORDER_REFUSED,
                       failure_code=problems[0][0], success=False,
                       payload={'product_id': str(lens['product_id']),
                                'reasons': sorted({c for c, _ in problems})})
-        return _lens_selection(lens, rows, [m for _, m in problems],
+        return _lens_selection(lens, shape, [m for _, m in problems],
                                request.form)
     item = lens_order.cart_item(lens, lines)
     cart = [i for i in session.get('cart', [])

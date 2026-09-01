@@ -91,10 +91,21 @@ class IdentityTests(unittest.TestCase):
         # Our code is the offer id, which is what it legitimately is.
         self.assertEqual(_tag(self.xml, "id"), "CL-CV-MDT30")
 
-    def test_identifier_exists_is_never_claimed_false(self):
-        # A manufactured lens has a real identifier; the release gate requires
-        # one, so declaring none exists would be untrue.
+    def test_identifier_exists_is_not_sent_when_an_identifier_exists(self):
         self.assertNotIn("identifier_exists", self.xml)
+
+    def test_a_lens_nobody_holds_an_identifier_for_says_so(self):
+        # The supplier holds no GTIN and no manufacturer part number for the
+        # pilot lenses. The offer declares that, rather than sending our own
+        # product_code as the manufacturer's code and colliding with whatever
+        # product genuinely carries it.
+        xml = lens_feed.lens_item_xml(
+            dict(LIVE, gtin=None, manufacturer_mpn=""), BASE)
+        self.assertEqual(_tag(xml, "identifier_exists"), "false")
+        self.assertIsNone(_tag(xml, "mpn"))
+        self.assertIsNone(_tag(xml, "gtin"))
+        self.assertEqual(_tag(xml, "id"), "CL-CV-MDT30")
+        self.assertEqual(_tag(xml, "brand"), "CooperVision")
 
     def test_an_mpn_only_lens_sends_no_empty_gtin(self):
         xml = lens_feed.lens_item_xml(dict(LIVE, gtin=None), BASE)
