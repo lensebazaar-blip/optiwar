@@ -184,8 +184,14 @@ def upsert_profile(cursor, product, product_id, rate=None):
     marks = ", ".join(["%s"] * len(fields))
     # merchant_enabled is absent on purpose: an update must not re-release a
     # lens somebody withdrew, and an insert takes the column's default of 0.
+    # The conversion metadata is held back for the same reason upsert_product
+    # leaves the rupee prices alone when no rate was given: the recorded rate
+    # describes the rupee price that is still there, and blanking it would
+    # leave a converted price nothing accounts for.
+    kept = {"product_id"} if rate else {"product_id", "eur_inr_rate",
+                                        "eur_inr_rate_at"}
     updates = ", ".join("%s = VALUES(%s)" % (k, k) for k in fields
-                        if k != "product_id")
+                        if k not in kept)
     cursor.execute("INSERT INTO contact_lens_products (%s) VALUES (%s)"
                    " ON DUPLICATE KEY UPDATE %s" % (columns, marks, updates),
                    tuple(fields.values()))
@@ -261,6 +267,20 @@ def upsert_image(cursor, product, product_id):
                    (product_id, product["image_url"]))
 
 
+def withdraw_all(cursor, table, product_id):
+    """Withdraw whatever the shape a product no longer uses still offers.
+
+    A lens states what may be ordered in one shape or the other. If it changes
+    shape, the rows of the shape it left are still marked available, and the
+    storefront would have two answers to the same question. They are withdrawn,
+    not deleted, so an order placed against one stays readable.
+    """
+    cursor.execute("UPDATE %s SET available = 0"
+                   " WHERE product_id = %%s AND available = 1" % table,
+                   (product_id,))
+    return cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
+
+
 def import_one(cursor, product, rate=None):
     """One product and everything it states, inside the caller's transaction."""
     product_id = existing(cursor, product)
@@ -268,8 +288,11 @@ def import_one(cursor, product, rate=None):
     upsert_profile(cursor, product, product_id, rate)
     if product["param_mode"] == cl_import.PARAM_MODE_RULES:
         written, withdrawn = upsert_rules(cursor, product, product_id)
+        withdrawn += withdraw_all(cursor, "contact_lens_variants", product_id)
     else:
         written, withdrawn = upsert_variants(cursor, product, product_id)
+        withdrawn += withdraw_all(cursor, "contact_lens_param_rules",
+                                  product_id)
     upsert_image(cursor, product, product_id)
     return product_id, written, withdrawn
 

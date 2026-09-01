@@ -184,9 +184,15 @@ def whole(value, field):
     if raw == "":
         return None
     try:
-        number = int(decimal.Decimal(raw))
+        stated = decimal.Decimal(raw)
     except (decimal.InvalidOperation, ValueError):
         raise RowError("%s: %r is not a whole number" % (field, value))
+    number = int(stated)
+    if stated != number:
+        # Truncating turns a stated minimum of 4.5 boxes into a permission to
+        # order 4, which is the one direction a count must never move on its
+        # own. Every caller here is a count of whole things.
+        raise RowError("%s: %s is not a whole number" % (field, stated))
     if number <= 0:
         raise RowError("%s: %s is not a count" % (field, number))
     return number
@@ -369,6 +375,15 @@ def _check_rule_shape(product):
                 for p in rules["required"] if p not in stated]
     problems += ["%s lens with %s values" % (product["lens_type"], p)
                  for p in rules["forbidden"] if p in stated]
+    # Diameter is not asked for anywhere — it is filled in from the one the
+    # product is made in. Two of them is a choice the customer would never be
+    # shown and we would make for them, so it is refused rather than picked.
+    diameters = {r["value"] for r in product["rules"]
+                 if r["available"] and r["parameter"] == "diameter"}
+    if len(diameters) > 1:
+        problems.append("%d diameter values: a lens is ordered in one, and "
+                        "the customer is not asked which"
+                        % len(diameters))
     return problems
 
 

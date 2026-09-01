@@ -286,11 +286,17 @@ ships in about {{ lens.lead_time_days }} days{% endif %}</p>
   var copy = form.querySelector('[data-role="copy-left"]');
   if (copy) {
     copy.addEventListener('click', function () {
+      // In dependency order, and announcing each value as a choice: a matrix
+      // cylinder exists only under the sphere that has it, so one assigned
+      // before its parent rebuilt the list stays blank and the copied
+      // prescription is refused at the cart.
       ['_color', '_bc', '_sph', '_cyl', '_axis', '_add', '_boxes'].forEach(
         function (suffix) {
           var from = form.querySelector('[name="left' + suffix + '"]');
           var to = form.querySelector('[name="right' + suffix + '"]');
-          if (from && to) { to.value = from.value; }
+          if (!from || !to) { return; }
+          to.value = from.value;
+          to.dispatchEvent(new Event('change', {bubbles: true}));
         });
       updateTotal();
     });

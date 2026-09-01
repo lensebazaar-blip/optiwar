@@ -165,6 +165,18 @@ class StatedAsRules(unittest.TestCase):
         self.assertEqual(lines[0]["variant"]["base_curve"], "8.60")
         self.assertEqual(lines[0]["variant"]["diameter"], "14.50")
 
+    def test_a_second_diameter_is_refused_rather_than_chosen_for_the_customer(self):
+        # Nobody is asked for a diameter, so picking the first stated one would
+        # ship a lens the customer never chose. The importer refuses this too.
+        two = dict(MYDAY, diameter=[{"value": "14.50", "label": "14.5"},
+                                    {"value": "14.20", "label": "14.2"}])
+        sel = lens_order.read_eye(
+            _form(right_sph="-4.50", right_cyl="-1.75", right_axis="70",
+                  right_boxes="1"), "right")
+        _lines, errors = lens_order.validate(two, LENS, [sel],
+                                             lens_type="TORIC")
+        self.assertTrue(errors)
+
     def test_a_second_base_curve_becomes_a_choice_that_must_be_made(self):
         two = dict(MYDAY, base_curve=[{"value": "8.60", "label": "8.6"},
                                       {"value": "9.00", "label": "9.0"}])

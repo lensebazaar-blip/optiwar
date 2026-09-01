@@ -378,6 +378,24 @@ class RulesExportTest(unittest.TestCase):
         self.assertIsNone(parsed["min_boxes_single_eye"])
         self.assertIsNone(parsed["min_boxes_both_per_eye"])
 
+    def test_a_fractional_minimum_is_refused_rather_than_rounded_down(self):
+        # Truncating 4.5 to 4 sells one box below what the supplier stated.
+        with self.assertRaises(cl_import.RowError):
+            cl_import.parse_product(rules_product(min_boxes_single_eye="4.5"))
+        self.assertEqual(
+            cl_import.parse_product(
+                rules_product(min_boxes_single_eye="12.0")
+            )["min_boxes_single_eye"], 12)
+
+    def test_two_stated_diameters_are_refused(self):
+        # Nobody is asked for a diameter, so a second one is a choice we would
+        # be making on the customer's behalf.
+        rows = myday_rules() + [rule(parameter="dia", value="14.2")]
+        products, errors = cl_import.parse([rules_product()], [], rows)
+        self.assertEqual(products, [])
+        self.assertTrue(any("diameter values" in why
+                            for _s, _n, _r, why in errors), errors)
+
     def test_the_manufacturers_own_name_is_published_and_the_sources_is_kept(self):
         parsed = cl_import.parse_product(
             product(manufacturer="Johnsons and Johnsons"))
@@ -390,6 +408,28 @@ class RulesExportTest(unittest.TestCase):
                                            myday_rules())
         text = cl_import.report(products, errors)
         self.assertIn("77 stated value(s) in 5 parameter(s)", text)
+
+
+class _Recorder(object):
+    """A cursor that answers nothing and remembers every statement.
+
+    Enough for the writing script's SQL to be asserted on without a database:
+    the script never branches on what a SELECT returned beyond "is there one".
+    """
+
+    def __init__(self):
+        self.statements = []
+        self.lastrowid = 1
+        self.rowcount = 0
+
+    def execute(self, sql, params=None):
+        self.statements.append(sql)
+
+    def fetchone(self):
+        return None
+
+    def fetchall(self):
+        return []
 
 
 class ImporterContractTest(unittest.TestCase):
@@ -429,6 +469,39 @@ class ImporterContractTest(unittest.TestCase):
         self.assertEqual(script.in_rupees("25.91", 94.5), 2448.49)
         self.assertIsNone(script.in_rupees("25.91", None))
         self.assertIn("eur_inr_rate", self.src)
+
+    def test_a_reimport_without_a_rate_keeps_the_rate_it_recorded(self):
+        # upsert_product leaves the rupee price alone when no rate is given, so
+        # blanking the rate that produced it would leave a converted price with
+        # nothing explaining it.
+        script = _load("import_contact_lenses_under_test",
+                       os.path.join(REPO, "scripts",
+                                    "import_contact_lenses.py"))
+        parsed = cl_import.parse_product(rules_product())
+        cursor = _Recorder()
+        script.upsert_profile(cursor, parsed, 7, None)
+        updates = cursor.statements[-1].split("ON DUPLICATE KEY UPDATE", 1)[1]
+        self.assertNotIn("eur_inr_rate", updates)
+        cursor = _Recorder()
+        script.upsert_profile(cursor, parsed, 7, 94.5)
+        updates = cursor.statements[-1].split("ON DUPLICATE KEY UPDATE", 1)[1]
+        self.assertIn("eur_inr_rate = VALUES(eur_inr_rate)", updates)
+
+    def test_changing_shape_withdraws_what_the_old_shape_still_offered(self):
+        # A lens states what may be ordered in one shape. Rows left available
+        # in the shape it no longer uses are a second answer to that question.
+        script = _load("import_contact_lenses_under_test",
+                       os.path.join(REPO, "scripts",
+                                    "import_contact_lenses.py"))
+        products, errors = cl_import.parse([rules_product(image_url="i.webp")],
+                                           [], myday_rules())
+        self.assertEqual(errors, [])
+        cursor = _Recorder()
+        script.import_one(cursor, products[0])
+        self.assertTrue(any(
+            "UPDATE contact_lens_variants SET available = 0" in s
+            and "available = 1" in s for s in cursor.statements),
+            cursor.statements)
 
     def test_it_commits_per_product(self):
         # One transaction per product: a product whose matrix fails leaves
