@@ -144,6 +144,18 @@ class ReleaseGateTests(unittest.TestCase):
                 catalogue.lens_release_blockers(row, catalogue.SITE_COM),
                 "%s did not block release" % reason)
 
+    def test_a_lens_stated_as_rules_is_live_on_its_stated_values(self):
+        # A RULES lens has no combination rows and is not half-loaded for it:
+        # the stated values are what make it orderable, and counting only
+        # combinations would hold every such lens back forever.
+        stated = dict(LIVE, param_mode="RULES", variant_count=0, rule_count=75)
+        self.assertEqual(
+            catalogue.lens_release_blockers(stated, catalogue.SITE_COM), ())
+        nothing = dict(stated, rule_count=0)
+        self.assertIn("no selectable values stated",
+                      catalogue.lens_release_blockers(nothing,
+                                                      catalogue.SITE_COM))
+
     def test_a_discontinued_lens_is_not_live(self):
         row = dict(LIVE, product_status="DISCONTINUED")
         self.assertTrue(any(b.startswith("status")

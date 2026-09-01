@@ -19,10 +19,15 @@ smaller dependency than a spreadsheet parser in the deployment.
 
 Per product, in one transaction:
 
-    products                  the commercial record, CONTACT_LENS, .com only
-    contact_lens_products     brand, manufacturer, modality, pack, availability
-    contact_lens_variants     the matrix, upserted on (product_id, variant_sig)
-    contact_lens_images       the primary image
+    products                    the commercial record, CONTACT_LENS, .com only
+    contact_lens_products       brand, manufacturer, modality, pack, minimums
+    contact_lens_param_rules    the stated values, when param_mode is RULES
+    contact_lens_variants       the matrix, when param_mode is MATRIX
+    contact_lens_images         the primary image
+
+A product is stated in one shape or the other, never both: ``--rules`` carries
+the parameter sheet and ``--variants`` the combinations sheet, and the product
+row's ``param_mode`` says which of them applies to it.
 
 Idempotent on (source_system, source_ref): re-running the same export updates
 the same products instead of making new ones. Nothing is ever deleted — a
@@ -106,7 +111,19 @@ def slug(product):
     return "-".join("".join(keep).split("-")[:12]).strip("-")[:180]
 
 
-def upsert_product(cursor, product, product_id):
+def in_rupees(amount, rate):
+    """EUR -> INR at a stated rate, or None when no rate was supplied.
+
+    EUR is canonical. A rupee price is derived from it once, at a rate the run
+    was given and records; it is never re-derived from a previous conversion,
+    which is how a price drifts every time somebody re-imports.
+    """
+    if not rate or amount in (None, ""):
+        return None
+    return round(float(amount) * float(rate), 2)
+
+
+def upsert_product(cursor, product, product_id, rate=None):
     fields = {
         "product_code": product_code(product),
         "product_name": product["product_name"],
@@ -119,6 +136,11 @@ def upsert_product(cursor, product, product_id):
         "product_status": "ACTIVE",
     }
     fields.update(SELL_ON)
+    rupees = in_rupees(product["price_eur"], rate)
+    if rupees is not None:
+        fields["product_price"] = rupees
+        fields["product_special_price"] = in_rupees(
+            product["special_price_eur"] or product["price_eur"], rate)
     if product_id:
         assignments = ", ".join("%s = %%s" % k for k in fields)
         cursor.execute("UPDATE products SET %s WHERE product_id = %%s"
@@ -132,11 +154,16 @@ def upsert_product(cursor, product, product_id):
     return cursor.lastrowid
 
 
-def upsert_profile(cursor, product, product_id):
+def upsert_profile(cursor, product, product_id, rate=None):
     fields = {
         "product_id": product_id,
         "brand": product["brand"],
         "manufacturer": product["manufacturer"],
+        "source_manufacturer": product["source_manufacturer"] or None,
+        "param_mode": product["param_mode"],
+        "param_source": product["param_source"] or None,
+        "min_boxes_single_eye": product["min_boxes_single_eye"],
+        "min_boxes_both_per_eye": product["min_boxes_both_per_eye"],
         "gtin": product["gtin"] or None,
         "manufacturer_mpn": product["manufacturer_mpn"] or None,
         "modality": product["modality"],
@@ -150,6 +177,8 @@ def upsert_profile(cursor, product, product_id):
         "source_system": product["source_system"],
         "source_ref": product["source_ref"],
         "imported_at": datetime.datetime.now(),
+        "eur_inr_rate": rate,
+        "eur_inr_rate_at": datetime.datetime.now() if rate else None,
     }
     columns = ", ".join(fields)
     marks = ", ".join(["%s"] * len(fields))
@@ -192,6 +221,34 @@ def upsert_variants(cursor, product, product_id):
     return len(stated), len(withdrawn)
 
 
+def upsert_rules(cursor, product, product_id):
+    """Upsert every stated value; withdraw the ones no longer stated.
+
+    Withdrawal is ``available = 0`` for the same reason a combination's is: an
+    order that was placed on a power the supplier has dropped stays readable.
+    """
+    stated = set()
+    for order, rule in enumerate(product["rules"]):
+        cursor.execute(
+            "INSERT INTO contact_lens_param_rules (product_id, parameter,"
+            " value, label, sort_order, available)"
+            " VALUES (%s, %s, %s, %s, %s, %s)"
+            " ON DUPLICATE KEY UPDATE label = VALUES(label),"
+            " sort_order = VALUES(sort_order), available = VALUES(available)",
+            (product_id, rule["parameter"], rule["value"], rule["label"],
+             order, rule["available"]))
+        stated.add((rule["parameter"], rule["value"]))
+    cursor.execute("SELECT rule_id, parameter, value FROM"
+                   " contact_lens_param_rules"
+                   " WHERE product_id = %s AND available = 1", (product_id,))
+    withdrawn = [r["rule_id"] for r in (cursor.fetchall() or ())
+                 if (r["parameter"], r["value"]) not in stated]
+    for rule_id in withdrawn:
+        cursor.execute("UPDATE contact_lens_param_rules SET available = 0"
+                       " WHERE rule_id = %s", (rule_id,))
+    return len(stated), len(withdrawn)
+
+
 def upsert_image(cursor, product, product_id):
     cursor.execute("SELECT image_id FROM contact_lens_images"
                    " WHERE product_id = %s AND image_url = %s",
@@ -204,12 +261,15 @@ def upsert_image(cursor, product, product_id):
                    (product_id, product["image_url"]))
 
 
-def import_one(cursor, product):
-    """One product and its whole matrix, inside the caller's transaction."""
+def import_one(cursor, product, rate=None):
+    """One product and everything it states, inside the caller's transaction."""
     product_id = existing(cursor, product)
-    product_id = upsert_product(cursor, product, product_id)
-    upsert_profile(cursor, product, product_id)
-    written, withdrawn = upsert_variants(cursor, product, product_id)
+    product_id = upsert_product(cursor, product, product_id, rate)
+    upsert_profile(cursor, product, product_id, rate)
+    if product["param_mode"] == cl_import.PARAM_MODE_RULES:
+        written, withdrawn = upsert_rules(cursor, product, product_id)
+    else:
+        written, withdrawn = upsert_variants(cursor, product, product_id)
     upsert_image(cursor, product, product_id)
     return product_id, written, withdrawn
 
@@ -219,17 +279,27 @@ def main():
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--products", required=True, help="product sheet (CSV/TSV)")
-    ap.add_argument("--variants", required=True,
-                    help="prescription combinations (CSV/TSV)")
+    ap.add_argument("--variants", default=None,
+                    help="prescription combinations, for a MATRIX product")
+    ap.add_argument("--rules", default=None,
+                    help="selectable parameter values, for a RULES product")
     ap.add_argument("--only", default=None,
                     help="comma-separated source_refs — the pilot import")
     ap.add_argument("--by", default=None, help="who authorised it")
+    ap.add_argument("--eur-inr-rate", type=float, default=None,
+                    help="derive the INR columns from the EUR price at this "
+                         "rate, and record the rate against the product")
     ap.add_argument("--apply", action="store_true",
                     help="write; otherwise dry run")
     args = ap.parse_args()
 
-    products, errors = cl_import.parse(read_rows(args.products),
-                                       read_rows(args.variants))
+    if not (args.variants or args.rules):
+        sys.exit("--variants or --rules is required: a product row on its own "
+                 "does not say what may be ordered")
+    products, errors = cl_import.parse(
+        read_rows(args.products),
+        read_rows(args.variants) if args.variants else [],
+        read_rows(args.rules) if args.rules else [])
     if args.only:
         wanted = {r.strip() for r in args.only.split(",") if r.strip()}
         unknown = wanted - {p["source_ref"] for p in products}
@@ -257,10 +327,12 @@ def main():
         # One transaction per product: a product whose matrix fails leaves
         # nothing behind, and the products that already succeeded stay.
         try:
-            product_id, written, withdrawn = import_one(cursor, product)
+            product_id, written, withdrawn = import_one(
+                cursor, product, args.eur_inr_rate)
             db.commit()
-            print("  imported %-14s product_id=%s  %d variant(s)%s"
+            print("  imported %-14s product_id=%s  %d %s row(s)%s"
                   % (product["source_ref"], product_id, written,
+                     product["param_mode"].lower(),
                      ", %d withdrawn" % withdrawn if withdrawn else ""))
         except Exception as exc:                # noqa: BLE001 - reported, not hidden
             db.rollback()

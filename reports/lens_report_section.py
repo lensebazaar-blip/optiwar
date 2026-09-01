@@ -61,7 +61,8 @@ GATE_COLUMNS = (
     "product_price_eur", "product_special_price_eur",
     "brand", "manufacturer", "gtin", "manufacturer_mpn",
     "modality", "lens_type", "availability", "lead_time_days",
-    "merchant_enabled", "variant_count", "image_count",
+    "merchant_enabled", "param_mode", "variant_count", "rule_count",
+    "image_count",
 )
 
 LENS_ROWS_SQL = """
@@ -71,9 +72,11 @@ SELECT p.product_id, p.product_code, p.product_name, p.product_slug,
        p.product_price_eur, p.product_special_price_eur,
        c.brand, c.manufacturer, c.gtin, c.manufacturer_mpn,
        c.modality, c.lens_type, c.availability, c.lead_time_days,
-       c.merchant_enabled,
+       c.merchant_enabled, c.param_mode,
        (SELECT COUNT(*) FROM contact_lens_variants v
          WHERE v.product_id = p.product_id AND v.available = 1),
+       (SELECT COUNT(*) FROM contact_lens_param_rules r
+         WHERE r.product_id = p.product_id AND r.available = 1),
        (SELECT COUNT(*) FROM contact_lens_images i
          WHERE i.product_id = p.product_id)
 FROM contact_lens_products c
@@ -157,6 +160,18 @@ def in_exposure(rows):
     return out
 
 
+def orderable_count(rows):
+    """What is orderable, counted in whichever shape each lens states it.
+
+    Combinations for a MATRIX lens, stated values for a RULES one. Counting
+    only combinations would report a live rules lens as having nothing
+    orderable, and the report would disagree with the storefront.
+    """
+    return sum(to_int(r.get("rule_count"))
+               if (r.get("param_mode") or "").strip().upper() == "RULES"
+               else to_int(r.get("variant_count")) for r in rows)
+
+
 def blocker_tally(rows, gate):
     """(live rows, held rows, reason -> count) for the .com storefront."""
     live, held, reasons = [], [], {}
@@ -195,8 +210,7 @@ def _collect():
         m["on_order"] = [r for r in live
                          if (r.get("availability") or "").strip().upper()
                          == "ON_ORDER"]
-        m["variants_live"] = sum(to_int(r.get("variant_count"))
-                                 for r in live)
+        m["variants_live"] = orderable_count(live)
     if rows is not None:
         m["in_exposed"] = in_exposure(rows)
 

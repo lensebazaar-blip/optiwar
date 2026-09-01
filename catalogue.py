@@ -168,8 +168,12 @@ SELECT p.product_id, p.product_code, p.product_name, p.product_slug,
        c.water_content, c.silicone_hydrogel, c.replacement_days,
        c.availability, c.lead_time_days, c.expected_available_at,
        c.prescription_required, c.color_enabled, c.merchant_enabled,
+       c.param_mode, c.param_source,
+       c.min_boxes_single_eye, c.min_boxes_both_per_eye,
        (SELECT COUNT(*) FROM contact_lens_variants v
          WHERE v.product_id = p.product_id AND v.available = 1) AS variant_count,
+       (SELECT COUNT(*) FROM contact_lens_param_rules r
+         WHERE r.product_id = p.product_id AND r.available = 1) AS rule_count,
        (SELECT COUNT(*) FROM contact_lens_images i
          WHERE i.product_id = p.product_id) AS image_count
 FROM contact_lens_products c
@@ -220,9 +224,25 @@ def lens_release_blockers(row, site=None):
     if not ((row.get("gtin") or "").strip()
             or (row.get("manufacturer_mpn") or "").strip()):
         missing.append("no GTIN or manufacturer MPN")
-    if not row.get("variant_count"):
-        missing.append("no prescription matrix")
+    if not _stated(row):
+        missing.append("no selectable values stated"
+                       if _rule_mode(row) else "no prescription matrix")
     return tuple(missing)
+
+
+def _stated(row):
+    """Whether this lens says what may be ordered, in either shape.
+
+    A RULES lens has no variant rows and is not half-loaded for it: the sphere
+    list is what makes it orderable. Counting only combinations would hold every
+    such lens back forever.
+    """
+    return bool(row.get("rule_count") if _rule_mode(row)
+                else row.get("variant_count"))
+
+
+def _rule_mode(row):
+    return (row.get("param_mode") or "MATRIX").strip().upper() == "RULES"
 
 
 def is_lens_live(row, site=None):

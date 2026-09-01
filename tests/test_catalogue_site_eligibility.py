@@ -230,6 +230,7 @@ class SchemaTest(unittest.TestCase):
         cls.db = _connect()
         cur = cls.db.cursor()
         cur.execute("DROP TABLE IF EXISTS contact_lens_variants")
+        cur.execute("DROP TABLE IF EXISTS contact_lens_param_rules")
         cur.execute("DROP TABLE IF EXISTS contact_lens_images")
         cur.execute("DROP TABLE IF EXISTS contact_lens_products")
         cur.execute("DROP TABLE IF EXISTS products")
@@ -251,6 +252,7 @@ class SchemaTest(unittest.TestCase):
     def tearDownClass(cls):
         cur = cls.db.cursor()
         cur.execute("DROP TABLE IF EXISTS contact_lens_variants")
+        cur.execute("DROP TABLE IF EXISTS contact_lens_param_rules")
         cur.execute("DROP TABLE IF EXISTS contact_lens_images")
         cur.execute("DROP TABLE IF EXISTS contact_lens_products")
         cur.execute("DROP TABLE IF EXISTS products")

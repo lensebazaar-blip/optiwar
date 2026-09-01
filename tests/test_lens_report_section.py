@@ -77,6 +77,15 @@ class TestGate(unittest.TestCase):
         self.assertEqual(live, [])
         self.assertIn("no prescription matrix", reasons)
 
+    def test_a_lens_stated_as_rules_counts_its_stated_values(self):
+        # Counting combinations only would report a live rules lens as having
+        # nothing orderable, and the report would disagree with the storefront.
+        rows = [_released(param_mode="RULES", variant_count=0, rule_count=77)]
+        live, held, _reasons = self.s.blocker_tally(rows, self.gate)
+        self.assertEqual(len(live), 1)
+        self.assertEqual(held, [])
+        self.assertEqual(self.s.orderable_count(live), 77)
+
     def test_missing_gate_is_a_coverage_gap_not_a_zero(self):
         with self.assertRaises(self.s.GateUnavailable):
             self.s.load_gate("/nonexistent/app/dir")

@@ -1,16 +1,34 @@
-"""Contact-lens catalogue: product facts, and the matrix of what can be ordered.
+"""Contact-lens catalogue: product facts, and what can be ordered against them.
 
-Three tables beside ``products``, which keeps its meaning as the commercial
+Four tables beside ``products``, which keeps its meaning as the commercial
 record (price, slug, images, cart identity) while nothing about frames changes:
 
-``contact_lens_products``   one row per lens: brand, modality, pack, availability
-``contact_lens_variants``   one row per orderable parameter combination
-``contact_lens_images``     per-colour imagery, replacing the hardcoded dict
+``contact_lens_products``    one row per lens: brand, modality, pack, availability
+``contact_lens_param_rules`` the selectable values of one parameter
+``contact_lens_variants``    one row per orderable parameter combination
+``contact_lens_images``      per-colour imagery, replacing the hardcoded dict
 
-The variant table is the authority on what a customer may order. Not the Python
-range helpers in ``cl_range_model.py`` (hardcoded per ``product_id``), not the
-LLM, and not a nearest match: a combination is orderable when a row exists, and
-otherwise it is refused.
+One lens is one product. A prescription is order configuration, never another
+``products`` row, and what a customer may choose is stated in exactly one of two
+shapes — ``param_mode`` on the profile says which, and no other shape exists:
+
+``RULES``   the source states each parameter independently: these spheres, these
+            cylinders, these axes. Every combination of the stated values is
+            orderable, because that is what the source asserts and nothing
+            narrower has been supplied. 78 rows describe a toric lens.
+``MATRIX``  the source states availability per combination — sphere -4.50 in
+            cylinder -0.75 at axis 10 and 20 only. One row per combination.
+
+The distinction is provenance, not convenience: MATRIX is used when a
+manufacturer chart supplies the dependencies, and RULES when the source holds
+none. It is never right to invent the dependency by materialising a cross
+product and calling it a matrix — the row count would then claim a manufacturer
+fact nobody supplied. A lens is never in both shapes.
+
+Either way the stored values are the authority on what a customer may order.
+Not the Python range helpers in ``cl_range_model.py`` (hardcoded per
+``product_id``), not the LLM, and not a nearest match: a selection is orderable
+when it is stated, and otherwise it is refused.
 
 NULL vs 0.00 is load-bearing:
 
@@ -62,7 +80,34 @@ PROFILE_COLUMNS = (
     ("source_system", "VARCHAR(32) NULL"),
     ("source_ref", "VARCHAR(64) NULL"),
     ("imported_at", "DATETIME NULL"),
+    # Which shape states what is orderable, and where that statement came from,
+    # so a reader can tell an independent parameter list from a manufacturer's
+    # combination chart without counting rows.
+    ("param_mode", "VARCHAR(8) NOT NULL DEFAULT 'MATRIX'"),
+    ("param_source", "VARCHAR(40) NULL"),
+    # The source's own manufacturer string, kept beside the canonical one we
+    # publish: "Johnsons and Johnsons" is not shown to anybody, and is the only
+    # way to prove what the export said.
+    ("source_manufacturer", "VARCHAR(120) NULL"),
+    # Minimum boxes, per product and enforced on .com only. NULL is no minimum.
+    ("min_boxes_single_eye", "SMALLINT UNSIGNED NULL"),
+    ("min_boxes_both_per_eye", "SMALLINT UNSIGNED NULL"),
+    # EUR is the price we are given; the INR columns on ``products`` are derived
+    # from it. The rate and when it was applied are recorded so a rupee price
+    # can be explained, and so nobody converts a converted price again.
+    ("eur_inr_rate", "DECIMAL(10,4) NULL"),
+    ("eur_inr_rate_at", "DATETIME NULL"),
 )
+
+PARAM_MODE_RULES = "RULES"
+PARAM_MODE_MATRIX = "MATRIX"
+PARAM_MODES = (PARAM_MODE_RULES, PARAM_MODE_MATRIX)
+
+# The parameters a lens can be configured on, in the order a customer meets
+# them. ``color`` is a code; the rest are numbers held as canonical text so the
+# rule and the form compare as strings.
+PARAMETERS = ("base_curve", "diameter", "sph", "cyl", "axis", "add_power",
+              "color")
 
 # Idempotence is carried by the index, not by the importer remembering: two rows
 # claiming the same source product are refused by the database.
@@ -144,6 +189,25 @@ CREATE TABLE IF NOT EXISTS contact_lens_variants (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 """
 
+# One row per selectable value of one parameter. Deliberately not a matrix: it
+# says "this lens is made in these cylinders", which is all a source that holds
+# no combination data can honestly say.
+PARAM_RULES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS contact_lens_param_rules (
+    rule_id    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    product_id INT NOT NULL,
+    parameter  VARCHAR(16) NOT NULL,
+    value      VARCHAR(40) NOT NULL,
+    label      VARCHAR(80) NULL,
+    sort_order INT NOT NULL DEFAULT 0,
+    available  TINYINT(1) NOT NULL DEFAULT 1,
+    UNIQUE KEY uq_cl_rule (product_id, parameter, value),
+    KEY idx_cl_rule_read (product_id, available, parameter, sort_order),
+    CONSTRAINT fk_cl_rule_product FOREIGN KEY (product_id)
+        REFERENCES products (product_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+"""
+
 IMAGES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS contact_lens_images (
     image_id   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -160,6 +224,7 @@ CREATE TABLE IF NOT EXISTS contact_lens_images (
 
 TABLES = (
     ("contact_lens_products", PROFILE_SCHEMA),
+    ("contact_lens_param_rules", PARAM_RULES_SCHEMA),
     ("contact_lens_variants", VARIANTS_SCHEMA),
     ("contact_lens_images", IMAGES_SCHEMA),
 )
