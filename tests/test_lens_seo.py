@@ -146,9 +146,10 @@ class ProductJsonLdTests(unittest.TestCase):
             self.assertNotIn(claim, blob)
 
     def test_the_images_are_absolute_and_the_primary_is_first(self):
+        # A stored path is relative to static/, as products.product_image is.
         self.assertEqual(self.data["image"],
-                         ["https://optiwar.com/myday_toric_30.jpg",
-                          "https://optiwar.com/myday_toric_box.jpg"])
+                         ["https://optiwar.com/static/myday_toric_30.jpg",
+                          "https://optiwar.com/static/myday_toric_box.jpg"])
 
     def test_an_unreleased_or_unpriced_lens_has_no_markup(self):
         self.assertIsNone(lens_seo.product_jsonld(
@@ -278,8 +279,8 @@ class SitemapTests(unittest.TestCase):
     def test_the_image_sitemap_pairs_the_page_with_its_imagery(self):
         blocks = lens_seo.image_sitemap_urls([LIVE, MONTHLY], BASE)
         self.assertEqual(len(blocks), 2)
-        self.assertIn("<image:loc>https://optiwar.com/myday_toric_box.jpg"
-                      "</image:loc>", blocks[0])
+        self.assertIn("<image:loc>https://optiwar.com/static/"
+                      "myday_toric_box.jpg</image:loc>", blocks[0])
         # A slug carrying XML metacharacters must not break the document.
         odd = lens_seo.image_sitemap_urls(
             [dict(LIVE, product_slug="a&b")], BASE)[0]
@@ -314,8 +315,8 @@ class WiringTests(unittest.TestCase):
     def test_the_product_page_gates_a_lens_on_release_and_swaps_its_markup(self):
         page = self.src.split("def product_page(")[1].split("\ndef ")[0]
         self.assertIn("if is_contact_lens(product):", page)
-        self.assertIn("lens_seo.jsonld_blocks(", page)
-        self.assertIn("lens_matrix_summary(", page)
+        self.assertIn("lens_view.load_released(", page)
+        self.assertIn("lens_view.jsonld(", page)
         self.assertIn('return "Product not found", 404', page)
         with open(os.path.join(REPO, "templates",
                                "product_page.html")) as fh:

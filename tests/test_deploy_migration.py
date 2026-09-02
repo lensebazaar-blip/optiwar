@@ -47,6 +47,10 @@ class DeployMigrationTest(unittest.TestCase):
                      for n, _d in self.cl.PROFILE_COLUMNS]
         expected += ["contact_lens_products.%s (index)" % n
                      for n, _d in self.cl.PROFILE_INDEXES]
+        expected += ["contact_lens_images.%s (column)" % n
+                     for n, _d in self.cl.IMAGES_COLUMNS]
+        expected += ["contact_lens_images.%s (index)" % n
+                     for n, _c in self.cl.IMAGES_INDEXES]
         expected += ["products.%s (index)" % n
                      for n, _c in self.cl.PRODUCTS_INDEXES]
         expected += ["products.%s (column)" % n
@@ -173,7 +177,7 @@ class DeployMigrationTest(unittest.TestCase):
         # information_schema; a label it cannot parse silently checks the
         # wrong name.
         known = {"ai_events", "ai_actions", "products",
-                 "contact_lens_products"}
+                 "contact_lens_products", "contact_lens_images"}
         for label, sql in self.deploy.migration():
             if label.endswith("(table)"):
                 self.assertIn(label.split(" ", 1)[0], sql, label)

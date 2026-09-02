@@ -99,6 +99,25 @@ PROFILE_COLUMNS = (
     ("eur_inr_rate_at", "DATETIME NULL"),
 )
 
+# Columns added to an existing ``contact_lens_images``. An image is a
+# photograph of a commerce view, and what a surface may do with it depends on
+# which view it is: the label sample states one physical box's power against an
+# offer covering the whole matrix, so it belongs on the page and not in a
+# merchant feed. ``gmc_eligible`` defaults to 1 so imagery loaded before these
+# columns existed keeps behaving as it did.
+IMAGES_COLUMNS = (
+    ("view_code", "VARCHAR(32) NULL"),
+    ("view_name", "VARCHAR(24) NULL"),
+    ("alt_text", "VARCHAR(255) NULL"),
+    ("gmc_eligible", "TINYINT(1) NOT NULL DEFAULT 1"),
+)
+
+# One row per view of one product, so re-running the image importer replaces
+# the record of that view instead of adding a second one.
+IMAGES_INDEXES = (
+    ("uq_cl_image_view", "product_id, color_code, view_code"),
+)
+
 PARAM_MODE_RULES = "RULES"
 PARAM_MODE_MATRIX = "MATRIX"
 PARAM_MODES = (PARAM_MODE_RULES, PARAM_MODE_MATRIX)
@@ -216,7 +235,12 @@ CREATE TABLE IF NOT EXISTS contact_lens_images (
     image_url  VARCHAR(500) NOT NULL,
     image_type VARCHAR(16) NOT NULL,
     sort_order SMALLINT NOT NULL DEFAULT 0,
+    view_code  VARCHAR(32) NULL,
+    view_name  VARCHAR(24) NULL,
+    alt_text   VARCHAR(255) NULL,
+    gmc_eligible TINYINT(1) NOT NULL DEFAULT 1,
     KEY idx_cl_images (product_id, color_code, sort_order),
+    UNIQUE KEY uq_cl_image_view (product_id, color_code, view_code),
     CONSTRAINT fk_cl_image_product FOREIGN KEY (product_id)
         REFERENCES products (product_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
@@ -254,6 +278,16 @@ def ensure_schema(cursor):
     for name, cols in PROFILE_INDEXES:
         if name not in have_profile_idx:
             cursor.execute("ALTER TABLE contact_lens_products ADD UNIQUE KEY"
+                           " %s (%s)" % (name, cols))
+    have_images = _table_columns(cursor, "contact_lens_images")
+    for name, decl in IMAGES_COLUMNS:
+        if name not in have_images:
+            cursor.execute("ALTER TABLE contact_lens_images ADD COLUMN %s %s"
+                           % (name, decl))
+    have_images_idx = _table_indexes(cursor, "contact_lens_images")
+    for name, cols in IMAGES_INDEXES:
+        if name not in have_images_idx:
+            cursor.execute("ALTER TABLE contact_lens_images ADD UNIQUE KEY"
                            " %s (%s)" % (name, cols))
     have = _products_columns(cursor)
     for name, decl in PRODUCTS_COLUMNS:

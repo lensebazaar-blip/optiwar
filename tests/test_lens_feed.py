@@ -148,7 +148,7 @@ class OfferContentTests(unittest.TestCase):
             "https://optiwar.com/categories/contact-lenses/"
             "coopervision-myday-toric-30?pid=2001")
         self.assertEqual(_tag(self.xml, "image_link"),
-                         "https://optiwar.com/myday_toric_30.jpg")
+                         "https://optiwar.com/static/myday_toric_30.jpg")
 
     def test_extra_images_are_additional_links_capped_at_ten(self):
         row = dict(LIVE, images=["a%d.jpg" % i for i in range(15)])

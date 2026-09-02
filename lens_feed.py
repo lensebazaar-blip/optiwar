@@ -43,17 +43,82 @@ TYPE_WORDS = {
 }
 
 LENS_IMAGES_SQL = """
-SELECT image_url FROM contact_lens_images
+SELECT image_url, image_type, sort_order, view_code, view_name, alt_text,
+       gmc_eligible
+FROM contact_lens_images
 WHERE product_id = %s AND (color_code IS NULL OR color_code = '')
 ORDER BY (image_type = 'PRIMARY') DESC, sort_order, image_id
 """
 
 
 def lens_images(cursor, product_id):
-    """Colour-independent imagery for one lens, primary first."""
+    """Colour-independent imagery for one lens, primary first.
+
+    Records rather than URLs, because every surface needs more than the path:
+    the gallery needs the photographer's alt text and the feed needs to know
+    which views are offer imagery. ``gmc`` defaults to True so a row loaded
+    before those columns existed is treated as it was.
+    """
     cursor.execute(LENS_IMAGES_SQL, (product_id,))
-    return [r.get("image_url") for r in (cursor.fetchall() or ())
-            if (r.get("image_url") or "").strip()]
+    out = []
+    for i, row in enumerate(cursor.fetchall() or ()):
+        url = (row.get("image_url") or "").strip()
+        if not url:
+            continue
+        out.append({
+            "url": url,
+            "code": _text(row.get("view_code")),
+            "view": _text(row.get("view_name")),
+            "alt": _text(row.get("alt_text")),
+            "primary": _text(row.get("image_type")).upper() == "PRIMARY",
+            "position": i + 1,
+            "gmc": int(row.get("gmc_eligible") or 0) == 1
+            if row.get("gmc_eligible") is not None else True,
+        })
+    return out
+
+
+def image_url(entry):
+    """The URL of an image record, or of a bare URL."""
+    if isinstance(entry, dict):
+        return _text(entry.get("url") or entry.get("image_url"))
+    return _text(entry)
+
+
+def image_urls(row, base, gmc_only=False):
+    """Absolute image URLs for one lens, primary first, deduped.
+
+    ``gmc_only`` drops views a merchant offer must not carry — the label sample
+    states one physical box's power, and an offer covers the whole matrix.
+    """
+    out = []
+    for entry in [row.get("product_image")] + list(row.get("images") or ()):
+        if gmc_only and isinstance(entry, dict) and not entry.get("gmc", True):
+            continue
+        url = media_url(image_url(entry), base)
+        if url and url not in out:
+            out.append(url)
+    return out
+
+
+# Image paths are stored the way ``products.product_image`` is — relative to
+# ``static/``, e.g. ``catalog/contact-lenses/PRECISION1/01_hero.jpg`` — so one
+# path serves the template, the derivative manifest and the public URL.
+STATIC_PREFIX = "static/"
+
+
+def media_url(path, base):
+    """The public URL of a stored image path.
+
+    A path already absolute, or already rooted at ``static/``, is left alone:
+    a legacy row that stored a full URL keeps working.
+    """
+    p = _text(path).lstrip("/")
+    if p.startswith("./"):
+        p = p[2:]
+    if p and not p.startswith("http") and not p.startswith(STATIC_PREFIX):
+        p = STATIC_PREFIX + p
+    return absolute(p, base)
 
 
 def absolute(url, base):
@@ -238,10 +303,7 @@ def lens_offer(row, base, today=None):
     if not price:
         return None
     availability, available_on = lens_availability(row, today)
-    images = [absolute(u, base) for u in (row.get("images") or ())]
-    primary = absolute(row.get("product_image"), base)
-    if primary and primary not in images:
-        images.insert(0, primary)
+    images = image_urls(row, base, gmc_only=True)
     if not images:
         return None
     fields = [

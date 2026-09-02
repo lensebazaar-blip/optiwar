@@ -15,6 +15,7 @@ import argparse
 import importlib.util
 import os
 import unittest
+from unittest import mock
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -39,7 +40,13 @@ class ApplyRollbackTest(unittest.TestCase):
         self.d.worker_health = lambda since: ("active", "0")
         self.d.remote = self._remote
         self.d.remote_script = self._remote_script
-        self.d.subprocess.run = lambda *a, **k: None
+        # self.d.subprocess is the one imported subprocess module, so this must
+        # be undone: assigning to it leaked a run() returning None into every
+        # test that ran afterwards.
+        run = mock.patch.object(self.d.subprocess, "run",
+                                lambda *a, **k: None)
+        run.start()
+        self.addCleanup(run.stop)
         self.rollback_rc = 0
         self.d.cmd_rollback = lambda args: (self.rolled_back.append(args),
                                             self.rollback_rc)[1]
