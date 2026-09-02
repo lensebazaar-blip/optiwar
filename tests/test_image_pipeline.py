@@ -180,7 +180,9 @@ class Records(unittest.TestCase):
             self.assertTrue(record["source_file"])
             self.assertEqual(record["source"], "OPTIWAR_ORIGINAL_PHOTOGRAPH")
             self.assertEqual(record["processing"], "DETERMINISTIC_APPROVED")
-            self.assertTrue(record["path"].startswith(recipe["catalog_dir"]))
+            self.assertTrue(record["path"].startswith(
+                "%s/%s" % (image_pipeline.STORE_PREFIX,
+                           recipe["catalog_dir"])))
 
     def test_a_view_may_be_kept_out_of_the_merchant_feed(self):
         records = image_pipeline.image_records(

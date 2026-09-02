@@ -265,11 +265,23 @@ h1.pdp-title { font-size:20px !important; font-weight:700 !important; color:#111
   <div class="pdp-row">
     <!-- LEFT: Images -->
     <div class="pdp-col-img">
-      {% if product['product_image'] %}
-      {% set image_paths = product['product_image'].split(',') %}
       {% set alt_base = product.product_name ~ ' ' ~ product.product_code ~ ' ' ~ product.product_category ~ (' in ' ~ product.color_display if product.color_display else (' in ' ~ product.product_color if product.product_color else '')) %}
+      {# A lens gallery is the approved views in the passport, each with the alt
+         text the photograph was described with; a frame gallery stays the
+         comma-separated product_image list it has always been. #}
+      {% set gallery = [] %}
+      {% if lens_passport and lens_passport['images'] %}
+        {% for image in lens_passport['images'] %}
+          {% set _ = gallery.append({'path': image.path, 'alt': image.alt or (alt_base ~ ' — view ' ~ loop.index)}) %}
+        {% endfor %}
+      {% elif product['product_image'] %}
+        {% for path in product['product_image'].split(',') %}
+          {% set _ = gallery.append({'path': path.strip(), 'alt': alt_base ~ (' — front view' if loop.first else ' — view ' ~ loop.index)}) %}
+        {% endfor %}
+      {% endif %}
+      {% if gallery %}
       <div class="pdp-hero">
-        {{ product_picture(image_paths[0].strip(), alt_base ~ ' — front view', cls='pdp-hero-img', width=600, height=600, sizes='(max-width:390px) 66vw, (max-width:768px) 260px, 400px', eager=true, priority=true, img_id='pdpMain', zoomable=true) }}
+        {{ product_picture(gallery[0].path, gallery[0].alt, cls='pdp-hero-img', width=600, height=600, sizes='(max-width:390px) 66vw, (max-width:768px) 260px, 400px', eager=true, priority=true, img_id='pdpMain', zoomable=true) }}
         <div class="pdp-fav heart" data-product-id="{{ product['product_id'] }}" onclick="toggleFavorite(this)">
           <svg class="heart-outline" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.6 5.6 0 0 0-7.9 0L12 5.5l-.9-.9A5.6 5.6 0 0 0 3.2 12l8.8 8.8 8.8-8.8a5.6 5.6 0 0 0 0-7.9z"></path></svg>
           <svg class="heart-filled" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><path d="M20.8 4.6a5.6 5.6 0 0 0-7.9 0L12 5.5l-.9-.9A5.6 5.6 0 0 0 3.2 12l8.8 8.8 8.8-8.8a5.6 5.6 0 0 0 0-7.9z"></path></svg>
@@ -280,10 +292,10 @@ h1.pdp-title { font-size:20px !important; font-weight:700 !important; color:#111
         <span class="pdp-badge pdp-badge-out">Sold Out</span>
         {% endif %}
       </div>
-      {% if image_paths|length > 1 %}
+      {% if gallery|length > 1 %}
       <div class="pdp-thumbstrip">
-        {% for img in image_paths %}
-        {{ thumb_img(img.strip(), alt_base ~ ' — view ' ~ loop.index, active=loop.first) }}
+        {% for image in gallery %}
+        {{ thumb_img(image.path, image.alt, active=loop.first) }}
         {% endfor %}
       </div>
       {% endif %}

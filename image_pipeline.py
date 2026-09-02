@@ -407,6 +407,17 @@ def merge_manifest(manifest_path, rows):
     return len(existing)
 
 
+# ``products.product_image`` and ``contact_lens_images.image_url`` are stored
+# relative to ``static/``, and ``catalog_root`` is ``static/catalog``, so a
+# record's path is what a template and the feed resolve unchanged.
+STORE_PREFIX = "catalog"
+
+
+def image_path(recipe, code):
+    """The stored path of one master: ``catalog/<dir>/<code>.jpg``."""
+    return "%s/%s/%s.jpg" % (STORE_PREFIX, recipe["catalog_dir"], code)
+
+
 def image_records(recipe):
     """The approved images as the catalogue and the passport describe them.
 
@@ -421,7 +432,7 @@ def image_records(recipe):
             "code": view["code"],
             "position": position,
             "is_primary": bool(view.get("primary")),
-            "path": "%s/%s.jpg" % (recipe["catalog_dir"], view["code"]),
+            "path": image_path(recipe, view["code"]),
             "source": "OPTIWAR_ORIGINAL_PHOTOGRAPH",
             "processing": "DETERMINISTIC_APPROVED",
             "source_file": view["source"],

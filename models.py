@@ -24,7 +24,7 @@ from .catalogue import (
     current_site, strip_ineligible_urls, age_group, ensure_gmc_columns,
     live_lenses, lens_matrix_summary, SITE_IN, SITE_COM,
 )
-from . import acr, lens_feed, lens_order, lens_seo
+from . import acr, lens_feed, lens_order, lens_seo, lens_view
 from .cart_persist import save_cart_to_db, clear_cart_in_db
 from .cl_range_model import add_prescription_of_cl
 from .country_iso import country_to_iso2
@@ -1442,14 +1442,16 @@ def product_page(category, product_slug):
     # HowTo about choosing lens type, none of which is true of a box of lenses.
     lens_jsonld = []
     lens = None
+    lens_passport = None
     if is_contact_lens(product):
-        lens = _released_lens(cursor, product['product_id'])
+        # One read for every lens fact this page needs — price, matrix, images,
+        # SEO — instead of a query per fact from the template.
+        lens, lens_passport = lens_view.load_released(
+            cursor, product['product_id'], SITE_COM)
         if not lens:
             return "Product not found", 404
-        lens['images'] = lens_feed.lens_images(cursor, lens['product_id'])
-        lens_jsonld = lens_seo.jsonld_blocks(
-            lens, 'https://optiwar.com',
-            lens_matrix_summary(cursor, lens['product_id']))
+        lens_jsonld = lens_view.jsonld(lens, lens.get('matrix'),
+                                       'https://optiwar.com')
 
     # Log product view
     _host = request.host
@@ -1594,7 +1596,8 @@ def product_page(category, product_slug):
                            inr_disc_pct=_inr_disc_pct, eur_disc_pct=_eur_disc_pct,
                            face_match_status=face_match_status, face_fit_label=face_fit_label,
                            face_decentration=face_decentration, face_meas_data=face_meas_data,
-                           lens_jsonld=lens_jsonld, lens=lens)
+                           lens_jsonld=lens_jsonld, lens=lens,
+                           lens_passport=lens_passport)
 
 
 

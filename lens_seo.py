@@ -129,13 +129,13 @@ def brand_pages(rows):
 
 
 def images(row, base):
-    """Absolute image URLs, primary first, deduped."""
-    out = []
-    for url in [row.get("product_image")] + list(row.get("images") or ()):
-        absolute = lens_feed.absolute(url, base)
-        if absolute and absolute not in out:
-            out.append(absolute)
-    return out
+    """Absolute image URLs, primary first, deduped.
+
+    Every approved view, including ones a merchant offer omits: the label
+    sample is a true photograph of the product and belongs in the page's
+    structured data and its image sitemap entry.
+    """
+    return lens_feed.image_urls(row, base)
 
 
 def _properties(row, matrix=None):
