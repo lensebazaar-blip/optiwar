@@ -126,6 +126,41 @@ def verify_razorpay_payment(razorpay_order_id, razorpay_payment_id, razorpay_sig
     ).hexdigest()
     return generated_signature == razorpay_signature
 
+def verify_razorpay_payment_link(order_id, args, key_secret=None):
+    """Whether a payment-link return proves *this* order was paid.
+
+    The signed payload is
+    payment_link_id|payment_link_reference_id|payment_link_status|razorpay_payment_id
+
+    The reference has to be the order asked for and the status has to be paid, so
+    a signature Razorpay issued for one order cannot open another one, and an
+    abandoned or cancelled link authorises nothing.
+    """
+    if args.get('razorpay_payment_link_reference_id') != order_id:
+        return False
+    if args.get('razorpay_payment_link_status') != 'paid':
+        return False
+    link_id = args.get('razorpay_payment_link_id', '')
+    reference_id = args.get('razorpay_payment_link_reference_id', '')
+    status = args.get('razorpay_payment_link_status', '')
+    payment_id = args.get('razorpay_payment_id', '')
+    signature = args.get('razorpay_signature', '')
+    if not (link_id and reference_id and status and payment_id and signature):
+        return False
+    if key_secret is None:
+        key_secret = (current_app.config.get('RAZORPAY_KEY_SECRET')
+                      or os.environ.get('RAZORPAY_KEY_SECRET', ''))
+    if not key_secret:
+        return False
+    msg = '%s|%s|%s|%s' % (link_id, reference_id, status, payment_id)
+    expected = hmac.new(
+        key_secret.encode('utf-8'),
+        msg.encode('utf-8'),
+        hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(expected, signature)
+
+
 def verify_razorpay_webhook(raw_body, signature):
     """Verify a Razorpay webhook against the raw request body.
 
