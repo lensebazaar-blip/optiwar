@@ -9,5 +9,6 @@ requests
 # the suite runs on fakes.
 PyMySQL
 # The image pipeline reads and writes real files, so its tests need the same
-# imaging library the pipeline runs on.
+# imaging library and array maths the pipeline runs on.
 Pillow
+numpy
