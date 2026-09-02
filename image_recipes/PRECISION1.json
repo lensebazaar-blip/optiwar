@@ -8,7 +8,7 @@
       "code": "01_hero",
       "view": "front",
       "source": "IMG_2361.JPG",
-      "rotate": 0,
+      "rotate": 270,
       "isolate": {"shrink": 9},
       "primary": true,
       "alt": "Precision1 daily disposable contact lenses, 30 lens pack, front of the box"
@@ -17,7 +17,7 @@
       "code": "03_side",
       "view": "side",
       "source": "IMG_2363.JPG",
-      "rotate": 0,
+      "rotate": 270,
       "isolate": {"shrink": 9},
       "alt": "Precision1 30 lens pack, side of the box with the sterile and single-use symbols"
     },
@@ -33,7 +33,7 @@
       "code": "05_secondary",
       "view": "secondary",
       "source": "IMG_2365.JPG",
-      "rotate": 0,
+      "rotate": 270,
       "isolate": {"shrink": 9},
       "alt": "Precision1 30 lens pack, reverse face reading 30 one-day contact lenses for single use daily wear"
     },
