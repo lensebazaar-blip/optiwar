@@ -8,3 +8,6 @@ requests
 # Only the MariaDB-backed tests in tests/integration need a driver; the rest of
 # the suite runs on fakes.
 PyMySQL
+# The image pipeline reads and writes real files, so its tests need the same
+# imaging library the pipeline runs on.
+Pillow
