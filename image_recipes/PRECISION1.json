@@ -1,0 +1,56 @@
+{
+  "product": "PRECISION1",
+  "catalog_dir": "contact-lenses/PRECISION1",
+  "master_px": 2000,
+  "background": [255, 255, 255],
+  "views": [
+    {
+      "code": "01_hero",
+      "view": "front",
+      "source": "IMG_2361.JPG",
+      "rotate": 0,
+      "isolate": {"shrink": 9},
+      "primary": true,
+      "alt": "Precision1 daily disposable contact lenses, 30 lens pack, front of the box"
+    },
+    {
+      "code": "03_side",
+      "view": "side",
+      "source": "IMG_2363.JPG",
+      "rotate": 0,
+      "isolate": {"shrink": 9},
+      "alt": "Precision1 30 lens pack, side of the box with the sterile and single-use symbols"
+    },
+    {
+      "code": "04_rear",
+      "view": "rear",
+      "source": "IMG_2364.JPG",
+      "rotate": 270,
+      "isolate": {"shrink": 9},
+      "alt": "Precision1 30 lens pack, end panel reading verofilcon A, contains 30 one-day soft contact lenses"
+    },
+    {
+      "code": "05_secondary",
+      "view": "secondary",
+      "source": "IMG_2365.JPG",
+      "rotate": 0,
+      "isolate": {"shrink": 9},
+      "alt": "Precision1 30 lens pack, reverse face reading 30 one-day contact lenses for single use daily wear"
+    },
+    {
+      "code": "06_detail",
+      "view": "detail",
+      "source": "IMG_2362.JPG",
+      "rotate": 270,
+      "isolate": {"shrink": 9},
+      "gmc": false,
+      "alt": "Precision1 pack label showing where the power, expiry, base curve and diameter are printed"
+    }
+  ],
+  "missing_views": [
+    {
+      "code": "02_angle",
+      "reason": "no 3/4 angle photograph exists; the five approved views are photographs of this carton and a 3/4 view is not fabricated from them"
+    }
+  ]
+}
