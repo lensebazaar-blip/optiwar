@@ -2,7 +2,7 @@ import requests as http_requests
 import random
 import functools
 from .mail import send_order_confirmation
-from .payments import initiate_payment, PaytmChecksum, verify_payment_status, create_razorpay_order, verify_razorpay_payment, fetch_razorpay_payment, verify_razorpay_webhook
+from .payments import initiate_payment, PaytmChecksum, verify_payment_status, create_razorpay_order, verify_razorpay_payment, fetch_razorpay_payment, verify_razorpay_webhook, verify_razorpay_payment_link
 from .paid_orders import (apply_paid_order, append_status, order_amount_minor,
                           order_currency, order_payment_state)
 from .razorpay_events import PAID_EVENTS, payment_entity
@@ -3638,21 +3638,35 @@ def success(order_id):
     # (name/email/phone/address/prescription).
     _uid = session.get('user_id')
     _uemail = session.get('user_email')
-    if not _uid and not _uemail:
-        flash('Please sign in to view your order.')
-        return redirect(url_for('auth.login', next=request.path))
-    cursor.execute(
-        "SELECT o.order_id FROM orders o "
-        "LEFT JOIN customers c ON c.customer_id = o.customer_id "
-        "WHERE o.order_id = %s AND (o.customer_id = %s OR c.customer_email = %s) LIMIT 1",
-        (order_id, _uid, _uemail)
-    )
-    if not cursor.fetchone():
+
+    # A payment-link return carries Razorpay's signature over this order's own
+    # reference, which authorises this one order and nothing else: a link is paid
+    # from whatever browser the shopper has, holding no session or somebody
+    # else's — an ops-created order is almost never paid from its own account.
+    _paid_link = verify_razorpay_payment_link(order_id, request.args)
+
+    if _paid_link:
         _ip = request.headers.get('X-Forwarded-For', request.remote_addr)
-        current_app.logger.warning(
-            f"[{request.host}] ACTIVITY:ORDER_SUCCESS_DENIED IP:{_ip} user:{_uid or _uemail} order:{order_id}"
+        current_app.logger.info(
+            f"[{request.host}] ACTIVITY:ORDER_SUCCESS_PAYLINK IP:{_ip} order:{order_id} "
+            f"payment:{request.args.get('razorpay_payment_id')}"
         )
-        abort(404)
+    else:
+        if not _uid and not _uemail:
+            flash('Please sign in to view your order.')
+            return redirect(url_for('auth.login', next=request.path))
+        cursor.execute(
+            "SELECT o.order_id FROM orders o "
+            "LEFT JOIN customers c ON c.customer_id = o.customer_id "
+            "WHERE o.order_id = %s AND (o.customer_id = %s OR c.customer_email = %s) LIMIT 1",
+            (order_id, _uid, _uemail)
+        )
+        if not cursor.fetchone():
+            _ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+            current_app.logger.warning(
+                f"[{request.host}] ACTIVITY:ORDER_SUCCESS_DENIED IP:{_ip} user:{_uid or _uemail} order:{order_id}"
+            )
+            abort(404)
 
     try:
 
