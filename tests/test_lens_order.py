@@ -419,11 +419,27 @@ class Wiring(unittest.TestCase):
 
     def test_the_product_page_offers_the_prescription_path_for_a_lens(self):
         # The frame CTA reads product_quantity and a `category` variable the
-        # route never passes; a lens branches before both.
+        # route never passes; a lens branches before both, and buys through
+        # the per-eye block that posts to the validated cart route.
         cta = self.pdp.split('<div class="pdp-cta">')[1]
         self.assertTrue(cta.lstrip().startswith("{% if lens %}"))
-        self.assertIn("url_for('main.lens_select')", cta)
+        self.assertIn("{% include '_lens_eye_cards.html' %}", self.pdp)
+        cards = _read(os.path.join("templates", "_lens_eye_cards.html"))
+        self.assertIn("url_for('main.lens_add_to_cart')", cards)
         self.assertIn("lens=lens", self.src)
+        self.assertIn("_lens_selection_context(", self.src.split(
+            "def product_page(")[1].split("\n@bp.route")[0])
+
+    def test_the_eye_cards_offer_only_what_the_lens_states(self):
+        # Nothing on the client expands a range: every power comes out of the
+        # serialised matrix, and no price is written into the script.
+        cards = _read(os.path.join("templates", "_lens_eye_cards.html"))
+        script = cards.split("<script>")[1]
+        self.assertNotIn("toFixed(2) + ' D'", script)
+        self.assertNotRegex(script, r"p\s*-=\s*0\.25")
+        self.assertNotRegex(script, r"boxPrice\s*=\s*\d")
+        self.assertIn("{{ box_price }}", cards)
+        self.assertIn("owLensMatrix", cards)
 
     def test_the_release_gate_admits_the_selection_and_the_cart(self):
         for route in ("/contact-lenses/select", "/contact-lenses/add"):
@@ -443,14 +459,15 @@ class Wiring(unittest.TestCase):
 
     def test_the_selection_template_ships_with_the_route(self):
         deploy = _read(os.path.join("deploy", "deploy.py"))
-        for path in ("lens_order.py", "templates/lens_select.html"):
+        for path in ("lens_order.py", "templates/lens_select.html",
+                     "templates/_lens_eye_cards.html"):
             self.assertIn('"%s"' % path, deploy)
 
 
 class Render(unittest.TestCase):
     """The selection page renders, so a Jinja defect fails here, not as a 500."""
 
-    def test_the_page_offers_both_eyes_and_the_matrix(self):
+    def _env(self):
         env = Environment(
             loader=ChoiceLoader([
                 DictLoader({"base.html": (
@@ -465,20 +482,84 @@ class Render(unittest.TestCase):
             ]),
             autoescape=select_autoescape(["html"]))
         env.globals["url_for"] = lambda name, **kw: "/" + name
-        html = env.get_template("lens_select.html").render(
+        env.globals["_"] = lambda s: s
+        return env
+
+    def _selection(self, **extra):
+        context = dict(
             lens=LENS, options=lens_order.options(VARIANTS),
             box_price=lens_order.box_price(LENS), errors=[], submitted={},
             eyes=lens_order.EYES, max_boxes=lens_order.MAX_BOXES_PER_EYE,
             minimums=lens_order.minimums(LENS, "optiwar.com"))
+        context.update(extra)
+        if "lens" in extra:
+            context["lens"] = extra["lens"]
+        return context
+
+    def _assert_eye_cards(self, html):
         for field in ("right_sph", "right_cyl", "right_axis", "right_boxes",
                       "left_sph", "left_boxes"):
             self.assertIn('name="%s"' % field, html)
-        self.assertIn("noindex", html)
         self.assertIn("39.9", html)
         # The matrix travels as data, so the dependent choices cannot be
         # recombined into a pair that is not listed.
         self.assertIn("-4.50", html)
         self.assertIn("owLensMatrix", html)
+        self.assertIn("/main.lens_add_to_cart", html)
+        # Two cards, each its own eye, each switchable on its own.
+        self.assertEqual(html.count('data-role="include"'), 2)
+        self.assertIn('data-eye="right"', html)
+        self.assertIn('data-eye="left"', html)
+
+    def test_the_page_offers_both_eyes_and_the_matrix(self):
+        html = self._env().get_template("lens_select.html").render(
+            **self._selection())
+        self.assertIn("noindex", html)
+        self._assert_eye_cards(html)
+
+    def test_the_product_page_carries_the_same_eye_cards(self):
+        # The PDP is the prototype's layout on our data: the eye cards on the
+        # page, the specification table from the row and the matrix summary,
+        # nothing frame-only (stock count, face match) reached for a lens.
+        product = dict(
+            LENS, product_quantity=None, product_category="Contact Lenses",
+            product_price_eur=45.0, product_special_price_eur=39.9,
+            product_price=2479, product_special_price=1390,
+            material="comfilcon A", manufacturer="CooperVision",
+            modality="daily", lens_type="toric",
+            product_details="", product_color=None, color_display=None,
+            product_image="a.jpg,b.jpg")
+        passport = {"images": [], "ordering": {"matrix": {
+            "base_curve": {"min": 8.3, "max": 8.3},
+            "diameter": {"min": 14.2, "max": 14.2},
+            "sph": {"min": -12.0, "max": -0.5}}}}
+        env = self._env()
+        env.globals["img_has_derivatives"] = lambda path: False
+        env.globals["img_ver"] = lambda path, **kw: path
+        env.globals["image_dimensions"] = lambda path: (600, 600)
+        env.globals["versioned_image_url"] = lambda path, **kw: path
+        html = env.get_template("product_page.html").render(
+            product=product, is_india=False,
+            lens_passport=passport, lens_previewing=True,
+            lens_jsonld={}, reviews=[], avg_rating=0, review_count=0,
+            inr_disc_pct=44, eur_disc_pct=11, face_match_status=None,
+            face_fit_label=None, face_decentration=None, face_meas_data={},
+            request=None, session={}, config={},
+            **self._selection(lens=product))
+        self._assert_eye_cards(html)
+        self.assertIn("pdp-row--lens", html)
+        self.assertIn("Specifications", html)
+        self.assertIn("8.3", html)
+        self.assertIn("-12.00 to -0.50", html)
+        self.assertIn("comfilcon A", html)
+        self.assertNotIn("In Stock</div>", html)
+        self.assertNotIn("Choose prescription", html)
+        self.assertNotIn("Factory Outlet Price", html)
+        # Nothing the prototype invented: no water figure we do not hold, no
+        # dollar price, no review count.
+        self.assertNotIn("51%", html)
+        self.assertNotIn("$", html.split("<script")[0])
+        self.assertNotIn("1,204", html)
 
 
 if __name__ == "__main__":
