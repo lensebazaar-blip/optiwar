@@ -466,7 +466,10 @@ class ImporterContractTest(unittest.TestCase):
         script = _load("import_contact_lenses_under_test",
                        os.path.join(REPO, "scripts",
                                     "import_contact_lenses.py"))
-        self.assertEqual(script.in_rupees("25.91", 94.5), 2448.49)
+        # products.product_price is whole rupees: ROUND(26.95 x 92) = 2479.
+        self.assertEqual(script.in_rupees("26.95", 92), 2479)
+        self.assertEqual(script.in_rupees("15.11", 92), 1390)
+        self.assertEqual(script.in_rupees("25.91", 94.5), 2448)
         self.assertIsNone(script.in_rupees("25.91", None))
         self.assertIn("eur_inr_rate", self.src)
 
@@ -502,6 +505,58 @@ class ImporterContractTest(unittest.TestCase):
             "UPDATE contact_lens_variants SET available = 0" in s
             and "available = 1" in s for s in cursor.statements),
             cursor.statements)
+
+    def test_a_recipe_writes_one_row_per_approved_view(self):
+        # The recipe is the only statement of what was photographed, so the
+        # image rows are its views: the label sample is kept out of the feed,
+        # the hero is PRIMARY, and nothing is invented for a missing view.
+        script = _load("import_contact_lenses_under_test",
+                       os.path.join(REPO, "scripts",
+                                    "import_contact_lenses.py"))
+        recipe = script.image_pipeline.load_recipe(
+            os.path.join(REPO, "image_recipes", "PRECISION1.json"))
+        cursor = _Recorder()
+        written = script.upsert_views(cursor, recipe, 7)
+        self.assertEqual(written, 5)
+        inserts = [s for s in cursor.statements
+                   if s.startswith("INSERT INTO contact_lens_images")]
+        self.assertEqual(len(inserts), 5)
+        self.assertIn("view_code", inserts[0])
+        self.assertIn("gmc_eligible", inserts[0])
+        self.assertNotIn("DELETE", " ".join(cursor.statements).upper())
+
+    def test_the_precision1_sheet_is_what_the_owner_stated(self):
+        # BC 8.30 only, minus powers -0.50..-12.00 on Alcon's grid (0.25 steps
+        # to -6.00, 0.50 steps beyond), always in stock, EUR 26.95 / 15.11.
+        script = _load("import_contact_lenses_under_test",
+                       os.path.join(REPO, "scripts",
+                                    "import_contact_lenses.py"))
+        base = os.path.join(REPO, "lens_data", "PRECISION1")
+        products, errors = cl_import.parse(
+            script.read_rows(os.path.join(base, "products.csv")), [],
+            script.read_rows(os.path.join(base, "rules.csv")))
+        self.assertEqual(errors, [])
+        (p,) = products
+        self.assertEqual(p["availability"], "IN_STOCK")
+        self.assertEqual(str(p["price_eur"]), "26.95")
+        self.assertEqual(str(p["special_price_eur"]), "15.11")
+        by_param = {}
+        for rule in p["rules"]:
+            by_param.setdefault(rule["parameter"], []).append(rule["value"])
+        self.assertEqual(by_param["base_curve"], ["8.30"])
+        self.assertEqual(by_param["diameter"], ["14.20"])
+        powers = [float(v) for v in by_param["sph"]]
+        self.assertEqual(len(powers), 35)
+        self.assertEqual(max(powers), -0.50)
+        self.assertEqual(min(powers), -12.00)
+        self.assertTrue(all(v < 0 for v in powers))
+        self.assertNotIn(-6.25, powers)
+        recipe = script.image_pipeline.load_recipe(
+            os.path.join(REPO, "image_recipes", "PRECISION1.json"))
+        self.assertIs(script.recipe_for({"PRECISION1": recipe}, p), recipe)
+        self.assertIn(p["image_url"], {r["path"] for r in
+                                       script.image_pipeline.image_records(
+                                           recipe)})
 
     def test_it_commits_per_product(self):
         # One transaction per product: a product whose matrix fails leaves

@@ -23,7 +23,8 @@ Per product, in one transaction:
     contact_lens_products       brand, manufacturer, modality, pack, minimums
     contact_lens_param_rules    the stated values, when param_mode is RULES
     contact_lens_variants       the matrix, when param_mode is MATRIX
-    contact_lens_images         the primary image
+    contact_lens_images         the primary image, or every approved view when
+                                ``--images`` names the product's image recipe
 
 A product is stated in one shape or the other, never both: ``--rules`` carries
 the parameter sheet and ``--variants`` the combinations sheet, and the product
@@ -38,9 +39,9 @@ that referenced it stays explicable.
 surface until somebody releases it.
 
 Connection comes from MYSQL_HOST/MYSQL_USER/MYSQL_PASSWORD/MYSQL_DB, the same
-variables gunicorn runs with, so on the box:
-
-    set -a; . /etc/optiwar.env; set +a
+variables gunicorn runs with; on the box they are the service's Environment=
+lines, so export them from ``systemctl show gunicorn -p Environment`` before
+running it there.
 """
 import argparse
 import csv
@@ -54,6 +55,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import cl_import  # noqa: E402
 import contact_lens  # noqa: E402
+import image_pipeline  # noqa: E402
 
 # The .com-only launch. Site eligibility lives on products because one function
 # in catalogue.py decides it for every vertical and every surface.
@@ -83,13 +85,27 @@ def read_workbook(path):
     return [dict(zip(header, row)) for row in rows]
 
 
+SOCKETS = ("/var/lib/mysql/mysql.sock", "/var/run/mysqld/mysqld.sock")
+
+
 def connect():
+    """The connection gunicorn has: MySQLdb reads ``localhost`` as the unix
+    socket, and a box whose ``localhost`` resolves to ::1 while the server
+    listens on IPv4 refuses the TCP form, so the socket is used when it is
+    there."""
+    host = os.environ.get("MYSQL_HOST", "localhost")
+    options = {}
+    socket_path = os.environ.get("MYSQL_UNIX_SOCKET") or next(
+        (p for p in SOCKETS if host == "localhost" and os.path.exists(p)),
+        None)
+    if socket_path:
+        options["unix_socket"] = socket_path
     return pymysql.connect(
-        host=os.environ.get("MYSQL_HOST", "localhost"),
+        host=host,
         user=os.environ.get("MYSQL_USER", ""),
         password=os.environ.get("MYSQL_PASSWORD", ""),
         database=os.environ.get("MYSQL_DB", ""),
-        cursorclass=pymysql.cursors.DictCursor, autocommit=False)
+        cursorclass=pymysql.cursors.DictCursor, autocommit=False, **options)
 
 
 def existing(cursor, product):
@@ -106,7 +122,9 @@ def product_code(product):
 
 
 def slug(product):
-    text = "%s %s" % (product["brand"], product["product_name"])
+    name = product["product_name"]
+    text = name if name.lower().startswith(product["brand"].lower()) else (
+        "%s %s" % (product["brand"], name))
     keep = [c.lower() if c.isalnum() else "-" for c in text]
     return "-".join("".join(keep).split("-")[:12]).strip("-")[:180]
 
@@ -120,7 +138,9 @@ def in_rupees(amount, rate):
     """
     if not rate or amount in (None, ""):
         return None
-    return round(float(amount) * float(rate), 2)
+    # products.product_price is whole rupees, so the rounding is done here
+    # where it is stated rather than by the column on the way in.
+    return int(round(float(amount) * float(rate)))
 
 
 def upsert_product(cursor, product, product_id, rate=None):
@@ -267,6 +287,51 @@ def upsert_image(cursor, product, product_id):
                    (product_id, product["image_url"]))
 
 
+def upsert_views(cursor, recipe, product_id):
+    """One row per approved view of the recipe, keyed on the view code.
+
+    A row is matched by ``view_code`` or, for imagery loaded before views were
+    recorded, by ``image_url``, and updated in place; nothing is deleted. The
+    recipe is the only source of what the images are, so the gallery, the
+    feed and the sitemap cannot disagree with what was photographed.
+    """
+    written = 0
+    for record in image_pipeline.image_records(recipe):
+        fields = {
+            "image_url": record["path"],
+            "image_type": "PRIMARY" if record["is_primary"] else "GALLERY",
+            "sort_order": record["position"],
+            "view_code": record["code"],
+            "view_name": record["view"],
+            "alt_text": record["alt"],
+            "gmc_eligible": 1 if record["gmc"] else 0,
+        }
+        cursor.execute("SELECT image_id FROM contact_lens_images"
+                       " WHERE product_id = %s AND (color_code IS NULL OR"
+                       " color_code = '') AND (view_code = %s OR"
+                       " image_url = %s) ORDER BY image_id LIMIT 1",
+                       (product_id, record["code"], record["path"]))
+        row = cursor.fetchone()
+        if row:
+            assignments = ", ".join("%s = %%s" % k for k in fields)
+            cursor.execute("UPDATE contact_lens_images SET %s"
+                           " WHERE image_id = %%s" % assignments,
+                           tuple(fields.values()) + (row["image_id"],))
+        else:
+            columns = ", ".join(["product_id", "color_code"] + list(fields))
+            marks = ", ".join(["%s", "NULL"] + ["%s"] * len(fields))
+            cursor.execute("INSERT INTO contact_lens_images (%s) VALUES (%s)"
+                           % (columns, marks),
+                           (product_id,) + tuple(fields.values()))
+        written += 1
+    return written
+
+
+def recipe_for(recipes, product):
+    """The image recipe whose product code is this source_ref, or None."""
+    return recipes.get(product["source_ref"].upper())
+
+
 def withdraw_all(cursor, table, product_id):
     """Withdraw whatever the shape a product no longer uses still offers.
 
@@ -281,7 +346,7 @@ def withdraw_all(cursor, table, product_id):
     return cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
 
 
-def import_one(cursor, product, rate=None):
+def import_one(cursor, product, rate=None, recipe=None):
     """One product and everything it states, inside the caller's transaction."""
     product_id = existing(cursor, product)
     product_id = upsert_product(cursor, product, product_id, rate)
@@ -293,7 +358,10 @@ def import_one(cursor, product, rate=None):
         written, withdrawn = upsert_variants(cursor, product, product_id)
         withdrawn += withdraw_all(cursor, "contact_lens_param_rules",
                                   product_id)
-    upsert_image(cursor, product, product_id)
+    if recipe:
+        upsert_views(cursor, recipe, product_id)
+    else:
+        upsert_image(cursor, product, product_id)
     return product_id, written, withdrawn
 
 
@@ -312,9 +380,19 @@ def main():
     ap.add_argument("--eur-inr-rate", type=float, default=None,
                     help="derive the INR columns from the EUR price at this "
                          "rate, and record the rate against the product")
+    ap.add_argument("--images", action="append", default=[],
+                    help="an image recipe (image_recipes/<CODE>.json); its "
+                         "approved views become the product's image rows. "
+                         "Repeatable. Matched to the product whose source_ref "
+                         "is the recipe's product code")
     ap.add_argument("--apply", action="store_true",
                     help="write; otherwise dry run")
     args = ap.parse_args()
+
+    recipes = {}
+    for path in args.images:
+        recipe = image_pipeline.load_recipe(path)
+        recipes[recipe["product"].upper()] = recipe
 
     if not (args.variants or args.rules):
         sys.exit("--variants or --rules is required: a product row on its own "
@@ -332,6 +410,23 @@ def main():
         products = [p for p in products if p["source_ref"] in wanted]
 
     print(cl_import.report(products, errors))
+    for product in products:
+        recipe = recipe_for(recipes, product)
+        if recipe:
+            records = image_pipeline.image_records(recipe)
+            if product["image_url"] not in {r["path"] for r in records}:
+                sys.exit("%s: image_url %s is not a view of recipe %s"
+                         % (product["source_ref"], product["image_url"],
+                            recipe["product"]))
+            print("  images %-14s %d view(s) from recipe, %d GMC-eligible"
+                  % (product["source_ref"], len(records),
+                     sum(1 for r in records if r["gmc"])))
+            for level, text in image_pipeline.qa_warnings(recipe, records):
+                print("         %-5s %s" % (level, text))
+    unmatched = set(recipes) - {p["source_ref"].upper() for p in products}
+    if unmatched:
+        sys.exit("--images recipe(s) match no importable product: %s"
+                 % ", ".join(sorted(unmatched)))
     if not products:
         sys.exit(1 if errors else 0)
     if not args.apply:
@@ -351,7 +446,8 @@ def main():
         # nothing behind, and the products that already succeeded stay.
         try:
             product_id, written, withdrawn = import_one(
-                cursor, product, args.eur_inr_rate)
+                cursor, product, args.eur_inr_rate,
+                recipe_for(recipes, product))
             db.commit()
             print("  imported %-14s product_id=%s  %d %s row(s)%s"
                   % (product["source_ref"], product_id, written,
