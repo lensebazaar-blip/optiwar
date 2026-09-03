@@ -47,6 +47,7 @@ SELECT image_url, image_type, sort_order, view_code, view_name, alt_text,
        gmc_eligible
 FROM contact_lens_images
 WHERE product_id = %s AND (color_code IS NULL OR color_code = '')
+  AND image_type <> 'WITHDRAWN'
 ORDER BY (image_type = 'PRIMARY') DESC, sort_order, image_id
 """
 
