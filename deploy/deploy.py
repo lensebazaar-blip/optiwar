@@ -77,7 +77,7 @@ RELEASES = os.environ.get("OPTIWAR_RELEASES", "/root/deploy_releases")
 DEPLOY_SET = ("acr.py", "ai_api.py", "ai_client.py", "catalogue.py", "chat.py",
               "chat_gateway.py", "contact_lens.py", "lens_prompt.py",
               "lens_feed.py", "lens_seo.py", "lens_order.py", "lens_view.py",
-              "crm.py", "orders.py",
+              "lens_preview.py", "crm.py", "orders.py",
               "models.py", "payments.py", "paid_orders.py",
               "razorpay_events.py", "csrf_guard.py", "rx_powers.py",
               "profile.py", "refunds.py", "ops_refunds.py",
@@ -94,7 +94,7 @@ NEW_IN_RELEASE = ("paid_orders.py", "razorpay_events.py", "rx_powers.py",
                   "refunds.py", "ops_refunds.py", "catalogue.py",
                   "contact_lens.py", "lens_prompt.py", "lens_feed.py",
                   "lens_seo.py", "lens_order.py", "lens_view.py",
-                  "templates/lens_landing.html",
+                  "lens_preview.py", "templates/lens_landing.html",
                   "templates/lens_select.html")
 
 # Running content that matches no commit but has been read line by line and

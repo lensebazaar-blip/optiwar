@@ -1,11 +1,12 @@
 {% extends 'base.html' %}
 {% from '_picture.html' import product_picture, thumb_img %}
-{% block title %}{{ product.product_name }} {{ product.product_code }}{% if product.product_quantity == 0 %} - Sold Out{% endif %} - Optiwar
+{% block title %}{{ product.product_name }} {{ product.product_code }}{% if not lens and product.product_quantity == 0 %} - Sold Out{% endif %} - Optiwar
 {% endblock %}
 {% block meta_description %}{% if product.product_details %}{% if is_india %}{{ product.product_details|truncate(160) }}{% else %}{{ product.product_details|replace('Rs ' ~ product.product_special_price|string, '€' ~ product.product_special_price_eur|string)|replace('Rs ' ~ product.product_price|string, '€' ~ product.product_price_eur|string)|replace('save ' ~ inr_disc_pct|string ~ '%', 'save ' ~ eur_disc_pct|string ~ '%')|replace('across India, and GST', 'worldwide')|replace('across India', 'worldwide')|replace('GST', 'taxes')|truncate(160) }}{% endif %}{% else %}Buy {{ product.product_name }} {{ product.product_code }} {{ product.product_category }} at {% if is_india %}Rs {{ product.product_special_price }}{% else %}€{{ product.product_special_price_eur }}{% endif %}{% if product.product_category == 'Spectacles Frame' %} with Complimentary Prescription lenses{% endif %} from Optiwar Factory Outlet{% endif %}{% endblock %}
 {% block og_title %}{{ product.product_name }} {{ product.product_code }} - {% if is_india %}Rs {{ product.product_special_price }}{% else %}€{{ product.product_special_price_eur }}{% endif %} | Optiwar{% endblock %}
 {% block og_description %}{% if product.product_details %}{% if is_india %}{{ product.product_details|truncate(200) }}{% else %}{{ product.product_details|replace('Rs ' ~ product.product_special_price|string, '€' ~ product.product_special_price_eur|string)|replace('Rs ' ~ product.product_price|string, '€' ~ product.product_price_eur|string)|replace('save ' ~ inr_disc_pct|string ~ '%', 'save ' ~ eur_disc_pct|string ~ '%')|replace('across India, and GST', 'worldwide')|replace('across India', 'worldwide')|replace('GST', 'taxes')|truncate(200) }}{% endif %}{% else %}{{ product.product_name }} {{ product.product_code }} {{ product.product_category }} at factory outlet price{% endif %}{% endblock %}
-{% block canonical_url %}{% if is_india %}https://optiwar.in{% else %}https://optiwar.com{% endif %}/categories/{{ product.product_category|lower|replace(' ', '-') }}/{{ product.product_slug }}?pid={{ product.product_id }}{% endblock %}
+{% block canonical_url %}{% if lens %}https://optiwar.com/categories/contact-lenses/{{ product.product_slug }}?pid={{ product.product_id }}{% else %}{% if is_india %}https://optiwar.in{% else %}https://optiwar.com{% endif %}/categories/{{ product.product_category|lower|replace(' ', '-') }}/{{ product.product_slug }}?pid={{ product.product_id }}{% endif %}{% endblock %}
+{% block robots %}{% if lens_previewing %}noindex, nofollow{% else %}index, follow{% endif %}{% endblock %}
 {% block meta_keywords %}{{ product.product_name }}, {{ product.product_code }}, {{ product.product_category }}, Optiwar, buy eyeglasses online{% endblock %}
 {% block meta_author %}OPTIWAR{% endblock %}
 {% block og_image %}{% if product.product_image %}{{ versioned_image_url(product.product_image.split(',')[0], site_url) }}{% endif %}{% endblock %}
@@ -13,8 +14,9 @@
 {% block og_type %}product{% endblock %}
 {% block og_image_meta %}{% if product.product_image %}<meta property="og:image:type" content="image/jpeg">{% endif %}{% endblock %}
 
-{% block hreflang_in %}https://optiwar.in/categories/{{ product.product_category|lower|replace(' ', '-') }}/{{ product.product_slug }}?pid={{ product.product_id }}{% endblock %}
-{% block hreflang_default %}https://optiwar.com/categories/{{ product.product_category|lower|replace(' ', '-') }}/{{ product.product_slug }}?pid={{ product.product_id }}{% endblock %}
+{# A lens is sold on .com only: no en-in alternate exists for it. #}
+{% block hreflang_in_tag %}{% if not lens %}<link rel="alternate" hreflang="en-in" href="https://optiwar.in/categories/{{ product.product_category|lower|replace(' ', '-') }}/{{ product.product_slug }}?pid={{ product.product_id }}">{% endif %}{% endblock %}
+{% block hreflang_default %}{% if lens %}https://optiwar.com/categories/contact-lenses/{{ product.product_slug }}?pid={{ product.product_id }}{% else %}https://optiwar.com/categories/{{ product.product_category|lower|replace(' ', '-') }}/{{ product.product_slug }}?pid={{ product.product_id }}{% endif %}{% endblock %}
 
 {% block jsonld_extra %}
 {# A box of contact lenses gets its own markup: the frame blocks below promise
@@ -26,7 +28,7 @@
 {{ block|safe }}
 </script>
 {% endfor %}
-{% else %}
+{% elif not lens %}
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -155,6 +157,9 @@
 {% endblock %}
 
 {% block content %}
+{% if lens_previewing %}
+<div style="background:#7a2e00;color:#fff;text-align:center;padding:.5rem 1rem;font-weight:600">Owner preview &mdash; this lens is not released. Only this browser can see this page.</div>
+{% endif %}
 <!-- Visible Breadcrumbs -->
 <nav aria-label="Breadcrumb" class="ow-breadcrumb">
   <ol>
@@ -286,7 +291,8 @@ h1.pdp-title { font-size:20px !important; font-weight:700 !important; color:#111
           <svg class="heart-outline" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.6 5.6 0 0 0-7.9 0L12 5.5l-.9-.9A5.6 5.6 0 0 0 3.2 12l8.8 8.8 8.8-8.8a5.6 5.6 0 0 0 0-7.9z"></path></svg>
           <svg class="heart-filled" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><path d="M20.8 4.6a5.6 5.6 0 0 0-7.9 0L12 5.5l-.9-.9A5.6 5.6 0 0 0 3.2 12l8.8 8.8 8.8-8.8a5.6 5.6 0 0 0 0-7.9z"></path></svg>
         </div>
-        {% if product.product_quantity and product.product_quantity > 0 and product.product_quantity <= 3 %}
+        {% if lens %}
+        {% elif product.product_quantity and product.product_quantity > 0 and product.product_quantity <= 3 %}
         <span class="pdp-badge pdp-badge-low">Only {{ product.product_quantity }} left!</span>
         {% elif product.product_quantity == 0 %}
         <span class="pdp-badge pdp-badge-out">Sold Out</span>

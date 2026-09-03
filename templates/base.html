@@ -38,7 +38,7 @@
         <meta name="robots" content="{% block robots %}index, follow{% endblock %}">
         <link rel="canonical" href="{% block canonical_url %}{{ request.url }}{% endblock %}">
         <!-- hreflang for multi-region support -->
-        <link rel="alternate" hreflang="en-in" href="{% block hreflang_in %}{{ request.url|replace('in.optiwar.com', 'optiwar.in')|replace('www.optiwar.com', 'optiwar.in')|replace('optiwar.com', 'optiwar.in') }}{% endblock %}">
+        {% block hreflang_in_tag %}<link rel="alternate" hreflang="en-in" href="{% block hreflang_in %}{{ request.url|replace('in.optiwar.com', 'optiwar.in')|replace('www.optiwar.com', 'optiwar.in')|replace('optiwar.com', 'optiwar.in') }}{% endblock %}">{% endblock %}
         <link rel="alternate" hreflang="x-default" href="{% block hreflang_default %}{{ request.url|replace('in.optiwar.com', 'optiwar.com')|replace('www.optiwar.in', 'optiwar.com')|replace('optiwar.in', 'optiwar.com') }}{% endblock %}">
         <title> {% block title %} OPTIWAR  {% endblock %} </title>
         <!-- OPTIWAR Favicon Package (Final) - Global Device Coverage -->
