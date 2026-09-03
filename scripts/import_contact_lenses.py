@@ -85,13 +85,27 @@ def read_workbook(path):
     return [dict(zip(header, row)) for row in rows]
 
 
+SOCKETS = ("/var/lib/mysql/mysql.sock", "/var/run/mysqld/mysqld.sock")
+
+
 def connect():
+    """The connection gunicorn has: MySQLdb reads ``localhost`` as the unix
+    socket, and a box whose ``localhost`` resolves to ::1 while the server
+    listens on IPv4 refuses the TCP form, so the socket is used when it is
+    there."""
+    host = os.environ.get("MYSQL_HOST", "localhost")
+    options = {}
+    socket_path = os.environ.get("MYSQL_UNIX_SOCKET") or next(
+        (p for p in SOCKETS if host == "localhost" and os.path.exists(p)),
+        None)
+    if socket_path:
+        options["unix_socket"] = socket_path
     return pymysql.connect(
-        host=os.environ.get("MYSQL_HOST", "localhost"),
+        host=host,
         user=os.environ.get("MYSQL_USER", ""),
         password=os.environ.get("MYSQL_PASSWORD", ""),
         database=os.environ.get("MYSQL_DB", ""),
-        cursorclass=pymysql.cursors.DictCursor, autocommit=False)
+        cursorclass=pymysql.cursors.DictCursor, autocommit=False, **options)
 
 
 def existing(cursor, product):
