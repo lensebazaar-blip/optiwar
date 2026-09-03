@@ -556,6 +556,16 @@ class ImporterContractTest(unittest.TestCase):
         with open(os.path.join(REPO, "lens_feed.py")) as fh:
             self.assertIn("image_type <> 'WITHDRAWN'", fh.read())
 
+    def test_a_withdrawn_view_does_not_count_towards_release(self):
+        # The release gate and the daily report count images: a product whose
+        # every view was withdrawn has none, and must fall back to DRAFT.
+        for name in ("catalogue.py", "reports/lens_report_section.py"):
+            with open(os.path.join(REPO, name)) as fh:
+                source = fh.read()
+            head = source.index("FROM contact_lens_images i")
+            subquery = source[head:source.index(")", head)]
+            self.assertIn("image_type <> 'WITHDRAWN'", subquery, name)
+
     def test_the_product_image_must_be_the_recipe_primary(self):
         script = _load("import_contact_lenses_under_test",
                        os.path.join(REPO, "scripts",

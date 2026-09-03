@@ -177,7 +177,8 @@ SELECT p.product_id, p.product_code, p.product_name, p.product_slug,
        (SELECT COUNT(*) FROM contact_lens_param_rules r
          WHERE r.product_id = p.product_id AND r.available = 1) AS rule_count,
        (SELECT COUNT(*) FROM contact_lens_images i
-         WHERE i.product_id = p.product_id) AS image_count
+         WHERE i.product_id = p.product_id
+           AND i.image_type <> 'WITHDRAWN') AS image_count
 FROM contact_lens_products c
 JOIN products p ON p.product_id = c.product_id
 WHERE p.product_vertical = %s
