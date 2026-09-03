@@ -380,7 +380,8 @@ h1.pdp-title { font-size:20px !important; font-weight:700 !important; color:#111
       </div>
 
       <!-- Stock -->
-      {% if product.product_quantity > 5 %}
+      {% if lens %}
+      {% elif product.product_quantity > 5 %}
       <div class="pdp-stock stock-green">{{ _('In Stock') }}</div>
       {% elif product.product_quantity > 0 %}
       <div class="pdp-stock stock-amber">Only {{ product.product_quantity }} left — Order Soon</div>
