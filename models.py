@@ -848,15 +848,22 @@ def _lens_choices(cursor, lens):
                                                      lens['product_id']))
 
 
-def _lens_selection(lens, shape, errors=(), submitted=None):
-    return make_response(render_template(
-        'lens_select.html', lens=lens,
+def _lens_selection_context(lens, shape, errors=(), submitted=None):
+    """What the per-eye purchase block needs, wherever it is rendered."""
+    return dict(
+        lens=lens,
         options=shape.options(),
         minimums=lens_order.minimums(lens, SITE_COM),
         box_price=lens_order.box_price(lens),
         errors=list(errors), submitted=submitted or {},
         eyes=lens_order.EYES,
-        max_boxes=lens_order.MAX_BOXES_PER_EYE))
+        max_boxes=lens_order.MAX_BOXES_PER_EYE)
+
+
+def _lens_selection(lens, shape, errors=(), submitted=None):
+    return make_response(render_template(
+        'lens_select.html',
+        **_lens_selection_context(lens, shape, errors, submitted)))
 
 
 @bp.route('/contact-lenses/select', methods=['GET', 'POST'])
@@ -1512,6 +1519,12 @@ def product_page(category, product_slug):
         lens_jsonld = lens_view.jsonld(
             dict(lens, release_blockers=[]) if lens_previewing else lens,
             lens.get('matrix'), 'https://optiwar.com')
+        # The per-eye purchase block lives on the page itself, so the page
+        # carries the same stated choices the selection route validates.
+        lens_selection = _lens_selection_context(
+            lens, _lens_choices(cursor, lens))
+    else:
+        lens_selection = {}
 
     # Log product view
     _host = request.host
@@ -1658,7 +1671,9 @@ def product_page(category, product_slug):
                            face_decentration=face_decentration, face_meas_data=face_meas_data,
                            lens_jsonld=lens_jsonld, lens=lens,
                            lens_passport=lens_passport,
-                           lens_previewing=lens_previewing)
+                           lens_previewing=lens_previewing,
+                           **{k: v for k, v in lens_selection.items()
+                              if k != 'lens'})
     if lens_previewing:
         return _noindex(make_response(page))
     return page

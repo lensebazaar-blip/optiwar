@@ -264,10 +264,40 @@ h1.pdp-title { font-size:20px !important; font-weight:700 !important; color:#111
   .pdp-thumbstrip img { width:50px !important; height:50px !important; max-width:50px !important; max-height:50px !important; }
   .pdp-wrap { padding-bottom:96px; } /* clear fixed chat button */
 }
+
+/* LENS LAYOUT: one grid, reordered per breakpoint. Desktop is a sticky
+   gallery beside summary → purchase → details; on a phone the order is
+   name → price → image → buy → details, so Add to cart is reached without
+   scrolling past a full image. */
+.pdp-row--lens { display:grid !important; grid-template-columns:minmax(0,1fr) minmax(0,1fr); grid-template-areas:"gallery summary" "gallery purchase" "gallery details"; gap:16px 28px; align-items:start; }
+.pdp-row--lens .pdp-col-img { grid-area:gallery; flex:none; max-width:none; }
+.pdp-row--lens .pdp-col-info { display:contents; }
+.pdp-row--lens .pdp-summary { grid-area:summary; }
+.pdp-row--lens .pdp-purchase { grid-area:purchase; }
+.pdp-row--lens .pdp-details-area { grid-area:details; }
+.pdp-row--lens .pdp-pricebox { margin-bottom:0; }
+.pdp-lens-facts { display:flex; flex-wrap:wrap; gap:6px 14px; font-size:13px; color:#555; margin:8px 0 0; }
+.pdp-lens-facts .pdp-lens-stock { color:#16a34a; font-weight:600; }
+.pdp-lens-facts .pdp-lens-stock.is-order { color:#92400e; }
+.pdp-acc { border:1px solid #eee; border-radius:8px; margin-bottom:8px; background:#fff; }
+.pdp-acc summary { list-style:none; cursor:pointer; padding:12px 14px; font-size:14px; font-weight:700; color:#333; display:flex; justify-content:space-between; align-items:center; }
+.pdp-acc summary::-webkit-details-marker { display:none; }
+.pdp-acc summary::after { content:'+'; font-size:18px; color:#6366f1; line-height:1; }
+.pdp-acc[open] summary::after { content:'\2212'; }
+.pdp-acc .pdp-acc-body { padding:0 14px 12px; font-size:13px; color:#555; line-height:1.6; }
+.pdp-acc table { width:100%; border-collapse:collapse; }
+.pdp-acc table tr { border-bottom:1px solid #f3f4f6; }
+.pdp-acc table tr:last-child { border-bottom:none; }
+.pdp-acc table td.lbl { padding:7px 8px 7px 0; color:#777; width:40%; }
+.pdp-acc table td.val { padding:7px 0; color:#222; font-weight:500; }
+@media (max-width:768px) {
+  .pdp-row--lens { grid-template-columns:minmax(0,1fr); grid-template-areas:"summary" "gallery" "purchase" "details"; gap:12px; }
+  .pdp-row--lens .pdp-col-img { position:static; }
+}
 </style>
 
 <div class="pdp-wrap">
-  <div class="pdp-row">
+  <div class="pdp-row{% if lens %} pdp-row--lens{% endif %}">
     <!-- LEFT: Images -->
     <div class="pdp-col-img">
       {% set alt_base = product.product_name ~ ' ' ~ product.product_code ~ ' ' ~ product.product_category ~ (' in ' ~ product.color_display if product.color_display else (' in ' ~ product.product_color if product.product_color else '')) %}
@@ -312,8 +342,9 @@ h1.pdp-title { font-size:20px !important; font-weight:700 !important; color:#111
 
     <!-- RIGHT: Product Info -->
     <div class="pdp-col-info">
+      <div class="pdp-summary">
       <div class="pdp-brand-row">
-        <span class="pdp-brand">{{ product.product_name }}</span>
+        <span class="pdp-brand">{% if lens %}{{ lens.brand or product.product_name }}{% else %}{{ product.product_name }}{% endif %}</span>
         <span class="pdp-code">{{ product.product_code }}</span>
       </div>
       <h1 class="pdp-title">{{ product.product_name }} {{ product.product_code }}
@@ -323,7 +354,8 @@ h1.pdp-title { font-size:20px !important; font-weight:700 !important; color:#111
       </h1>
 
       <!-- Face Match Indicator -->
-      {% if face_match_status == 'matched' %}
+      {% if lens %}
+      {% elif face_match_status == 'matched' %}
       <div class="pdp-face-match" style="display:inline-flex;align-items:center;gap:6px;background:#dcfce7;color:#16a34a;font-size:13px;font-weight:700;padding:5px 12px;border-radius:20px;margin-bottom:10px;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
         MATCHED{% if face_fit_label %} — {{ face_fit_label }}{% endif %}
@@ -376,8 +408,61 @@ h1.pdp-title { font-size:20px !important; font-weight:700 !important; color:#111
         {% set pct = ((savings / (product.product_price if is_india else product.product_price_eur)) * 100)|round|int %}
         <span class="price-off">{{ pct }}% OFF</span>
         {% endif %}
-        <p class="price-note">{% if is_india %}Inclusive of all taxes. Free delivery.{% else %}Free delivery worldwide.{% endif %}</p>
+        <p class="price-note">{% if lens %}per box of {{ lens.pack_quantity }} lenses. {% endif %}{% if is_india %}Inclusive of all taxes. Free delivery.{% else %}Free delivery worldwide.{% endif %}</p>
+        {% if lens %}
+        <div class="pdp-lens-facts">
+          {% if lens.availability == 'ON_ORDER' %}
+          <span class="pdp-lens-stock is-order">On order{% if lens.lead_time_days %} &mdash; ships in about {{ lens.lead_time_days }} days{% endif %}</span>
+          {% else %}
+          <span class="pdp-lens-stock">In stock &mdash; ready to ship</span>
+          {% endif %}
+          {% if lens.modality %}<span>{{ lens.modality|title }}</span>{% endif %}
+          {% if lens.lens_type %}<span>{{ lens.lens_type|title }}</span>{% endif %}
+        </div>
+        {% endif %}
       </div>
+      </div>
+
+      {% if lens %}
+      <div class="pdp-purchase">
+        {% include '_lens_eye_cards.html' %}
+      </div>
+      {% endif %}
+
+      <div class="pdp-details-area">
+      {% if lens %}
+      {% set _m = (lens_passport or {}).get('ordering', {}).get('matrix') or {} %}
+      <details class="pdp-acc" open>
+        <summary>Specifications</summary>
+        <div class="pdp-acc-body">
+          <table>
+            {% if lens.brand %}<tr><td class="lbl">Brand</td><td class="val">{{ lens.brand }}</td></tr>{% endif %}
+            {% if lens.manufacturer %}<tr><td class="lbl">Manufacturer</td><td class="val">{{ lens.manufacturer }}</td></tr>{% endif %}
+            {% if lens.modality %}<tr><td class="lbl">Wear</td><td class="val">{{ lens.modality|title }}{% if lens.replacement_days %} &mdash; replace every {{ lens.replacement_days }} day{{ 's' if lens.replacement_days|int != 1 }}{% endif %}</td></tr>{% endif %}
+            {% if lens.lens_type %}<tr><td class="lbl">Type</td><td class="val">{{ lens.lens_type|title }}</td></tr>{% endif %}
+            {% if lens.pack_quantity %}<tr><td class="lbl">Pack</td><td class="val">{{ lens.pack_quantity }} lenses per box</td></tr>{% endif %}
+            {% if _m.base_curve %}<tr><td class="lbl">Base curve</td><td class="val">{{ _m.base_curve.min }}{% if _m.base_curve.max != _m.base_curve.min %} &ndash; {{ _m.base_curve.max }}{% endif %} mm</td></tr>{% endif %}
+            {% if _m.diameter %}<tr><td class="lbl">Diameter</td><td class="val">{{ _m.diameter.min }}{% if _m.diameter.max != _m.diameter.min %} &ndash; {{ _m.diameter.max }}{% endif %} mm</td></tr>{% endif %}
+            {% if _m.sph %}<tr><td class="lbl">Powers</td><td class="val">{{ '%+.2f'|format(_m.sph.min) }} to {{ '%+.2f'|format(_m.sph.max) }}</td></tr>{% endif %}
+            {% if _m.cyl %}<tr><td class="lbl">Cylinder</td><td class="val">{{ '%+.2f'|format(_m.cyl.min) }} to {{ '%+.2f'|format(_m.cyl.max) }}</td></tr>{% endif %}
+            {% if lens.material %}<tr><td class="lbl">Material</td><td class="val">{{ lens.material }}</td></tr>{% endif %}
+            {% if lens.water_content %}<tr><td class="lbl">Water content</td><td class="val">{{ lens.water_content }}%</td></tr>{% endif %}
+            {% if lens.gtin %}<tr><td class="lbl">GTIN</td><td class="val">{{ lens.gtin }}</td></tr>{% endif %}
+            <tr><td class="lbl">SKU</td><td class="val">{{ product.product_code }}</td></tr>
+          </table>
+        </div>
+      </details>
+      {% if product.product_details %}
+      <details class="pdp-acc">
+        <summary>About this lens</summary>
+        <div class="pdp-acc-body">{{ product.product_details }}</div>
+      </details>
+      {% endif %}
+      <details class="pdp-acc">
+        <summary>Delivery</summary>
+        <div class="pdp-acc-body">Free delivery worldwide.</div>
+      </details>
+      {% endif %}
 
       <!-- Stock -->
       {% if lens %}
@@ -427,7 +512,7 @@ h1.pdp-title { font-size:20px !important; font-weight:700 !important; color:#111
       {% endif %}
 
       <!-- Product Description (SEO) -->
-      {% if product.product_details %}
+      {% if product.product_details and not lens %}
       <div class="pdp-details" style="background:#fff;border:1px solid #eee;border-radius:8px;padding:14px 16px;margin-bottom:14px;">
         <h3 style="font-size:14px;font-weight:700;color:#333;margin:0 0 8px;">About This Frame</h3>
         <p style="font-size:13px;color:#555;line-height:1.6;margin:0;">{% if is_india %}{{ product.product_details }}{% else %}{{ product.product_details|replace('Rs ' ~ product.product_special_price|string, '€' ~ product.product_special_price_eur|string)|replace('Rs ' ~ product.product_price|string, '€' ~ product.product_price_eur|string)|replace('save ' ~ inr_disc_pct|string ~ '%', 'save ' ~ eur_disc_pct|string ~ '%')|replace('across India, and GST', 'worldwide') }}{% endif %}</p>
@@ -437,13 +522,6 @@ h1.pdp-title { font-size:20px !important; font-weight:700 !important; color:#111
       <!-- CTA Buttons -->
       <div class="pdp-cta">
         {% if lens %}
-        <form action="{{ url_for('main.lens_select') }}" method="post">
-          <input type="hidden" name="product_id" value="{{ product.product_id }}">
-          <button type="submit" class="btn-primary">Choose prescription &amp; boxes</button>
-        </form>
-        {% if lens.availability == 'ON_ORDER' %}
-        <div class="pdp-lens-lead">On order{% if lens.lead_time_days %} &mdash; ships in about {{ lens.lead_time_days }} days{% endif %}</div>
-        {% endif %}
         {% elif product.product_quantity == 0 %}
         <div class="pdp-sold-out">This item is currently Sold Out</div>
         {% elif category == "Hearing Aids" %}
@@ -515,7 +593,8 @@ h1.pdp-title { font-size:20px !important; font-weight:700 !important; color:#111
       <div class="pdp-trust">
         <span>🚚 {% if is_india %}Free Delivery{% else %}Free Delivery Globally{% endif %}</span>
         {% if is_india %}<span>✅ GST Included</span>{% endif %}
-        <span>🏭 Factory Outlet Price</span>
+        {% if not lens %}<span>🏭 Factory Outlet Price</span>{% endif %}
+      </div>
       </div>
     </div>
   </div>
