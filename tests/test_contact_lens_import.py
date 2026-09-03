@@ -525,6 +525,51 @@ class ImporterContractTest(unittest.TestCase):
         self.assertIn("gmc_eligible", inserts[0])
         self.assertNotIn("DELETE", " ".join(cursor.statements).upper())
 
+    def test_a_view_the_recipe_dropped_is_withdrawn_not_kept_or_deleted(self):
+        # A photograph taken out of the recipe must stop being published by
+        # every reader, and the row must survive: WITHDRAWN, and the reader's
+        # query excludes it.
+        script = _load("import_contact_lenses_under_test",
+                       os.path.join(REPO, "scripts",
+                                    "import_contact_lenses.py"))
+        recipe = script.image_pipeline.load_recipe(
+            os.path.join(REPO, "image_recipes", "PRECISION1.json"))
+        recipe["views"] = [v for v in recipe["views"]
+                           if v["code"] != "05_secondary"]
+
+        class Cursor(_Recorder):
+            def execute(self, sql, params=None):
+                self.statements.append((sql, params))
+
+        cursor = Cursor()
+        self.assertEqual(script.upsert_views(cursor, recipe, 7), 4)
+        withdraw = [(s, p) for s, p in cursor.statements
+                    if "WITHDRAWN" in s]
+        self.assertEqual(len(withdraw), 1)
+        sql, params = withdraw[0]
+        self.assertIn("view_code NOT IN", sql)
+        self.assertEqual(params[0], 7)
+        self.assertNotIn("05_secondary", params)
+        self.assertIn("01_hero", params)
+        self.assertNotIn("DELETE",
+                         " ".join(s for s, _ in cursor.statements).upper())
+        with open(os.path.join(REPO, "lens_feed.py")) as fh:
+            self.assertIn("image_type <> 'WITHDRAWN'", fh.read())
+
+    def test_the_product_image_must_be_the_recipe_primary(self):
+        script = _load("import_contact_lenses_under_test",
+                       os.path.join(REPO, "scripts",
+                                    "import_contact_lenses.py"))
+        recipe = script.image_pipeline.load_recipe(
+            os.path.join(REPO, "image_recipes", "PRECISION1.json"))
+        records = script.image_pipeline.image_records(recipe)
+        primary = [r["path"] for r in records if r["is_primary"]]
+        gallery = [r["path"] for r in records if not r["is_primary"]]
+        self.assertEqual(len(primary), 1)
+        self.assertTrue(gallery)
+        self.assertTrue(script.image_url_is_primary(recipe, primary[0]))
+        self.assertFalse(script.image_url_is_primary(recipe, gallery[0]))
+
     def test_the_precision1_sheet_is_what_the_owner_stated(self):
         # BC 8.30 only, minus powers -0.50..-12.00 on Alcon's grid (0.25 steps
         # to -6.00, 0.50 steps beyond), always in stock, EUR 26.95 / 15.11.

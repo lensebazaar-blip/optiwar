@@ -293,10 +293,20 @@ def upsert_views(cursor, recipe, product_id):
     A row is matched by ``view_code`` or, for imagery loaded before views were
     recorded, by ``image_url``, and updated in place; nothing is deleted. The
     recipe is the only source of what the images are, so the gallery, the
-    feed and the sitemap cannot disagree with what was photographed.
+    feed and the sitemap cannot disagree with what was photographed. A view
+    the recipe no longer names is marked WITHDRAWN, which every reader skips,
+    so a withdrawn photograph stops being published without a row being lost.
     """
     written = 0
-    for record in image_pipeline.image_records(recipe):
+    records = image_pipeline.image_records(recipe)
+    codes = [r["code"] for r in records]
+    cursor.execute("UPDATE contact_lens_images SET image_type = 'WITHDRAWN',"
+                   " gmc_eligible = 0 WHERE product_id = %%s AND (color_code"
+                   " IS NULL OR color_code = '') AND view_code IS NOT NULL"
+                   " AND view_code NOT IN (%s)"
+                   % ", ".join(["%s"] * len(codes)),
+                   (product_id,) + tuple(codes))
+    for record in records:
         fields = {
             "image_url": record["path"],
             "image_type": "PRIMARY" if record["is_primary"] else "GALLERY",
@@ -330,6 +340,13 @@ def upsert_views(cursor, recipe, product_id):
 def recipe_for(recipes, product):
     """The image recipe whose product code is this source_ref, or None."""
     return recipes.get(product["source_ref"].upper())
+
+
+def image_url_is_primary(recipe, image_url):
+    """True only for the recipe's primary view: the product's lead image is
+    the hero, never a gallery view that happens to be in the recipe."""
+    return any(r["is_primary"] and r["path"] == image_url
+               for r in image_pipeline.image_records(recipe))
 
 
 def withdraw_all(cursor, table, product_id):
@@ -414,8 +431,8 @@ def main():
         recipe = recipe_for(recipes, product)
         if recipe:
             records = image_pipeline.image_records(recipe)
-            if product["image_url"] not in {r["path"] for r in records}:
-                sys.exit("%s: image_url %s is not a view of recipe %s"
+            if not image_url_is_primary(recipe, product["image_url"]):
+                sys.exit("%s: image_url %s is not the primary view of recipe %s"
                          % (product["source_ref"], product["image_url"],
                             recipe["product"]))
             print("  images %-14s %d view(s) from recipe, %d GMC-eligible"
