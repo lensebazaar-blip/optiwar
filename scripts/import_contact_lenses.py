@@ -122,7 +122,9 @@ def product_code(product):
 
 
 def slug(product):
-    text = "%s %s" % (product["brand"], product["product_name"])
+    name = product["product_name"]
+    text = name if name.lower().startswith(product["brand"].lower()) else (
+        "%s %s" % (product["brand"], name))
     keep = [c.lower() if c.isalnum() else "-" for c in text]
     return "-".join("".join(keep).split("-")[:12]).strip("-")[:180]
 
