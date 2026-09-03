@@ -3,6 +3,8 @@ import importlib.util
 import os
 import unittest
 
+from jinja2 import Environment
+
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 spec = importlib.util.spec_from_file_location(
     "lens_preview_under_test", os.path.join(REPO, "lens_preview.py"))
@@ -114,6 +116,23 @@ class RoutesTest(unittest.TestCase):
             tpl = fh.read()
         head = tpl.index("{% if lens_jsonld %}")
         self.assertIn("{% elif not lens %}", tpl[head:head + 200])
+
+    def test_a_lens_row_with_no_frame_stock_count_still_renders(self):
+        """A lens has no product_quantity; the frame stock badge, which
+        compares it with an int, must not be reached for a lens."""
+        with open(os.path.join(REPO, "templates",
+                               "product_page.html")) as fh:
+            tpl = fh.read()
+        start = tpl.index("<!-- Stock -->")
+        block = tpl[start:tpl.index("<!-- Frame Specs -->", start)]
+        env = Environment()
+        env.globals["_"] = lambda s: s
+        html = env.from_string(block).render(
+            product={"product_quantity": None}, lens={"availability": "IN_STOCK"})
+        self.assertNotIn("pdp-stock", html)
+        frame = env.from_string(block).render(
+            product={"product_quantity": 9}, lens=None)
+        self.assertIn("In Stock", frame)
 
     def test_the_preview_never_opens_on_optiwar_in(self):
         gate = self.models[self.models.index("def _lens_preview_open"):]
