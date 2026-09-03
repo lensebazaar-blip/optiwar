@@ -431,7 +431,7 @@ class Wiring(unittest.TestCase):
         for name in ("def lens_select(", "def lens_add_to_cart("):
             body = self.src.split(name)[1].split("\n@bp.route")[0]
             self.assertIn("current_site() == SITE_IN", body)
-            self.assertIn("_released_lens(", body)
+            self.assertIn("_released_or_previewed_lens(", body)
 
     def test_the_cart_is_priced_from_the_row_and_not_from_the_form(self):
         body = self.src.split("def lens_add_to_cart(")[1].split(

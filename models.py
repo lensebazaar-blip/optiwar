@@ -24,7 +24,7 @@ from .catalogue import (
     current_site, strip_ineligible_urls, age_group, ensure_gmc_columns,
     live_lenses, lens_matrix_summary, SITE_IN, SITE_COM,
 )
-from . import acr, lens_feed, lens_order, lens_seo, lens_view
+from . import acr, lens_feed, lens_order, lens_preview, lens_seo, lens_view
 from .cart_persist import save_cart_to_db, clear_cart_in_db
 from .cl_range_model import add_prescription_of_cl
 from .country_iso import country_to_iso2
@@ -796,6 +796,48 @@ def _released_lens(cursor, product_id):
                  if str(r['product_id']) == str(product_id or '')), None)
 
 
+def _lens_preview_open(product_id):
+    """Whether this .com browser session may see an unreleased lens.
+
+    A ``?preview=`` token on the request is verified and, if genuine, granted
+    to the session so the selection and cart steps that follow need not carry
+    it. Never on optiwar.in, and never on the default development secret.
+    """
+    if current_site() == SITE_IN or product_id is None:
+        return False
+    key = lens_preview.secret(os.environ)
+    token = request.values.get('preview')
+    if token:
+        expires = lens_preview.verify(key, product_id, token)
+        if expires:
+            lens_preview.grant(session, product_id, expires)
+            current_app.logger.info(
+                '[%s] ACTIVITY:LENS_PREVIEW_OPENED IP:%s product:%s',
+                request.host,
+                request.headers.get('X-Forwarded-For', request.remote_addr),
+                product_id)
+    return bool(key) and lens_preview.granted(session, product_id)
+
+
+def _released_or_previewed_lens(cursor, product_id):
+    """``(row, previewing)``: the released lens, or the owner's preview of it."""
+    lens = _released_lens(cursor, product_id)
+    if lens:
+        return lens, False
+    if not _lens_preview_open(product_id):
+        return None, False
+    row, _ = lens_view.load(cursor, product_id, SITE_COM)
+    if row and lens_preview.previewable(row):
+        return row, True
+    return None, False
+
+
+def _noindex(response):
+    response.headers['X-Robots-Tag'] = 'noindex, nofollow'
+    response.headers['Cache-Control'] = 'private, no-store'
+    return response
+
+
 def _lens_choices(cursor, lens):
     """What this lens states as orderable, in whichever shape it states it."""
     if (lens.get('param_mode') or '').strip().upper() == 'RULES':
@@ -823,10 +865,12 @@ def lens_select():
     if current_site() == SITE_IN:
         return "Not found", 404
     cursor = get_db().cursor()
-    lens = _released_lens(cursor, request.values.get('product_id'))
+    lens, previewing = _released_or_previewed_lens(
+        cursor, request.values.get('product_id'))
     if not lens:
         return "Product not found", 404
-    return _lens_selection(lens, _lens_choices(cursor, lens))
+    response = _lens_selection(lens, _lens_choices(cursor, lens))
+    return _noindex(response) if previewing else response
 
 
 @bp.route('/contact-lenses/add', methods=['POST'])
@@ -841,7 +885,8 @@ def lens_add_to_cart():
         return "Not found", 404
     db = get_db()
     cursor = db.cursor()
-    lens = _released_lens(cursor, request.form.get('product_id'))
+    lens, _ = _released_or_previewed_lens(cursor,
+                                          request.form.get('product_id'))
     if not lens:
         return "Product not found", 404
     shape = _lens_choices(cursor, lens)
@@ -1423,7 +1468,12 @@ def product_page(category, product_slug):
     # D1 fix: guard for NULL/empty slug — return 404 instead of crashing
     if not expected_slug or expected_slug == 'none':
         return "Product not found", 404
-    expected_category = (product["product_category"] or "spectacles-frame").lower().replace(" ", "-")
+    if is_contact_lens(product):
+        # The path lens_seo publishes; the frame default would 301 a lens
+        # into the spectacles tree.
+        expected_category = "contact-lenses"
+    else:
+        expected_category = (product["product_category"] or "spectacles-frame").lower().replace(" ", "-")
     if product_slug != expected_slug or category != expected_category:
        print('Not Slugified')
        return redirect(
@@ -1443,15 +1493,25 @@ def product_page(category, product_slug):
     lens_jsonld = []
     lens = None
     lens_passport = None
+    lens_previewing = False
     if is_contact_lens(product):
         # One read for every lens fact this page needs — price, matrix, images,
         # SEO — instead of a query per fact from the template.
         lens, lens_passport = lens_view.load_released(
             cursor, product['product_id'], SITE_COM)
+        if not lens and _lens_preview_open(product['product_id']):
+            lens, lens_passport = lens_view.load(
+                cursor, product['product_id'], SITE_COM)
+            if lens and not lens_preview.previewable(lens):
+                lens, lens_passport = None, None
+            lens_previewing = bool(lens)
         if not lens:
             return "Product not found", 404
-        lens_jsonld = lens_view.jsonld(lens, lens.get('matrix'),
-                                       'https://optiwar.com')
+        # A preview shows the markup the release would publish, so the row is
+        # read as if its one blocker, merchant_enabled=0, were lifted.
+        lens_jsonld = lens_view.jsonld(
+            dict(lens, release_blockers=[]) if lens_previewing else lens,
+            lens.get('matrix'), 'https://optiwar.com')
 
     # Log product view
     _host = request.host
@@ -1591,13 +1651,17 @@ def product_page(category, product_slug):
         except Exception:
             pass
 
-    return render_template("product_page.html", product=product,
+    page = render_template("product_page.html", product=product,
                            reviews=reviews, avg_rating=avg_rating, review_count=review_count,
                            inr_disc_pct=_inr_disc_pct, eur_disc_pct=_eur_disc_pct,
                            face_match_status=face_match_status, face_fit_label=face_fit_label,
                            face_decentration=face_decentration, face_meas_data=face_meas_data,
                            lens_jsonld=lens_jsonld, lens=lens,
-                           lens_passport=lens_passport)
+                           lens_passport=lens_passport,
+                           lens_previewing=lens_previewing)
+    if lens_previewing:
+        return _noindex(make_response(page))
+    return page
 
 
 
