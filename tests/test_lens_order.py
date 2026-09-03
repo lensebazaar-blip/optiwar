@@ -457,9 +457,28 @@ class Wiring(unittest.TestCase):
         for posted in ("product_price", "product_special_price"):
             self.assertNotIn("request.form.get('%s'" % posted, body)
 
+    def test_both_buttons_take_the_one_validated_road(self):
+        # "Add to cart" and "Fast checkout" differ only in where the customer
+        # lands after the line is validated and priced; neither has a route.
+        body = self.src.split("def lens_add_to_cart(")[1].split(
+            "\n@bp.route")[0]
+        self.assertEqual(body.count("lens_order.validate_detailed("), 1)
+        after = body.split("lens_order.cart_item(lens, lines)")[1]
+        self.assertIn("request.form.get('intent') == 'cart'", after)
+        self.assertIn("lens_seo.lens_path(lens)", after)
+        self.assertIn("url_for('main.checkout')", after)
+        self.assertNotIn("intent", body.split("lens_order.cart_item")[0])
+
+    def test_a_lens_renders_its_own_page(self):
+        body = self.src.split("def product_page(")[1].split("\n@bp.route")[0]
+        self.assertIn('"product_page_lens.html" if lens else '
+                      '"product_page.html"', body)
+
     def test_the_selection_template_ships_with_the_route(self):
         deploy = _read(os.path.join("deploy", "deploy.py"))
         for path in ("lens_order.py", "templates/lens_select.html",
+                     "templates/product_page_lens.html",
+                     "templates/_product_reviews.html",
                      "templates/_lens_eye_cards.html"):
             self.assertIn('"%s"' % path, deploy)
 
@@ -485,16 +504,28 @@ class Render(unittest.TestCase):
         env.globals["_"] = lambda s: s
         return env
 
-    def _selection(self, **extra):
+    def _selection(self, source=VARIANTS, lens_type=None, **extra):
         context = dict(
-            lens=LENS, options=lens_order.options(VARIANTS),
+            lens=LENS, options=lens_order.options(source, lens_type),
+            fixed=lens_order.fixed_choices(source, lens_type),
             box_price=lens_order.box_price(LENS), errors=[], submitted={},
             eyes=lens_order.EYES, max_boxes=lens_order.MAX_BOXES_PER_EYE,
-            minimums=lens_order.minimums(LENS, "optiwar.com"))
+            minimums={"single": 1, "both": 1})
         context.update(extra)
-        if "lens" in extra:
-            context["lens"] = extra["lens"]
         return context
+
+    def _product_page(self, product, passport, **selection):
+        env = self._env()
+        env.globals["img_has_derivatives"] = lambda path: False
+        env.globals["img_ver"] = lambda path, **kw: path
+        env.globals["image_dimensions"] = lambda path: (600, 600)
+        env.globals["versioned_image_url"] = lambda path, **kw: path
+        return env.get_template("product_page_lens.html").render(
+            product=product, is_india=False, site_url="https://optiwar.com",
+            lens_passport=passport, lens_previewing=True,
+            lens_jsonld=[], reviews=[], avg_rating=0, review_count=0,
+            request=None, session={}, config={},
+            **self._selection(lens=product, **selection))
 
     def _assert_eye_cards(self, html):
         for field in ("right_sph", "right_cyl", "right_axis", "right_boxes",
@@ -506,10 +537,14 @@ class Render(unittest.TestCase):
         self.assertIn("-4.50", html)
         self.assertIn("owLensMatrix", html)
         self.assertIn("/main.lens_add_to_cart", html)
-        # Two cards, each its own eye, each switchable on its own.
-        self.assertEqual(html.count('data-role="include"'), 2)
+        # One question first - which eye - then a card per eye.
+        for which in ("left", "right", "both"):
+            self.assertIn('data-which="%s"' % which, html)
         self.assertIn('data-eye="right"', html)
         self.assertIn('data-eye="left"', html)
+        # Two ways out, both through the same validated route.
+        self.assertIn('name="intent" value="cart"', html)
+        self.assertIn('name="intent" value="checkout"', html)
 
     def test_the_page_offers_both_eyes_and_the_matrix(self):
         html = self._env().get_template("lens_select.html").render(
@@ -517,49 +552,130 @@ class Render(unittest.TestCase):
         self.assertIn("noindex", html)
         self._assert_eye_cards(html)
 
-    def test_the_product_page_carries_the_same_eye_cards(self):
-        # The PDP is the prototype's layout on our data: the eye cards on the
-        # page, the specification table from the row and the matrix summary,
-        # nothing frame-only (stock count, face match) reached for a lens.
+    def test_a_lens_without_a_stated_minimum_is_not_a_form(self):
+        # The stepper starts at the row's minimum. With none stated the page
+        # must not choose one for the customer; it says the lens is not ready.
+        html = self._env().get_template("lens_select.html").render(
+            **self._selection(minimums={"single": 0, "both": 0}))
+        self.assertIn('data-role="blocked"', html)
+        self.assertNotIn("owLensForm", html)
+        self.assertNotIn('name="right_boxes"', html)
+
+    def test_the_boxes_start_at_the_stated_minimum(self):
+        html = self._env().get_template("lens_select.html").render(
+            **self._selection(minimums={"single": 3, "both": 2}))
+        self.assertIn('data-single="3" data-both="2"', html)
+        self.assertEqual(html.count('data-role="boxes" inputmode="numeric"\n'
+                                    '                 value="2"'), 2)
+        self.assertIn("Minimum 3 boxes for one eye, or 2", html)
+
+    def test_a_parameter_made_in_one_value_is_stated_not_asked(self):
+        # MyDay states one base curve and one diameter. The card shows them
+        # as facts and submits the curve; only powers become a selector.
+        html = self._env().get_template("lens_select.html").render(
+            **self._selection(source=MYDAY, lens_type="TORIC"))
+        self.assertIn('type="hidden" name="right_bc" value="8.60"', html)
+        self.assertIn('type="hidden" name="left_bc" value="8.60"', html)
+        self.assertNotIn('<select name="right_bc"', html)
+        self.assertIn("BC 8.6 mm", html)
+        self.assertIn("DIA 14.5 mm", html)
+        self.assertIn('<select name="right_sph"', html)
+        self.assertIn('<select name="right_cyl"', html)
+        # A parameter this lens is not configured on is not a question.
+        self.assertNotIn('<select name="right_add"', html)
+
+    def test_a_parameter_made_in_several_values_is_a_selector(self):
+        source = dict(MYDAY, **_rule_lists(base_curve=["8.40", "8.60"]))
+        html = self._env().get_template("lens_select.html").render(
+            **self._selection(source=source, lens_type="TORIC"))
+        self.assertIn('<select name="right_bc"', html)
+        self.assertIn('value="8.40"', html)
+        self.assertNotIn('type="hidden" name="right_bc"', html)
+
+    def _precision1(self):
         product = dict(
             LENS, product_quantity=None, product_category="Contact Lenses",
-            product_price_eur=45.0, product_special_price_eur=39.9,
+            product_code="CL-PRECISION1", product_name="Precision1 Daily "
+            "Disposable Contact Lenses - 30 Pack", brand="Precision1",
+            product_slug="precision1-daily-disposable-contact-lenses--30-pack",
+            product_price_eur=26.95, product_special_price_eur=15.11,
             product_price=2479, product_special_price=1390,
-            material="comfilcon A", manufacturer="CooperVision",
-            modality="daily", lens_type="toric",
-            product_details="", product_color=None, color_display=None,
-            product_image="a.jpg,b.jpg")
-        passport = {"images": [], "ordering": {"matrix": {
-            "base_curve": {"min": 8.3, "max": 8.3},
-            "diameter": {"min": 14.2, "max": 14.2},
-            "sph": {"min": -12.0, "max": -0.5}}}}
-        env = self._env()
-        env.globals["img_has_derivatives"] = lambda path: False
-        env.globals["img_ver"] = lambda path, **kw: path
-        env.globals["image_dimensions"] = lambda path: (600, 600)
-        env.globals["versioned_image_url"] = lambda path, **kw: path
-        html = env.get_template("product_page.html").render(
-            product=product, is_india=False,
-            lens_passport=passport, lens_previewing=True,
-            lens_jsonld={}, reviews=[], avg_rating=0, review_count=0,
-            inr_disc_pct=44, eur_disc_pct=11, face_match_status=None,
-            face_fit_label=None, face_decentration=None, face_meas_data={},
-            request=None, session={}, config={},
-            **self._selection(lens=product))
-        self._assert_eye_cards(html)
-        self.assertIn("pdp-row--lens", html)
-        self.assertIn("Specifications", html)
-        self.assertIn("8.3", html)
-        self.assertIn("-12.00 to -0.50", html)
-        self.assertIn("comfilcon A", html)
-        self.assertNotIn("In Stock</div>", html)
-        self.assertNotIn("Choose prescription", html)
-        self.assertNotIn("Factory Outlet Price", html)
-        # Nothing the prototype invented: no water figure we do not hold, no
-        # dollar price, no review count.
-        self.assertNotIn("51%", html)
-        self.assertNotIn("$", html.split("<script")[0])
-        self.assertNotIn("1,204", html)
+            material="verofilcon A", manufacturer="Alcon",
+            modality="DAILY", lens_type="SPHERICAL", replacement_days=1,
+            water_content=None, gtin=None, product_details="")
+        passport = {"images": [
+            {"path": "./catalog/contact-lenses/PRECISION1/01_hero.jpg",
+             "alt": "Precision1 carton, front"},
+            {"path": "./catalog/contact-lenses/PRECISION1/03_side.jpg",
+             "alt": "Precision1 carton, side"}],
+            "ordering": {"matrix": {
+                "base_curve": {"min": 8.3, "max": 8.3},
+                "diameter": {"min": 14.2, "max": 14.2},
+                "sph": {"min": -12.0, "max": -0.5}}}}
+        source = _rule_lists(sph=["-0.50", "-1.00", "-12.00"],
+                             base_curve=["8.30"], diameter=["14.20"])
+        return product, passport, source
+
+    def test_the_lens_page_is_the_lens_and_nothing_of_a_frame(self):
+        product, passport, source = self._precision1()
+        html = self._product_page(product, passport, source=source,
+                                  lens_type="SPHERICAL")
+        body = html.split("<style>")[0] + html.split("</style>", 1)[1]
+        # Identity: maker, the commercial name, modality - and the SKU is not
+        # in the title. It is stated once, in the specifications.
+        self.assertIn('<p class="lpdp-maker">Alcon</p>', html)
+        self.assertIn('<h1 class="lpdp-title">Precision1 Daily Disposable '
+                      'Contact Lenses - 30 Pack</h1>', html)
+        self.assertIn("Daily disposable", html)
+        self.assertIn("30 lenses/box", html)
+        self.assertEqual(body.count("CL-PRECISION1"),
+                         body.count('<td class="val">CL-PRECISION1</td>'))
+        # Price: sale per box, list struck through, the real percentage.
+        self.assertIn("&euro;15.11 <small>/ box</small>", html)
+        self.assertIn('<span class="lpdp-price-was">&euro;26.95</span>', html)
+        self.assertIn("44% OFF", html)
+        # Lens Intelligence, from the row and the rules.
+        self.assertIn("Lens Intelligence", html)
+        for fact in ("BC 8.3 mm", "DIA 14.2 mm", "PWR selectable",
+                     "Left · Right · Both", "&euro;15.11 / box",
+                     "verofilcon A"):
+            self.assertIn(fact, html)
+        # BC is submitted, not asked.
+        self.assertIn('type="hidden" name="right_bc" value="8.30"', html)
+        self.assertNotIn('<select name="right_bc"', html)
+        # The six sections, and both photographs.
+        for section in ("Description", "Specifications",
+                        "Ordering &amp; Prescription", "Shipping &amp; Returns",
+                        "Manufacturer Information", "FAQs"):
+            self.assertIn("<summary>%s</summary>" % section, html)
+        self.assertIn("01_hero.jpg", html)
+        self.assertIn("03_side.jpg", html)
+        self.assertIn('id="pdpMain"', html)
+        # Nothing of a frame, nothing invented.
+        for absent in ("Measure your Face", "Face Match", "About This Frame",
+                       "About this frame", "Complimentary", "In Stock</div>",
+                       "Factory Outlet Price", "S / M / L", "owFilterWidget",
+                       "Water content", "51%", "1,204", "30-day",
+                       "Best price", "Vision-tested"):
+            self.assertNotIn(absent, html)
+        self.assertNotIn("$", body)
+        # A spherical lens asks for a power per eye and nothing toric.
+        for field in ("right_sph", "right_boxes", "left_sph", "left_boxes"):
+            self.assertIn('name="%s"' % field, html)
+        self.assertNotIn('name="right_cyl"', html)
+        self.assertNotIn('name="right_axis"', html)
+        for which in ("left", "right", "both"):
+            self.assertIn('data-which="%s"' % which, html)
+        self.assertIn('name="intent" value="cart"', html)
+        self.assertIn('name="intent" value="checkout"', html)
+        self.assertIn("/main.lens_add_to_cart", html)
+
+    def test_the_lens_page_renders_the_owner_preview_as_noindex(self):
+        product, passport, source = self._precision1()
+        html = self._product_page(product, passport, source=source,
+                                  lens_type="SPHERICAL")
+        self.assertIn("noindex", html)
+        self.assertIn("Owner preview", html)
 
 
 if __name__ == "__main__":

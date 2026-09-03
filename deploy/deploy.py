@@ -83,7 +83,8 @@ DEPLOY_SET = ("acr.py", "ai_api.py", "ai_client.py", "catalogue.py", "chat.py",
               "profile.py", "refunds.py", "ops_refunds.py",
               "templates/success.html", "templates/lens_landing.html",
               "templates/lens_select.html", "templates/_lens_eye_cards.html",
-              "templates/product_page.html",
+              "templates/product_page.html", "templates/product_page_lens.html",
+              "templates/_product_reviews.html", "templates/base.html",
               "templates/all_frames.html", "templates/guide_frame_shapes.html")
 
 # Files that do not exist in production yet. Absence is otherwise a block, so
@@ -97,7 +98,9 @@ NEW_IN_RELEASE = ("paid_orders.py", "razorpay_events.py", "rx_powers.py",
                   "lens_seo.py", "lens_order.py", "lens_view.py",
                   "lens_preview.py", "templates/lens_landing.html",
                   "templates/lens_select.html",
-                  "templates/_lens_eye_cards.html")
+                  "templates/_lens_eye_cards.html",
+                  "templates/product_page_lens.html",
+                  "templates/_product_reviews.html")
 
 # Running content that matches no commit but has been read line by line and
 # found safe to replace, keyed by md5. The provenance guard exists to stop a
