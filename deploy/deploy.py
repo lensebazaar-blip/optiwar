@@ -115,6 +115,13 @@ REVIEWED_DRIFT = {
     # is set on the box, so nothing is lost by replacing it.
     "models.py": {"0de7d17b5605a8368e353ffc1ca76026":
                   "hardcoded GOOGLE_MAPS_API_KEY, now read from the environment"},
+    # Reviewed 2026-09-03 against origin/main: the running file is the July
+    # base.html with one live edit, the chat-widget.js cache-bust ?v=14 -> ?v=15
+    # (box mtime 2026-08-06; chat-widget.js itself is byte-identical to the
+    # repo). main carries ?v=16 (#84) and is otherwise ahead (hreflang block,
+    # lens page blocks), so nothing is lost by replacing it.
+    "templates/base.html": {"1ce229470ac8f8ab35de465abe3b91e1":
+                            "chat-widget.js cache-bust v=15, superseded by v=16"},
 }
 
 # Environment names the deployed code reads and production does not set yet.
