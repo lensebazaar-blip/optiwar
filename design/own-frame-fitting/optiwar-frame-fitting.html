@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Frames — Own Frame Fitting (Optiwar.in mockup)</title>
+<style>
+:root{
+  --ow-primary:#6366f1; --ow-purple:#7c3aed;
+  --ow-grad: linear-gradient(120deg,#6366f1,#8b5cf6);
+  --ow-ink:#1e293b; --ow-muted:#64748b; --ow-faint:#94a3b8;
+  --ow-border:#e2e8f0; --ow-hair:#f1f5f9; --ow-bg:#f8f9fc;
+  --ow-green:#059669; --ow-green-bg:#ecfdf5;
+  --ow-amber:#92400e; --ow-amber-bg:#fef3c7;
+  --ow-red:#dc2626; --ow-red-bg:#fef2f2;
+  --ow-blue:#1d4ed8; --ow-blue-bg:#dbeafe;
+  --ow-indigo-bg:#eef2ff;
+  --radius-lg:20px; --radius-md:14px; --radius-sm:10px;
+}
+*{box-sizing:border-box;}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:var(--ow-bg);color:var(--ow-ink);}
+.wrap{max-width:900px;margin:0 auto;padding:0 16px 64px;}
+
+/* ---- dev note banner (mockup only, not part of the shipped component) ---- */
+.devnote{background:#111827;color:#e5e7eb;font-size:12.5px;padding:10px 16px;text-align:center;}
+.devnote b{color:#fbbf24;}
+
+/* ---- minimal brand bar (context only — real header/lens-nav not rebuilt here) ---- */
+.ow-topbar{background:#fff;border-bottom:1px solid var(--ow-border);padding:14px 16px;display:flex;align-items:center;justify-content:space-between;}
+.ow-word{font-weight:800;font-size:18px;letter-spacing:.3px;color:var(--ow-ink);}
+.ow-word small{display:block;font-size:9.5px;font-weight:700;letter-spacing:1.5px;color:var(--ow-faint);text-transform:uppercase;}
+
+/* ---- profile header ---- */
+.ow-profile-head{background:var(--ow-grad);border-radius:0 0 20px 20px;padding:28px 16px 24px;color:#fff;margin-bottom:18px;}
+.ow-profile-head-inner{max-width:900px;margin:0 auto;display:flex;align-items:center;gap:14px;}
+.ow-avatar{width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,.22);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.ow-profile-head h2{margin:0;font-size:18px;font-weight:800;}
+.ow-profile-head span{display:block;font-size:12.5px;color:rgba(255,255,255,.85);}
+
+/* ---- tabs ---- */
+.ow-profile-tabs{display:flex;gap:4px;overflow-x:auto;background:#fff;border:1px solid var(--ow-border);border-radius:14px;padding:5px;margin-bottom:18px;scrollbar-width:none;}
+.ow-profile-tabs::-webkit-scrollbar{display:none;}
+.ow-tab-btn{flex:0 0 auto;display:flex;align-items:center;gap:6px;border:0;background:transparent;color:var(--ow-muted);font-size:13px;font-weight:600;padding:10px 14px;border-radius:10px;cursor:pointer;white-space:nowrap;}
+.ow-tab-btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;}
+.ow-tab-active{background:var(--ow-indigo-bg);color:var(--ow-primary);}
+.ow-tab-btn[disabled]{opacity:.45;cursor:default;}
+
+/* ---- sub-toggle within My Frames ---- */
+.mf-subnav{display:flex;gap:8px;margin-bottom:16px;}
+.mf-subbtn{flex:1;text-align:center;padding:11px;border-radius:12px;border:1.5px solid var(--ow-border);background:#fff;font-size:13.5px;font-weight:700;color:var(--ow-muted);cursor:pointer;}
+.mf-subbtn.on{border-color:var(--ow-primary);color:var(--ow-primary);background:var(--ow-indigo-bg);}
+
+.ow-card{background:#fff;border:1px solid var(--ow-border);border-radius:var(--radius-lg);box-shadow:0 4px 24px rgba(0,0,0,.05);margin-bottom:16px;overflow:hidden;}
+.ow-card-pad{padding:20px;}
+.ow-card-header{display:flex;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid var(--ow-hair);}
+.ow-card-header svg{width:20px;height:20px;stroke:var(--ow-primary);fill:none;stroke-width:2;}
+.ow-card-header h3{margin:0;font-size:15px;font-weight:800;}
+
+/* ---- explainer ---- */
+.mf-explain{background:var(--ow-indigo-bg);border:1px solid #c7d2fe;}
+.mf-explain-pad{padding:18px 20px;}
+.mf-explain h3{margin:0 0 8px;font-size:15.5px;font-weight:800;color:var(--ow-ink);}
+.mf-explain p{margin:0 0 10px;font-size:13px;line-height:1.55;color:#3730a3;}
+.mf-explain-facts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px;}
+.mf-fact{background:#fff;border-radius:10px;padding:10px 12px;text-align:center;}
+.mf-fact strong{display:block;font-size:15px;color:var(--ow-primary);}
+.mf-fact span{font-size:10.5px;color:var(--ow-muted);text-transform:uppercase;letter-spacing:.4px;}
+.mf-liability{margin-top:12px;font-size:12px;color:#78350f;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;display:flex;gap:8px;}
+.mf-liability svg{width:16px;height:16px;flex-shrink:0;stroke:#b45309;fill:none;stroke-width:2;margin-top:1px;}
+
+/* ---- itemized disclosure ---- */
+.mf-disclosure{list-style:none;margin:0 0 14px;padding:0;}
+.mf-disclosure li{position:relative;padding-left:22px;font-size:12.5px;line-height:1.55;color:var(--ow-muted);margin-bottom:9px;}
+.mf-disclosure li:last-child{margin-bottom:0;}
+.mf-disclosure li::before{content:'';position:absolute;left:0;top:6px;width:7px;height:7px;border-radius:50%;background:var(--ow-amber);}
+.mf-disclosure b{color:var(--ow-ink);}
+
+/* ---- frame cards ---- */
+.mf-frames-head{display:flex;align-items:center;justify-content:space-between;margin:20px 0 12px;}
+.mf-frames-head h3{margin:0;font-size:15px;font-weight:800;}
+.mf-frames-head span{font-size:12.5px;color:var(--ow-muted);}
+.mf-frame{background:#fff;border:1.5px solid var(--ow-border);border-radius:var(--radius-md);margin-bottom:14px;overflow:hidden;}
+.mf-frame-head{display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;user-select:none;}
+.mf-frame-num{width:30px;height:30px;border-radius:9px;background:var(--ow-indigo-bg);color:var(--ow-primary);font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.mf-frame-title{flex:1;min-width:0;}
+.mf-frame-title strong{display:block;font-size:13.5px;font-weight:700;}
+.mf-frame-title small{display:block;font-size:11.5px;color:var(--ow-faint);}
+.mf-frame-remove{border:0;background:var(--ow-red-bg);color:var(--ow-red);width:28px;height:28px;border-radius:8px;cursor:pointer;font-size:15px;line-height:1;flex-shrink:0;}
+.mf-chevron{width:18px;height:18px;stroke:var(--ow-faint);fill:none;stroke-width:2;transition:transform .2s;flex-shrink:0;}
+.mf-frame.open .mf-chevron{transform:rotate(180deg);}
+.mf-frame-body{max-height:0;overflow:hidden;transition:max-height .3s ease;}
+.mf-frame.open .mf-frame-body{max-height:2400px;}
+.mf-frame-body-in{padding:4px 16px 18px;border-top:1px solid var(--ow-hair);}
+
+.mf-field{margin-bottom:14px;}
+.mf-field label{display:block;font-size:12px;font-weight:700;color:var(--ow-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.3px;}
+.mf-field textarea,.mf-field input[type=text]{width:100%;border:1px solid var(--ow-border);border-radius:10px;padding:10px 12px;font-size:13.5px;font-family:inherit;color:var(--ow-ink);resize:vertical;min-height:44px;}
+.mf-field textarea:focus,.mf-field input:focus{outline:2px solid var(--ow-primary);outline-offset:1px;border-color:var(--ow-primary);}
+
+.mf-photo{border:2px dashed var(--ow-border);border-radius:12px;padding:16px;text-align:center;background:#fbfbfe;position:relative;}
+.mf-photo.has-img{padding:0;border-style:solid;}
+.mf-photo img{width:100%;max-height:180px;object-fit:cover;display:block;border-radius:10px;}
+.mf-photo-cta{display:flex;flex-direction:column;align-items:center;gap:6px;color:var(--ow-muted);font-size:12.5px;cursor:pointer;}
+.mf-photo-cta svg{width:26px;height:26px;stroke:var(--ow-primary);fill:none;stroke-width:1.6;}
+.mf-photo input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;}
+.mf-photo-note{font-size:11px;color:var(--ow-faint);margin-top:8px;}
+.mf-photo-retake{position:absolute;top:8px;right:8px;background:rgba(17,24,39,.7);color:#fff;font-size:11px;font-weight:600;border:0;border-radius:7px;padding:5px 9px;cursor:pointer;}
+
+.mf-lens-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;}
+.mf-lens-opt{border:1.5px solid var(--ow-border);border-radius:10px;padding:10px;cursor:pointer;text-align:left;background:#fff;position:relative;}
+.mf-lens-opt input{position:absolute;opacity:0;pointer-events:none;}
+.mf-lens-opt strong{display:block;font-size:12.5px;font-weight:700;}
+.mf-lens-opt span{display:block;font-size:11px;color:var(--ow-muted);margin-top:2px;}
+.mf-lens-opt.sel{border-color:var(--ow-primary);background:var(--ow-indigo-bg);}
+.mf-lens-opt.sel strong{color:var(--ow-primary);}
+
+/* ---- real pricing configurator (mirrors models.py add_to_cart_with_lenses) ---- */
+.mf-rx-toprow{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
+.mf-add-toggle{border:0;background:none;color:var(--ow-primary);font-size:12px;font-weight:700;cursor:pointer;padding:0;}
+.mf-add-row{display:none;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;}
+.mf-add-row.on{display:grid;}
+.mf-add-row .mf-eye-fields{grid-template-columns:1fr;}
+.mf-tier{border-radius:10px;padding:9px 12px;font-size:12px;margin-top:10px;display:flex;justify-content:space-between;gap:8px;}
+.mf-tier-ok{background:var(--ow-green-bg);color:var(--ow-green);}
+.mf-tier-surcharge{background:var(--ow-amber-bg);color:var(--ow-amber);}
+.mf-tier b{font-weight:800;}
+.mf-lens-section-title{font-size:11px;font-weight:700;color:var(--ow-faint);text-transform:uppercase;letter-spacing:.4px;margin:14px 0 6px;}
+.mf-lens-section-title:first-child{margin-top:0;}
+.mf-frame-subtotal{display:flex;justify-content:space-between;font-size:13.5px;font-weight:800;border-top:1px solid var(--ow-hair);margin-top:14px;padding-top:10px;}
+.mf-frame-subtotal span:last-child{color:var(--ow-primary);}
+.mf-bundle-note{font-size:11px;color:var(--ow-primary);background:var(--ow-indigo-bg);border-radius:7px;padding:6px 9px;margin-top:8px;display:none;}
+.mf-bundle-note.show{display:block;}
+
+.mf-rx-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.mf-eye{border-radius:10px;padding:10px 12px;}
+.mf-eye--r{border:1px solid #bfdbfe;background:#f0f9ff;}
+.mf-eye--l{border:1px solid #fecdd3;background:#fff1f2;}
+.mf-eye-label{font-weight:800;font-size:11px;letter-spacing:.4px;margin-bottom:8px;display:block;}
+.mf-eye--r .mf-eye-label{color:#2563eb;}
+.mf-eye--l .mf-eye-label{color:#e11d48;}
+.mf-eye-fields{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+.mf-eye-fields label{font-size:9.5px;font-weight:700;color:var(--ow-muted);text-transform:uppercase;display:block;margin-bottom:3px;}
+.mf-eye-fields input,.mf-eye-fields select{width:100%;border:1px solid var(--ow-border);border-radius:7px;padding:6px 7px;font-size:12.5px;background:#fff;}
+.mf-pd{margin-top:10px;}
+.mf-pd label{font-size:9.5px;font-weight:700;color:var(--ow-muted);text-transform:uppercase;display:block;margin-bottom:3px;}
+.mf-pd input{width:100%;border:1px solid var(--ow-border);border-radius:7px;padding:7px 9px;font-size:12.5px;}
+
+.mf-add-frame{width:100%;border:1.5px dashed var(--ow-primary);background:var(--ow-indigo-bg);color:var(--ow-primary);font-weight:700;font-size:13.5px;border-radius:var(--radius-md);padding:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;}
+.mf-add-frame:disabled{opacity:.4;cursor:not-allowed;border-style:solid;border-color:var(--ow-border);background:#fff;color:var(--ow-faint);}
+.mf-add-frame svg{width:16px;height:16px;}
+
+/* ---- address ---- */
+.mf-addr-opt{display:flex;align-items:flex-start;gap:10px;border:1.5px solid var(--ow-border);border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer;}
+.mf-addr-opt.sel{border-color:var(--ow-primary);background:var(--ow-indigo-bg);}
+.mf-addr-opt input{margin-top:3px;accent-color:var(--ow-primary);}
+.mf-addr-opt strong{display:block;font-size:13px;}
+.mf-addr-opt span{font-size:12px;color:var(--ow-muted);}
+
+/* ---- consent ---- */
+.mf-consent{display:flex;gap:10px;align-items:flex-start;background:var(--ow-amber-bg);border:1px solid #fcd34d;border-radius:12px;padding:14px;font-size:12.5px;color:var(--ow-amber);line-height:1.5;}
+.mf-consent input{margin-top:3px;flex-shrink:0;accent-color:var(--ow-amber);}
+.mf-consent a{color:var(--ow-amber);font-weight:700;}
+
+/* ---- summary ---- */
+.mf-summary-row{display:flex;justify-content:space-between;padding:7px 0;font-size:13.5px;color:var(--ow-muted);}
+.mf-summary-row b{color:var(--ow-ink);}
+.mf-summary-total{border-top:1px solid var(--ow-hair);margin-top:8px;padding-top:10px;display:flex;justify-content:space-between;font-size:17px;font-weight:800;}
+.mf-summary-total span:last-child{color:var(--ow-primary);}
+
+.mf-cta{width:100%;background:var(--ow-grad);color:#fff;border:0;border-radius:var(--radius-md);padding:15px;font-size:15px;font-weight:800;cursor:pointer;margin-top:14px;}
+.mf-cta:disabled{opacity:.5;cursor:not-allowed;}
+.mf-cta-note{text-align:center;font-size:11.5px;color:var(--ow-faint);margin-top:8px;}
+
+/* ---- tracker (My Requests) ---- */
+.mf-req{background:#fff;border:1px solid var(--ow-border);border-radius:16px;margin-bottom:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.04);}
+.mf-req-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;cursor:pointer;}
+.mf-req-left{display:flex;align-items:center;gap:12px;}
+.mf-req-icon{width:40px;height:40px;border-radius:10px;background:var(--ow-indigo-bg);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.mf-req-icon svg{width:20px;height:20px;stroke:var(--ow-primary);fill:none;stroke-width:1.6;}
+.mf-req-id{font-size:14.5px;font-weight:700;display:block;}
+.mf-req-date{font-size:11.5px;color:var(--ow-faint);display:block;margin-top:1px;}
+.mf-req-status{font-size:10.5px;font-weight:700;padding:4px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:.3px;}
+.mf-req-body{max-height:0;overflow:hidden;transition:max-height .35s ease;}
+.mf-req.open .mf-req-body{max-height:2000px;}
+.mf-req-body-in{padding:4px 16px 18px;border-top:1px solid var(--ow-hair);}
+
+.mf-track{list-style:none;margin:16px 0;padding:0;}
+.mf-track li{display:flex;gap:12px;padding-bottom:18px;position:relative;}
+.mf-track li:last-child{padding-bottom:0;}
+.mf-track li::before{content:'';position:absolute;left:10px;top:22px;bottom:0;width:2px;background:var(--ow-border);}
+.mf-track li:last-child::before{display:none;}
+.mf-track li.done::before{background:var(--ow-green);}
+.mf-dot{width:21px;height:21px;border-radius:50%;background:#fff;border:2.5px solid var(--ow-border);flex-shrink:0;display:flex;align-items:center;justify-content:center;z-index:1;}
+.mf-track li.done .mf-dot{background:var(--ow-green);border-color:var(--ow-green);}
+.mf-track li.current .mf-dot{border-color:var(--ow-primary);box-shadow:0 0 0 4px var(--ow-indigo-bg);}
+.mf-dot svg{width:11px;height:11px;stroke:#fff;fill:none;stroke-width:3;}
+.mf-track-text strong{display:block;font-size:13px;font-weight:700;color:var(--ow-faint);}
+.mf-track li.done .mf-track-text strong,.mf-track li.current .mf-track-text strong{color:var(--ow-ink);}
+.mf-track-text span{font-size:11.5px;color:var(--ow-faint);}
+
+.mf-req-frames{margin-top:14px;}
+.mf-req-frame{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--ow-hair);}
+.mf-req-frame:last-child{border-bottom:none;}
+.mf-req-frame-img{width:52px;height:52px;border-radius:9px;border:1px solid var(--ow-border);object-fit:cover;flex-shrink:0;background:#f1f5f9;}
+.mf-req-frame-info strong{font-size:12.5px;display:block;}
+.mf-req-frame-info span{font-size:11px;color:var(--ow-muted);}
+
+.mf-awb{background:var(--ow-blue-bg);color:var(--ow-blue);font-size:12px;font-weight:600;border-radius:10px;padding:9px 12px;margin-top:12px;}
+.mf-notify-row{font-size:11.5px;color:var(--ow-primary);background:var(--ow-indigo-bg);border-radius:8px;padding:7px 10px;margin:12px 0;display:inline-flex;align-items:center;gap:5px;}
+.mf-billing-box{background:var(--ow-amber-bg);border:1px solid #fcd34d;border-radius:10px;padding:12px;margin-top:8px;}
+.mf-billing-box .mf-summary-row{padding:5px 0;font-size:12.5px;color:#78350f;}
+.mf-billing-box .mf-summary-row b{color:#78350f;}
+.mf-billing-box .mf-summary-total{font-size:14px;border-top-color:#fcd34d;}
+.mf-billing-box .mf-summary-total span:last-child{color:#92400e;}
+.mf-billing-cta{width:100%;background:#f59e0b;color:#fff;border:0;border-radius:9px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;margin-top:10px;}
+
+@media (max-width:520px){
+  .mf-explain-facts{grid-template-columns:1fr;}
+  .mf-rx-grid{grid-template-columns:1fr;}
+  .mf-lens-grid{grid-template-columns:repeat(2,1fr);}
+}
+</style>
+</head>
+<body>
+
+<div class="devnote">Design mockup for <b>optiwar.in</b> — "My Own Frame Fittings". Not the real header/lens-nav; scoped to the new profile tab's content. Placeholder pricing marked below.</div>
+
+<div class="ow-topbar">
+  <div class="ow-word">OPTIWAR<small>Factory Outlet Opticals</small></div>
+</div>
+
+<div class="ow-profile-head">
+  <div class="ow-profile-head-inner">
+    <div class="ow-avatar">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    </div>
+    <div>
+      <h2>Sudhanshu Bhasin</h2>
+      <span>lensebazaar@gmail.com</span>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <div class="ow-profile-tabs">
+    <button class="ow-tab-btn" disabled>
+      <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span>Account</span>
+    </button>
+    <button class="ow-tab-btn" disabled>
+      <svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg><span>Addresses</span>
+    </button>
+    <button class="ow-tab-btn" disabled>
+      <svg viewBox="0 0 24 24"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg><span>Orders</span>
+    </button>
+    <button class="ow-tab-btn ow-tab-active">
+      <svg viewBox="0 0 24 24"><path d="M2 12h5l1.5-3h7L17 12h5"/><path d="M7 12a5 5 0 0 0 10 0"/></svg><span>My Frames</span>
+    </button>
+    <button class="ow-tab-btn" disabled>
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="5"/><path d="M3 21c0-4.97 4.03-9 9-9s9 4.03 9 9"/></svg><span>My Face</span>
+    </button>
+  </div>
+
+  <div class="mf-subnav">
+    <button class="mf-subbtn on" id="subNewBtn" onclick="mfShowSub('new')">New Request</button>
+    <button class="mf-subbtn" id="subTrackBtn" onclick="mfShowSub('track')">My Requests <span id="reqCountBadge"></span></button>
+  </div>
+
+  <!-- ================= NEW REQUEST ================= -->
+  <div id="mfNew">
+
+    <div class="ow-card mf-explain">
+      <div class="mf-explain-pad">
+        <h3>Bring your own frame — we fit the lenses</h3>
+        <p>Already have a frame you love? Send it in and choose prescription lenses for it, just like a new pair — up to 5 frames per request.</p>
+        <div class="mf-explain-facts">
+          <div class="mf-fact"><strong>₹500</strong><span>Pickup + return</span></div>
+          <div class="mf-fact"><strong>Up to 5</strong><span>Frames per request</span></div>
+          <div class="mf-fact"><strong>~7–10 days</strong><span>Turnaround est.</span></div>
+        </div>
+        <div class="mf-liability">
+          <svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+          <span>Your frame travels at your risk, and pricing here is an estimate — final pickup and lens charges are confirmed once your package is weighed and inspected. Full details in "Before you submit" below.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="mf-frames-head">
+      <h3>Your frames</h3>
+      <span id="frameCountLabel">1 of 5</span>
+    </div>
+
+    <div id="frameList"></div>
+
+    <button class="mf-add-frame" id="addFrameBtn" onclick="mfAddFrame()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Add another frame
+    </button>
+
+    <div class="ow-card" style="margin-top:20px;">
+      <div class="ow-card-header">
+        <svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        <h3>Pickup address</h3>
+      </div>
+      <div class="ow-card-pad">
+        <label class="mf-addr-opt sel">
+          <input type="radio" name="addr" checked>
+          <span><strong>Home</strong><br><span>Sudhanshu Bhasin, 118 MG Road, Bengaluru, KA 560001</span></span>
+        </label>
+        <label class="mf-addr-opt">
+          <input type="radio" name="addr">
+          <span><strong>Office</strong><br><span>Sudhanshu Bhasin, WeWork Galaxy, Residency Rd, Bengaluru, KA 560025</span></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="ow-card">
+      <div class="ow-card-header">
+        <svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+        <h3>Before you submit</h3>
+      </div>
+      <div class="ow-card-pad">
+        <ul class="mf-disclosure">
+          <li>Your frame travels at your risk — Optiwar is not liable for loss of or damage to it during pickup, transit, fitting, or return delivery.</li>
+          <li>Reverse pickup covers up to <b id="baseWeightLabel">500g</b> per request; once your package is weighed on receipt, every extra 500g (or part of it) adds <b id="rateExcessLabel">₹200</b> — confirmed only after pickup, never guessed at submission.</li>
+          <li>The lens type and price you chose per frame above is an estimate; the final charge is confirmed after inspection and may differ.</li>
+          <li>If the confirmed pickup weight or lens charges come to more than this estimate, the additional amount is billed separately and <b>must be settled before your frame is sent to the lab</b> for fitting.</li>
+          <li>You'll be notified by <b>Email, WhatsApp and SMS</b> at every step, from pickup to delivery.</li>
+        </ul>
+        <label class="mf-consent">
+          <input type="checkbox" id="consentBox" onchange="mfUpdateCta()">
+          <span>I have read and agree to all of the above, and to Optiwar's <a href="/terms_and_conditions">Terms &amp; Conditions</a>.</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="ow-card">
+      <div class="ow-card-header">
+        <svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        <h3>Order summary</h3>
+      </div>
+      <div class="ow-card-pad">
+        <div class="mf-summary-row"><span>Reverse pickup + return delivery <small style="color:var(--ow-faint);">(up to 500g)</small></span><b id="pickupFeeLabel">₹500.00</b></div>
+        <div id="summaryLensLines"></div>
+        <div class="mf-summary-total"><span>Estimated total — due now</span><span id="summaryTotal">₹500.00</span></div>
+        <button class="mf-cta" id="submitCta" onclick="mfSubmitRequest()" disabled>Proceed to payment</button>
+        <p class="mf-cta-note">This is an estimate. Once your frame(s) arrive, weight and final lens pricing are confirmed — any additional amount is billed separately and must be settled before your frame goes to the lab.</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ================= MY REQUESTS (tracker) ================= -->
+  <div id="mfTrack" style="display:none;"></div>
+
+</div>
+
+<template id="frameTpl">
+  <div class="mf-frame open" data-frame>
+    <div class="mf-frame-head" data-toggle>
+      <div class="mf-frame-num" data-num>1</div>
+      <div class="mf-frame-title">
+        <strong data-title>Frame 1</strong>
+        <small data-subtitle>Add a photo and description to continue</small>
+      </div>
+      <button class="mf-frame-remove" data-remove onclick="event.stopPropagation()" title="Remove frame">✕</button>
+      <svg class="mf-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div class="mf-frame-body">
+      <div class="mf-frame-body-in">
+
+        <div class="mf-field">
+          <label>Frame label</label>
+          <input type="text" placeholder="e.g. My Rayban Specs" data-label oninput="mfSyncTitle(this)">
+        </div>
+
+        <div class="mf-field">
+          <label>Photo — for labelling this frame</label>
+          <div class="mf-photo" data-photo>
+            <label class="mf-photo-cta">
+              <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+              <span>Tap to take or upload a photo</span>
+              <input type="file" accept="image/*" capture="environment" data-file>
+            </label>
+          </div>
+          <p class="mf-photo-note">Required so we can tell your frames apart — not used to assess fit or condition.</p>
+        </div>
+
+        <div class="mf-field">
+          <label>Description</label>
+          <textarea rows="2" placeholder="e.g. Black Ray-Ban wayfarer, size M, slight scratch on left temple" data-desc oninput="mfSyncSubtitle(this)"></textarea>
+        </div>
+
+        <div class="mf-field">
+          <div class="mf-rx-toprow">
+            <label style="margin:0;">Prescription</label>
+            <button type="button" class="mf-add-toggle" data-addtoggle>+ Add ADD Power</button>
+          </div>
+          <div class="mf-rx-grid">
+            <div class="mf-eye mf-eye--r">
+              <span class="mf-eye-label">RIGHT EYE (OD)</span>
+              <div class="mf-eye-fields">
+                <div><label>PWR</label><input type="text" placeholder="-2.00" data-pwr data-eye="right" oninput="mfRecalc(this)"></div>
+                <div><label>CYL</label><input type="text" placeholder="-0.50" data-cyl data-eye="right" oninput="mfRecalc(this)"></div>
+                <div><label>AXIS</label><input type="text" placeholder="180"></div>
+              </div>
+              <div class="mf-add-row" data-addrow>
+                <div class="mf-eye-fields"><div><label>ADD</label><input type="text" placeholder="+1.25" data-add data-eye="right" oninput="mfRecalc(this)"></div></div>
+              </div>
+            </div>
+            <div class="mf-eye mf-eye--l">
+              <span class="mf-eye-label">LEFT EYE (OS)</span>
+              <div class="mf-eye-fields">
+                <div><label>PWR</label><input type="text" placeholder="-1.75" data-pwr data-eye="left" oninput="mfRecalc(this)"></div>
+                <div><label>CYL</label><input type="text" placeholder="-0.25" data-cyl data-eye="left" oninput="mfRecalc(this)"></div>
+                <div><label>AXIS</label><input type="text" placeholder="170"></div>
+              </div>
+              <div class="mf-add-row" data-addrow>
+                <div class="mf-eye-fields"><div><label>ADD</label><input type="text" placeholder="+1.25" data-add data-eye="left" oninput="mfRecalc(this)"></div></div>
+              </div>
+            </div>
+          </div>
+          <div class="mf-pd"><label>Pupillary distance (PD, mm)</label><input type="text" placeholder="e.g. 62 — see PD measurement guide"></div>
+          <div class="mf-tier mf-tier-ok" data-tier>
+            <span data-tier-label>Standard single-vision</span><b data-tier-price>Complimentary</b>
+          </div>
+        </div>
+
+        <div class="mf-field">
+          <div class="mf-lens-section-title">Lens options — optional upgrades</div>
+
+          <div class="mf-lens-section-title" style="margin-top:0;font-size:10px;">Coating</div>
+          <div class="mf-lens-grid" data-addongrid="coating">
+            <label class="mf-lens-opt" data-code="arc01" data-price="50"><input type="radio" name="coating"><strong>Anti-Reflection</strong><span>₹50</span></label>
+            <label class="mf-lens-opt" data-code="bcm02" data-price="100"><input type="radio" name="coating"><strong>Blue Anti-Glare</strong><span>₹100</span></label>
+            <label class="mf-lens-opt" data-code="arcmat03" data-price="200"><input type="radio" name="coating"><strong>Multi-Coated AG</strong><span>₹200</span></label>
+          </div>
+
+          <div class="mf-lens-section-title">Thickness</div>
+          <div class="mf-lens-grid" data-addongrid="thickness">
+            <label class="mf-lens-opt" data-code="opsix1" data-price="100"><input type="radio" name="thickness"><strong>Thin</strong><span>₹100</span></label>
+            <label class="mf-lens-opt" data-code="ops672" data-price="350"><input type="radio" name="thickness"><strong>Ultra-Thin</strong><span>₹350</span></label>
+            <label class="mf-lens-opt" data-code="pcgreystyle" data-price="350"><input type="radio" name="thickness"><strong>Photochromic Grey</strong><span>₹350*</span></label>
+            <label class="mf-lens-opt" data-code="pcbostyle" data-price="650"><input type="radio" name="thickness"><strong>Photochromic Brown</strong><span>₹650*</span></label>
+          </div>
+
+          <div class="mf-lens-section-title">Bifocal / Progressive style</div>
+          <div class="mf-lens-grid" data-addongrid="bifocal">
+            <label class="mf-lens-opt" data-code="crkt" data-price="250"><input type="radio" name="bifocal"><strong>Biofocal KT</strong><span>₹250</span></label>
+            <label class="mf-lens-opt" data-code="crd" data-price="500"><input type="radio" name="bifocal"><strong>Biofocal D Flat-Top</strong><span>₹500</span></label>
+            <label class="mf-lens-opt" data-code="prog01" data-price="1000"><input type="radio" name="bifocal"><strong>Progressive</strong><span>₹1000</span></label>
+          </div>
+          <div class="mf-bundle-note" data-bundlenote>Bundle pricing applied — coating &amp; thickness are discounted when a bifocal/progressive style is chosen, per Optiwar's live pricing config.*</div>
+
+          <div class="mf-frame-subtotal"><span>Lens subtotal for this frame</span><span data-framesubtotal>₹0.00</span></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+const MAX_FRAMES = 5;
+// Pricing knobs — shown here as constants for the mockup; in the real build
+// these must come from an admin-editable settings row, not be hardcoded.
+const PICKUP_BASE_FEE = 500;    // admin-editable
+const BASE_WEIGHT_G = 500;      // grams included in the base fee, admin-editable
+const EXCESS_SURCHARGE = 200;   // admin-editable, charged per extra 500g (or part) over BASE_WEIGHT_G
+let frameCount = 0;
+
+// Mirrors models.py add_to_cart_with_lenses / get_addon_price_map (optiwar repo,
+// main @ b980aa9). Thresholds (≥8.00D power, ≥2.00/>4.00D cyl) are the real
+// server logic; the addon fallback prices below are the code's own defaults —
+// the live numbers come from an admin JSON on the box (lens_pricing.json) this
+// mockup has no access to. BUNDLE_ADDON_PRICES is a *placeholder* standing in
+// for the real "when_bifocal"/"when_progressive" price-context override the
+// screenshots show — flagged with * everywhere it's used.
+const DEFAULT_ADDON_PRICES = {
+  arc01: 50, bcm02: 100, arcmat03: 200,
+  opsix1: 100, ops672: 350, pcgreystyle: 350, pcbostyle: 650,
+  crkt: 250, crd: 500, prog01: 1000
+};
+const BUNDLE_ADDON_PRICES = { // placeholder only — real values live in lens_pricing.json
+  arc01: 0, bcm02: 50, arcmat03: 100, opsix1: 0, ops672: 150, pcgreystyle: 150, pcbostyle: 300
+};
+
+function mfShowSub(which){
+  document.getElementById('mfNew').style.display = which === 'new' ? '' : 'none';
+  document.getElementById('mfTrack').style.display = which === 'track' ? '' : 'none';
+  document.getElementById('subNewBtn').classList.toggle('on', which === 'new');
+  document.getElementById('subTrackBtn').classList.toggle('on', which === 'track');
+}
+
+function mfAddFrame(){
+  if (frameCount >= MAX_FRAMES) return;
+  frameCount++;
+  const tpl = document.getElementById('frameTpl');
+  const node = tpl.content.cloneNode(true);
+  const el = node.querySelector('[data-frame]');
+  el.querySelector('[data-num]').textContent = frameCount;
+  el.querySelector('[data-title]').textContent = 'Frame ' + frameCount;
+
+  el.querySelector('[data-toggle]').addEventListener('click', () => el.classList.toggle('open'));
+  el.querySelector('[data-remove]').addEventListener('click', () => { el.remove(); mfRenumber(); mfUpdateSummary(); });
+
+  el.querySelectorAll('[data-addongrid]').forEach(grid => {
+    grid.querySelectorAll('.mf-lens-opt').forEach(opt => {
+      opt.addEventListener('click', () => {
+        const already = opt.classList.contains('sel');
+        grid.querySelectorAll('.mf-lens-opt').forEach(o => { o.classList.remove('sel'); o.querySelector('input').checked = false; });
+        if (!already) { opt.classList.add('sel'); opt.querySelector('input').checked = true; }
+        mfRecalcFrame(el);
+      });
+    });
+  });
+
+  el.querySelector('[data-addtoggle]').addEventListener('click', function () {
+    const rows = el.querySelectorAll('[data-addrow]');
+    const nowOn = !rows[0].classList.contains('on');
+    rows.forEach(r => r.classList.toggle('on', nowOn));
+    this.textContent = nowOn ? '− Remove ADD Power' : '+ Add ADD Power';
+    if (!nowOn) { el.querySelectorAll('[data-add]').forEach(i => { i.value = ''; }); }
+    mfRecalcFrame(el);
+  });
+
+  const fileInput = el.querySelector('[data-file]');
+  fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const photoBox = el.querySelector('[data-photo]');
+      photoBox.classList.add('has-img');
+      photoBox.innerHTML = '<img src="' + ev.target.result + '" alt="Frame photo">' +
+        '<button type="button" class="mf-photo-retake">Retake</button>';
+      photoBox.querySelector('.mf-photo-retake').addEventListener('click', () => location.reload());
+    };
+    reader.readAsDataURL(file);
+  });
+
+  document.getElementById('frameList').appendChild(node);
+  mfUpdateCount();
+  mfRecalcFrame(el);
+}
+
+function mfRenumber(){
+  const frames = document.querySelectorAll('#frameList [data-frame]');
+  frameCount = frames.length;
+  frames.forEach((el, i) => {
+    el.querySelector('[data-num]').textContent = i + 1;
+    if (!el.querySelector('[data-label]').value.trim()) {
+      el.querySelector('[data-title]').textContent = 'Frame ' + (i + 1);
+    }
+  });
+  mfUpdateCount();
+}
+
+function mfSyncTitle(input){
+  const frame = input.closest('[data-frame]');
+  const num = frame.querySelector('[data-num]').textContent;
+  frame.querySelector('[data-title]').textContent = input.value.trim() || ('Frame ' + num);
+  mfUpdateSummary();
+}
+
+function mfUpdateCount(){
+  document.getElementById('frameCountLabel').textContent = frameCount + ' of ' + MAX_FRAMES;
+  document.getElementById('addFrameBtn').disabled = frameCount >= MAX_FRAMES;
+}
+
+function mfSyncSubtitle(textarea){
+  const frame = textarea.closest('[data-frame]');
+  const sub = frame.querySelector('[data-subtitle]');
+  sub.textContent = textarea.value.trim() ? textarea.value.trim().slice(0, 46) + (textarea.value.length > 46 ? '…' : '') : 'Add a photo and description to continue';
+  mfUpdateSummary();
+}
+
+// ---- real pricing configurator, mirrored from models.py (see comment above) ----
+function mfRecalc(input){
+  mfRecalcFrame(input.closest('[data-frame]'));
+}
+
+function mfRecalcFrame(frameEl){
+  const bundleActive = !!frameEl.querySelector('[data-addongrid="bifocal"] .sel');
+  mfApplyAddonPrices(frameEl, bundleActive);
+  mfCalcFrame(frameEl);
+  mfUpdateSummary();
+}
+
+function mfApplyAddonPrices(frameEl, bundleActive){
+  ['coating', 'thickness'].forEach(cat => {
+    frameEl.querySelectorAll('[data-addongrid="' + cat + '"] .mf-lens-opt').forEach(opt => {
+      const code = opt.getAttribute('data-code');
+      const base = Number(opt.getAttribute('data-price'));
+      const swapped = bundleActive && BUNDLE_ADDON_PRICES[code] != null;
+      const price = swapped ? BUNDLE_ADDON_PRICES[code] : base;
+      // '*' flags a number this mockup can't verify: the placeholder bundle
+      // swap, or the photochromic prices (also placeholders — see report).
+      const star = swapped || code.indexOf('pc') === 0;
+      opt.querySelector('span').textContent = '₹' + price.toFixed(2) + (star ? '*' : '');
+    });
+  });
+  frameEl.querySelector('[data-bundlenote]').classList.toggle('show', bundleActive);
+}
+
+function mfCalcFrame(frameEl){
+  const num = v => parseFloat(v) || 0;
+  const pwrR = num(frameEl.querySelector('[data-pwr][data-eye="right"]').value);
+  const pwrL = num(frameEl.querySelector('[data-pwr][data-eye="left"]').value);
+  const cylR = num(frameEl.querySelector('[data-cyl][data-eye="right"]').value);
+  const cylL = num(frameEl.querySelector('[data-cyl][data-eye="left"]').value);
+  const addR = num(frameEl.querySelector('[data-add][data-eye="right"]').value);
+  const addL = num(frameEl.querySelector('[data-add][data-eye="left"]').value);
+  const addOn = frameEl.querySelector('[data-addrow]').classList.contains('on');
+
+  let tierLabel, tierPrice, tierClass;
+  if (addOn && (addR || addL)) {
+    tierLabel = 'Progressive/bifocal base'; tierPrice = 0; tierClass = 'mf-tier-ok';
+  } else {
+    const highestPwr = Math.max(Math.abs(pwrR), Math.abs(pwrL));
+    if (highestPwr >= 8) { tierLabel = 'High Power Surcharge (≥ 8.00 D)'; tierPrice = 400; tierClass = 'mf-tier-surcharge'; }
+    else { tierLabel = 'Standard single-vision'; tierPrice = 0; tierClass = 'mf-tier-ok'; }
+  }
+
+  const highestCyl = Math.max(Math.abs(cylR), Math.abs(cylL));
+  let cylPrice = 0, cylLabel = '';
+  if (highestCyl > 4) { cylPrice = 1000; cylLabel = ' + Cylinder Adjustment (CYL > 4.00)'; tierClass = 'mf-tier-surcharge'; }
+  else if (highestCyl >= 2) { cylPrice = 400; cylLabel = ' + Cylinder Adjustment (CYL ≥ 2.00)'; tierClass = 'mf-tier-surcharge'; }
+
+  let addonTotal = 0;
+  ['coating', 'thickness', 'bifocal'].forEach(cat => {
+    const sel = frameEl.querySelector('[data-addongrid="' + cat + '"] .sel');
+    if (sel) { addonTotal += Number(sel.querySelector('span').textContent.replace(/[^\d.]/g, '')); }
+  });
+
+  const total = tierPrice + cylPrice + addonTotal;
+
+  const tierEl = frameEl.querySelector('[data-tier]');
+  tierEl.className = 'mf-tier ' + tierClass;
+  frameEl.querySelector('[data-tier-label]').textContent = tierLabel + cylLabel;
+  frameEl.querySelector('[data-tier-price]').textContent = (tierPrice + cylPrice) > 0 ? ('+₹' + (tierPrice + cylPrice).toFixed(2)) : 'Complimentary';
+  frameEl.querySelector('[data-framesubtotal]').textContent = '₹' + total.toFixed(2);
+
+  return total;
+}
+
+function mfUpdateSummary(){
+  const lines = document.getElementById('summaryLensLines');
+  lines.innerHTML = '';
+  let lensTotal = 0;
+  document.querySelectorAll('#frameList [data-frame]').forEach((el, i) => {
+    const subtotal = mfCalcFrame(el);
+    if (subtotal > 0) {
+      const label = el.querySelector('[data-label]').value.trim() || ('Frame ' + (i + 1));
+      const row = document.createElement('div');
+      row.className = 'mf-summary-row';
+      row.innerHTML = '<span>' + label + ' — lens options</span><b>₹' + subtotal.toFixed(2) + '</b>';
+      lines.appendChild(row);
+    }
+    lensTotal += subtotal;
+  });
+  document.getElementById('summaryTotal').textContent = '₹' + (PICKUP_BASE_FEE + lensTotal).toFixed(2);
+  mfUpdateCta();
+}
+
+function mfUpdateCta(){
+  const consent = document.getElementById('consentBox').checked;
+  const hasFrame = frameCount > 0;
+  document.getElementById('submitCta').disabled = !(consent && hasFrame);
+}
+
+function mfSubmitRequest(){
+  mfShowSub('track');
+  document.getElementById('reqCountBadge').textContent = '';
+  const req = document.querySelector('.mf-req[data-demo]');
+  if (req) req.style.display = '';
+  alert('Mockup only — this is where checkout/payment would open.');
+}
+
+// seed first frame + one example tracked request
+mfAddFrame();
+document.getElementById('pickupFeeLabel').textContent = '₹' + PICKUP_BASE_FEE.toFixed(2);
+document.getElementById('rateExcessLabel').textContent = '₹' + EXCESS_SURCHARGE.toFixed(2);
+document.getElementById('baseWeightLabel').textContent = BASE_WEIGHT_G + 'g';
+
+document.getElementById('mfTrack').innerHTML = `
+  <div class="mf-req open" data-demo>
+    <div class="mf-req-head" onclick="this.closest('.mf-req').classList.toggle('open')">
+      <div class="mf-req-left">
+        <div class="mf-req-icon"><svg viewBox="0 0 24 24"><path d="M2 12h5l1.5-3h7L17 12h5"/><path d="M7 12a5 5 0 0 0 10 0"/></svg></div>
+        <div>
+          <span class="mf-req-id">Request #OF-10234</span>
+          <span class="mf-req-date">Submitted 2 Sep 2026 · 2 frames</span>
+        </div>
+      </div>
+      <span class="mf-req-status" style="background:var(--ow-amber-bg);color:var(--ow-amber);">Action needed</span>
+    </div>
+    <div class="mf-req-body">
+      <div class="mf-req-body-in">
+        <div class="mf-notify-row">🔔 Notified by Email · WhatsApp · SMS at every step below</div>
+        <ul class="mf-track">
+          <li class="done"><div class="mf-dot"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div><div class="mf-track-text"><strong>Payment Confirmed</strong><span>2 Sep, 6:42 PM — ₹500.00 estimate</span></div></li>
+          <li class="done"><div class="mf-dot"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div><div class="mf-track-text"><strong>Pickup Scheduled</strong><span>3 Sep, courier booked for 10 AM – 1 PM</span></div></li>
+          <li class="done"><div class="mf-dot"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div><div class="mf-track-text"><strong>Picked Up</strong><span>4 Sep, 11:20 AM — AWB OW7734120</span></div></li>
+          <li class="done"><div class="mf-dot"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div><div class="mf-track-text"><strong>Received &amp; Weighed</strong><span>6 Sep — package weighed 1.1 kg</span></div></li>
+          <li class="current">
+            <div class="mf-dot"></div>
+            <div class="mf-track-text" style="flex:1;">
+              <strong>Additional Billing</strong>
+              <span>Package came in over the base allowance, and one lens price needed correcting — settle this to send your frames to the lab.</span>
+              <div class="mf-billing-box">
+                <div class="mf-summary-row"><span>Excess weight — 1.1 kg vs 500g base (2 × 500g over)</span><b>₹400.00</b></div>
+                <div class="mf-summary-row"><span>Lens price correction — Tortoiseshell round (Photochromic)</span><b>₹150.00</b></div>
+                <div class="mf-summary-total"><span>Additional amount due</span><span>₹550.00</span></div>
+                <button class="mf-billing-cta">Pay ₹550.00 to continue</button>
+              </div>
+            </div>
+          </li>
+          <li><div class="mf-dot"></div><div class="mf-track-text"><strong>Measuring</strong><span>Starts once billing is settled</span></div></li>
+          <li><div class="mf-dot"></div><div class="mf-track-text"><strong>Fitting</strong><span>Pending</span></div></li>
+          <li><div class="mf-dot"></div><div class="mf-track-text"><strong>Shipped Back</strong><span>Pending</span></div></li>
+          <li><div class="mf-dot"></div><div class="mf-track-text"><strong>Delivered</strong><span>Pending</span></div></li>
+        </ul>
+        <div class="mf-req-frames">
+          <div class="mf-req-frame">
+            <div class="mf-req-frame-img"></div>
+            <div class="mf-req-frame-info"><strong>My Rayban Specs — Black Ray-Ban wayfarer</strong><span>Blue Cut · OD -2.00/-0.50x180 · OS -1.75/-0.25x170</span></div>
+          </div>
+          <div class="mf-req-frame">
+            <div class="mf-req-frame-img"></div>
+            <div class="mf-req-frame-info"><strong>Tortoiseshell round, size S</strong><span>Photochromic · OD -1.50 · OS -1.25</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+`;
+document.querySelector('.mf-req[data-demo]').style.display = 'none';
+</script>
+</body>
+</html>
