@@ -537,14 +537,21 @@ class Render(unittest.TestCase):
         self.assertIn("-4.50", html)
         self.assertIn("owLensMatrix", html)
         self.assertIn("/main.lens_add_to_cart", html)
-        # One question first - which eye - then a card per eye.
-        for which in ("left", "right", "both"):
-            self.assertIn('data-which="%s"' % which, html)
+        # Two cards, always both on the page, each with its own include box.
         self.assertIn('data-eye="right"', html)
         self.assertIn('data-eye="left"', html)
-        # Two ways out, both through the same validated route.
+        self.assertIn('name="right_include"', html)
+        self.assertIn('name="left_include"', html)
+        self.assertNotIn("ow-rx-which", html)
+        self.assertNotIn("data-which", html)
+        # Two ways out, both through the same validated route - and both
+        # again in the mobile bar.
         self.assertIn('name="intent" value="cart"', html)
         self.assertIn('name="intent" value="checkout"', html)
+        bar = html[html.index('id="owLensBar"'):]
+        bar = bar[:bar.index("</div>\n\n")]
+        self.assertIn('form="owLensForm" name="intent" value="cart"', bar)
+        self.assertIn('form="owLensForm" name="intent" value="checkout"', bar)
 
     def test_the_page_offers_both_eyes_and_the_matrix(self):
         html = self._env().get_template("lens_select.html").render(
@@ -634,11 +641,11 @@ class Render(unittest.TestCase):
         self.assertIn("&euro;15.11 <small>/ box</small>", html)
         self.assertIn('<span class="lpdp-price-was">&euro;26.95</span>', html)
         self.assertIn("44% OFF", html)
-        # Lens Intelligence, from the row and the rules.
-        self.assertIn("Lens Intelligence", html)
-        for fact in ("BC 8.3 mm", "DIA 14.2 mm", "PWR selectable",
-                     "Left · Right · Both", "&euro;15.11 / box",
-                     "verofilcon A"):
+        # The facts are stated once, in the cards and the specifications;
+        # there is no second spec block between the buy action and details.
+        self.assertNotIn("Lens Intelligence", html)
+        self.assertNotIn("lpdp-intel", html)
+        for fact in ("BC 8.3 mm", "DIA 14.2 mm", "verofilcon A"):
             self.assertIn(fact, html)
         # BC is submitted, not asked.
         self.assertIn('type="hidden" name="right_bc" value="8.30"', html)
@@ -664,8 +671,9 @@ class Render(unittest.TestCase):
             self.assertIn('name="%s"' % field, html)
         self.assertNotIn('name="right_cyl"', html)
         self.assertNotIn('name="right_axis"', html)
-        for which in ("left", "right", "both"):
-            self.assertIn('data-which="%s"' % which, html)
+        self.assertIn('name="right_include"', html)
+        self.assertIn('name="left_include"', html)
+        self.assertNotIn("data-which", html)
         self.assertIn('name="intent" value="cart"', html)
         self.assertIn('name="intent" value="checkout"', html)
         self.assertIn("/main.lens_add_to_cart", html)
