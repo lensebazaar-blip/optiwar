@@ -599,6 +599,7 @@
 </nav>
 
 <!-- ═══ STICKY FILTER BAR ═══ -->
+{% block frame_filter_bar %}
 <div id="owFilterWidget" class="ow-filter-bar" style="display:none;">
   <div class="ow-filter-bar-inner">
     <button class="ow-fb-toggle" id="owFilterBtn" aria-label="Filter">
@@ -625,6 +626,7 @@
     </div>
   </div>
 </div>
+{% endblock %}
 
 <!-- ═══ SHAPES POPUP ═══ -->
 <div id="owShapesPopup" class="ow-shapes-overlay" style="display:none;">
@@ -754,7 +756,7 @@
 			<!-- Col 1: About Us -->
 			<div class="ow-footer-col">
 				<h3 class="ow-footer-heading">{{ _('About Optiwar') }}</h3>
-				<p class="ow-footer-text">{% if is_india %}India's factory outlet eyewear platform. Every spectacle frame includes complimentary prescription lenses &mdash; just pick your frame and we handle the rest. Upgrades like anti-glare, blue-cut and progressive lenses available as affordable add-ons.{% else %}Global factory outlet eyewear platform. Every spectacle frame includes complimentary prescription lenses &mdash; just pick your frame and we handle the rest. Upgrades like anti-glare, blue-cut and progressive lenses available as affordable add-ons.{% endif %}</p>
+				{% block footer_about %}<p class="ow-footer-text">{% if is_india %}India's factory outlet eyewear platform. Every spectacle frame includes complimentary prescription lenses &mdash; just pick your frame and we handle the rest. Upgrades like anti-glare, blue-cut and progressive lenses available as affordable add-ons.{% else %}Global factory outlet eyewear platform. Every spectacle frame includes complimentary prescription lenses &mdash; just pick your frame and we handle the rest. Upgrades like anti-glare, blue-cut and progressive lenses available as affordable add-ons.{% endif %}</p>{% endblock %}
 				<p class="ow-footer-text" style="margin-top:8px;">{% if is_india %}<strong>Free shipping</strong> across India. Prices include GST.{% else %}<strong>Free shipping</strong> worldwide. All taxes included.{% endif %}</p>
 				<div class="ow-footer-social">
 					<a href="https://www.instagram.com/optiwar_" target="_blank" rel="noopener" aria-label="Instagram" class="ow-footer-social-link">
@@ -981,6 +983,7 @@ function openContactModal(orderId){  document.getElementById("contactModal").sty
 <script>
 (function(){
   var widget = document.getElementById('owFilterWidget');
+  if(!widget) { return; }
   var btn = document.getElementById('owFilterBtn');
   var panel = document.getElementById('owFilterPanel');
   var productList = document.getElementById('product-list') || document.getElementById('frames-list');

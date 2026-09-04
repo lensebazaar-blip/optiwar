@@ -1,48 +1,70 @@
 {# The per-eye purchase block for one contact lens, shared by the product page
    and the standalone selection page.
 
-   Expects: lens, options, minimums, box_price, errors, submitted, eyes,
-   max_boxes. Each eye is its own card — include it or not, its own power,
-   its own boxes — and the live summary and sticky bar read the same inputs
-   the server validates. Every value offered comes from the lens's stated
-   matrix or rules; nothing here is a range expanded on the client. #}
+   Expects: lens, options, fixed, minimums, box_price, errors, submitted, eyes,
+   max_boxes. The customer says which eye(s), then each eye is its own card
+   with its own power and its own boxes. A parameter the lens is made in one
+   value of (Precision1: BC 8.3) is stated and submitted, never asked; one with
+   several values is a selector; one the lens is not configured on is not on
+   the page. Every value offered comes from the lens's stated matrix or rules,
+   and the live summary reads the same inputs the server validates. #}
+{% set minimums = minimums|default({}, true) %}
+{% set fixed = fixed|default({}, true) %}
+{% set minimums_stated = (minimums.single|int(0)) > 0 and (minimums.both|int(0)) > 0 %}
 <style>
 .ow-rx { margin:0 0 14px; }
 .ow-rx fieldset { border:0; padding:0; margin:0; min-width:0; }
 .ow-rx .ow-form-errors { background:#fee2e2; color:#b91c1c; border-radius:8px; padding:10px 14px 10px 28px; font-size:13px; margin:0 0 12px; }
-.ow-rx-eye { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:12px 14px; margin-bottom:10px; }
-.ow-rx-eye.is-off { background:#f9fafb; }
-.ow-rx-eye.is-off .ow-rx-body { display:none; }
-.ow-rx-head { display:flex; align-items:center; gap:10px; margin:0; }
-.ow-rx-head input { width:18px; height:18px; accent-color:#6366f1; cursor:pointer; }
-.ow-rx-head .ow-rx-name { font-size:14px; font-weight:700; color:#111; flex:1; cursor:pointer; }
+.ow-rx-blocked { background:#fef3c7; color:#92400e; border:1px solid #fcd34d; border-radius:10px; padding:12px 14px; font-size:13px; }
+.ow-rx-h { font-size:17px; font-weight:800; color:#111; margin:0 0 4px; }
+.ow-rx-sub { font-size:13px; color:#666; margin:0 0 10px; }
+.ow-rx-which { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; padding:4px; background:#f3f4f6; border-radius:12px; margin:0 0 12px; }
+.ow-rx-which button { border:0; border-radius:9px; padding:11px 6px; font-size:14px; font-weight:700; color:#374151; background:transparent; cursor:pointer; min-height:44px; }
+.ow-rx-which button[aria-pressed="true"] { background:#fff; color:#111; box-shadow:0 1px 3px rgba(0,0,0,.12); }
+.ow-rx-which small { display:block; font-size:11px; font-weight:600; color:#6b7280; }
+.ow-rx-eye { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:14px; margin-bottom:10px; border-left:4px solid #6366f1; }
+.ow-rx-eye[data-eye="left"] { border-left-color:#0ea5e9; }
+.ow-rx-eye.is-off { display:none; }
+.ow-rx-head { display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin:0; }
+.ow-rx-head .ow-rx-name { font-size:15px; font-weight:800; color:#111; }
+.ow-rx-head .ow-rx-name small { font-weight:600; color:#6b7280; font-size:12px; margin-left:4px; }
 .ow-rx-head .ow-rx-line { font-size:13px; color:#555; white-space:nowrap; }
+.ow-rx-facts { font-size:12px; color:#555; margin:6px 0 0; }
+.ow-rx-facts b { color:#111; font-weight:700; }
 .ow-rx-body { display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; margin-top:10px; }
 .ow-rx-body label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:#666; font-weight:600; letter-spacing:.2px; }
 .ow-rx-body label[hidden] { display:none; }
-.ow-rx-body select { font-size:14px; padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; background:#fff; color:#111; width:100%; }
-.ow-rx-boxes { display:flex; align-items:stretch; border:1px solid #d1d5db; border-radius:8px; overflow:hidden; background:#fff; }
-.ow-rx-boxes button { width:38px; border:0; background:#f3f4f6; color:#111; font-size:18px; cursor:pointer; }
+.ow-rx-body select { font-size:15px; padding:11px 10px; border:1px solid #d1d5db; border-radius:8px; background:#fff; color:#111; width:100%; min-height:44px; }
+.ow-rx-boxes { display:flex; align-items:stretch; border:1px solid #d1d5db; border-radius:8px; overflow:hidden; background:#fff; min-height:44px; }
+.ow-rx-boxes button { width:48px; border:0; background:#f3f4f6; color:#111; font-size:22px; cursor:pointer; }
 .ow-rx-boxes button:hover { background:#e5e7eb; }
-.ow-rx-boxes input { flex:1; min-width:0; width:100%; text-align:center; border:0; font-size:14px; font-weight:600; color:#111; -moz-appearance:textfield; }
+.ow-rx-boxes input { flex:1; min-width:0; width:100%; text-align:center; border:0; font-size:16px; font-weight:700; color:#111; -moz-appearance:textfield; }
 .ow-rx-boxes input::-webkit-outer-spin-button, .ow-rx-boxes input::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
-.ow-rx-copy { grid-column:1 / -1; justify-self:start; background:none; border:0; color:#6366f1; font-size:12px; font-weight:600; cursor:pointer; padding:0; text-decoration:underline; }
-.ow-rx-summary { background:#f8f9fa; border:1px solid #f0f0f0; border-radius:10px; padding:12px 14px; margin:12px 0; font-size:13px; color:#333; }
+.ow-rx-copy { grid-column:1 / -1; justify-self:start; background:none; border:0; color:#4f46e5; font-size:13px; font-weight:600; cursor:pointer; padding:0; text-decoration:underline; }
+.ow-rx-copy[hidden] { display:none; }
+.ow-rx-help { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 12px; }
+.ow-rx-help a, .ow-rx-help button { font-size:12px; font-weight:600; color:#374151; background:#fff; border:1px solid #d1d5db; border-radius:999px; padding:7px 12px; cursor:pointer; text-decoration:none; }
+.ow-rx-help [aria-pressed="true"] { border-color:#6366f1; color:#4f46e5; background:#eef2ff; }
+.ow-rx-summary { background:#f8f9fa; border:1px solid #eee; border-radius:12px; padding:12px 14px; margin:12px 0; font-size:13px; color:#333; }
+.ow-rx-summary h3 { font-size:13px; text-transform:uppercase; letter-spacing:.5px; color:#6b7280; margin:0 0 6px; }
 .ow-rx-summary .ow-rx-row { display:flex; justify-content:space-between; gap:10px; padding:3px 0; }
 .ow-rx-summary .ow-rx-row[hidden] { display:none; }
-.ow-rx-summary .ow-rx-total { border-top:1px solid #e5e7eb; margin-top:6px; padding-top:8px; font-size:16px; font-weight:800; color:#111; }
+.ow-rx-summary .ow-rx-total { border-top:1px solid #e5e7eb; margin-top:6px; padding-top:8px; font-size:18px; font-weight:800; color:#111; }
 .ow-rx-min, .ow-rx-note { font-size:12px; color:#777; margin:6px 0; }
 .ow-rx-warn { font-size:12px; color:#b45309; margin:6px 0; min-height:1em; }
-.ow-rx-cta { display:block; width:100%; padding:13px 20px; font-size:15px; font-weight:700; border-radius:8px; cursor:pointer; text-align:center; border:none; background:linear-gradient(135deg,#6366f1,#818cf8); color:#fff; transition:all .2s; }
+.ow-rx-actions { display:grid; gap:8px; }
+.ow-rx-cta { display:block; width:100%; padding:14px 20px; font-size:15px; font-weight:700; border-radius:10px; cursor:pointer; text-align:center; border:none; background:linear-gradient(135deg,#6366f1,#818cf8); color:#fff; transition:all .2s; min-height:48px; }
 .ow-rx-cta:hover { background:linear-gradient(135deg,#4f46e5,#6366f1); box-shadow:0 4px 12px rgba(99,102,241,.3); }
+.ow-rx-cta--fast { background:#111; }
+.ow-rx-cta--fast:hover { background:#000; box-shadow:0 4px 12px rgba(0,0,0,.25); }
 .ow-rx-bar { display:none; }
 @media (max-width:768px) {
   .ow-rx-body { grid-template-columns:1fr; }
-  .ow-rx-bar { display:flex; position:fixed; left:0; right:0; bottom:0; z-index:900; align-items:center; gap:12px; padding:10px 14px calc(10px + env(safe-area-inset-bottom)); background:#fff; border-top:1px solid #e5e7eb; box-shadow:0 -4px 16px rgba(0,0,0,.08); }
+  .ow-rx-bar { display:flex; position:fixed; left:0; right:0; bottom:0; z-index:900; align-items:center; gap:10px; padding:10px 14px calc(10px + env(safe-area-inset-bottom)); background:#fff; border-top:1px solid #e5e7eb; box-shadow:0 -4px 16px rgba(0,0,0,.08); }
   .ow-rx-bar .ow-rx-bar-total { flex:1; min-width:0; }
   .ow-rx-bar .ow-rx-bar-total strong { display:block; font-size:17px; color:#111; }
   .ow-rx-bar .ow-rx-bar-total span { font-size:12px; color:#666; }
-  .ow-rx-bar .ow-rx-cta { width:auto; flex:0 0 auto; padding:12px 18px; }
+  .ow-rx-bar .ow-rx-cta { width:auto; flex:0 0 auto; padding:12px 16px; }
   body { padding-bottom:84px; }
 }
 </style>
@@ -53,22 +75,80 @@
 </ul>
 {% endif %}
 
+{% if not minimums_stated %}
+{# No stated minimum means no honest starting quantity. This is a QA failure
+   on the row (the release gate names it), never a quantity chosen here. #}
+<div class="ow-rx-blocked" role="alert" data-role="blocked">
+  This lens cannot be ordered yet: its minimum boxes per eye are not stated.
+</div>
+{% else %}
+
+{% set lists = options.lists or {} %}
+{% set by_rules = options.mode == 'RULES' %}
+{% macro param_field(eye, field, param, caption, entries, empty_label, role_name) %}
+  {%- if by_rules and entries is none -%}
+  {#- a parameter the lens is not configured on is not a question -#}
+  {%- elif param in fixed -%}
+  <input type="hidden" name="{{ eye }}_{{ field }}" value="{{ fixed[param] }}" data-role="{{ role_name }}">
+  {%- else -%}
+  <label data-role="{{ role_name }}-wrap"{% if entries is not none and entries|length < 2 %} hidden{% endif %}>{{ caption }}
+    <select name="{{ eye }}_{{ field }}" data-role="{{ role_name }}">
+      <option value="">{{ empty_label }}</option>
+      {%- if entries -%}
+      {%- for entry in entries %}
+      <option value="{{ entry.value }}"{% if submitted.get(eye ~ '_' ~ field) == entry.value %} selected{% endif %}>{{ entry.label }}</option>
+      {%- endfor -%}
+      {%- endif %}
+    </select>
+  </label>
+  {%- endif -%}
+{% endmacro %}
+
+{% set right_on = (not submitted) or (submitted.get('right_boxes')|int(0)) > 0 %}
+{% set left_on = (not submitted) or (submitted.get('left_boxes')|int(0)) > 0 %}
+{% set which = 'both' if (right_on and left_on) else ('right' if right_on else 'left') %}
+
 <form action="{{ url_for('main.lens_add_to_cart') }}" method="post"
-      id="owLensForm" class="ow-rx">
+      id="owLensForm" class="ow-rx" data-which="{{ which }}">
   <input type="hidden" name="product_id" value="{{ lens.product_id }}">
 
+  <h2 class="ow-rx-h" id="owRxHeading">Choose your prescription</h2>
+  <p class="ow-rx-sub">Order for one eye or both. Each eye has its own power and its own boxes.</p>
+
+  <div class="ow-rx-which" role="group" aria-label="Which eye" data-role="which">
+    <button type="button" data-which="left" aria-pressed="{{ 'true' if which == 'left' else 'false' }}">LEFT<small>OS only</small></button>
+    <button type="button" data-which="right" aria-pressed="{{ 'true' if which == 'right' else 'false' }}">RIGHT<small>OD only</small></button>
+    <button type="button" data-which="both" aria-pressed="{{ 'true' if which == 'both' else 'false' }}">BOTH<small>OD + OS</small></button>
+  </div>
+
+  {# Every path ends in the same per-eye fields below: nothing is ordered from
+     a photograph or a chat; a prescription is read into the cards and checked
+     by the server like one typed in. #}
+  <div class="ow-rx-help" role="group" aria-label="How to enter your prescription" data-role="help">
+    <button type="button" data-help="manual" aria-pressed="true">Enter manually</button>
+    <button type="button" data-help="upload">Upload prescription</button>
+    <button type="button" data-help="saved">Use saved prescription</button>
+    <button type="button" data-help="ai">Ask Optiwar AI</button>
+  </div>
+  <p class="ow-rx-note" data-role="help-note" hidden></p>
+
   {% for eye in eyes %}
-  {% set was_included = (not submitted) or (submitted.get(eye ~ '_boxes')|int(0)) > 0 %}
-  <fieldset class="ow-rx-eye{% if not was_included %} is-off{% endif %}" data-eye="{{ eye }}">
+  {% set on = right_on if eye == 'right' else left_on %}
+  <fieldset class="ow-rx-eye{% if not on %} is-off{% endif %}" data-eye="{{ eye }}" aria-labelledby="owRxName-{{ eye }}">
     <div class="ow-rx-head">
-      <input type="checkbox" id="owRxInclude-{{ eye }}" data-role="include"
-             {% if was_included %}checked{% endif %}
-             aria-label="Order for the {{ eye }} eye">
-      <label class="ow-rx-name" for="owRxInclude-{{ eye }}">{{ 'Right eye (OD)' if eye == 'right' else 'Left eye (OS)' }}</label>
+      <span class="ow-rx-name" id="owRxName-{{ eye }}">{{ 'Right eye' if eye == 'right' else 'Left eye' }}<small>{{ 'OD' if eye == 'right' else 'OS' }}</small></span>
       <span class="ow-rx-line" data-role="line"></span>
     </div>
+    {% if fixed.base_curve or fixed.diameter %}
+    <p class="ow-rx-facts">
+      {% if fixed.base_curve %}<b>BC {{ fixed.base_curve|float|round(1) }} mm</b>{% endif %}
+      {% if fixed.base_curve and fixed.diameter %} &middot; {% endif %}
+      {% if fixed.diameter %}<b>DIA {{ fixed.diameter|float|round(1) }} mm</b>{% endif %}
+      &mdash; fixed for this lens
+    </p>
+    {% endif %}
     <div class="ow-rx-body">
-      {% if options.colors %}
+      {% if options.colors and options.colors|length > 1 %}
       <label>Colour
         <select name="{{ eye }}_color" data-role="color">
           <option value="">Select</option>
@@ -77,52 +157,33 @@
           {% endfor %}
         </select>
       </label>
+      {% elif options.colors %}
+      <input type="hidden" name="{{ eye }}_color" value="{{ options.colors[0].code }}" data-role="color">
       {% else %}
       <input type="hidden" name="{{ eye }}_color" value="">
       {% endif %}
-      <label data-role="bc-wrap">Base curve
-        <select name="{{ eye }}_bc" data-role="bc">
-          <option value="">Select</option>
-        </select>
-      </label>
-      <label>Power (SPH)
-        <select name="{{ eye }}_sph" data-role="sph">
-          <option value="">Select</option>
-        </select>
-      </label>
-      <label data-role="cyl-wrap">Cylinder (CYL)
-        <select name="{{ eye }}_cyl" data-role="cyl">
-          <option value="">Not applicable</option>
-        </select>
-      </label>
-      <label data-role="axis-wrap">Axis
-        <select name="{{ eye }}_axis" data-role="axis">
-          <option value="">Not applicable</option>
-        </select>
-      </label>
-      <label data-role="add-wrap">Addition (ADD)
-        <select name="{{ eye }}_add" data-role="add">
-          <option value="">Not applicable</option>
-        </select>
-      </label>
+      {{ param_field(eye, 'bc', 'base_curve', 'Base curve (BC)', (lists.get('base_curve') if by_rules else none), 'Select', 'bc') }}
+      {{ param_field(eye, 'sph', 'sph', 'Power (PWR / SPH)', (lists.get('sph') if by_rules else none), 'Select', 'sph') }}
+      {{ param_field(eye, 'cyl', 'cyl', 'Cylinder (CYL)', (lists.get('cyl') if by_rules else none), 'Not applicable', 'cyl') }}
+      {{ param_field(eye, 'axis', 'axis', 'Axis', (lists.get('axis') if by_rules else none), 'Not applicable', 'axis') }}
+      {{ param_field(eye, 'add', 'add_power', 'Addition (ADD)', (lists.get('add_power') if by_rules else none), 'Not applicable', 'add') }}
       <label>Boxes
         <span class="ow-rx-boxes">
           <button type="button" data-role="minus" aria-label="One box fewer">&minus;</button>
           <input type="number" name="{{ eye }}_boxes" min="0" max="{{ max_boxes }}"
                  step="1" data-role="boxes" inputmode="numeric"
-                 value="{{ submitted.get(eye ~ '_boxes', 1 if not submitted else 0) }}">
+                 value="{{ submitted.get(eye ~ '_boxes', (minimums.both if (right_on and left_on) else minimums.single) if on else 0) }}">
           <button type="button" data-role="plus" aria-label="One box more">+</button>
         </span>
       </label>
-      {% if eye == 'right' %}
-      <button type="button" class="ow-rx-copy" data-role="copy-left">
-        Same as left eye</button>
-      {% endif %}
+      <button type="button" class="ow-rx-copy" data-role="copy-{{ eye }}" hidden>
+        Same as {{ 'left' if eye == 'right' else 'right' }} eye</button>
     </div>
   </fieldset>
   {% endfor %}
 
-  <div class="ow-rx-summary" aria-live="polite">
+  <div class="ow-rx-summary" aria-live="polite" data-role="summary">
+    <h3>Order summary</h3>
     {% for eye in eyes %}
     <div class="ow-rx-row" data-role="summary-{{ eye }}" hidden>
       <span>{{ 'Right (OD)' if eye == 'right' else 'Left (OS)' }} &middot; <span data-role="summary-desc"></span></span>
@@ -135,19 +196,24 @@
     </div>
   </div>
 
-  {% set minimums = minimums|default({}, true) %}
-  {% if minimums.single or minimums.both %}
   <p class="ow-rx-min" data-role="minimum"
      data-single="{{ minimums.single }}" data-both="{{ minimums.both }}">
-    This lens is supplied in a minimum of {{ minimums.single }} boxes for one
-    eye, or {{ minimums.both }} boxes per eye when ordering both.</p>
-  {% endif %}
-  <p class="ow-rx-note">Each eye is ordered separately &mdash; the two eyes
-  may have different prescriptions and different numbers of boxes &mdash;
-  at &euro;{{ box_price }} per box of {{ lens.pack_quantity }} lenses.</p>
+    {% if minimums.single == minimums.both %}
+    Minimum {{ minimums.single }} box{{ 'es' if minimums.single|int != 1 }} per eye.
+    {% else %}
+    Minimum {{ minimums.single }} boxes for one eye, or {{ minimums.both }}
+    boxes per eye when ordering both.
+    {% endif %}
+  </p>
+  <p class="ow-rx-note">&euro;{{ '%.2f'|format(box_price) }} per box of
+  {{ lens.pack_quantity }} lenses. Totals shown here are an estimate; the
+  checkout confirms the price from the catalogue.</p>
   <p class="ow-rx-warn" data-role="warn" role="status"></p>
 
-  <button type="submit" class="ow-rx-cta">Add to cart</button>
+  <div class="ow-rx-actions">
+    <button type="submit" class="ow-rx-cta" name="intent" value="cart">Add to Cart</button>
+    <button type="submit" class="ow-rx-cta ow-rx-cta--fast" name="intent" value="checkout">Fast Checkout</button>
+  </div>
 </form>
 
 <div class="ow-rx-bar" id="owLensBar">
@@ -155,7 +221,7 @@
     <strong data-role="total"></strong>
     <span data-role="total-boxes"></span>
   </div>
-  <button type="submit" class="ow-rx-cta" form="owLensForm">Add to cart</button>
+  <button type="submit" class="ow-rx-cta" form="owLensForm" name="intent" value="cart">Add to Cart</button>
 </div>
 
 <script type="application/json" id="owLensMatrix">{{ options|tojson }}</script>
@@ -166,13 +232,13 @@
   // MATRIX: a nested tree, so a cylinder is offered only under a sphere that
   // has it. RULES: independent lists, which is all the source states.
   var matrix = options.tree || {};
-  var lists = options.lists || {};
   var byRules = options.mode === 'RULES';
   var submitted = {{ submitted|tojson }};
   var boxPrice = {{ box_price }};
   var maxBoxes = {{ max_boxes }};
   var form = document.getElementById('owLensForm');
   var bar = document.getElementById('owLensBar');
+  var which = form.getAttribute('data-which') || 'both';
 
   function euro(n) {
     return '\u20ac' + (Math.round(n * 100) / 100).toFixed(2);
@@ -180,15 +246,30 @@
   function boxesWord(n) {
     return n + ' box' + (n === 1 ? '' : 'es');
   }
-
-  function listOf(param) {
-    return (lists[param] || []).map(function (entry) {
-      return {value: entry.value, label: entry.label || entry.value};
-    });
+  function role(root, name) {
+    return root.querySelector('[data-role="' + name + '"]');
+  }
+  function eyeFieldset(eye) {
+    return form.querySelector('.ow-rx-eye[data-eye="' + eye + '"]');
+  }
+  function included(eye) {
+    return which === 'both' || which === eye;
+  }
+  function includedCount() {
+    return which === 'both' ? 2 : 1;
+  }
+  // The minimum is the row's, rendered by the server. Without one the block
+  // above is not a form at all, so there is nothing to fall back to here.
+  function minimumBoxes() {
+    var node = role(form, 'minimum');
+    var key = includedCount() > 1 ? 'both' : 'single';
+    return Number(node.getAttribute('data-' + key));
   }
 
+  // Rebuild a <select> from stated values. A hidden input (a parameter the
+  // lens is made in one value of) is already answered and is left alone.
   function fill(select, values, keep, emptyLabel) {
-    if (!select) { return; }
+    if (!select || select.tagName !== 'SELECT') { return; }
     var previous = select.value;
     select.innerHTML = '';
     var entries = values.map(function (v) {
@@ -207,30 +288,9 @@
       }
       select.appendChild(option);
     });
-    // One stated value is not a question: it is chosen, and the row is hidden.
     if (entries.length === 1) { select.value = entries[0].value; }
     var wrap = select.closest('label');
     if (wrap) { wrap.hidden = entries.length < 2; }
-  }
-
-  function eyeFieldset(eye) {
-    return form.querySelector('.ow-rx-eye[data-eye="' + eye + '"]');
-  }
-  function role(root, name) {
-    return root.querySelector('[data-role="' + name + '"]');
-  }
-  function included(eye) {
-    var box = role(eyeFieldset(eye), 'include');
-    return !!(box && box.checked);
-  }
-  function includedCount() {
-    return ['right', 'left'].filter(included).length;
-  }
-  function minimumBoxes() {
-    var node = role(form, 'minimum');
-    if (!node) { return 1; }
-    var key = includedCount() > 1 ? 'both' : 'single';
-    return Number(node.getAttribute('data-' + key) || 1) || 1;
   }
 
   function wire(fieldset) {
@@ -242,7 +302,6 @@
     var axis = role(fieldset, 'axis');
     var add = role(fieldset, 'add');
     var boxes = role(fieldset, 'boxes');
-    var include = role(fieldset, 'include');
 
     function branch() {
       var code = color ? color.value : '';
@@ -250,23 +309,14 @@
       return perColor[bc ? bc.value : ''] || perColor[''] || {};
     }
     function refreshBc() {
-      if (byRules) {
-        fill(bc, listOf('base_curve'), submitted[eye + '_bc'], 'Select');
-      } else {
+      if (!byRules) {
         fill(bc, options.base_curves || [], submitted[eye + '_bc'], 'Select');
+        refreshSph();
+      } else {
+        update();
       }
-      refreshSph();
     }
     function refreshSph() {
-      if (byRules) {
-        fill(sph, listOf('sph'), submitted[eye + '_sph'], 'Select');
-        fill(cyl, listOf('cyl'), submitted[eye + '_cyl'], 'Not applicable');
-        fill(axis, listOf('axis'), submitted[eye + '_axis'], 'Not applicable');
-        fill(add, listOf('add_power'), submitted[eye + '_add'],
-             'Not applicable');
-        update();
-        return;
-      }
       fill(sph, Object.keys(branch()), submitted[eye + '_sph'], 'Select');
       refreshCyl();
     }
@@ -284,33 +334,29 @@
       update();
     }
 
-    if (color) { color.addEventListener('change', refreshBc); }
-    if (bc && !byRules) { bc.addEventListener('change', refreshSph); }
     if (!byRules) {
-      sph.addEventListener('change', refreshCyl);
-      cyl.addEventListener('change', refreshAxis);
-    } else {
-      sph.addEventListener('change', update);
+      if (color) { color.addEventListener('change', refreshBc); }
+      if (bc && bc.tagName === 'SELECT') { bc.addEventListener('change', refreshSph); }
+      if (sph && sph.tagName === 'SELECT') { sph.addEventListener('change', refreshCyl); }
+      if (cyl && cyl.tagName === 'SELECT') { cyl.addEventListener('change', refreshAxis); }
     }
     fieldset.addEventListener('change', update);
     boxes.addEventListener('input', update);
     role(fieldset, 'minus').addEventListener('click', function () {
-      boxes.value = Math.max(1, Number(boxes.value || 0) - 1);
+      var floor = minimumBoxes();
+      var next = Number(boxes.value || 0) - 1;
+      if (next < floor) {
+        warn('This lens is supplied in a minimum of ' + boxesWord(floor) +
+             ' per eye.');
+        next = floor;
+      } else { warn(''); }
+      boxes.value = next;
       update();
     });
     role(fieldset, 'plus').addEventListener('click', function () {
+      warn('');
       boxes.value = Math.min(maxBoxes, Number(boxes.value || 0) + 1);
       update();
-    });
-    include.addEventListener('change', function () {
-      // An order is for at least one eye: the last eye cannot be switched off.
-      if (!include.checked && includedCount() === 0) {
-        include.checked = true;
-        warn('Choose at least one eye.');
-        return;
-      }
-      warn('');
-      applyInclusion();
     });
     refreshBc();
   }
@@ -320,7 +366,13 @@
     if (node) { node.textContent = text; }
   }
 
-  function applyInclusion() {
+  function applyWhich() {
+    form.setAttribute('data-which', which);
+    Array.prototype.forEach.call(
+      role(form, 'which').querySelectorAll('button'), function (button) {
+        button.setAttribute('aria-pressed',
+          button.getAttribute('data-which') === which ? 'true' : 'false');
+      });
     ['right', 'left'].forEach(function (eye) {
       var fieldset = eyeFieldset(eye);
       var boxes = role(fieldset, 'boxes');
@@ -329,20 +381,24 @@
       // An eye nobody is ordering for contributes no boxes, so it cannot be
       // charged for and cannot fail validation on a stale value.
       if (!on) { boxes.value = 0; }
-      if (on && Number(boxes.value) < 1) { boxes.value = minimumBoxes(); }
+      if (on && Number(boxes.value) < minimumBoxes()) {
+        boxes.value = minimumBoxes();
+      }
+      var copy = role(fieldset, 'copy-' + eye);
+      if (copy) { copy.hidden = which !== 'both'; }
     });
     update();
   }
 
   function describe(fieldset) {
     var parts = [];
-    ['bc', 'sph', 'cyl', 'axis', 'add'].forEach(function (name) {
-      var select = role(fieldset, name);
-      if (!select || !select.value) { return; }
-      var wrap = select.closest('label');
+    ['sph', 'cyl', 'axis', 'add'].forEach(function (name) {
+      var field = role(fieldset, name);
+      if (!field || !field.value) { return; }
+      var wrap = field.closest('label');
       if (wrap && wrap.hidden) { return; }
-      var caption = {bc: 'BC', sph: 'SPH', cyl: 'CYL', axis: 'AX', add: 'ADD'}[name];
-      parts.push(caption + ' ' + select.value);
+      var caption = {sph: 'PWR', cyl: 'CYL', axis: 'AX', add: 'ADD'}[name];
+      parts.push(caption + ' ' + field.value);
     });
     return parts.length ? parts.join(' ') : 'choose a power';
   }
@@ -355,7 +411,7 @@
       var on = included(eye);
       var n = on ? Number(role(fieldset, 'boxes').value || 0) : 0;
       var line = role(fieldset, 'line');
-      if (line) { line.textContent = on ? boxesWord(n) + ' \u00b7 ' + euro(n * boxPrice) : 'not ordering'; }
+      if (line) { line.textContent = on ? boxesWord(n) + ' \u00b7 ' + euro(n * boxPrice) : ''; }
       if (row) {
         row.hidden = !on;
         role(row, 'summary-desc').textContent = describe(fieldset) + ' \u00b7 ' + boxesWord(n);
@@ -373,26 +429,68 @@
     });
   }
 
+  function copyEye(from, to) {
+    // In dependency order, and announcing each value as a choice: a matrix
+    // cylinder exists only under the sphere that has it. The copy is a
+    // starting point; the target card stays editable.
+    ['_color', '_bc', '_sph', '_cyl', '_axis', '_add', '_boxes'].forEach(
+      function (suffix) {
+        var source = form.querySelector('[name="' + from + suffix + '"]');
+        var target = form.querySelector('[name="' + to + suffix + '"]');
+        if (!source || !target) { return; }
+        target.value = source.value;
+        target.dispatchEvent(new Event('change', {bubbles: true}));
+      });
+    update();
+  }
+
   Array.prototype.forEach.call(
     document.querySelectorAll('.ow-rx-eye'), wire);
-  var copy = role(form, 'copy-left');
-  if (copy) {
-    copy.addEventListener('click', function () {
-      // In dependency order, and announcing each value as a choice: a matrix
-      // cylinder exists only under the sphere that has it, so one assigned
-      // before its parent rebuilt the list stays blank and the copied
-      // prescription is refused at the cart.
-      ['_color', '_bc', '_sph', '_cyl', '_axis', '_add', '_boxes'].forEach(
-        function (suffix) {
-          var from = form.querySelector('[name="left' + suffix + '"]');
-          var to = form.querySelector('[name="right' + suffix + '"]');
-          if (!from || !to) { return; }
-          to.value = from.value;
-          to.dispatchEvent(new Event('change', {bubbles: true}));
-        });
-      update();
+  Array.prototype.forEach.call(
+    role(form, 'which').querySelectorAll('button'), function (button) {
+      button.addEventListener('click', function () {
+        which = button.getAttribute('data-which');
+        warn('');
+        applyWhich();
+      });
     });
-  }
-  applyInclusion();
+  ['right', 'left'].forEach(function (eye) {
+    var copy = role(eyeFieldset(eye), 'copy-' + eye);
+    if (copy) {
+      copy.addEventListener('click', function () {
+        copyEye(eye === 'right' ? 'left' : 'right', eye);
+      });
+    }
+  });
+
+  var helpNotes = {
+    manual: '',
+    upload: 'Prescription upload is being prepared for this lens. Until then, ' +
+            'type the values from your prescription into the cards below.',
+    saved: 'Saved prescriptions are being prepared. Type the values from your ' +
+           'prescription into the cards below.',
+    ai: 'Optiwar AI can explain the values on your prescription. It does not ' +
+        'place the order: the cards below do.'
+  };
+  Array.prototype.forEach.call(
+    role(form, 'help').querySelectorAll('button'), function (button) {
+      button.addEventListener('click', function () {
+        Array.prototype.forEach.call(
+          role(form, 'help').querySelectorAll('button'), function (other) {
+            other.setAttribute('aria-pressed', other === button ? 'true' : 'false');
+          });
+        var note = role(form, 'help-note');
+        var text = helpNotes[button.getAttribute('data-help')] || '';
+        note.textContent = text;
+        note.hidden = !text;
+        if (button.getAttribute('data-help') === 'ai') {
+          var launcher = document.querySelector('.ow-chat-btn');
+          if (launcher) { launcher.click(); }
+        }
+      });
+    });
+
+  applyWhich();
 })();
 </script>
+{% endif %}

@@ -57,6 +57,7 @@ LIVE = {
     "pack_quantity": 30,
     "material": "delefilcon A",
     "availability": "IN_STOCK",
+    "min_boxes_single_eye": 1, "min_boxes_both_per_eye": 1,
     "merchant_enabled": 1,
     "replacement_days": 1,
     "variant_count": 61,
@@ -133,6 +134,7 @@ class ReleaseGateTests(unittest.TestCase):
             "no EUR price": dict(product_price_eur=0,
                                  product_special_price_eur=None),
             "no availability": dict(availability=""),
+            "no minimum boxes stated": dict(min_boxes_single_eye=None),
             "no brand": dict(brand=""),
             "no prescription matrix": dict(variant_count=0),
         }

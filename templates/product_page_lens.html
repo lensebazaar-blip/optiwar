@@ -1,0 +1,371 @@
+{% extends 'base.html' %}
+{% from '_picture.html' import product_picture, thumb_img %}
+{# The product page of one contact lens.
+
+   Everything on it is read from the canonical lens object: the row (``lens``),
+   its passport (``lens_passport``) and the selection context the per-eye
+   block needs. Nothing here is a frame: no face measurement, no sizes or
+   shapes, no complimentary spectacle lenses, no filter bar. The commercial
+   title is the product's name; the SKU is stated once, in the specifications.
+
+   Mobile comes first, as one column in this order: identity, price, hero,
+   prescription, summary, actions, Lens Intelligence, details. Desktop keeps
+   that order and puts the gallery beside it. #}
+{% set title = product.product_name %}
+{% set brand = lens.brand or product.product_name %}
+{% set maker = lens.manufacturer or brand %}
+{% set sale = product.product_special_price_eur %}
+{% set list = product.product_price_eur %}
+{% set has_discount = list and sale and list > sale %}
+{% set pct = (((list - sale) / list) * 100)|round|int if has_discount else 0 %}
+{% set ordering = (lens_passport or {}).get('ordering', {}) %}
+{% set matrix = ordering.get('matrix') or {} %}
+{% set fixed = fixed|default({}, true) %}
+{% set images = (lens_passport or {}).get('images') or [] %}
+{% set modality_word = (lens.modality or '')|title %}
+{% set type_word = (lens.lens_type or '')|title %}
+{% set pack = lens.pack_quantity %}
+{% set bc_text = ('%.1f'|format(fixed.base_curve|float)) if fixed.base_curve else ((matrix.base_curve.min ~ ((' – ' ~ matrix.base_curve.max) if matrix.base_curve.max != matrix.base_curve.min else '')) if matrix.base_curve else none) %}
+{% set dia_text = ('%.1f'|format(fixed.diameter|float)) if fixed.diameter else ((matrix.diameter.min ~ ((' – ' ~ matrix.diameter.max) if matrix.diameter.max != matrix.diameter.min else '')) if matrix.diameter else none) %}
+{% set lens_path = 'https://optiwar.com/categories/contact-lenses/' ~ product.product_slug ~ '?pid=' ~ product.product_id %}
+
+{% block title %}{{ title }} - Optiwar{% endblock %}
+{% block meta_description %}{{ brand }} {{ title }} by {{ maker }}: {{ modality_word|lower }} {{ type_word|lower }} contact lenses, {{ pack }} lenses per box, &euro;{{ '%.2f'|format(sale) }} per box on Optiwar.{% endblock %}
+{% block meta_keywords %}{{ brand }}, {{ title }}, {{ maker }}, contact lenses, Optiwar{% endblock %}
+{% block meta_author %}OPTIWAR{% endblock %}
+{% block og_title %}{{ title }} - &euro;{{ '%.2f'|format(sale) }} per box | Optiwar{% endblock %}
+{% block og_description %}{{ brand }} {{ modality_word|lower }} {{ type_word|lower }} contact lenses by {{ maker }}, {{ pack }} lenses per box.{% endblock %}
+{% block og_type %}product{% endblock %}
+{% block og_image %}{% if images %}{{ versioned_image_url(images[0].path, site_url) }}{% endif %}{% endblock %}
+{% block og_image_meta %}{% if images %}<meta property="og:image:type" content="image/jpeg">{% endif %}{% endblock %}
+{% block twitter_image %}{% if images %}{{ versioned_image_url(images[0].path, site_url) }}{% else %}{{ url_for('static', filename='favicon-512x512.png', _external=True) }}{% endif %}{% endblock %}
+{% block canonical_url %}{{ lens_path }}{% endblock %}
+{% block robots %}{% if lens_previewing %}noindex, nofollow{% else %}index, follow{% endif %}{% endblock %}
+{# A lens is sold on optiwar.com alone, so there is no Indian alternate. #}
+{% block hreflang_in_tag %}{% endblock %}
+{% block hreflang_default %}{{ lens_path }}{% endblock %}
+{# The frame filter bar (face match, sizes, shapes, colours) is not a lens control. #}
+{% block frame_filter_bar %}{% endblock %}
+{% block footer_about %}<p class="ow-footer-text">Optiwar sells contact lenses on optiwar.com exactly as the manufacturer states them: the powers, base curve and diameter offered are the ones made, and a box is priced in euro before you order.</p>{% endblock %}
+
+{% block jsonld_extra %}
+{% if lens_jsonld %}
+{% for block in lens_jsonld %}
+<script type="application/ld+json">
+{{ block|safe }}
+</script>
+{% endfor %}
+{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if lens_previewing %}
+<div class="lpdp-preview">Owner preview &mdash; this lens is not released. Only this browser can see this page.</div>
+{% endif %}
+<style>
+.lpdp { max-width:1120px; margin:0 auto; padding:8px 16px 40px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; color:#111; }
+.lpdp-preview { background:#7a2e00; color:#fff; text-align:center; padding:.5rem 1rem; font-weight:600; }
+.lpdp-crumb { display:flex; flex-wrap:wrap; gap:5px; font-size:13px; color:#888; margin:0 0 12px; list-style:none; padding:0; }
+.lpdp-crumb a { color:#6366f1; text-decoration:none; }
+.lpdp-crumb li + li::before { content:'/'; color:#ccc; margin-right:5px; }
+.lpdp-grid { display:grid; grid-template-columns:minmax(0,1fr); grid-template-areas:"identity" "price" "gallery" "buy" "intel" "details"; gap:14px; }
+.lpdp-identity { grid-area:identity; }
+.lpdp-price { grid-area:price; }
+.lpdp-gallery { grid-area:gallery; min-width:0; }
+.lpdp-buy { grid-area:buy; min-width:0; }
+.lpdp-intel { grid-area:intel; }
+.lpdp-details { grid-area:details; min-width:0; }
+.lpdp-maker { font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:#6366f1; margin:0 0 4px; }
+.lpdp-title { font-size:24px; line-height:1.2; font-weight:800; margin:0 0 6px; color:#111; }
+.lpdp-modality { font-size:14px; color:#555; margin:0; }
+.lpdp-modality span + span::before { content:'·'; margin:0 6px; color:#bbb; }
+.lpdp-price-row { display:flex; flex-wrap:wrap; align-items:baseline; gap:10px; }
+.lpdp-price-now { font-size:30px; font-weight:800; color:#111; }
+.lpdp-price-now small { font-size:15px; font-weight:600; color:#666; }
+.lpdp-price-was { font-size:16px; color:#999; text-decoration:line-through; }
+.lpdp-price-off { background:#dcfce7; color:#15803d; font-size:13px; font-weight:700; padding:3px 9px; border-radius:6px; }
+.lpdp-dispatch { font-size:13px; color:#333; margin:6px 0 0; display:flex; flex-wrap:wrap; gap:6px 14px; }
+.lpdp-dispatch b { color:#15803d; }
+.lpdp-dispatch .is-order b { color:#b45309; }
+.lpdp-hero { position:relative; background:#fff; border:1px solid #eee; border-radius:14px; overflow:hidden; aspect-ratio:1 / 1; display:flex; align-items:center; justify-content:center; }
+.lpdp-hero img { width:100%; height:100%; object-fit:contain; cursor:zoom-in; display:block; }
+.lpdp-hero-nav { position:absolute; top:50%; transform:translateY(-50%); width:40px; height:40px; border-radius:50%; border:1px solid #e5e7eb; background:rgba(255,255,255,.92); color:#111; font-size:20px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.lpdp-hero-nav[data-dir="prev"] { left:8px; }
+.lpdp-hero-nav[data-dir="next"] { right:8px; }
+.lpdp-dots { display:flex; justify-content:center; gap:6px; margin:8px 0 0; }
+.lpdp-dots span { width:7px; height:7px; border-radius:50%; background:#d1d5db; }
+.lpdp-dots span.active { background:#6366f1; }
+.lpdp-thumbs { display:flex; gap:8px; margin-top:10px; overflow-x:auto; padding-bottom:4px; scrollbar-width:none; }
+.lpdp-thumbs::-webkit-scrollbar { display:none; }
+.lpdp-thumbs img { width:64px; height:64px; object-fit:contain; border:2px solid #e5e7eb; border-radius:8px; cursor:pointer; background:#fff; padding:2px; flex-shrink:0; }
+.lpdp-thumbs img.active, .lpdp-thumbs img[aria-current="true"] { border-color:#6366f1; box-shadow:0 0 0 1px #6366f1; }
+.lpdp-thumbs img:focus-visible { outline:2px solid #4f46e5; outline-offset:2px; }
+.lpdp-intel { background:linear-gradient(135deg,#eef2ff,#f5f3ff); border:1px solid #e0e7ff; border-radius:14px; padding:14px 16px; }
+.lpdp-intel h2 { font-size:13px; text-transform:uppercase; letter-spacing:1px; color:#4f46e5; margin:0 0 10px; }
+.lpdp-intel dl { display:grid; grid-template-columns:repeat(3,1fr); gap:10px 12px; margin:0; }
+.lpdp-intel dt { font-size:11px; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; }
+.lpdp-intel dd { margin:0; font-size:14px; font-weight:700; color:#111; }
+.lpdp-acc { border:1px solid #e5e7eb; border-radius:10px; margin-bottom:8px; background:#fff; }
+.lpdp-acc summary { padding:13px 16px; font-size:14px; font-weight:700; cursor:pointer; list-style:none; display:flex; justify-content:space-between; align-items:center; }
+.lpdp-acc summary::-webkit-details-marker { display:none; }
+.lpdp-acc summary::after { content:'+'; font-size:18px; color:#888; }
+.lpdp-acc[open] summary::after { content:'\2212'; }
+.lpdp-acc-body { padding:0 16px 14px; font-size:14px; color:#444; line-height:1.55; }
+.lpdp-acc-body table { width:100%; border-collapse:collapse; font-size:13px; }
+.lpdp-acc-body td { padding:6px 0; border-bottom:1px solid #f1f5f9; vertical-align:top; }
+.lpdp-acc-body td.lbl { color:#6b7280; width:42%; }
+.lpdp-acc-body td.val { color:#111; font-weight:600; }
+.lpdp-acc-body p { margin:0 0 8px; }
+.lpdp-acc-body dt { font-weight:700; color:#111; margin-top:8px; }
+.lpdp-acc-body dd { margin:2px 0 0; }
+@media (min-width:769px) {
+  .lpdp { padding-top:16px; }
+  .lpdp-grid { grid-template-columns:minmax(0,7fr) minmax(0,5fr); grid-template-areas:"gallery identity" "gallery price" "gallery buy" "gallery intel" "details details"; gap:16px 32px; align-items:start; }
+  .lpdp-gallery { position:sticky; top:90px; }
+  .lpdp-title { font-size:30px; }
+  .lpdp-hero-nav { display:none; }
+  .lpdp-dots { display:none; }
+}
+@media (max-width:768px) {
+  .lpdp-thumbs { display:none; }
+}
+</style>
+
+<div class="lpdp">
+  <nav aria-label="Breadcrumb">
+    <ol class="lpdp-crumb">
+      <li><a href="/">Home</a></li>
+      <li><a href="/contact-lenses">Contact Lenses</a></li>
+      <li>{{ title }}</li>
+    </ol>
+  </nav>
+
+  <div class="lpdp-grid">
+    <header class="lpdp-identity">
+      <p class="lpdp-maker">{{ maker }}</p>
+      <h1 class="lpdp-title">{{ title }}</h1>
+      <p class="lpdp-modality">
+        {% if modality_word %}<span>{{ modality_word }} disposable</span>{% endif %}
+        {% if type_word %}<span>{{ type_word }}</span>{% endif %}
+        {% if pack %}<span>{{ pack }} lenses/box</span>{% endif %}
+      </p>
+    </header>
+
+    <section class="lpdp-price" aria-label="Price">
+      <div class="lpdp-price-row">
+        <span class="lpdp-price-now">&euro;{{ '%.2f'|format(sale) }} <small>/ box</small></span>
+        {% if has_discount %}
+        <span class="lpdp-price-was">&euro;{{ '%.2f'|format(list) }}</span>
+        <span class="lpdp-price-off">{{ pct }}% OFF</span>
+        {% endif %}
+      </div>
+      <p class="lpdp-dispatch">
+        {% if lens.availability == 'ON_ORDER' %}
+        <span class="is-order"><b>On order</b>{% if lens.lead_time_days %} &mdash; ships in about {{ lens.lead_time_days }} days{% endif %}</span>
+        {% else %}
+        <span><b>In stock</b> &mdash; ready to ship</span>
+        {% endif %}
+        <span>Free delivery worldwide</span>
+        <span>All taxes included</span>
+      </p>
+    </section>
+
+    <section class="lpdp-gallery" aria-label="Product photographs">
+      {% if images %}
+      <div class="lpdp-hero" id="lpdpHero">
+        {{ product_picture(images[0].path, images[0].alt or title, width=800, height=800, sizes='(max-width:768px) 92vw, 600px', eager=true, priority=true, img_id='pdpMain', zoomable=true) }}
+        {% if images|length > 1 %}
+        <button type="button" class="lpdp-hero-nav" data-dir="prev" aria-label="Previous photograph">&#8249;</button>
+        <button type="button" class="lpdp-hero-nav" data-dir="next" aria-label="Next photograph">&#8250;</button>
+        {% endif %}
+      </div>
+      {% if images|length > 1 %}
+      <div class="lpdp-dots" aria-hidden="true">
+        {% for image in images %}<span{% if loop.first %} class="active"{% endif %}></span>{% endfor %}
+      </div>
+      <div class="lpdp-thumbs pdp-thumbstrip" role="list">
+        {% for image in images %}
+        {{ thumb_img(image.path, image.alt or (title ~ ' — view ' ~ loop.index), active=loop.first) }}
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% else %}
+      <div class="lpdp-hero" style="color:#aaa;font-size:14px;">No photograph available</div>
+      {% endif %}
+    </section>
+
+    <section class="lpdp-buy" aria-labelledby="owRxHeading">
+      {% include '_lens_eye_cards.html' %}
+    </section>
+
+    <section class="lpdp-intel" aria-label="Lens Intelligence">
+      <h2>Lens Intelligence</h2>
+      <dl>
+        <div><dt>Brand</dt><dd>{{ brand }}</dd></div>
+        {% if modality_word %}<div><dt>Wear</dt><dd>{{ modality_word }} disposable</dd></div>{% endif %}
+        {% if pack %}<div><dt>Pack</dt><dd>{{ pack }} lenses / box</dd></div>{% endif %}
+        {% if type_word %}<div><dt>Design</dt><dd>{{ type_word }}</dd></div>{% endif %}
+        {% if bc_text %}<div><dt>Base curve</dt><dd>BC {{ bc_text }} mm</dd></div>{% endif %}
+        {% if dia_text %}<div><dt>Diameter</dt><dd>DIA {{ dia_text }} mm</dd></div>{% endif %}
+        {% if matrix.sph %}<div><dt>Power</dt><dd>PWR selectable</dd></div>{% endif %}
+        <div><dt>Eyes</dt><dd>Left · Right · Both</dd></div>
+        <div><dt>Price</dt><dd>&euro;{{ '%.2f'|format(sale) }} / box</dd></div>
+      </dl>
+    </section>
+
+    <section class="lpdp-details" aria-label="Details">
+      <details class="lpdp-acc" open>
+        <summary>Description</summary>
+        <div class="lpdp-acc-body">
+          {% if product.product_details %}
+          <p>{{ product.product_details }}</p>
+          {% else %}
+          <p>{{ title }}: {{ modality_word|lower }} disposable {{ type_word|lower }} contact lenses by {{ maker }}, supplied in boxes of {{ pack }}.{% if lens.replacement_days %} Each lens is worn once and replaced after {{ lens.replacement_days }} day{{ 's' if lens.replacement_days|int != 1 }}.{% endif %}</p>
+          {% endif %}
+        </div>
+      </details>
+      <details class="lpdp-acc">
+        <summary>Specifications</summary>
+        <div class="lpdp-acc-body">
+          <table>
+            <tr><td class="lbl">Brand</td><td class="val">{{ brand }}</td></tr>
+            {% if lens.manufacturer %}<tr><td class="lbl">Manufacturer</td><td class="val">{{ lens.manufacturer }}</td></tr>{% endif %}
+            {% if modality_word %}<tr><td class="lbl">Wear</td><td class="val">{{ modality_word }} disposable{% if lens.replacement_days %} &mdash; replace every {{ lens.replacement_days }} day{{ 's' if lens.replacement_days|int != 1 }}{% endif %}</td></tr>{% endif %}
+            {% if type_word %}<tr><td class="lbl">Design</td><td class="val">{{ type_word }}</td></tr>{% endif %}
+            {% if pack %}<tr><td class="lbl">Pack</td><td class="val">{{ pack }} lenses per box</td></tr>{% endif %}
+            {% if bc_text %}<tr><td class="lbl">Base curve</td><td class="val">{{ bc_text }} mm</td></tr>{% endif %}
+            {% if dia_text %}<tr><td class="lbl">Diameter</td><td class="val">{{ dia_text }} mm</td></tr>{% endif %}
+            {% if matrix.sph %}<tr><td class="lbl">Powers</td><td class="val">{{ '%+.2f'|format(matrix.sph.min) }} to {{ '%+.2f'|format(matrix.sph.max) }}</td></tr>{% endif %}
+            {% if matrix.cyl %}<tr><td class="lbl">Cylinder</td><td class="val">{{ '%+.2f'|format(matrix.cyl.min) }} to {{ '%+.2f'|format(matrix.cyl.max) }}</td></tr>{% endif %}
+            {% if lens.material %}<tr><td class="lbl">Material</td><td class="val">{{ lens.material }}</td></tr>{% endif %}
+            {% if lens.water_content %}<tr><td class="lbl">Water content</td><td class="val">{{ lens.water_content }}%</td></tr>{% endif %}
+            {% if lens.gtin %}<tr><td class="lbl">GTIN</td><td class="val">{{ lens.gtin }}</td></tr>{% endif %}
+            <tr><td class="lbl">SKU</td><td class="val">{{ product.product_code }}</td></tr>
+          </table>
+        </div>
+      </details>
+      <details class="lpdp-acc">
+        <summary>Ordering &amp; Prescription</summary>
+        <div class="lpdp-acc-body">
+          <p>Contact lenses are made to a prescription. Choose the eye or eyes you are ordering for, then the power (PWR / SPH) written on your prescription for each eye.{% if fixed.base_curve %} This lens is made in one base curve ({{ bc_text }} mm), so it is filled in for you.{% endif %}</p>
+          <p>Every combination offered is one the manufacturer makes; the server checks the order against the same list before it is added to your cart. Minimums per eye are stated beside the boxes.</p>
+        </div>
+      </details>
+      <details class="lpdp-acc">
+        <summary>Shipping &amp; Returns</summary>
+        <div class="lpdp-acc-body">
+          <p>Free delivery worldwide; all taxes included in the price shown.</p>
+          <p>Returns of contact lenses follow Optiwar's standard policy for sealed, unopened boxes; see the <a href="/terms_and_conditions">terms and conditions</a>.</p>
+        </div>
+      </details>
+      <details class="lpdp-acc">
+        <summary>Manufacturer Information</summary>
+        <div class="lpdp-acc-body">
+          <table>
+            <tr><td class="lbl">Manufacturer</td><td class="val">{{ maker }}</td></tr>
+            <tr><td class="lbl">Brand</td><td class="val">{{ brand }}</td></tr>
+            {% if lens.material %}<tr><td class="lbl">Material</td><td class="val">{{ lens.material }}</td></tr>{% endif %}
+            {% if lens.manufacturer_mpn %}<tr><td class="lbl">MPN</td><td class="val">{{ lens.manufacturer_mpn }}</td></tr>{% endif %}
+          </table>
+        </div>
+      </details>
+      <details class="lpdp-acc">
+        <summary>FAQs</summary>
+        <div class="lpdp-acc-body">
+          <dl>
+            <dt>Can I order for one eye only?</dt>
+            <dd>Yes. Choose LEFT or RIGHT and only that eye is ordered; BOTH orders each eye with its own power and boxes.</dd>
+            <dt>Which base curve do I choose?</dt>
+            <dd>{% if fixed.base_curve %}This lens is made in one base curve, {{ bc_text }} mm, so there is nothing to choose.{% else %}The one written on your prescription; only the base curves this lens is made in are offered.{% endif %}</dd>
+            <dt>How many lenses are in a box?</dt>
+            <dd>{{ pack }}. {% if lens.replacement_days %}Worn for {{ lens.replacement_days }} day{{ 's' if lens.replacement_days|int != 1 }} each, a box is {{ pack * lens.replacement_days }} days for one eye.{% endif %}</dd>
+            <dt>Is the price per box?</dt>
+            <dd>Yes: &euro;{{ '%.2f'|format(sale) }} per box of {{ pack }} lenses. The total shown while you choose is an estimate; the checkout confirms it from the catalogue.</dd>
+          </dl>
+        </div>
+      </details>
+    </section>
+  </div>
+</div>
+
+<script>
+function pdpSw(el) {
+  var main = document.getElementById('pdpMain');
+  var av = document.getElementById('pdpMainAvif');
+  var wp = document.getElementById('pdpMainWebp');
+  if (el.dataset.avif && av && wp) {
+    av.srcset = el.dataset.avif;
+    wp.srcset = el.dataset.webp;
+  } else {
+    if (av) av.srcset = '';
+    if (wp) wp.srcset = '';
+  }
+  var full = el.dataset.full || el.getAttribute('src');
+  if (main) {
+    main.src = full;
+    main.dataset.zoom = full;
+    if (el.alt) main.alt = el.alt;
+  }
+  var thumbs = Array.prototype.slice.call(document.querySelectorAll('.lpdp-thumbs img'));
+  thumbs.forEach(function (t) {
+    t.classList.remove('active'); t.setAttribute('aria-current', 'false');
+  });
+  el.classList.add('active');
+  el.setAttribute('aria-current', 'true');
+  var index = thumbs.indexOf(el);
+  Array.prototype.forEach.call(document.querySelectorAll('.lpdp-dots span'), function (dot, i) {
+    dot.classList.toggle('active', i === index);
+  });
+}
+function pdpKey(e, el) {
+  if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); pdpSw(el); }
+}
+(function () {
+  var thumbs = Array.prototype.slice.call(document.querySelectorAll('.lpdp-thumbs img'));
+  if (thumbs.length < 2) { return; }
+  function step(delta) {
+    var current = thumbs.findIndex(function (t) { return t.classList.contains('active'); });
+    pdpSw(thumbs[(current + delta + thumbs.length) % thumbs.length]);
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('.lpdp-hero-nav'), function (button) {
+    button.addEventListener('click', function () {
+      step(button.getAttribute('data-dir') === 'next' ? 1 : -1);
+    });
+  });
+  var hero = document.getElementById('lpdpHero');
+  var startX = null;
+  hero.addEventListener('touchstart', function (e) { startX = e.touches[0].clientX; }, {passive: true});
+  hero.addEventListener('touchend', function (e) {
+    if (startX === null) { return; }
+    var dx = e.changedTouches[0].clientX - startX;
+    startX = null;
+    if (Math.abs(dx) > 40) { step(dx < 0 ? 1 : -1); }
+  }, {passive: true});
+})();
+</script>
+
+{% include '_product_reviews.html' %}
+
+{% if config.GA_MEASUREMENT_ID or config.GA_MEASUREMENT_ID_IN %}
+<script>
+(function(){
+  if (typeof gtag !== 'function') return;
+  var price = {{ (sale or 0)|tojson }};
+  var item = {
+    item_id: {{ (product.product_code or product.product_id)|tojson }},
+    item_name: {{ product.product_name|tojson }},
+    item_category: {{ (product.product_category or '')|tojson }},
+    price: price,
+    quantity: 1
+  };
+  gtag('event', 'view_item', { currency: 'EUR', value: price, items: [item] });
+  var form = document.getElementById('owLensForm');
+  if (form) {
+    form.addEventListener('submit', function(){
+      try { gtag('event', 'add_to_cart', { currency: 'EUR', value: price, items: [item] }); } catch(e){}
+    });
+  }
+})();
+</script>
+{% endif %}
+{% endblock %}

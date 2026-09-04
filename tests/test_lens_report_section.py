@@ -46,6 +46,7 @@ def _released(**over):
         "gtin": "5010000000000", "manufacturer_mpn": "MDT-30",
         "modality": "DAILY", "lens_type": "TORIC", "availability": "IN_STOCK",
         "lead_time_days": None, "merchant_enabled": 1,
+        "min_boxes_single_eye": 1, "min_boxes_both_per_eye": 1,
         "variant_count": 120, "image_count": 2,
     }
     row.update(over)

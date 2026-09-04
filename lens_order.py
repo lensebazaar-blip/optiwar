@@ -299,6 +299,23 @@ def find(source, selection, lens_type=None):
     return selectable(source, lens_type).find(selection)
 
 
+def fixed_choices(source, lens_type=None):
+    """Parameters the lens is made in exactly one value of, as ``{param: value}``.
+
+    These are facts, not questions: the page states them ("BC 8.3 mm") and
+    submits them, and only a parameter with two or more stated values is
+    rendered as a selector. Diameter is included because it is shown, though
+    it is never chosen.
+    """
+    shape = selectable(source, lens_type)
+    fixed = {}
+    for param in PARAMS + ("diameter",):
+        values = shape.values(param)
+        if len(values) == 1:
+            fixed[param] = values[0]
+    return fixed
+
+
 def boxes(value):
     try:
         n = int(str(value or 0).strip() or 0)

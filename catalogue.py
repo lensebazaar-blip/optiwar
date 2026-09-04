@@ -222,6 +222,11 @@ def lens_release_blockers(row, site=None):
         missing.append("no EUR price")
     if not (row.get("availability") or "").strip():
         missing.append("no availability")
+    if site == SITE_COM and not (_positive(row.get("min_boxes_single_eye"))
+                                 and _positive(row.get("min_boxes_both_per_eye"))):
+        # The page's box stepper starts at the stated minimum; with none stated
+        # it would have to invent one, so the lens is not finished.
+        missing.append("no minimum boxes stated")
     if not (row.get("brand") or "").strip():
         missing.append("no brand")
     # A missing identifier does not block release: a supplier that holds no

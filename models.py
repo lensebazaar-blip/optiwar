@@ -853,6 +853,7 @@ def _lens_selection_context(lens, shape, errors=(), submitted=None):
     return dict(
         lens=lens,
         options=shape.options(),
+        fixed=lens_order.fixed_choices(shape),
         minimums=lens_order.minimums(lens, SITE_COM),
         box_price=lens_order.box_price(lens),
         errors=list(errors), submitted=submitted or {},
@@ -925,6 +926,12 @@ def lens_add_to_cart():
         '[%s] ACTIVITY:ADD_TO_CART_LENS user:%s product:%s boxes:%s total:%s',
         request.host, session.get('user_id', 'anon'), item['product_id'],
         item['order_quantity'], item['ATC_WCL'])
+    # "Fast checkout" is the same validated, priced line taken straight to the
+    # checkout page; "Add to cart" leaves the customer on the lens page. Neither
+    # skips authentication, payment or the checkout's own confirmation.
+    if request.form.get('intent') == 'cart' and lens.get('product_slug'):
+        flash('Added to your cart: %s' % item['product_name'])
+        return redirect(lens_seo.lens_path(lens))
     return redirect(url_for('main.checkout'))
 
 
@@ -1664,7 +1671,10 @@ def product_page(category, product_slug):
         except Exception:
             pass
 
-    page = render_template("product_page.html", product=product,
+    # A lens has its own page: nothing on the frame page (face measurement,
+    # sizes, complimentary spectacle lenses, stock counts) is true of it.
+    template = "product_page_lens.html" if lens else "product_page.html"
+    page = render_template(template, product=product,
                            reviews=reviews, avg_rating=avg_rating, review_count=review_count,
                            inr_disc_pct=_inr_disc_pct, eur_disc_pct=_eur_disc_pct,
                            face_match_status=face_match_status, face_fit_label=face_fit_label,
