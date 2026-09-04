@@ -2,8 +2,9 @@
    and the standalone selection page.
 
    Expects: lens, options, fixed, minimums, box_price, errors, submitted, eyes,
-   max_boxes. The customer says which eye(s), then each eye is its own card
-   with its own power and its own boxes. A parameter the lens is made in one
+   max_boxes. Both eyes are always on the page, each its own card with its
+   own include checkbox, its own power and its own boxes; an eye left out is
+   submitted with 0 boxes. A parameter the lens is made in one
    value of (Precision1: BC 8.3) is stated and submitted, never asked; one with
    several values is a selector; one the lens is not configured on is not on
    the page. Every value offered comes from the lens's stated matrix or rules,
@@ -18,20 +19,21 @@
 .ow-rx-blocked { background:#fef3c7; color:#92400e; border:1px solid #fcd34d; border-radius:10px; padding:12px 14px; font-size:13px; }
 .ow-rx-h { font-size:17px; font-weight:800; color:#111; margin:0 0 4px; }
 .ow-rx-sub { font-size:13px; color:#666; margin:0 0 10px; }
-.ow-rx-which { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; padding:4px; background:#f3f4f6; border-radius:12px; margin:0 0 12px; }
-.ow-rx-which button { border:0; border-radius:9px; padding:11px 6px; font-size:14px; font-weight:700; color:#374151; background:transparent; cursor:pointer; min-height:44px; }
-.ow-rx-which button[aria-pressed="true"] { background:#fff; color:#111; box-shadow:0 1px 3px rgba(0,0,0,.12); }
-.ow-rx-which small { display:block; font-size:11px; font-weight:600; color:#6b7280; }
-.ow-rx-eye { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:14px; margin-bottom:10px; border-left:4px solid #6366f1; }
+.ow-rx-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:0 0 4px; }
+.ow-rx-eye { background:#fff; border:1.5px solid #e5e7eb; border-radius:12px; padding:14px; border-left:4px solid #6366f1; transition:opacity .25s, border-color .25s; }
 .ow-rx-eye[data-eye="left"] { border-left-color:#0ea5e9; }
-.ow-rx-eye.is-off { display:none; }
-.ow-rx-head { display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin:0; }
-.ow-rx-head .ow-rx-name { font-size:15px; font-weight:800; color:#111; }
-.ow-rx-head .ow-rx-name small { font-weight:600; color:#6b7280; font-size:12px; margin-left:4px; }
+.ow-rx-eye.is-on { border-color:#c7d2fe; border-left-color:#6366f1; }
+.ow-rx-eye[data-eye="left"].is-on { border-left-color:#0ea5e9; }
+.ow-rx-eye.is-off { opacity:.5; }
+.ow-rx-eye.is-off .ow-rx-body { pointer-events:none; }
+.ow-rx-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:0; }
+.ow-rx-check { display:flex; align-items:center; gap:8px; font-size:15px; font-weight:800; color:#111; cursor:pointer; }
+.ow-rx-check input { width:20px; height:20px; accent-color:#6366f1; flex-shrink:0; margin:0; }
+.ow-rx-check small { font-weight:600; color:#6b7280; font-size:12px; margin-left:2px; }
 .ow-rx-head .ow-rx-line { font-size:13px; color:#555; white-space:nowrap; }
 .ow-rx-facts { font-size:12px; color:#555; margin:6px 0 0; }
 .ow-rx-facts b { color:#111; font-weight:700; }
-.ow-rx-body { display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; margin-top:10px; }
+.ow-rx-body { display:grid; grid-template-columns:1fr; gap:10px 12px; margin-top:10px; }
 .ow-rx-body label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:#666; font-weight:600; letter-spacing:.2px; }
 .ow-rx-body label[hidden] { display:none; }
 .ow-rx-body select { font-size:15px; padding:11px 10px; border:1px solid #d1d5db; border-radius:8px; background:#fff; color:#111; width:100%; min-height:44px; }
@@ -59,12 +61,12 @@
 .ow-rx-cta--fast:hover { background:#000; box-shadow:0 4px 12px rgba(0,0,0,.25); }
 .ow-rx-bar { display:none; }
 @media (max-width:768px) {
-  .ow-rx-body { grid-template-columns:1fr; }
+  .ow-rx-grid { grid-template-columns:1fr; }
   .ow-rx-bar { display:flex; position:fixed; left:0; right:0; bottom:0; z-index:900; align-items:center; gap:10px; padding:10px 14px calc(10px + env(safe-area-inset-bottom)); background:#fff; border-top:1px solid #e5e7eb; box-shadow:0 -4px 16px rgba(0,0,0,.08); }
-  .ow-rx-bar .ow-rx-bar-total { flex:1; min-width:0; }
+  .ow-rx-bar .ow-rx-bar-total { flex:0 1 auto; min-width:0; }
   .ow-rx-bar .ow-rx-bar-total strong { display:block; font-size:17px; color:#111; }
   .ow-rx-bar .ow-rx-bar-total span { font-size:12px; color:#666; }
-  .ow-rx-bar .ow-rx-cta { width:auto; flex:0 0 auto; padding:12px 16px; }
+  .ow-rx-bar .ow-rx-cta { width:auto; flex:1 1 0; padding:12px 10px; font-size:14px; white-space:nowrap; }
   body { padding-bottom:84px; }
 }
 </style>
@@ -106,20 +108,13 @@
 
 {% set right_on = (not submitted) or (submitted.get('right_boxes')|int(0)) > 0 %}
 {% set left_on = (not submitted) or (submitted.get('left_boxes')|int(0)) > 0 %}
-{% set which = 'both' if (right_on and left_on) else ('right' if right_on else 'left') %}
 
 <form action="{{ url_for('main.lens_add_to_cart') }}" method="post"
-      id="owLensForm" class="ow-rx" data-which="{{ which }}">
+      id="owLensForm" class="ow-rx">
   <input type="hidden" name="product_id" value="{{ lens.product_id }}">
 
   <h2 class="ow-rx-h" id="owRxHeading">Choose your prescription</h2>
-  <p class="ow-rx-sub">Order for one eye or both. Each eye has its own power and its own boxes.</p>
-
-  <div class="ow-rx-which" role="group" aria-label="Which eye" data-role="which">
-    <button type="button" data-which="left" aria-pressed="{{ 'true' if which == 'left' else 'false' }}">LEFT<small>OS only</small></button>
-    <button type="button" data-which="right" aria-pressed="{{ 'true' if which == 'right' else 'false' }}">RIGHT<small>OD only</small></button>
-    <button type="button" data-which="both" aria-pressed="{{ 'true' if which == 'both' else 'false' }}">BOTH<small>OD + OS</small></button>
-  </div>
+  <p class="ow-rx-sub">Untick an eye you are not ordering for. Each eye has its own power and its own boxes.</p>
 
   {# Every path ends in the same per-eye fields below: nothing is ordered from
      a photograph or a chat; a prescription is read into the cards and checked
@@ -132,11 +127,15 @@
   </div>
   <p class="ow-rx-note" data-role="help-note" hidden></p>
 
+  <div class="ow-rx-grid">
   {% for eye in eyes %}
   {% set on = right_on if eye == 'right' else left_on %}
-  <fieldset class="ow-rx-eye{% if not on %} is-off{% endif %}" data-eye="{{ eye }}" aria-labelledby="owRxName-{{ eye }}">
+  <fieldset class="ow-rx-eye {{ 'is-on' if on else 'is-off' }}" data-eye="{{ eye }}" aria-labelledby="owRxName-{{ eye }}">
     <div class="ow-rx-head">
-      <span class="ow-rx-name" id="owRxName-{{ eye }}">{{ 'Right eye' if eye == 'right' else 'Left eye' }}<small>{{ 'OD' if eye == 'right' else 'OS' }}</small></span>
+      <label class="ow-rx-check" id="owRxName-{{ eye }}">
+        <input type="checkbox" name="{{ eye }}_include" value="1" data-role="include"{% if on %} checked{% endif %}>
+        {{ 'Right eye' if eye == 'right' else 'Left eye' }}<small>({{ 'OD' if eye == 'right' else 'OS' }})</small>
+      </label>
       <span class="ow-rx-line" data-role="line"></span>
     </div>
     {% if fixed.base_curve or fixed.diameter %}
@@ -181,6 +180,7 @@
     </div>
   </fieldset>
   {% endfor %}
+  </div>
 
   <div class="ow-rx-summary" aria-live="polite" data-role="summary">
     <h3>Order summary</h3>
@@ -222,6 +222,7 @@
     <span data-role="total-boxes"></span>
   </div>
   <button type="submit" class="ow-rx-cta" form="owLensForm" name="intent" value="cart">Add to Cart</button>
+  <button type="submit" class="ow-rx-cta ow-rx-cta--fast" form="owLensForm" name="intent" value="checkout">Fast Checkout</button>
 </div>
 
 <script type="application/json" id="owLensMatrix">{{ options|tojson }}</script>
@@ -238,7 +239,6 @@
   var maxBoxes = {{ max_boxes }};
   var form = document.getElementById('owLensForm');
   var bar = document.getElementById('owLensBar');
-  var which = form.getAttribute('data-which') || 'both';
 
   function euro(n) {
     return '\u20ac' + (Math.round(n * 100) / 100).toFixed(2);
@@ -252,11 +252,14 @@
   function eyeFieldset(eye) {
     return form.querySelector('.ow-rx-eye[data-eye="' + eye + '"]');
   }
+  function includeBox(eye) {
+    return role(eyeFieldset(eye), 'include');
+  }
   function included(eye) {
-    return which === 'both' || which === eye;
+    return includeBox(eye).checked;
   }
   function includedCount() {
-    return which === 'both' ? 2 : 1;
+    return (included('right') ? 1 : 0) + (included('left') ? 1 : 0);
   }
   // The minimum is the row's, rendered by the server. Without one the block
   // above is not a form at all, so there is nothing to fall back to here.
@@ -366,18 +369,20 @@
     if (node) { node.textContent = text; }
   }
 
-  function applyWhich() {
-    form.setAttribute('data-which', which);
-    Array.prototype.forEach.call(
-      role(form, 'which').querySelectorAll('button'), function (button) {
-        button.setAttribute('aria-pressed',
-          button.getAttribute('data-which') === which ? 'true' : 'false');
-      });
+  function applyIncluded() {
+    var both = includedCount() === 2;
     ['right', 'left'].forEach(function (eye) {
       var fieldset = eyeFieldset(eye);
       var boxes = role(fieldset, 'boxes');
       var on = included(eye);
+      fieldset.classList.toggle('is-on', on);
       fieldset.classList.toggle('is-off', !on);
+      // Selectors and steppers go quiet; every input still submits, so the
+      // server sees the same names either way.
+      Array.prototype.forEach.call(
+        fieldset.querySelectorAll('.ow-rx-body select, .ow-rx-body button'),
+        function (field) { field.disabled = !on; });
+      boxes.readOnly = !on;
       // An eye nobody is ordering for contributes no boxes, so it cannot be
       // charged for and cannot fail validation on a stale value.
       if (!on) { boxes.value = 0; }
@@ -385,7 +390,7 @@
         boxes.value = minimumBoxes();
       }
       var copy = role(fieldset, 'copy-' + eye);
-      if (copy) { copy.hidden = which !== 'both'; }
+      if (copy) { copy.hidden = !both; }
     });
     update();
   }
@@ -446,14 +451,16 @@
 
   Array.prototype.forEach.call(
     document.querySelectorAll('.ow-rx-eye'), wire);
-  Array.prototype.forEach.call(
-    role(form, 'which').querySelectorAll('button'), function (button) {
-      button.addEventListener('click', function () {
-        which = button.getAttribute('data-which');
-        warn('');
-        applyWhich();
-      });
+  ['right', 'left'].forEach(function (eye) {
+    includeBox(eye).addEventListener('change', function (event) {
+      // An order is for at least one eye: the last ticked box stays ticked.
+      if (includedCount() === 0) {
+        event.target.checked = true;
+        warn('Choose at least one eye.');
+      } else { warn(''); }
+      applyIncluded();
     });
+  });
   ['right', 'left'].forEach(function (eye) {
     var copy = role(eyeFieldset(eye), 'copy-' + eye);
     if (copy) {
@@ -490,7 +497,7 @@
       });
     });
 
-  applyWhich();
+  applyIncluded();
 })();
 </script>
 {% endif %}

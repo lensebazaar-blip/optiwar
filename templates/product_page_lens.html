@@ -9,7 +9,7 @@
    title is the product's name; the SKU is stated once, in the specifications.
 
    Mobile comes first, as one column in this order: identity, price, hero,
-   prescription, summary, actions, Lens Intelligence, details. Desktop keeps
+   prescription, summary, actions, details. Desktop keeps
    that order and puts the gallery beside it. #}
 {% set title = product.product_name %}
 {% set brand = lens.brand or product.product_name %}
@@ -68,12 +68,11 @@
 .lpdp-crumb { display:flex; flex-wrap:wrap; gap:5px; font-size:13px; color:#888; margin:0 0 12px; list-style:none; padding:0; }
 .lpdp-crumb a { color:#6366f1; text-decoration:none; }
 .lpdp-crumb li + li::before { content:'/'; color:#ccc; margin-right:5px; }
-.lpdp-grid { display:grid; grid-template-columns:minmax(0,1fr); grid-template-areas:"identity" "price" "gallery" "buy" "intel" "details"; gap:14px; }
+.lpdp-grid { display:grid; grid-template-columns:minmax(0,1fr); grid-template-areas:"identity" "price" "gallery" "buy" "details"; gap:14px; }
 .lpdp-identity { grid-area:identity; }
 .lpdp-price { grid-area:price; }
 .lpdp-gallery { grid-area:gallery; min-width:0; }
 .lpdp-buy { grid-area:buy; min-width:0; }
-.lpdp-intel { grid-area:intel; }
 .lpdp-details { grid-area:details; min-width:0; }
 .lpdp-maker { font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:#6366f1; margin:0 0 4px; }
 .lpdp-title { font-size:24px; line-height:1.2; font-weight:800; margin:0 0 6px; color:#111; }
@@ -100,11 +99,6 @@
 .lpdp-thumbs img { width:64px; height:64px; object-fit:contain; border:2px solid #e5e7eb; border-radius:8px; cursor:pointer; background:#fff; padding:2px; flex-shrink:0; }
 .lpdp-thumbs img.active, .lpdp-thumbs img[aria-current="true"] { border-color:#6366f1; box-shadow:0 0 0 1px #6366f1; }
 .lpdp-thumbs img:focus-visible { outline:2px solid #4f46e5; outline-offset:2px; }
-.lpdp-intel { background:linear-gradient(135deg,#eef2ff,#f5f3ff); border:1px solid #e0e7ff; border-radius:14px; padding:14px 16px; }
-.lpdp-intel h2 { font-size:13px; text-transform:uppercase; letter-spacing:1px; color:#4f46e5; margin:0 0 10px; }
-.lpdp-intel dl { display:grid; grid-template-columns:repeat(3,1fr); gap:10px 12px; margin:0; }
-.lpdp-intel dt { font-size:11px; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; }
-.lpdp-intel dd { margin:0; font-size:14px; font-weight:700; color:#111; }
 .lpdp-acc { border:1px solid #e5e7eb; border-radius:10px; margin-bottom:8px; background:#fff; }
 .lpdp-acc summary { padding:13px 16px; font-size:14px; font-weight:700; cursor:pointer; list-style:none; display:flex; justify-content:space-between; align-items:center; }
 .lpdp-acc summary::-webkit-details-marker { display:none; }
@@ -120,7 +114,7 @@
 .lpdp-acc-body dd { margin:2px 0 0; }
 @media (min-width:769px) {
   .lpdp { padding-top:16px; }
-  .lpdp-grid { grid-template-columns:minmax(0,7fr) minmax(0,5fr); grid-template-areas:"gallery identity" "gallery price" "gallery buy" "gallery intel" "details details"; gap:16px 32px; align-items:start; }
+  .lpdp-grid { grid-template-columns:minmax(0,7fr) minmax(0,5fr); grid-template-areas:"gallery identity" "gallery price" "gallery buy" "details details"; gap:16px 32px; align-items:start; }
   .lpdp-gallery { position:sticky; top:90px; }
   .lpdp-title { font-size:30px; }
   .lpdp-hero-nav { display:none; }
@@ -196,21 +190,6 @@
 
     <section class="lpdp-buy" aria-labelledby="owRxHeading">
       {% include '_lens_eye_cards.html' %}
-    </section>
-
-    <section class="lpdp-intel" aria-label="Lens Intelligence">
-      <h2>Lens Intelligence</h2>
-      <dl>
-        <div><dt>Brand</dt><dd>{{ brand }}</dd></div>
-        {% if modality_word %}<div><dt>Wear</dt><dd>{{ modality_word }} disposable</dd></div>{% endif %}
-        {% if pack %}<div><dt>Pack</dt><dd>{{ pack }} lenses / box</dd></div>{% endif %}
-        {% if type_word %}<div><dt>Design</dt><dd>{{ type_word }}</dd></div>{% endif %}
-        {% if bc_text %}<div><dt>Base curve</dt><dd>BC {{ bc_text }} mm</dd></div>{% endif %}
-        {% if dia_text %}<div><dt>Diameter</dt><dd>DIA {{ dia_text }} mm</dd></div>{% endif %}
-        {% if matrix.sph %}<div><dt>Power</dt><dd>PWR selectable</dd></div>{% endif %}
-        <div><dt>Eyes</dt><dd>Left · Right · Both</dd></div>
-        <div><dt>Price</dt><dd>&euro;{{ '%.2f'|format(sale) }} / box</dd></div>
-      </dl>
     </section>
 
     <section class="lpdp-details" aria-label="Details">
