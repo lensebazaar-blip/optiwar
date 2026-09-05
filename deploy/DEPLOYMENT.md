@@ -105,6 +105,47 @@ payment. Notes specific to it:
   request reached the view. The first release of the pipeline shipped without
   this and the route was reachable by `GET` and 403 to Razorpay.
 
+### Settlement does not depend on the browser
+
+Incident 2026-09-05, `BSNICP-523998`: a UPI payment was captured, the customer
+never returned to `/success`, and the `payment.captured` webhook carried no
+notes — so the handler logged `RAZORPAY_WEBHOOK_UNMATCHED` and the paid order
+sat Pending until a person noticed. Since then Razorpay's verified server-side
+state is what settles an order; the browser return is a UX event.
+
+- `razorpay_settlement.py` is the one implementation both the browser callback
+  and the webhook call: `resolve_order_reference` (payment notes → payment-link
+  reference → order entity → `payment.order_id` fetched server-to-server →
+  its `receipt`) and `settle` (captured, known order, currency, amount, then
+  `apply_paid_order`). The browser callback fetches the payment from Razorpay
+  and settles that, so a signed return with a wrong amount is refused, not
+  trusted.
+- `create_razorpay_order` writes `notes.optiwar_order_id` and `notes.host` in
+  addition to `receipt`; Razorpay copies an order's notes onto its payments, so
+  a new payment names our order by itself. Legacy orders without notes take
+  the lookup path.
+- `razorpay_reconcile.py` is the safety net: every 10 minutes it asks Razorpay
+  about recent orders still Pending with no successful payment row, applies a
+  captured payment whose receipt/amount/currency reconcile, leaves an unpaid
+  one alone, and refuses conflicting evidence as
+  `PAYMENT_RECONCILIATION_EXCEPTION`. A captured payment found Pending past the
+  30-minute grace is `PAYMENT_INVARIANT_RED`, written to
+  `/var/log/optiwar/alerts.log` (and `ALERT_WEBHOOK` if set) at once. Cron, on
+  the box, run as the application:
+
+      */10 * * * * set -a; . /etc/optiwar/optiwar-secrets.env; set +a; \
+        /var/www/flask-optiwar-ow-release-090525/venv/bin/python \
+        /var/www/flask-optiwar-ow-release-090525/venv/lib/python3.11/site-packages/flaskr/razorpay_reconcile.py \
+        >> /var/log/optiwar/razorpay_reconcile.log 2>&1
+
+  It writes `/var/log/optiwar/razorpay_reconcile_latest.json`; a stale file is
+  reported as the safety net being absent.
+- `reports/payment_report_section.py` is the daily-report section (counters by
+  path, unmatched/mismatch/duplicate from the `ACTIVITY:` log, the worker's
+  last run, and the invariant stated every day). Report modules are not in
+  `DEPLOY_SET`; they are copied to `/root/reports/reports/` and the section is
+  added to `run_daily_report.sh` next to `lens_report_section`.
+
 ## Procedure
 
 ```bash

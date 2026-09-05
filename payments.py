@@ -85,6 +85,7 @@ import hmac
 import hashlib
 
 from .razorpay_events import verify_webhook_signature
+from .razorpay_settlement import order_notes
 
 def get_razorpay_client():
     """Get Razorpay client instance."""
@@ -93,10 +94,14 @@ def get_razorpay_client():
         current_app.config['RAZORPAY_KEY_SECRET']
     ))
 
-def create_razorpay_order(order_id, amount_eur, currency='EUR'):
+def create_razorpay_order(order_id, amount_eur, currency='EUR', host=''):
     """Create a Razorpay order for EUR payments.
     amount_eur: float amount in EUR (e.g. 35.99)
     Returns: Razorpay order dict with 'id', 'amount', 'currency' etc.
+
+    The Optiwar order id travels twice: as ``receipt`` (as it always has) and
+    in ``notes``, which Razorpay copies onto every payment made against the
+    order — so a payment.captured webhook names our order by itself.
     """
     client = get_razorpay_client()
     # Razorpay expects amount in smallest currency unit (cents for EUR)
@@ -105,6 +110,7 @@ def create_razorpay_order(order_id, amount_eur, currency='EUR'):
         'amount': amount_cents,
         'currency': currency,
         'receipt': str(order_id),
+        'notes': order_notes(order_id, host),
         'payment_capture': 1  # Auto-capture payment
     }
     try:
@@ -182,3 +188,20 @@ def fetch_razorpay_payment(payment_id):
     except Exception as e:
         current_app.logger.error(f"Razorpay payment fetch failed: {e}")
         return None
+
+
+def fetch_razorpay_order(rzp_order_id):
+    """A Razorpay order by its id — its ``receipt`` is our order id. Raises."""
+    return get_razorpay_client().order.fetch(rzp_order_id)
+
+
+def fetch_razorpay_orders_by_receipt(receipt):
+    """Every Razorpay order created with this receipt (normally one). Raises."""
+    res = get_razorpay_client().order.all({'receipt': str(receipt), 'count': 10})
+    return (res or {}).get('items') or []
+
+
+def fetch_razorpay_order_payments(rzp_order_id):
+    """Payments made against a Razorpay order. Raises."""
+    res = get_razorpay_client().order.payments(rzp_order_id)
+    return (res or {}).get('items') or []
