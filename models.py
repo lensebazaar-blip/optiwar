@@ -2,10 +2,12 @@ import requests as http_requests
 import random
 import functools
 from .mail import send_order_confirmation
-from .payments import initiate_payment, PaytmChecksum, verify_payment_status, create_razorpay_order, verify_razorpay_payment, fetch_razorpay_payment, verify_razorpay_webhook, verify_razorpay_payment_link
-from .paid_orders import (apply_paid_order, append_status, order_amount_minor,
-                          order_currency, order_payment_state)
-from .razorpay_events import PAID_EVENTS, payment_entity
+from .payments import initiate_payment, PaytmChecksum, verify_payment_status, create_razorpay_order, verify_razorpay_payment, fetch_razorpay_payment, fetch_razorpay_order, verify_razorpay_webhook, verify_razorpay_payment_link
+from .paid_orders import (apply_paid_order, order_payment_state)
+from .razorpay_events import PAID_EVENTS
+from .razorpay_settlement import (resolve_order_reference, settle, notify_paid_order,
+                                  APPLIED, DUPLICATE, NOT_CAPTURED, UNKNOWN_ORDER,
+                                  AMOUNT_MISMATCH, CURRENCY_MISMATCH, BY_BROWSER)
 from .rx_powers import normalize_rows
 from . import ops_refunds
 from flaskr.notifications import notify_payment_attempted, notify_payment_success, notify_payment_failed, notify_order_confirmed, notify_order_shipped
@@ -3067,7 +3069,7 @@ def checkout():
             # Razorpay: INR for optiwar.in, EUR for global optiwar.com
             txn_token = None
             _rzp_currency = 'INR' if _is_india else 'EUR'
-            rzp_order = create_razorpay_order(order_id=order_id, amount_eur=float(total_amount), currency=_rzp_currency)
+            rzp_order = create_razorpay_order(order_id=order_id, amount_eur=float(total_amount), currency=_rzp_currency, host=request.host)
             razorpay_order_id = rzp_order['id']
             current_app.logger.info(f"Razorpay order: {razorpay_order_id} for {_rzp_currency} {total_amount}")
 
@@ -3525,41 +3527,40 @@ def razorpay_verify():
             db = get_db()
             cursor = db.cursor()
 
-            _paid = apply_paid_order(
-                db, order_id, razorpay_payment_id,
-                {
-                    'razorpay_payment_id': razorpay_payment_id,
-                    'razorpay_order_id': razorpay_order_id,
-                    'razorpay_signature': razorpay_signature,
-                    'gateway': 'razorpay'
-                },
-                currency='INR' if _req_is_india() else 'EUR',
-                site=request.host, gateway='razorpay',
-                logger=current_app.logger)
-            if not _paid['applied']:
+            # Razorpay's own record of the payment is what settles the order;
+            # the browser's signed ids only say which payment to look at.
+            _entity = fetch_razorpay_payment(razorpay_payment_id)
+            if not _entity:
+                # Unverifiable right now: leave it Pending for the webhook or
+                # the reconciliation worker, which settle from the same record.
+                current_app.logger.error(
+                    f"[{request.host}] ACTIVITY:RAZORPAY_FETCH_UNAVAILABLE order:{order_id} "
+                    f"payment:{razorpay_payment_id} source:storefront")
                 return jsonify({'status': 'success', 'redirect': url_for('main.success', order_id=order_id)})
-            _fulfilled_count = _paid['fulfilled_count']
+            if str(_entity.get('order_id') or '') != str(razorpay_order_id):
+                current_app.logger.error(
+                    f"[{request.host}] ACTIVITY:RAZORPAY_ORDER_ID_MISMATCH order:{order_id} "
+                    f"payment:{razorpay_payment_id} signed:{razorpay_order_id} "
+                    f"razorpay:{_entity.get('order_id')}")
+                return jsonify({'status': 'error',
+                                'message': 'Payment verification failed'}), 400
+            _settled = settle(
+                db, order_id, _entity, site=request.host, source='storefront',
+                method=BY_BROWSER, event='browser_callback', logger=current_app.logger,
+                extra_dump={'razorpay_signature': razorpay_signature})
+            if _settled['outcome'] in (UNKNOWN_ORDER, AMOUNT_MISMATCH, CURRENCY_MISMATCH):
+                return jsonify({'status': 'error',
+                                'message': 'Payment verification failed'}), 400
+            if _settled['outcome'] != APPLIED:
+                return jsonify({'status': 'success', 'redirect': url_for('main.success', order_id=order_id)})
+            _paid = _settled['paid']
             _host = request.host
             _ip = request.headers.get('X-Forwarded-For', request.remote_addr)
             _uid = session.get('user_id', 'anon')
             current_app.logger.info(f"[{_host}] ACTIVITY:PAYMENT_SUCCESS IP:{_ip} user:{_uid} order:{order_id} gateway:razorpay payment_id:{razorpay_payment_id}")
-            # EWS: Notify payment success (Razorpay)
-            try:
-                _ews_cur2 = cursor
-                _ews_cur2.execute("SELECT c.customer_email, c.customer_phone, ca.delivery_email, ca.delivery_phone FROM customers c JOIN orders o ON o.customer_id=c.customer_id LEFT JOIN customers_address ca ON ca.address_id=o.address_id WHERE o.order_id=%s LIMIT 1", (order_id,))
-                _ews_cust2 = _ews_cur2.fetchone()
-                if _ews_cust2:
-                    _ews_cur2.execute("SELECT SUM(order_total) as total FROM orders WHERE order_id=%s", (order_id,))
-                    _ews_total_r2 = _ews_cur2.fetchone()
-                    _ews_total2 = _ews_total_r2['total'] if _ews_total_r2 and _ews_total_r2['total'] else 0
-                    _ews_currency2 = '\u20b9' if _req_is_india() else '\u20ac'
-                    _ews_to2 = _ews_cust2.get('delivery_email') or _ews_cust2['customer_email']
-                    _ews_profile2 = _ews_cust2['customer_email']
-                    notify_payment_success(_ews_to2, _ews_cust2.get('delivery_phone') or _ews_cust2.get('customer_phone',''), order_id, _ews_total2, _ews_currency2, request.host, 'razorpay', profile_email=_ews_profile2)
-                    if _fulfilled_count > 0:
-                        notify_order_confirmed(_ews_to2, _ews_cust2.get('delivery_phone') or _ews_cust2.get('customer_phone',''), _ews_cust2.get('customer_name','Customer'), order_id, _ews_total2, _ews_currency2, request.host, profile_email=_ews_profile2)
-            except Exception as _ews_err:
-                current_app.logger.error(f"EWS:ERROR payment_success_razorpay {_ews_err}")
+            notify_paid_order(cursor, order_id, _settled, request.host,
+                              notify_payment_success, notify_order_confirmed,
+                              logger=current_app.logger)
 
             # Send order confirmation email
             try:
@@ -3644,77 +3645,35 @@ def razorpay_webhook():
     if kind not in PAID_EVENTS:
         return jsonify({'status': 'ignored', 'event': kind}), 200
 
-    payment, order_id = payment_entity(event)
+    payment, order_id, method = resolve_order_reference(
+        event, fetch_order=fetch_razorpay_order, logger=current_app.logger)
     payment_id = payment.get('id', '')
     if not order_id or not payment_id:
         current_app.logger.error(
-            f"ACTIVITY:RAZORPAY_WEBHOOK_UNMATCHED event:{kind} payment:{payment_id}")
+            f"ACTIVITY:RAZORPAY_WEBHOOK_UNMATCHED event:{kind} payment:{payment_id} "
+            f"rzp_order:{payment.get('order_id', '')}")
         return jsonify({'status': 'error', 'message': 'no order reference'}), 200
-    if payment.get('status') != 'captured':
-        return jsonify({'status': 'ignored', 'reason': 'payment not captured'}), 200
 
     db = get_db()
-    cursor = db.cursor()
-    expected_minor = order_amount_minor(cursor, order_id)
-    if not expected_minor:
-        current_app.logger.error(
-            f"ACTIVITY:RAZORPAY_WEBHOOK_NO_ORDER order:{order_id} payment:{payment_id}")
+    settled = settle(db, order_id, payment, site=request.host, source='razorpay-webhook',
+                     method=method, event=kind, logger=current_app.logger)
+    outcome = settled['outcome']
+    if outcome == NOT_CAPTURED:
+        return jsonify({'status': 'ignored', 'reason': 'payment not captured'}), 200
+    if outcome == UNKNOWN_ORDER:
         return jsonify({'status': 'error', 'message': 'unknown order'}), 500
-    paid_minor = int(payment.get('amount') or 0)
-    if paid_minor < expected_minor:
-        current_app.logger.error(
-            "ACTIVITY:RAZORPAY_WEBHOOK_AMOUNT_MISMATCH order:%s payment:%s paid:%s expected:%s"
-            % (order_id, payment_id, paid_minor, expected_minor))
+    if outcome == AMOUNT_MISMATCH:
         return jsonify({'status': 'error', 'message': 'amount mismatch'}), 500
-    if paid_minor > expected_minor:
-        current_app.logger.warning(
-            "ACTIVITY:RAZORPAY_WEBHOOK_OVERPAID order:%s payment:%s paid:%s expected:%s"
-            % (order_id, payment_id, paid_minor, expected_minor))
-
-    currency = order_currency(cursor, order_id)
-    paid_currency = payment.get('currency') or currency
-    if paid_currency != currency:
-        current_app.logger.error(
-            "ACTIVITY:RAZORPAY_WEBHOOK_CURRENCY_MISMATCH order:%s payment:%s paid:%s expected:%s"
-            % (order_id, payment_id, paid_currency, currency))
+    if outcome == CURRENCY_MISMATCH:
         return jsonify({'status': 'error', 'message': 'currency mismatch'}), 200
-    paid = apply_paid_order(
-        db, order_id, payment_id, {'gateway': 'razorpay', 'event': kind,
-                                   'payment': payment},
-        currency=currency, site=request.host, gateway='razorpay',
-        source='razorpay-webhook', logger=current_app.logger)
-    if not paid['applied']:
-        return jsonify({'status': 'success', 'reason': paid['reason']}), 200
+    if outcome == DUPLICATE:
+        return jsonify({'status': 'success', 'reason': 'duplicate_payment'}), 200
 
-    current_app.logger.info(
-        "ACTIVITY:PAYMENT_SUCCESS source:webhook order:%s gateway:razorpay payment_id:%s "
-        "fulfilled:%s refund_pending:%s"
-        % (order_id, payment_id, paid['fulfilled_count'], len(paid['refund_lines'])))
-    try:
-        cursor.execute(
-            "SELECT c.customer_name, c.customer_email, c.customer_phone, "
-            "ca.delivery_email, ca.delivery_phone "
-            "FROM customers c JOIN orders o ON o.customer_id=c.customer_id "
-            "LEFT JOIN customers_address ca ON ca.address_id=o.address_id "
-            "WHERE o.order_id=%s LIMIT 1", (order_id,))
-        cust = cursor.fetchone()
-        if cust and not paid['is_test']:
-            to_email = cust.get('delivery_email') or cust['customer_email']
-            to_phone = cust.get('delivery_phone') or cust.get('customer_phone', '')
-            total = expected_minor / 100.0
-            symbol = '\u20b9' if currency == 'INR' else '\u20ac'
-            notify_payment_success(to_email, to_phone, order_id, total, symbol,
-                                   request.host, 'razorpay',
-                                   profile_email=cust['customer_email'])
-            if paid['fulfilled_count'] > 0:
-                notify_order_confirmed(to_email, to_phone,
-                                       cust.get('customer_name', 'Customer'),
-                                       order_id, total, symbol, request.host,
-                                       profile_email=cust['customer_email'])
-    except Exception as exc:
-        current_app.logger.error(f"EWS:ERROR payment_success_razorpay_webhook {exc}")
-
-    return jsonify({'status': 'success', 'order_id': order_id,
+    notify_paid_order(db.cursor(), order_id, settled, request.host,
+                      notify_payment_success, notify_order_confirmed,
+                      logger=current_app.logger)
+    paid = settled['paid']
+    return jsonify({'status': 'success', 'order_id': order_id, 'method': method,
                     'fulfilled': paid['fulfilled_count'],
                     'refund_pending': len(paid['refund_lines'])}), 200
 
