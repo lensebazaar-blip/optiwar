@@ -30,8 +30,7 @@
 .ow-rx-check { display:flex; align-items:center; gap:8px; font-size:15px; font-weight:800; color:#111; cursor:pointer; }
 .ow-rx-check input { width:20px; height:20px; accent-color:#6366f1; flex-shrink:0; margin:0; }
 .ow-rx-check small { font-weight:600; color:#6b7280; font-size:12px; margin-left:2px; }
-.ow-rx-head .ow-rx-line { font-size:13px; color:#555; white-space:nowrap; }
-.ow-rx-facts { font-size:12px; color:#555; margin:6px 0 0; }
+.ow-rx-facts { font-size:12px; color:#555; margin:0 0 12px; }
 .ow-rx-facts b { color:#111; font-weight:700; }
 .ow-rx-body { display:grid; grid-template-columns:1fr; gap:10px 12px; margin-top:10px; }
 .ow-rx-body label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:#666; font-weight:600; letter-spacing:.2px; }
@@ -127,6 +126,15 @@
   </div>
   <p class="ow-rx-note" data-role="help-note" hidden></p>
 
+  {% if fixed.base_curve or fixed.diameter %}
+  <p class="ow-rx-facts">
+    {% if fixed.base_curve %}<b>BC {{ fixed.base_curve|float|round(1) }} mm</b>{% endif %}
+    {% if fixed.base_curve and fixed.diameter %} &middot; {% endif %}
+    {% if fixed.diameter %}<b>DIA {{ fixed.diameter|float|round(1) }} mm</b>{% endif %}
+    &mdash; fixed for this lens, both eyes
+  </p>
+  {% endif %}
+
   <div class="ow-rx-grid">
   {% for eye in eyes %}
   {% set on = right_on if eye == 'right' else left_on %}
@@ -136,16 +144,7 @@
         <input type="checkbox" name="{{ eye }}_include" value="1" data-role="include"{% if on %} checked{% endif %}>
         {{ 'Right eye' if eye == 'right' else 'Left eye' }}<small>({{ 'OD' if eye == 'right' else 'OS' }})</small>
       </label>
-      <span class="ow-rx-line" data-role="line"></span>
     </div>
-    {% if fixed.base_curve or fixed.diameter %}
-    <p class="ow-rx-facts">
-      {% if fixed.base_curve %}<b>BC {{ fixed.base_curve|float|round(1) }} mm</b>{% endif %}
-      {% if fixed.base_curve and fixed.diameter %} &middot; {% endif %}
-      {% if fixed.diameter %}<b>DIA {{ fixed.diameter|float|round(1) }} mm</b>{% endif %}
-      &mdash; fixed for this lens
-    </p>
-    {% endif %}
     <div class="ow-rx-body">
       {% if options.colors and options.colors|length > 1 %}
       <label>Colour
@@ -415,8 +414,6 @@
       var row = role(form, 'summary-' + eye);
       var on = included(eye);
       var n = on ? Number(role(fieldset, 'boxes').value || 0) : 0;
-      var line = role(fieldset, 'line');
-      if (line) { line.textContent = on ? boxesWord(n) + ' \u00b7 ' + euro(n * boxPrice) : ''; }
       if (row) {
         row.hidden = !on;
         role(row, 'summary-desc').textContent = describe(fieldset) + ' \u00b7 ' + boxesWord(n);

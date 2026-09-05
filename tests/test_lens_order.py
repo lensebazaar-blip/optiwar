@@ -647,6 +647,14 @@ class Render(unittest.TestCase):
         self.assertNotIn("lpdp-intel", html)
         for fact in ("BC 8.3 mm", "DIA 14.2 mm", "verofilcon A"):
             self.assertIn(fact, html)
+        # BC/DIA are lens-level: one fact line above both cards, plus the
+        # Specifications row -- not once per eye.
+        self.assertEqual(html.count('class="ow-rx-facts"'), 1)
+        self.assertEqual(html.count("BC 8.3 mm"), 1)
+        self.assertIn('<td class="lbl">Base curve</td><td class="val">8.3 mm</td>', html)
+        # Per-eye totals live only in the Order Summary.
+        self.assertNotIn("ow-rx-line", html)
+        self.assertNotIn('data-role="line"', html)
         # BC is submitted, not asked.
         self.assertIn('type="hidden" name="right_bc" value="8.30"', html)
         self.assertNotIn('<select name="right_bc"', html)
