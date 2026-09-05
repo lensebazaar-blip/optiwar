@@ -665,6 +665,13 @@ class Render(unittest.TestCase):
             self.assertIn("<summary>%s</summary>" % section, html)
         self.assertIn("01_hero.jpg", html)
         self.assertIn("03_side.jpg", html)
+        # The masters are cartons on a white square; the frame is wider than
+        # square and fills it, so a wide carton is not a strip in empty space.
+        self.assertIn(".lpdp-hero { position:relative;", html)
+        self.assertNotIn("aspect-ratio:1 / 1", html)
+        self.assertIn("aspect-ratio:1.6 / 1", html)
+        self.assertIn(".lpdp-hero img { width:100%; height:100%; object-fit:cover;", html)
+        self.assertIn(".lpdp-thumbs img { width:64px; height:40px; object-fit:cover;", html)
         self.assertIn('id="pdpMain"', html)
         # Nothing of a frame, nothing invented.
         for absent in ("Measure your Face", "Face Match", "About This Frame",
