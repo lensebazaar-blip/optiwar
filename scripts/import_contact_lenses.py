@@ -184,6 +184,7 @@ def upsert_profile(cursor, product, product_id, rate=None):
         "param_source": product["param_source"] or None,
         "min_boxes_single_eye": product["min_boxes_single_eye"],
         "min_boxes_both_per_eye": product["min_boxes_both_per_eye"],
+        "min_order_model": product["min_order_model"] or None,
         "gtin": product["gtin"] or None,
         "manufacturer_mpn": product["manufacturer_mpn"] or None,
         "modality": product["modality"],

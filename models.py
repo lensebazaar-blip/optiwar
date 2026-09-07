@@ -26,8 +26,10 @@ from .catalogue import (
     current_site, strip_ineligible_urls, age_group, ensure_gmc_columns,
     live_lenses, lens_matrix_summary, SITE_IN, SITE_COM,
 )
-from . import acr, lens_feed, lens_order, lens_preview, lens_seo, lens_view
+from . import (acr, lens_cart, lens_feed, lens_order, lens_preview, lens_seo,
+               lens_view)
 from .cart_persist import save_cart_to_db, clear_cart_in_db
+import copy
 from .cl_range_model import add_prescription_of_cl
 from .country_iso import country_to_iso2
 import re
@@ -850,13 +852,80 @@ def _lens_choices(cursor, lens):
                                                      lens['product_id']))
 
 
+def _minimums_waived(cart=None):
+    """Whether the eyewear in the cart held now waives lens minimums.
+
+    Decided from the session cart on every call, so the page, the add and the
+    checkout all see the same answer for the same cart.
+    """
+    return lens_cart.minimums_waived(
+        session.get('cart', []) if cart is None else cart, current_site())
+
+
+def _persist_cart(cart):
+    session['cart'] = cart
+    session.modified = True
+    if session.get('user_id'):
+        if cart:
+            save_cart_to_db()
+        else:
+            clear_cart_in_db()
+
+
+def _commit_cart(cursor, proposed, confirmed=False):
+    """Make ``proposed`` the cart, unless the rule needs the customer asked.
+
+    Every mutation goes through here so the lens minimums are re-evaluated
+    against the cart that would result. If that cart would lose lens lines to
+    the minimum rule and the customer has not confirmed, the session cart is
+    left exactly as it was and the proposed cart is parked for one
+    confirmation; otherwise the revalidated cart is written in one step and
+    what was removed is said. Returns True when the cart was written.
+    """
+    site = current_site()
+    kept, removed = lens_cart.revalidate(
+        proposed, lens_cart.load_products(cursor, proposed), site)
+    if removed and not confirmed:
+        session['lens_removal_pending'] = {
+            'before': json_mod.dumps(session.get('cart', []), default=str),
+            'cart': proposed,
+            'removed': [i.get('product_name') for i in removed],
+        }
+        session.modified = True
+        return False
+    session.pop('lens_removal_pending', None)
+    _persist_cart(kept)
+    if removed:
+        flash(lens_cart.describe_removed(removed))
+    return True
+
+
+@bp.route('/cart/lens-removal', methods=['POST'])
+def lens_removal_decision():
+    """The customer's answer to the confirmation _commit_cart asked for.
+
+    ``confirm`` applies the parked change and the removals together; anything
+    else discards it and the cart is as it was. A cart that changed since the
+    question was asked is not touched: the question was about another cart.
+    """
+    pending = session.pop('lens_removal_pending', None)
+    session.modified = True
+    if pending and request.form.get('decision') == 'confirm':
+        now = json_mod.dumps(session.get('cart', []), default=str)
+        if now == pending['before']:
+            _commit_cart(get_db().cursor(), pending['cart'], confirmed=True)
+        else:
+            flash('Your cart changed in the meantime; nothing was removed.')
+    return redirect(url_for('main.checkout_page'))
+
+
 def _lens_selection_context(lens, shape, errors=(), submitted=None):
     """What the per-eye purchase block needs, wherever it is rendered."""
     return dict(
         lens=lens,
         options=shape.options(),
         fixed=lens_order.fixed_choices(shape),
-        minimums=lens_order.minimums(lens, SITE_COM),
+        minimums=lens_order.minimums(lens, SITE_COM, _minimums_waived()),
         box_price=lens_order.box_price(lens),
         errors=list(errors), submitted=submitted or {},
         eyes=lens_order.EYES,
@@ -902,8 +971,11 @@ def lens_add_to_cart():
     shape = _lens_choices(cursor, lens)
     selections = [lens_order.read_eye(request.form, eye)
                   for eye in lens_order.EYES]
-    lines, problems = lens_order.validate_detailed(shape, lens, selections,
-                                                   site=SITE_COM)
+    others = [i for i in session.get('cart', [])
+              if str(i.get('product_id')) != str(lens['product_id'])]
+    lines, problems = lens_order.validate_detailed(
+        shape, lens, selections, site=SITE_COM,
+        waived=_minimums_waived(others))
     if problems:
         acr.log_event(db, acr.EV_LENS_ORDER_REFUSED,
                       failure_code=problems[0][0], success=False,
@@ -912,13 +984,7 @@ def lens_add_to_cart():
         return _lens_selection(lens, shape, [m for _, m in problems],
                                request.form)
     item = lens_order.cart_item(lens, lines)
-    cart = [i for i in session.get('cart', [])
-            if str(i.get('product_id')) != item['product_id']]
-    cart.append(item)
-    session['cart'] = cart
-    session.modified = True
-    if session.get('user_id'):
-        save_cart_to_db()
+    _persist_cart(others + [item])
     acr.log_event(db, acr.EV_LENS_ORDER_VALIDATED, success=True,
                   payload={'product_id': item['product_id'],
                            'boxes': item['order_quantity'],
@@ -1864,7 +1930,7 @@ def update_quantity(product_id=None, rest=None):
         parts = rest.rsplit('/', 1)
         action = parts[-1] if len(parts) >= 1 else 'increase'
         rx_id = request.args.get('rx_id', '')
-        cart = session.get('cart', [])
+        cart = copy.deepcopy(session.get('cart', []))
         for item in cart:
             if item['product_id'] == str(product_id):
                 old_qty = max(1, int(item.get('order_quantity', 1)))
@@ -1890,7 +1956,7 @@ def update_quantity(product_id=None, rest=None):
                     unit_wcl = wcl / old_qty
                     item['ATC_WCL'] = unit_wcl * quantity
                 break
-        session['cart'] = cart
+        _commit_cart(get_db().cursor(), cart)
         return redirect(url_for('main.checkout_page'))
     product_id = request.form['product_id']
     rx_id = request.form.get('rx_id', '')
@@ -1898,7 +1964,7 @@ def update_quantity(product_id=None, rest=None):
     if quantity < 1:
         quantity = 1
 
-    cart = session.get('cart', [])
+    cart = copy.deepcopy(session.get('cart', []))
     for item in cart:
         match = item['product_id'] == product_id
         if rx_id:
@@ -1931,7 +1997,7 @@ def update_quantity(product_id=None, rest=None):
 
             break
 
-    session['cart'] = cart
+    _commit_cart(get_db().cursor(), cart)
     return redirect(url_for('main.checkout_page'))
 
 
@@ -1958,13 +2024,7 @@ def remove_from_cart(product_id, extra=None):
             if item['product_id'] != product_id
         ]
 
-    session['cart'] = cart
-    # Sync cart removal to DB for cross-device persistence
-    if session.get('user_id'):
-        if cart:
-            save_cart_to_db()
-        else:
-            clear_cart_in_db()
+    _commit_cart(get_db().cursor(), cart)
     return redirect(url_for('main.checkout'))
 
 
@@ -2647,6 +2707,14 @@ def checkout_page():
             session['cart'] = cart
             session.modified = True
     # --- End price correction ---
+    # The eyewear subtotal may have moved with the prices above, and a lens
+    # line that no longer meets its minimum cannot be asked about here, so it
+    # is removed and said. The pending question (if any) is shown once.
+    cart, _dropped = lens_cart.revalidate(
+        cart, lens_cart.load_products(get_db().cursor(), cart), current_site())
+    if _dropped:
+        flash(lens_cart.describe_removed(_dropped))
+    lens_removal_pending = session.get('lens_removal_pending')
     session['cart'] = cart  # Clean up session too
     _host = request.host
     _ip = request.headers.get('X-Forwarded-For', request.remote_addr)
@@ -2830,7 +2898,7 @@ def checkout_page():
 
     import uuid as _uuid
     session['checkout_token'] = str(_uuid.uuid4())
-    return render_template('checkout.html', cart=cart,ship_days=ship_days,product_image_map=product_image_map, grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, right_eye=right_eye, left_eye=left_eye,right_pwr=right_pwr, right_lens_color=right_lens_color, right_cyl=right_cyl, right_qty=right_qty, right_axis=right_axis, right_add=right_add, left_pwr=left_pwr, left_lens_color=left_lens_color, left_cyl=left_cyl, left_qty=left_qty, left_axis=left_axis, left_add=left_add, lens_recommendations=lens_recommendations, prefill=prefill, saved_addresses=saved_addresses)
+    return render_template('checkout.html', cart=cart,ship_days=ship_days,product_image_map=product_image_map, grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, right_eye=right_eye, left_eye=left_eye,right_pwr=right_pwr, right_lens_color=right_lens_color, right_cyl=right_cyl, right_qty=right_qty, right_axis=right_axis, right_add=right_add, left_pwr=left_pwr, left_lens_color=left_lens_color, left_cyl=left_cyl, left_qty=left_qty, left_axis=left_axis, left_add=left_add, lens_recommendations=lens_recommendations, prefill=prefill, saved_addresses=saved_addresses, lens_removal_pending=lens_removal_pending, lens_removal_confirm_text=lens_cart.CONFIRM_REMOVAL)
 
 """
 @bp.route('/initiate-payment', methods=['POST'])
@@ -2908,6 +2976,14 @@ def checkout():
     if not cart:
         flash('Your cart is empty.')
         return redirect(url_for('main.index'))
+    # Last word on the lens minimums: an order is not placed for a cart the
+    # rule would not accept, whatever the page showed.
+    cart, _dropped = lens_cart.revalidate(
+        cart, lens_cart.load_products(get_db().cursor(), cart), current_site())
+    if _dropped:
+        _persist_cart(cart)
+        flash(lens_cart.describe_removed(_dropped))
+        return redirect(url_for('main.checkout_page'))
 
     grand_total = 0
     for item in cart:

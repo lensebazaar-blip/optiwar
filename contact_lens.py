@@ -48,6 +48,10 @@ replenished: an order does not decrement ``product_quantity``, and a lens is
 never OUT_OF_STOCK. It is IN_STOCK, or ON_ORDER with a lead time, and it is
 purchasable in both states.
 """
+try:
+    from . import lens_minimums
+except ImportError:  # run as a plain module (tests, deploy tool, scripts)
+    import lens_minimums
 
 VERTICAL = "CONTACT_LENS"
 
@@ -92,6 +96,9 @@ PROFILE_COLUMNS = (
     # Minimum boxes, per product and enforced on .com only. NULL is no minimum.
     ("min_boxes_single_eye", "SMALLINT UNSIGNED NULL"),
     ("min_boxes_both_per_eye", "SMALLINT UNSIGNED NULL"),
+    # The row of ``contact_lens_min_order`` (lens_minimums) those two were
+    # taken from, so a re-seed can refresh them and a reader can see why.
+    ("min_order_model", "VARCHAR(120) NULL"),
     # EUR is the price we are given; the INR columns on ``products`` are derived
     # from it. The rate and when it was applied are recorded so a rupee price
     # can be explained, and so nobody converts a converted price again.
@@ -251,6 +258,7 @@ TABLES = (
     ("contact_lens_param_rules", PARAM_RULES_SCHEMA),
     ("contact_lens_variants", VARIANTS_SCHEMA),
     ("contact_lens_images", IMAGES_SCHEMA),
+    ("contact_lens_min_order", lens_minimums.SCHEMA),
 )
 
 _SCHEMA_READY = False
