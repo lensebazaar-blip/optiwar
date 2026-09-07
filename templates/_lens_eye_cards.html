@@ -76,8 +76,8 @@
   body { padding-bottom:84px; }
   /* The purchase bar owns the bottom edge: the assistant launcher sits above
      it so no commerce control is ever covered. */
-  body.has-lens-bar .ow-chat-btn { bottom:calc(92px + env(safe-area-inset-bottom)) !important; }
-  body.has-lens-bar .ow-choice-menu { bottom:calc(160px + env(safe-area-inset-bottom)) !important; }
+  body.has-lens-bar .ow-chat-btn, body.has-lens-bar .ow-login-btn { bottom:calc(92px + env(safe-area-inset-bottom)) !important; }
+  body.has-lens-bar .ow-choice-menu, body.has-lens-bar .ow-login-menu { bottom:calc(160px + env(safe-area-inset-bottom)) !important; }
   body.has-lens-bar .ow-chat-panel.ow-mode-small { bottom:calc(84px + env(safe-area-inset-bottom)) !important; max-height:calc(100vh - 100px - env(safe-area-inset-bottom)) !important; }
 }
 </style>
