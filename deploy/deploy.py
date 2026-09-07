@@ -126,6 +126,14 @@ REVIEWED_DRIFT = {
     # lens page blocks), so nothing is lost by replacing it.
     "templates/base.html": {"1ce229470ac8f8ab35de465abe3b91e1":
                             "chat-widget.js cache-bust v=15, superseded by v=16"},
+    # Reviewed 2026-09-07 against origin/main: the running file is the July
+    # checkout.html with one edit, the same Google Maps browser key hardcoded
+    # in place of ``{{ google_maps_api_key }}``, which the context processor
+    # supplies from GOOGLE_MAPS_API_KEY (set on the box). main is otherwise
+    # ahead (#91 lens-removal confirmation), so nothing is lost by replacing it.
+    "templates/checkout.html": {"843b994d359d5f0501a9c3a6ac55fe18":
+                                "hardcoded GOOGLE_MAPS_API_KEY, now read from "
+                                "the environment"},
 }
 
 # Environment names the deployed code reads and production does not set yet.
@@ -278,6 +286,10 @@ def contact_lens_module():
     once, by the application, so a migration and an ``ensure_schema()`` cannot
     drift into unplanned DDL during a restart.
     """
+    # contact_lens.py imports lens_minimums as a sibling when it is not part
+    # of a package, so the checkout has to be importable as plain modules.
+    if REPO not in sys.path:
+        sys.path.insert(0, REPO)
     spec = importlib.util.spec_from_file_location(
         "contact_lens_for_deploy", os.path.join(REPO, "contact_lens.py"))
     mod = importlib.util.module_from_spec(spec)
