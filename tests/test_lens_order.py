@@ -623,8 +623,13 @@ class Render(unittest.TestCase):
         self.assertIn("form.addEventListener('submit'", html)
         self.assertIn("event.preventDefault();", html)
         # The mobile bar owns the bottom edge; the assistant orb sits above it.
-        self.assertIn("body.has-lens-bar .ow-chat-btn { bottom:calc(92px + "
+        # Both launchers: chat-widget.js (signed in) and base.html's login
+        # orb (signed out).
+        self.assertIn("body.has-lens-bar .ow-chat-btn, body.has-lens-bar "
+                      ".ow-login-btn { bottom:calc(92px + "
                       "env(safe-area-inset-bottom))", html)
+        self.assertIn("body.has-lens-bar .ow-choice-menu, body.has-lens-bar "
+                      ".ow-login-menu { bottom:calc(160px + ", html)
         self.assertIn("document.body.classList.add('has-lens-bar')", html)
 
     def test_a_parameter_made_in_one_value_is_stated_not_asked(self):
