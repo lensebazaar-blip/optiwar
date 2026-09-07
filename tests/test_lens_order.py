@@ -496,6 +496,9 @@ class Render(unittest.TestCase):
                     "{% block hreflang_default %}{% endblock %}"
                     "{% block title %}{% endblock %}"
                     "{% block meta_description %}{% endblock %}"
+                    "{% block header_face_scan %}FACE-SCAN-ICON{% endblock %}"
+                    "{% block lens_types_header %}LENS-TYPES-HEADER{% endblock %}"
+                    "{% block frame_filter_bar %}owFilterWidget{% endblock %}"
                     "{% block content %}{% endblock %}")}),
                 FileSystemLoader(os.path.join(REPO, "templates")),
             ]),
@@ -692,6 +695,31 @@ class Render(unittest.TestCase):
         self.assertIn('name="intent" value="cart"', html)
         self.assertIn('name="intent" value="checkout"', html)
         self.assertIn("/main.lens_add_to_cart", html)
+
+    def test_the_lens_page_has_no_spectacle_header_and_is_styled_alone(self):
+        product, passport, source = self._precision1()
+        html = self._product_page(product, passport, source=source,
+                                  lens_type="SPHERICAL")
+        # The three spectacle strips base.html renders by default are
+        # overridden empty here (the stub base renders sentinels).
+        for absent in ("LENS-TYPES-HEADER", "FACE-SCAN-ICON", "owFilterWidget"):
+            self.assertNotIn(absent, html)
+        # The real base.html wraps exactly those elements in the blocks, with
+        # the default content intact, so a frame page renders as before.
+        with open(os.path.join(REPO, "templates", "base.html")) as fh:
+            base = fh.read()
+        face = base.split("{% block header_face_scan %}", 1)[1].split("{% endblock %}", 1)[0]
+        self.assertIn('href="/tryon" class="header-btn"', face)
+        self.assertIn('id="owFaceAlert"', face)
+        strip = base.split("{% block lens_types_header %}", 1)[1].split("{% endblock %}", 1)[0]
+        self.assertIn('<nav class="header2">', strip)
+        self.assertIn("Lens Types", strip)
+        self.assertTrue(strip.rstrip().endswith("</nav>"))
+        # Global glassmorphism rules that would bleed in (card <li>, grey <p>,
+        # h1 spacing) are reset inside .lpdp at element specificity only.
+        self.assertIn(":where(.lpdp) li, :where(.lpdp) li:hover { background:none; border:0; box-shadow:none;", html)
+        self.assertIn(":where(.lpdp) p { color:inherit; margin:0; }", html)
+        self.assertIn(":where(.lpdp) h1, :where(.lpdp) h2, :where(.lpdp) h3 { margin-top:0;", html)
 
     def test_the_lens_page_renders_the_owner_preview_as_noindex(self):
         product, passport, source = self._precision1()

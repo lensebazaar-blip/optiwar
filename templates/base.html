@@ -375,6 +375,7 @@
       <span class="header-logo-text">OPTIWAR<span class="header-logo-sub">{{ _('Factory Outlet Opticals') }}</span></span>
     </a>
     <div class="header-actions">
+      {% block header_face_scan %}
       <a href="/tryon" class="header-btn" title="Face Measure">
         <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><circle cx="12" cy="10" r="3"/><path d="M2 17l3-3h14l3 3"/></svg>
         <span class="btn-label">{{ _('Faces') }}</span>
@@ -385,6 +386,7 @@
           <div class="ow-fa-pulse ow-fa-p2"></div>
         </div>
       </a>
+      {% endblock %}
       <a href="{{ url_for('main.search_products') }}" class="header-btn" title="Search">
         <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35" stroke-linecap="round"/></svg>
         <span class="btn-label">{{ _('Search') }}</span>
@@ -475,7 +477,8 @@
   </div>
 </div>
 
-<!-- ═══ HEADER 2: LENS TYPES ═══ -->
+<!-- ═══ HEADER 2: LENS TYPES (spectacle lenses; lens PDP overrides empty) ═══ -->
+{% block lens_types_header %}
 <nav class="header2">
   <div class="header2-inner">
     <span class="header2-label">{{ _('Lens Types') }}</span>
@@ -597,6 +600,7 @@
     </a>
   </div>
 </nav>
+{% endblock %}
 
 <!-- ═══ STICKY FILTER BAR ═══ -->
 {% block frame_filter_bar %}

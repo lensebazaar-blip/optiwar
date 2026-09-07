@@ -46,6 +46,8 @@
 {% block hreflang_default %}{{ lens_path }}{% endblock %}
 {# The frame filter bar (face match, sizes, shapes, colours) is not a lens control. #}
 {% block frame_filter_bar %}{% endblock %}
+{% block lens_types_header %}{% endblock %}
+{% block header_face_scan %}{% endblock %}
 {% block footer_about %}<p class="ow-footer-text">Optiwar sells contact lenses on optiwar.com exactly as the manufacturer states them: the powers, base curve and diameter offered are the ones made, and a box is priced in euro before you order.</p>{% endblock %}
 
 {% block jsonld_extra %}
@@ -64,6 +66,11 @@
 {% endif %}
 <style>
 .lpdp { max-width:1120px; margin:0 auto; padding:8px 16px 40px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; color:#111; }
+/* Isolation from global glassmorphism.css (card-styled <li>, secondary-coloured <p>, h1 spacing).
+   :where() keeps element specificity so the .lpdp-* rules below still win. */
+:where(.lpdp) li, :where(.lpdp) li:hover { background:none; border:0; box-shadow:none; padding:0; margin:0; border-radius:0; transform:none; overflow:visible; transition:none; }
+:where(.lpdp) p { color:inherit; margin:0; }
+:where(.lpdp) h1, :where(.lpdp) h2, :where(.lpdp) h3 { margin-top:0; letter-spacing:normal; }
 .lpdp-preview { background:#7a2e00; color:#fff; text-align:center; padding:.5rem 1rem; font-weight:600; }
 .lpdp-crumb { display:flex; flex-wrap:wrap; gap:5px; font-size:13px; color:#888; margin:0 0 12px; list-style:none; padding:0; }
 .lpdp-crumb a { color:#6366f1; text-decoration:none; }
