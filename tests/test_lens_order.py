@@ -720,7 +720,10 @@ class Render(unittest.TestCase):
         # frame, no cover-crop of the master, a bounded height.
         self.assertIn(".lpdp-hero { position:relative;", html)
         self.assertNotIn("aspect-ratio:1 / 1", html)
-        self.assertIn(".lpdp-hero img { width:100%; height:auto; "
+        # max-width:100% beats the sheet-wide ``img { max-width:200px }`` in
+        # styles.css/glassmorphism.css, which otherwise shrinks the carton to a
+        # 200px strip inside the gallery.
+        self.assertIn(".lpdp-hero img { width:100%; max-width:100%; height:auto; "
                       "max-height:min(520px, 62vh); object-fit:contain;", html)
         self.assertIn(".lpdp-thumbs img { width:72px; height:44px; object-fit:contain;", html)
         self.assertIn('id="pdpMain"', html)
