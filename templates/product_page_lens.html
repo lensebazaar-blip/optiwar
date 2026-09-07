@@ -93,11 +93,14 @@
 .lpdp-dispatch { font-size:13px; color:#333; margin:6px 0 0; display:flex; flex-wrap:wrap; gap:6px 14px; }
 .lpdp-dispatch b { color:#15803d; }
 .lpdp-dispatch .is-order b { color:#b45309; }
-.lpdp-hero { position:relative; background:#fff; border:1px solid #eee; border-radius:14px; overflow:hidden; aspect-ratio:1.6 / 1; display:flex; align-items:center; justify-content:center; }
-/* The catalogue masters are cartons padded onto a white square for GMC; the
-   tallest carton fills 58% of that square, so a 1.6:1 frame with cover trims
-   only white padding and never the carton itself. */
-.lpdp-hero img { width:100%; height:100%; object-fit:cover; object-position:center; cursor:zoom-in; display:block; }
+/* The hero is the carton at its own proportions: the pipeline's trimmed web
+   master carries its intrinsic width/height, so the frame takes the image's
+   aspect ratio and nothing is cropped. A tall view is bounded by max-height
+   and letterboxed with contain, never cut. */
+.lpdp-hero { position:relative; background:#fff; border:1px solid #eee; border-radius:14px; overflow:hidden; display:flex; align-items:center; justify-content:center; }
+.lpdp-hero picture { display:block; width:100%; }
+.lpdp-hero img { width:100%; height:auto; max-height:min(520px, 62vh); object-fit:contain; object-position:center; cursor:zoom-in; display:block; }
+.lpdp-hero.is-square img { aspect-ratio:1.6 / 1; object-fit:cover; height:100%; }
 .lpdp-hero-nav { position:absolute; top:50%; transform:translateY(-50%); width:40px; height:40px; border-radius:50%; border:1px solid #e5e7eb; background:rgba(255,255,255,.92); color:#111; font-size:20px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
 .lpdp-hero-nav[data-dir="prev"] { left:8px; }
 .lpdp-hero-nav[data-dir="next"] { right:8px; }
@@ -106,7 +109,7 @@
 .lpdp-dots span.active { background:#6366f1; }
 .lpdp-thumbs { display:flex; gap:8px; margin-top:10px; overflow-x:auto; padding-bottom:4px; scrollbar-width:none; }
 .lpdp-thumbs::-webkit-scrollbar { display:none; }
-.lpdp-thumbs img { width:64px; height:40px; object-fit:cover; object-position:center; border:2px solid #e5e7eb; border-radius:8px; cursor:pointer; background:#fff; padding:2px; flex-shrink:0; }
+.lpdp-thumbs img { width:72px; height:44px; object-fit:contain; object-position:center; border:2px solid #e5e7eb; border-radius:8px; cursor:pointer; background:#fff; padding:2px; flex-shrink:0; }
 .lpdp-thumbs img.active, .lpdp-thumbs img[aria-current="true"] { border-color:#6366f1; box-shadow:0 0 0 1px #6366f1; }
 .lpdp-thumbs img:focus-visible { outline:2px solid #4f46e5; outline-offset:2px; }
 .lpdp-acc { border:1px solid #e5e7eb; border-radius:10px; margin-bottom:8px; background:#fff; }
@@ -145,7 +148,9 @@
   </nav>
 
   <div class="lpdp-grid">
-    <header class="lpdp-identity">
+    {# A <div>, not <header>: static/styles.css paints every bare <header> as
+       the blue sticky site header. #}
+    <div class="lpdp-identity">
       <p class="lpdp-maker">{{ maker }}</p>
       <h1 class="lpdp-title">{{ title }}</h1>
       <p class="lpdp-modality">
@@ -153,7 +158,7 @@
         {% if type_word %}<span>{{ type_word }}</span>{% endif %}
         {% if pack %}<span>{{ pack }} lenses/box</span>{% endif %}
       </p>
-    </header>
+    </div>
 
     <section class="lpdp-price" aria-label="Price">
       <div class="lpdp-price-row">
@@ -176,8 +181,20 @@
 
     <section class="lpdp-gallery" aria-label="Product photographs">
       {% if images %}
-      <div class="lpdp-hero" id="lpdpHero">
-        {{ product_picture(images[0].path, images[0].alt or title, width=800, height=800, sizes='(max-width:768px) 92vw, 600px', eager=true, priority=true, img_id='pdpMain', zoomable=true) }}
+      {# The gallery shows the trimmed web master (<code>-web.jpg) when the
+         pipeline has built it, at its own aspect ratio; otherwise the square
+         catalogue master in the interim 1.6:1 frame. Passport, JSON-LD and
+         the feed keep the square master. #}
+      {% set ns = namespace(paths=[], dims=[]) %}
+      {% for image in images %}
+        {% set web = image.path.rsplit('.', 1)[0] ~ '-web.' ~ image.path.rsplit('.', 1)[1] %}
+        {% set shown = web if img_has_derivatives(web) else image.path %}
+        {% set ns.paths = ns.paths + [shown] %}
+        {% set ns.dims = ns.dims + [image_dimensions(shown) or (800, 800)] %}
+      {% endfor %}
+      {% set hero_w, hero_h = ns.dims[0] %}
+      <div class="lpdp-hero{% if ns.paths[0] == images[0].path %} is-square{% endif %}" id="lpdpHero">
+        {{ product_picture(ns.paths[0], images[0].alt or title, width=hero_w, height=hero_h, sizes='(max-width:768px) 92vw, 720px', eager=true, priority=true, img_id='pdpMain', zoomable=true) }}
         {% if images|length > 1 %}
         <button type="button" class="lpdp-hero-nav" data-dir="prev" aria-label="Previous photograph">&#8249;</button>
         <button type="button" class="lpdp-hero-nav" data-dir="next" aria-label="Next photograph">&#8250;</button>
@@ -189,7 +206,7 @@
       </div>
       <div class="lpdp-thumbs pdp-thumbstrip" role="list">
         {% for image in images %}
-        {{ thumb_img(image.path, image.alt or (title ~ ' — view ' ~ loop.index), active=loop.first) }}
+        {{ thumb_img(ns.paths[loop.index0], image.alt or (title ~ ' — view ' ~ loop.index), active=loop.first, width=ns.dims[loop.index0][0], height=ns.dims[loop.index0][1]) }}
         {% endfor %}
       </div>
       {% endif %}
@@ -294,6 +311,12 @@ function pdpSw(el) {
     main.src = full;
     main.dataset.zoom = full;
     if (el.alt) main.alt = el.alt;
+    // Each view has its own proportions; the hero takes them over so a
+    // side panel is not shown in the front panel's frame.
+    if (el.dataset.w && el.dataset.h) {
+      main.setAttribute('width', el.dataset.w);
+      main.setAttribute('height', el.dataset.h);
+    }
   }
   var thumbs = Array.prototype.slice.call(document.querySelectorAll('.lpdp-thumbs img'));
   thumbs.forEach(function (t) {

@@ -123,6 +123,37 @@ class Masters(unittest.TestCase):
             self.assertEqual(img.size[0], img.size[1])
             self.assertLessEqual(img.size[0], 400)
 
+    def test_the_web_master_keeps_the_cartons_own_proportions(self):
+        """Beside every square master sits a -web master: the same cut with
+        only a hairline of canvas, so a wide carton renders wide and nothing
+        of the package is cropped away."""
+        _, written, _ = self.build()
+        folder = os.path.join(self.catalog, "contact-lenses/TESTPACK")
+        web = os.path.join(folder, "01_hero-web.jpg")
+        self.assertEqual(image_pipeline.web_image_path(
+            os.path.join(folder, "01_hero.jpg")), web)
+        self.assertIn(web, written)
+        names = {os.path.basename(p) for p in written}
+        self.assertIn("01_hero-web-200.jpg", names)
+        self.assertIn("04_rear-web.jpg", names)
+        with Image.open(web) as img:
+            aspect = image_pipeline.aspect_ratio(img)
+            self.assertLessEqual(max(img.size), 400)
+            self.assertNotEqual(img.size[0], img.size[1])
+        # The isolated cut is the whole carton; the web master is that cut
+        # plus a 2% margin each side, never less than the cut itself.
+        with Image.open(os.path.join(self.src, "front.jpg")) as photo:
+            cut = image_pipeline.build_cut(photo, RECIPE["views"][0])
+        self.assertAlmostEqual(aspect,
+                               round(cut.size[0] / float(cut.size[1]), 3),
+                               delta=0.02)
+        web_full = image_pipeline.web_master(cut, RECIPE["views"][0], 4000)
+        self.assertGreaterEqual(web_full.size[0], cut.size[0])
+        self.assertGreaterEqual(web_full.size[1], cut.size[1])
+        self.assertEqual(web_full.getpixel((web_full.size[0] // 2,
+                                            web_full.size[1] // 2)),
+                         cut.getpixel((cut.size[0] // 2, cut.size[1] // 2)))
+
     def test_the_ladder_stops_at_the_master_and_always_has_jpeg(self):
         _, written, _ = self.build()
         names = {os.path.basename(p) for p in written}
