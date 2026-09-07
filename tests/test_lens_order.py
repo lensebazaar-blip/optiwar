@@ -640,8 +640,7 @@ class Render(unittest.TestCase):
         self.assertIn('type="hidden" name="right_bc" value="8.60"', html)
         self.assertIn('type="hidden" name="left_bc" value="8.60"', html)
         self.assertNotIn('<select name="right_bc"', html)
-        self.assertIn("BC 8.6 mm", html)
-        self.assertIn("DIA 14.5 mm", html)
+        self.assertNotIn('<select name="right_dia"', html)
         self.assertIn('<select name="right_sph"', html)
         self.assertIn('<select name="right_cyl"', html)
         # A parameter this lens is not configured on is not a question.
@@ -701,13 +700,15 @@ class Render(unittest.TestCase):
         # there is no second spec block between the buy action and details.
         self.assertNotIn("Lens Intelligence", html)
         self.assertNotIn("lpdp-intel", html)
-        for fact in ("BC 8.3 mm", "DIA 14.2 mm", "verofilcon A"):
-            self.assertIn(fact, html)
-        # BC/DIA are lens-level: one fact line above both cards, plus the
-        # Specifications row -- not once per eye.
-        self.assertEqual(html.count('class="ow-rx-facts"'), 1)
-        self.assertEqual(html.count("BC 8.3 mm"), 1)
+        self.assertIn("verofilcon A", html)
+        # BC/DIA are lens-level facts stated once, in Specifications; the buy
+        # section carries no heading, sub-copy or fact line above the cards.
+        self.assertNotIn("ow-rx-facts", html)
+        self.assertNotIn("fixed for this lens", html)
+        self.assertNotIn("Choose your prescription", html)
+        self.assertNotIn("Untick an eye", html)
         self.assertIn('<td class="lbl">Base curve</td><td class="val">8.3 mm</td>', html)
+        self.assertIn('<td class="lbl">Diameter</td><td class="val">14.2 mm</td>', html)
         # Per-eye totals live only in the Order Summary.
         self.assertNotIn("ow-rx-line", html)
         self.assertNotIn('data-role="line"', html)
