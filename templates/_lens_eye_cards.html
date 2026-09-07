@@ -197,7 +197,11 @@
 
   <p class="ow-rx-min" data-role="minimum"
      data-single="{{ minimums.single }}" data-both="{{ minimums.both }}">
-    {% if minimums.single == minimums.both %}
+    {% if minimums.waived %}
+    Eyewear order benefit: the usual minimum of {{ minimums.stated_single }}
+    boxes for one eye ({{ minimums.stated_both }} per eye for both) is waived
+    while the eyewear in your cart totals &euro;35 or more. Order from 1 box.
+    {% elif minimums.single == minimums.both %}
     Minimum {{ minimums.single }} box{{ 'es' if minimums.single|int != 1 }} per eye.
     {% else %}
     Minimum {{ minimums.single }} boxes for one eye, or {{ minimums.both }}

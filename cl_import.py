@@ -27,6 +27,11 @@ what may be ordered against it arrive together or not at all.
 """
 import decimal
 
+try:
+    from . import lens_minimums
+except ImportError:
+    import lens_minimums
+
 MODALITIES = ("DAILY", "MONTHLY", "CONVENTIONAL")
 LENS_TYPES = ("SPHERICAL", "TORIC", "MULTIFOCAL", "TORIC_MULTIFOCAL", "COLOR")
 AVAILABILITIES = ("IN_STOCK", "ON_ORDER")
@@ -212,6 +217,46 @@ def variant_signature(variant):
                      variant.get("color_code") or ""])
 
 
+def _resolve_minimums(product, seed_rows=None):
+    """Settle the two minimum columns against the one rule.
+
+    A row may name a model in the committed minimum-order seed, in which case
+    the seed is authoritative and a sheet value that disagrees is refused. A
+    row may instead state ``min_boxes_single_eye`` itself; the both-eye figure
+    is then derived (CEIL(single / 2)), and a stated one that differs is
+    refused. Either way nothing ends up in the database that the formula does
+    not account for.
+    """
+    model = product["min_order_model"]
+    single = product["min_boxes_single_eye"]
+    both = product["min_boxes_both_per_eye"]
+    if model:
+        found = lens_minimums.minimums_for(
+            seed_rows if seed_rows is not None else lens_minimums.rows(),
+            model)
+        if not found:
+            raise RowError("min_order_model %r is not in %s"
+                           % (model, lens_minimums.SEED_PATH))
+        seed_single, seed_both = found
+        if single not in (None, seed_single) or both not in (None, seed_both):
+            raise RowError("minimums %s/%s disagree with the seed's %d/%d for "
+                           "%r" % (single, both, seed_single, seed_both, model))
+        single, both = seed_single, seed_both
+    elif single is not None:
+        derived = lens_minimums.both_per_eye(single)
+        if both not in (None, derived):
+            raise RowError("min_boxes_both_per_eye %d does not follow "
+                           "CEIL(%d / 2) = %d; state the model in "
+                           "min_order_model if this lens is an exception"
+                           % (both, single, derived))
+        both = derived
+    elif both is not None:
+        raise RowError("min_boxes_both_per_eye without min_boxes_single_eye: "
+                       "the both-eye minimum is derived, not stated alone")
+    product["min_boxes_single_eye"] = single
+    product["min_boxes_both_per_eye"] = both
+
+
 def parse_product(row):
     """One product row -> the fields the profile and product tables want."""
     product = {
@@ -240,11 +285,13 @@ def parse_product(row):
         "source_url": _text(row.get("source_url")),
         "param_mode": _upper(row.get("param_mode")) or PARAM_MODE_MATRIX,
         "param_source": _text(row.get("param_source")),
+        "min_order_model": _text(row.get("min_order_model")),
         "min_boxes_single_eye": whole(row.get("min_boxes_single_eye"),
                                       "min_boxes_single_eye"),
         "min_boxes_both_per_eye": whole(row.get("min_boxes_both_per_eye"),
                                         "min_boxes_both_per_eye"),
     }
+    _resolve_minimums(product)
     missing = [f for f in PRODUCT_REQUIRED if not product.get(f)]
     if missing:
         raise RowError("missing required field(s): %s" % ", ".join(missing))

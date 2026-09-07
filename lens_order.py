@@ -358,26 +358,35 @@ def _int(value):
     return number if number > 0 else 0
 
 
-def minimums(product, site=None):
+def minimums(product, site=None, waived=False):
     """The minimum boxes this storefront enforces for this lens.
 
     Product-specific, because the supply terms are: 8 boxes for one eye of
     Acuvue Moist, 4 per eye when both are ordered. ``.in`` has no minimum by
     decision, so this returns zeros there and the check below does nothing.
+
+    ``waived`` is the .com eyewear benefit (lens_cart): with enough eligible
+    eyewear in the cart the floor is one box, and the stated minimum is still
+    returned so the page can say what was waived.
     """
     if site and site != "optiwar.com":
         return {"single": 0, "both": 0}
-    return {"single": _int((product or {}).get("min_boxes_single_eye")),
-            "both": _int((product or {}).get("min_boxes_both_per_eye"))}
+    stated = {"single": _int((product or {}).get("min_boxes_single_eye")),
+              "both": _int((product or {}).get("min_boxes_both_per_eye"))}
+    if waived and stated["single"] and stated["both"]:
+        return {"single": 1, "both": 1, "waived": True,
+                "stated_single": stated["single"],
+                "stated_both": stated["both"]}
+    return stated
 
 
-def _minimum_problems(product, lines, site):
+def _minimum_problems(product, lines, site, waived=False):
     """Whether the boxes ordered clear this lens's minimum, per eye.
 
     ``both`` is per eye and not a total: four boxes for both eyes means four
     left and four right, eight in all.
     """
-    limits = minimums(product, site)
+    limits = minimums(product, site, waived)
     if len(lines) > 1:
         floor, wording = limits["both"], "%d boxes per eye when ordering both"
     else:
@@ -406,13 +415,16 @@ def _fill_single_choices(shape, selection):
     return selection
 
 
-def validate_detailed(source, product, selections, site=None, lens_type=None):
+def validate_detailed(source, product, selections, site=None, lens_type=None,
+                      waived=False):
     """Accept a per-eye order, or say why not.
 
     Returns ``(lines, problems)``. ``lines`` carry the matched combination and
     the boxes for each eye that was ordered; a non-empty ``problems`` means
     nothing should be added to a cart. Each problem is ``(code, sentence)`` so
     the same refusal can be shown to the customer and counted by its reason.
+    ``waived`` is decided by the caller from the cart it holds (lens_cart),
+    never from anything the form says.
     """
     shape = selectable(source, lens_type or (product or {}).get("lens_type"))
     problems, lines = [], []
@@ -434,7 +446,7 @@ def validate_detailed(source, product, selections, site=None, lens_type=None):
     if not lines and not problems:
         problems.append((REFUSED_NO_BOXES,
                          "Choose the boxes for at least one eye"))
-    problems.extend(_minimum_problems(product, lines, site))
+    problems.extend(_minimum_problems(product, lines, site, waived))
     if not box_price(product) and not problems:
         problems.append((REFUSED_NO_PRICE, "This lens has no price"))
     if problems:

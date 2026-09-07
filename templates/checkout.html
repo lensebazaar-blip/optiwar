@@ -4,6 +4,30 @@
 {% from '_picture.html' import product_picture %}
 <style>.ow-ck-thumb picture{display:contents;}</style>
 
+{% if lens_removal_pending %}
+{# The cart has not changed: the server parked the eyewear change until the
+   customer answers. Confirm applies it together with the lens removals. #}
+<style>
+.ow-lens-confirm{position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px}
+.ow-lens-confirm form{background:#fff;border-radius:12px;max-width:440px;width:100%;padding:22px 20px;box-shadow:0 12px 40px rgba(0,0,0,.25);color:#111}
+.ow-lens-confirm p{margin:0 0 12px;font-size:15px;line-height:1.45}
+.ow-lens-confirm ul{margin:0 0 16px 18px;padding:0;font-size:14px}
+.ow-lens-confirm .ow-lc-actions{display:flex;gap:10px;justify-content:flex-end}
+.ow-lens-confirm button{border-radius:8px;padding:10px 16px;font-size:14px;cursor:pointer;border:1px solid #bbb;background:#fff}
+.ow-lens-confirm button[value=confirm]{background:#b00020;border-color:#b00020;color:#fff}
+</style>
+<div class="ow-lens-confirm" role="dialog" aria-modal="true" aria-labelledby="owLensConfirmText">
+  <form method="post" action="{{ url_for('main.lens_removal_decision') }}">
+    <p id="owLensConfirmText">{{ lens_removal_confirm_text }}</p>
+    <ul>{% for name in lens_removal_pending.removed %}<li>{{ name }}</li>{% endfor %}</ul>
+    <div class="ow-lc-actions">
+      <button type="submit" name="decision" value="cancel">Keep my cart as it is</button>
+      <button type="submit" name="decision" value="confirm">Remove eyewear and lenses</button>
+    </div>
+  </form>
+</div>
+{% endif %}
+
 {% if cart %}
 
 <!-- Checkout: replace header2 with payment logos only (all screens) -->

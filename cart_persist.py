@@ -5,6 +5,8 @@ Cart is stored as a JSON blob keyed by customer_id.
 import json
 from flask import session, current_app
 from .db import get_db
+from . import lens_cart
+from .catalogue import current_site
 
 
 def save_cart_to_db():
@@ -33,6 +35,25 @@ def save_cart_to_db():
         current_app.logger.error(f'[CART PERSIST] Error saving cart for user {user_id}: {e}')
 
 
+def _revalidated(cursor, cart):
+    """A restored cart re-checked against today's minimum rule.
+
+    The eyewear that waived a lens minimum may have been removed on another
+    device, and a lens line is not sold on .in at all; either way the stored
+    cart is not trusted over the rule.
+    """
+    site = current_site()
+    if site != lens_cart.SITE_COM:
+        return [i for i in cart if not lens_cart.is_lens(i)]
+    kept, removed = lens_cart.revalidate(
+        cart, lens_cart.load_products(cursor, cart), site)
+    if removed:
+        current_app.logger.info(
+            '[CART PERSIST] %d lens line(s) dropped on restore: below minimum',
+            len(removed))
+    return kept
+
+
 def load_cart_from_db():
     """Restore cart from database into session for the logged-in user.
     Merges: if the current session already has items, those are kept and
@@ -59,7 +80,7 @@ def load_cart_from_db():
         current_cart = session.get('cart', [])
 
         if not current_cart:
-            session['cart'] = db_cart
+            session['cart'] = _revalidated(cursor, db_cart)
             session.modified = True
             current_app.logger.info(
                 f'[CART PERSIST] Restored {len(db_cart)} item(s) from DB for user {user_id}'
@@ -81,7 +102,7 @@ def load_cart_from_db():
                 added += 1
 
         if added > 0:
-            session['cart'] = current_cart
+            session['cart'] = _revalidated(cursor, current_cart)
             session.modified = True
             current_app.logger.info(
                 f'[CART PERSIST] Merged {added} item(s) from DB for user {user_id}'
