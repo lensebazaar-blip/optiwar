@@ -72,9 +72,6 @@
 :where(.lpdp) p { color:inherit; margin:0; }
 :where(.lpdp) h1, :where(.lpdp) h2, :where(.lpdp) h3 { margin-top:0; letter-spacing:normal; }
 .lpdp-preview { background:#7a2e00; color:#fff; text-align:center; padding:.5rem 1rem; font-weight:600; }
-.lpdp-crumb { display:flex; flex-wrap:wrap; gap:5px; font-size:13px; color:#888; margin:0 0 12px; list-style:none; padding:0; }
-.lpdp-crumb a { color:#6366f1; text-decoration:none; }
-.lpdp-crumb li + li::before { content:'/'; color:#ccc; margin-right:5px; }
 .lpdp-grid { display:grid; grid-template-columns:minmax(0,1fr); grid-template-areas:"identity" "price" "gallery" "buy" "details"; gap:14px; }
 .lpdp-identity { grid-area:identity; }
 .lpdp-price { grid-area:price; }
@@ -139,14 +136,6 @@
 </style>
 
 <div class="lpdp">
-  <nav aria-label="Breadcrumb">
-    <ol class="lpdp-crumb">
-      <li><a href="/">Home</a></li>
-      <li><a href="/contact-lenses">Contact Lenses</a></li>
-      <li>{{ title }}</li>
-    </ol>
-  </nav>
-
   <div class="lpdp-grid">
     {# A <div>, not <header>: static/styles.css paints every bare <header> as
        the blue sticky site header. #}
