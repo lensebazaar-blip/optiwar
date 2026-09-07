@@ -39,8 +39,11 @@
 .ow-rx-boxes input::-webkit-outer-spin-button, .ow-rx-boxes input::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
 .ow-rx-copy { grid-column:1 / -1; justify-self:start; background:none; border:0; color:#4f46e5; font-size:13px; font-weight:600; cursor:pointer; padding:0; text-decoration:underline; }
 .ow-rx-copy[hidden] { display:none; }
-.ow-rx-help { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 12px; }
-.ow-rx-help a, .ow-rx-help button { font-size:12px; font-weight:600; color:#374151; background:#fff; border:1px solid #d1d5db; border-radius:999px; padding:7px 12px; cursor:pointer; text-decoration:none; }
+.ow-rx-help { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:6px; margin:0 0 12px; }
+.ow-rx-help button { position:relative; display:flex; align-items:center; justify-content:center; gap:6px; min-height:44px; font-size:12px; font-weight:600; color:#374151; background:#fff; border:1px solid #d1d5db; border-radius:10px; padding:6px 8px; cursor:pointer; min-width:0; }
+.ow-rx-help button svg { width:20px; height:20px; flex-shrink:0; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.ow-rx-help button span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+@media (max-width: 520px) { .ow-rx-help button span { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); } .ow-rx-help button svg { width:22px; height:22px; } }
 .ow-rx-help [aria-pressed="true"] { border-color:#6366f1; color:#4f46e5; background:#eef2ff; }
 .ow-rx-summary { background:#f8f9fa; border:1px solid #eee; border-radius:12px; padding:12px 14px; margin:12px 0; font-size:13px; color:#333; }
 .ow-rx-summary h3 { font-size:13px; text-transform:uppercase; letter-spacing:.5px; color:#6b7280; margin:0 0 6px; }
@@ -124,10 +127,14 @@
      a photograph or a chat; a prescription is read into the cards and checked
      by the server like one typed in. #}
   <div class="ow-rx-help" role="group" aria-label="How to enter your prescription" data-role="help">
-    <button type="button" data-help="manual" aria-pressed="true">Enter manually</button>
-    <button type="button" data-help="upload">Upload prescription</button>
-    <button type="button" data-help="saved">Use saved prescription</button>
-    <button type="button" data-help="ai">Ask Optiwar AI</button>
+    <button type="button" data-help="manual" aria-pressed="true" title="Enter manually" aria-label="Enter manually">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span>Enter manually</span></button>
+    <button type="button" data-help="upload" title="Upload prescription" aria-label="Upload prescription">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg><span>Upload Rx</span></button>
+    <button type="button" data-help="saved" title="Use saved prescription" aria-label="Use saved prescription">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg><span>Saved Rx</span></button>
+    <button type="button" data-help="ai" title="Ask Optiwar AI" aria-label="Ask Optiwar AI">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8Z"/><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8Z"/></svg><span>Ask AI</span></button>
   </div>
   <p class="ow-rx-note" data-role="help-note" hidden></p>
 
@@ -538,7 +545,7 @@
         note.textContent = text;
         note.hidden = !text;
         if (button.getAttribute('data-help') === 'ai') {
-          var launcher = document.querySelector('.ow-chat-btn');
+          var launcher = document.querySelector('.ow-chat-btn, .ow-login-btn');
           if (launcher) { launcher.click(); }
         }
       });

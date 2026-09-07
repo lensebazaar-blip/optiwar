@@ -707,6 +707,15 @@ class Render(unittest.TestCase):
         self.assertNotIn("fixed for this lens", html)
         self.assertNotIn("Choose your prescription", html)
         self.assertNotIn("Untick an eye", html)
+        # No breadcrumb strip; the four entry modes are one row of icon
+        # buttons, each still named for assistive technology.
+        self.assertNotIn('aria-label="Breadcrumb"', html)
+        self.assertNotIn("lpdp-crumb", html)
+        for label in ("Enter manually", "Upload prescription",
+                      "Use saved prescription", "Ask Optiwar AI"):
+            self.assertIn('aria-label="%s"' % label, html)
+        self.assertEqual(html.count('<svg viewBox="0 0 24 24" aria-hidden="true">'), 4)
+        self.assertIn(".ow-rx-help { display:grid; grid-template-columns:repeat(4, minmax(0,1fr));", html)
         self.assertIn('<td class="lbl">Base curve</td><td class="val">8.3 mm</td>', html)
         self.assertIn('<td class="lbl">Diameter</td><td class="val">14.2 mm</td>', html)
         # Per-eye totals live only in the Order Summary.
