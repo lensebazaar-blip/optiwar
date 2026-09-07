@@ -306,6 +306,25 @@ class Selection(unittest.TestCase):
                          [lens_order.REFUSED_NOT_MADE])
         self.assertIn("not made for this lens", problems[0][1])
 
+    def test_a_ticked_eye_with_no_power_is_incomplete_not_unmade(self):
+        """Boxes chosen, power blank: the eye is refused as incomplete, by
+        name, so the page can say what to choose; it is never priced."""
+        sel = lens_order.read_eye(_form(right_boxes="12"), "right")
+        lines, problems = lens_order.validate_detailed(VARIANTS, LENS, [sel])
+        self.assertEqual(lines, [])
+        self.assertEqual([c for c, _ in problems],
+                         [lens_order.REFUSED_INCOMPLETE])
+        self.assertIn("right eye: choose the power (PWR / SPH)", problems[0][1])
+        # One complete eye and one incomplete eye: the whole send is refused,
+        # the complete eye is not quietly ordered on its own.
+        good = lens_order.read_eye(
+            _form(left_sph="-5.00", left_boxes="12"), "left")
+        lines, problems = lens_order.validate_detailed(VARIANTS, LENS,
+                                                       [sel, good])
+        self.assertEqual(lines, [])
+        self.assertEqual([c for c, _ in problems],
+                         [lens_order.REFUSED_INCOMPLETE])
+
     def test_no_boxes_and_no_price_have_their_own_codes(self):
         empty = lens_order.read_eye(_form(), "right")
         _l, problems = lens_order.validate_detailed(VARIANTS, LENS, [empty])
@@ -577,7 +596,36 @@ class Render(unittest.TestCase):
         self.assertIn('data-single="3" data-both="2"', html)
         self.assertEqual(html.count('data-role="boxes" inputmode="numeric"\n'
                                     '                 value="2"'), 2)
-        self.assertIn("Minimum 3 boxes for one eye, or 2", html)
+        self.assertIn("<b>Minimum order:</b> 3 boxes for one eye, or", html)
+        self.assertIn("2 boxes per eye when ordering both eyes.", html)
+        self.assertNotIn("Eyewear order benefit", html)
+
+    def test_the_waiver_sentence_appears_only_when_the_cart_qualifies(self):
+        waived = {"single": 1, "both": 1, "waived": True,
+                  "stated_single": 12, "stated_both": 6}
+        html = self._env().get_template("lens_select.html").render(
+            **self._selection(minimums=waived))
+        self.assertIn("Eyewear order benefit active:</b> your contact-lens "
+                      "minimum is waived", html)
+        self.assertIn("eligible eyewear in your cart is &euro;35 or more", html)
+        self.assertIn("Usual minimum: 12 boxes for one eye, or", html)
+        self.assertIn('class="ow-rx-min is-waived"', html)
+
+    def test_an_incomplete_eye_is_shown_unpriced_and_blocks_the_send(self):
+        html = self._env().get_template("lens_select.html").render(
+            **self._selection())
+        # The summary line and the CTAs are driven by missingFor(); the form
+        # refuses to submit while a ticked eye has a selector left blank.
+        self.assertIn("function missingFor(fieldset)", html)
+        self.assertIn("'Choose ' + missing.map(", html)
+        self.assertIn("textContent = '\\u2014'", html)
+        self.assertIn("setOrderable(incomplete.length === 0)", html)
+        self.assertIn("form.addEventListener('submit'", html)
+        self.assertIn("event.preventDefault();", html)
+        # The mobile bar owns the bottom edge; the assistant orb sits above it.
+        self.assertIn("body.has-lens-bar .ow-chat-btn { bottom:calc(92px + "
+                      "env(safe-area-inset-bottom))", html)
+        self.assertIn("document.body.classList.add('has-lens-bar')", html)
 
     def test_a_parameter_made_in_one_value_is_stated_not_asked(self):
         # MyDay states one base curve and one diameter. The card shows them
@@ -668,14 +716,17 @@ class Render(unittest.TestCase):
             self.assertIn("<summary>%s</summary>" % section, html)
         self.assertIn("01_hero.jpg", html)
         self.assertIn("03_side.jpg", html)
-        # The masters are cartons on a white square; the frame is wider than
-        # square and fills it, so a wide carton is not a strip in empty space.
+        # The hero renders the carton at its own proportions: no square
+        # frame, no cover-crop of the master, a bounded height.
         self.assertIn(".lpdp-hero { position:relative;", html)
         self.assertNotIn("aspect-ratio:1 / 1", html)
-        self.assertIn("aspect-ratio:1.6 / 1", html)
-        self.assertIn(".lpdp-hero img { width:100%; height:100%; object-fit:cover;", html)
-        self.assertIn(".lpdp-thumbs img { width:64px; height:40px; object-fit:cover;", html)
+        self.assertIn(".lpdp-hero img { width:100%; height:auto; "
+                      "max-height:min(520px, 62vh); object-fit:contain;", html)
+        self.assertIn(".lpdp-thumbs img { width:72px; height:44px; object-fit:contain;", html)
         self.assertIn('id="pdpMain"', html)
+        # The title block is not a <header>: styles.css paints those blue.
+        self.assertIn('<div class="lpdp-identity">', html)
+        self.assertNotIn('<header class="lpdp-identity">', html)
         # Nothing of a frame, nothing invented.
         for absent in ("Measure your Face", "Face Match", "About This Frame",
                        "About this frame", "Complimentary", "In Stock</div>",

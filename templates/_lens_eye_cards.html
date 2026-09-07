@@ -52,6 +52,13 @@
 .ow-rx-summary .ow-rx-row[hidden] { display:none; }
 .ow-rx-summary .ow-rx-total { border-top:1px solid #e5e7eb; margin-top:6px; padding-top:8px; font-size:18px; font-weight:800; color:#111; }
 .ow-rx-min, .ow-rx-note { font-size:12px; color:#777; margin:6px 0; }
+.ow-rx-min { font-size:13px; color:#374151; background:#f3f4f6; border-radius:8px; padding:8px 12px; }
+.ow-rx-min b { color:#111; }
+.ow-rx-min.is-waived { background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0; }
+.ow-rx-min.is-waived b { color:#065f46; }
+.ow-rx-min small { display:block; font-size:11px; color:#6b7280; margin-top:3px; }
+.ow-rx-row.is-incomplete span:last-child { color:#b45309; font-weight:700; }
+.ow-rx-cta[aria-disabled="true"] { opacity:.45; cursor:not-allowed; box-shadow:none; }
 .ow-rx-warn { font-size:12px; color:#b45309; margin:6px 0; min-height:1em; }
 .ow-rx-actions { display:grid; gap:8px; }
 .ow-rx-cta { display:block; width:100%; padding:14px 20px; font-size:15px; font-weight:700; border-radius:10px; cursor:pointer; text-align:center; border:none; background:linear-gradient(135deg,#6366f1,#818cf8); color:#fff; transition:all .2s; min-height:48px; }
@@ -67,6 +74,11 @@
   .ow-rx-bar .ow-rx-bar-total span { font-size:12px; color:#666; }
   .ow-rx-bar .ow-rx-cta { width:auto; flex:1 1 0; padding:12px 10px; font-size:14px; white-space:nowrap; }
   body { padding-bottom:84px; }
+  /* The purchase bar owns the bottom edge: the assistant launcher sits above
+     it so no commerce control is ever covered. */
+  body.has-lens-bar .ow-chat-btn { bottom:calc(92px + env(safe-area-inset-bottom)) !important; }
+  body.has-lens-bar .ow-choice-menu { bottom:calc(160px + env(safe-area-inset-bottom)) !important; }
+  body.has-lens-bar .ow-chat-panel.ow-mode-small { bottom:calc(84px + env(safe-area-inset-bottom)) !important; max-height:calc(100vh - 100px - env(safe-area-inset-bottom)) !important; }
 }
 </style>
 
@@ -195,17 +207,18 @@
     </div>
   </div>
 
-  <p class="ow-rx-min" data-role="minimum"
+  <p class="ow-rx-min {{ 'is-waived' if minimums.waived }}" data-role="minimum"
      data-single="{{ minimums.single }}" data-both="{{ minimums.both }}">
     {% if minimums.waived %}
-    Eyewear order benefit: the usual minimum of {{ minimums.stated_single }}
-    boxes for one eye ({{ minimums.stated_both }} per eye for both) is waived
-    while the eyewear in your cart totals &euro;35 or more. Order from 1 box.
+    <b>Eyewear order benefit active:</b> your contact-lens minimum is waived
+    because eligible eyewear in your cart is &euro;35 or more.
+    <small>Usual minimum: {{ minimums.stated_single }} boxes for one eye, or
+    {{ minimums.stated_both }} boxes per eye when ordering both eyes.</small>
     {% elif minimums.single == minimums.both %}
-    Minimum {{ minimums.single }} box{{ 'es' if minimums.single|int != 1 }} per eye.
+    <b>Minimum order:</b> {{ minimums.single }} box{{ 'es' if minimums.single|int != 1 }} per eye.
     {% else %}
-    Minimum {{ minimums.single }} boxes for one eye, or {{ minimums.both }}
-    boxes per eye when ordering both.
+    <b>Minimum order:</b> {{ minimums.single }} boxes for one eye, or
+    {{ minimums.both }} boxes per eye when ordering both eyes.
     {% endif %}
   </p>
   <p class="ow-rx-note">&euro;{{ '%.2f'|format(box_price) }} per box of
@@ -398,6 +411,30 @@
     update();
   }
 
+  // A parameter that is on the card as a question (a visible selector with
+  // no choice yet) leaves the eye incomplete: it is not priced, not counted
+  // and the order cannot be sent. The server refuses the same way.
+  function missingFor(fieldset) {
+    var missing = [];
+    Array.prototype.forEach.call(
+      fieldset.querySelectorAll('.ow-rx-body select'), function (select) {
+        var wrap = select.closest('label');
+        if (wrap && wrap.hidden) { return; }
+        // Every visible selector is one this lens is chosen on: a parameter
+        // made in one value is a hidden input, already answered.
+        if (!select.value) { missing.push(select.getAttribute('data-role')); }
+      });
+    return missing;
+  }
+  var captions = {sph: 'power', bc: 'base curve', color: 'colour',
+                  cyl: 'cylinder', axis: 'axis', add: 'addition'};
+  function setOrderable(ok) {
+    Array.prototype.forEach.call(
+      document.querySelectorAll('.ow-rx-cta'), function (cta) {
+        cta.setAttribute('aria-disabled', ok ? 'false' : 'true');
+      });
+  }
+
   function describe(fieldset) {
     var parts = [];
     ['sph', 'cyl', 'axis', 'add'].forEach(function (name) {
@@ -412,20 +449,30 @@
   }
 
   function update() {
-    var total = 0, count = 0;
+    var total = 0, count = 0, incomplete = [];
     ['right', 'left'].forEach(function (eye) {
       var fieldset = eyeFieldset(eye);
       var row = role(form, 'summary-' + eye);
       var on = included(eye);
-      var n = on ? Number(role(fieldset, 'boxes').value || 0) : 0;
+      var missing = on ? missingFor(fieldset) : [];
+      var n = (on && !missing.length) ? Number(role(fieldset, 'boxes').value || 0) : 0;
       if (row) {
         row.hidden = !on;
-        role(row, 'summary-desc').textContent = describe(fieldset) + ' \u00b7 ' + boxesWord(n);
-        role(row, 'summary-amount').textContent = euro(n * boxPrice);
+        row.classList.toggle('is-incomplete', missing.length > 0);
+        if (missing.length) {
+          role(row, 'summary-desc').textContent = 'Choose ' + missing.map(
+            function (m) { return captions[m] || m; }).join(', ');
+          role(row, 'summary-amount').textContent = '\u2014';
+        } else {
+          role(row, 'summary-desc').textContent = describe(fieldset) + ' \u00b7 ' + boxesWord(n);
+          role(row, 'summary-amount').textContent = euro(n * boxPrice);
+        }
       }
+      if (missing.length) { incomplete.push(eye); }
       total += n * boxPrice;
       count += n;
     });
+    setOrderable(incomplete.length === 0);
     [form, bar].forEach(function (root) {
       if (!root) { return; }
       var t = role(root, 'total');
@@ -449,6 +496,21 @@
       });
     update();
   }
+
+  form.addEventListener('submit', function (event) {
+    var blocked = [];
+    ['right', 'left'].forEach(function (eye) {
+      if (included(eye) && missingFor(eyeFieldset(eye)).length) {
+        blocked.push(eye === 'right' ? 'right eye' : 'left eye');
+      }
+    });
+    if (blocked.length) {
+      event.preventDefault();
+      warn('Choose the power for the ' + blocked.join(' and ') +
+           ', or untick an eye you are not ordering for.');
+    }
+  });
+  if (bar) { document.body.classList.add('has-lens-bar'); }
 
   Array.prototype.forEach.call(
     document.querySelectorAll('.ow-rx-eye'), wire);

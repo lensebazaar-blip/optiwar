@@ -43,14 +43,17 @@
 
 {# Small gallery thumbnail: uses the 200w derivative (tiny) as src, and carries
    data-avif/data-webp/data-full so a picture-aware swapper can repaint the hero. #}
-{%- macro thumb_img(path, alt, active=false) -%}
+{%- macro thumb_img(path, alt, active=false, width=none, height=none) -%}
 {%- set p = path.strip() -%}
+{#- width/height are the master's intrinsic pixels when a gallery renders at
+    the image's own aspect; they travel on data-w/data-h for the hero swap. -#}
+{%- set dims = ' data-w="' ~ width ~ '" data-h="' ~ height ~ '"' if (width and height) else '' -%}
 {%- if img_has_derivatives(p) -%}
   {%- set dir = p.rsplit('/', 1)[0] -%}
   {%- set stem = p.rsplit('/', 1)[1].rsplit('.', 1)[0] -%}
   {%- set base = dir ~ '/derivatives/' ~ stem -%}
-  <img src="{{ _u(base ~ '-200.jpg')|trim }}" data-avif="{{ _srcset(base, 'avif')|trim }}" data-webp="{{ _srcset(base, 'webp')|trim }}" data-full="{{ _u(p)|trim }}" alt="{{ alt }}"{% if active %} class="active"{% endif %} width="80" height="80" loading="lazy" decoding="async" role="button" tabindex="0" aria-label="Show {{ alt }}" aria-current="{{ 'true' if active else 'false' }}" onclick="pdpSw(this)" onkeydown="pdpKey(event,this)">
+  <img src="{{ _u(base ~ '-200.jpg')|trim }}" data-avif="{{ _srcset(base, 'avif')|trim }}" data-webp="{{ _srcset(base, 'webp')|trim }}" data-full="{{ _u(p)|trim }}"{{ dims|safe }} alt="{{ alt }}"{% if active %} class="active"{% endif %} width="80" height="80" loading="lazy" decoding="async" role="button" tabindex="0" aria-label="Show {{ alt }}" aria-current="{{ 'true' if active else 'false' }}" onclick="pdpSw(this)" onkeydown="pdpKey(event,this)">
 {%- else -%}
-  <img src="{{ _u(p)|trim }}" data-full="{{ _u(p)|trim }}" alt="{{ alt }}"{% if active %} class="active"{% endif %} width="80" height="80" loading="lazy" decoding="async" role="button" tabindex="0" aria-label="Show {{ alt }}" aria-current="{{ 'true' if active else 'false' }}" onclick="pdpSw(this)" onkeydown="pdpKey(event,this)">
+  <img src="{{ _u(p)|trim }}" data-full="{{ _u(p)|trim }}"{{ dims|safe }} alt="{{ alt }}"{% if active %} class="active"{% endif %} width="80" height="80" loading="lazy" decoding="async" role="button" tabindex="0" aria-label="Show {{ alt }}" aria-current="{{ 'true' if active else 'false' }}" onclick="pdpSw(this)" onkeydown="pdpKey(event,this)">
 {%- endif -%}
 {%- endmacro -%}

@@ -77,6 +77,14 @@ REFUSED_NOT_MADE = "COMBINATION_NOT_MADE"
 REFUSED_NO_BOXES = "NO_BOXES_CHOSEN"
 REFUSED_NO_PRICE = "NO_PRICE"
 REFUSED_MINIMUM = "BELOW_MINIMUM_BOXES"
+REFUSED_INCOMPLETE = "PARAMETER_NOT_CHOSEN"
+
+# How a parameter is named to the customer when it is the one still missing.
+PARAM_CAPTIONS = {
+    "base_curve": "base curve (BC)", "sph": "power (PWR / SPH)",
+    "cyl": "cylinder (CYL)", "axis": "axis", "add_power": "addition (ADD)",
+    "color": "colour",
+}
 
 
 def variants(cursor, product_id):
@@ -415,6 +423,23 @@ def _fill_single_choices(shape, selection):
     return selection
 
 
+def _missing(shape, selection):
+    """The parameters this lens is chosen on that the selection leaves blank.
+
+    An eye ticked with no power is incomplete, not a combination nobody makes:
+    the customer is told what to choose, and the eye is not priced or ordered.
+    """
+    if isinstance(shape, Rules):
+        asked = shape.configured_on()
+    else:
+        # A matrix asks for a parameter every stated combination carries; one
+        # some rows leave blank (a cylinder on a sphere-and-toric range) may
+        # legitimately be left blank.
+        asked = tuple(p for p in PARAMS if shape.rows and
+                      all(_selected(row, p) for row in shape.rows))
+    return [p for p in asked if not _selected(selection, p)]
+
+
 def validate_detailed(source, product, selections, site=None, lens_type=None,
                       waived=False):
     """Accept a per-eye order, or say why not.
@@ -435,7 +460,14 @@ def validate_detailed(source, product, selections, site=None, lens_type=None,
             problems.append((REFUSED_BOXES, "%s eye: at most %d boxes per eye"
                              % (sel["eye"], MAX_BOXES_PER_EYE)))
             continue
-        variant = shape.find(_fill_single_choices(shape, dict(sel)))
+        filled = _fill_single_choices(shape, dict(sel))
+        missing = _missing(shape, filled)
+        if missing:
+            problems.append((REFUSED_INCOMPLETE, "%s eye: choose the %s"
+                             % (sel["eye"], ", ".join(
+                                 PARAM_CAPTIONS[p] for p in missing))))
+            continue
+        variant = shape.find(filled)
         if not variant:
             problems.append((REFUSED_NOT_MADE,
                              "%s eye: this combination is not made for this "

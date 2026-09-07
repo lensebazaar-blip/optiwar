@@ -9,6 +9,13 @@ Three levels, one direction:
     web/      the responsive ladder (AVIF/WebP/JPEG at DERIVATIVE_WIDTHS),
               generated from the master, never edited by hand.
 
+Every view also gets a *web master* (``<code>-web.jpg``): the same cut, at the
+carton's own proportions with a thin margin instead of the square canvas. The
+square master is what the merchant feed and JSON-LD require; the web master is
+what a gallery shows, so a 3:1 carton is not a strip across a square of white.
+Both are cut from the same pixels — nothing of the package is trimmed away,
+only blank canvas outside it.
+
 Every operation here is deterministic and stated in the recipe: a rectangle in
 source pixels, an exact rotation, a contrast cutoff, a canvas colour. Nothing
 invents pixels — no upscaling beyond the source, no generative model, no
@@ -98,6 +105,9 @@ def validate_recipe(recipe):
 # master
 # ---------------------------------------------------------------------------
 
+WEB_MARGIN = 0.02
+
+
 def build_master(image, view, master_px=2000, background=WHITE):
     """One square commerce master from one source photograph.
 
@@ -105,6 +115,53 @@ def build_master(image, view, master_px=2000, background=WHITE):
     EXIF orientation, crop, rotation, background removal, contrast, square
     canvas, resize.
     """
+    return square_master(build_cut(image, view, background), view,
+                         master_px, background)
+
+
+def square_master(cut, view, master_px=2000, background=WHITE):
+    img = square_canvas(cut, background, view.get("margin", 0.04))
+    if img.size != (master_px, master_px):
+        # Never enlarge past the source: a master smaller than the target is
+        # left at its own size rather than upscaled into invented detail.
+        target = min(master_px, max(img.size))
+        img = img.resize((target, target), Image.LANCZOS)
+    return img
+
+
+def build_web_master(image, view, master_px=2000, background=WHITE):
+    """The same cut at the carton's own proportions, for the gallery.
+
+    Only blank canvas is left out; the long side is bounded by ``master_px``
+    and, as with the square master, never enlarged past the source.
+    """
+    return web_master(build_cut(image, view, background), view, master_px,
+                      background)
+
+
+def web_master(cut, view, master_px=2000, background=WHITE):
+    margin = float(view.get("web_margin", WEB_MARGIN))
+    pad_x = int(round(cut.size[0] * margin))
+    pad_y = int(round(cut.size[1] * margin))
+    canvas = Image.new("RGB", (cut.size[0] + 2 * pad_x,
+                               cut.size[1] + 2 * pad_y), tuple(background))
+    canvas.paste(cut, (pad_x, pad_y))
+    longest = max(canvas.size)
+    if longest > master_px:
+        scale = master_px / float(longest)
+        canvas = canvas.resize((max(1, int(round(canvas.size[0] * scale))),
+                                max(1, int(round(canvas.size[1] * scale)))),
+                               Image.LANCZOS)
+    return canvas
+
+
+def aspect_ratio(img):
+    """width / height, to three places: what a template sets as aspect-ratio."""
+    return round(img.size[0] / float(img.size[1]), 3)
+
+
+def build_cut(image, view, background=WHITE):
+    """The carton as cut from the photograph, before any canvas is added."""
     img = ImageOps.exif_transpose(image)
     if img.mode != "RGB":
         img = img.convert("RGB")
@@ -135,12 +192,6 @@ def build_master(image, view, master_px=2000, background=WHITE):
     cutoff = view.get("autocontrast")
     if cutoff:
         img = ImageOps.autocontrast(img, cutoff=float(cutoff))
-    img = square_canvas(img, background, view.get("margin", 0.04))
-    if img.size != (master_px, master_px):
-        # Never enlarge past the source: a master smaller than the target is
-        # left at its own size rather than upscaled into invented detail.
-        target = min(master_px, max(img.size))
-        img = img.resize((target, target), Image.LANCZOS)
     return img
 
 
@@ -418,6 +469,15 @@ def image_path(recipe, code):
     return "%s/%s/%s.jpg" % (STORE_PREFIX, recipe["catalog_dir"], code)
 
 
+WEB_SUFFIX = "-web"
+
+
+def web_image_path(master_path):
+    """The gallery's trimmed twin of a master path: ``<code>-web.jpg``."""
+    stem, ext = os.path.splitext(master_path)
+    return "%s%s%s" % (stem, WEB_SUFFIX, ext)
+
+
 def image_records(recipe):
     """The approved images as the catalogue and the passport describe them.
 
@@ -475,11 +535,16 @@ def build_product(recipe, source_dir, catalog_root, apply=False):
         if not apply:
             written.append(master_path)
             continue
+        background = tuple(recipe["background"])
         with Image.open(src) as image:
-            master = build_master(image, view, recipe["master_px"],
-                                  tuple(recipe["background"]))
+            cut = build_cut(image, view, background)
+        master = square_master(cut, view, recipe["master_px"], background)
+        web = web_master(cut, view, recipe["master_px"], background)
         written.append(save_master(master, master_path))
         written.extend(build_derivatives(master_path))
+        web_path = web_image_path(master_path)
+        written.append(save_master(web, web_path))
+        written.extend(build_derivatives(web_path))
     return records, written, warnings
 
 
