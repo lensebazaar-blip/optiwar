@@ -365,6 +365,9 @@ footer{ display:none !important; }
 .ow-ck-eye-rx{ color:#475569;white-space:nowrap; }
 .ow-ck-qty--eye{ display:inline-flex;margin-top:0; }
 .ow-ck-qty--eye span{ min-width:56px; }
+.ow-ck-qty--eye button{ display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;background:#eef2ff;color:#4f46e5;font-weight:900;font-size:14px;border:1px solid rgba(148,163,184,.18);cursor:pointer;font-family:inherit; }
+.ow-ck-qty--eye .ow-ck-eye-remove{ width:auto;padding:0 8px;font-size:11px;font-weight:600;background:#fff;color:#ef4444;border-color:#fecaca; }
+.ow-ck-eye-rx a{ color:#4f46e5; }
 .ow-ck-remove{ font-size:11px;color:#ef4444;text-decoration:none;font-weight:600;margin-left:6px; }
 
 /* Lens details */
@@ -823,7 +826,7 @@ footer{ display:none !important; }
 
   /* Qty controls row */
   .ow-ck-qty{ justify-content:flex-start;margin-top:10px;gap:8px !important; }
-  .ow-ck-qty a{
+  .ow-ck-qty a,.ow-ck-qty--eye button{
     width:36px !important;height:36px !important;font-size:18px !important;
     border-radius:10px !important;background:#eef2ff !important;color:#4f46e5 !important;
     border:1px solid #e0e7ff !important;
@@ -836,6 +839,7 @@ footer{ display:none !important; }
     text-decoration:none !important;display:inline-flex !important;align-items:center !important;gap:4px;
   }
   .ow-ck-remove::before{ content:'🗑'; }
+  .ow-ck-qty--eye .ow-ck-eye-remove{ width:auto !important;font-size:12px !important;padding:0 10px !important;background:#fff !important;color:#ef4444 !important;border-color:#fecaca !important; }
 
   /* Price — separated below product row, full-width */
   .ow-ck-price{
@@ -1004,7 +1008,8 @@ footer{ display:none !important; }
           </div>
           <div>
             <h3>{{ item.product_name|default('Spectacle Frame') }}</h3>
-            {% set is_lens_line = item.vertical == 'CONTACT_LENS' %}
+            {# The same rule as lens_cart.is_lens, so what is drawn per eye is what update_quantity refuses. #}
+            {% set is_lens_line = item.vertical == 'CONTACT_LENS' or ((item.product_category|default('')|trim|lower) == 'contact lenses' and (item.right_qty is defined or item.left_qty is defined)) %}
             {% if is_lens_line %}
             <p class="ow-ck-meta">{{ item.order_quantity|default(0) }} box{{ 'es' if item.order_quantity|default(0) != 1 }} in total</p>
             {% else %}
@@ -1033,12 +1038,16 @@ footer{ display:none !important; }
               {% set boxes = item[eye ~ '_qty']|default(0)|int %}
               <div class="ow-ck-eye">
                 <span class="ow-ck-eye-label">{{ label }}</span>
-                <span class="ow-ck-eye-rx">{% if boxes %}{{ item[eye ~ '_pwr'] }}{% if item[eye ~ '_cyl'] %} / {{ item[eye ~ '_cyl'] }}{% endif %}{% if item[eye ~ '_axis'] %} &times; {{ item[eye ~ '_axis'] }}{% endif %}{% else %}not ordered{% endif %}</span>
+                <span class="ow-ck-eye-rx">{% if boxes %}{{ item[eye ~ '_pwr'] }}{% if item[eye ~ '_cyl'] %} / {{ item[eye ~ '_cyl'] }}{% endif %}{% if item[eye ~ '_axis'] %} &times; {{ item[eye ~ '_axis'] }}{% endif %}{% else %}not ordered &middot; <a href="/categories/contact-lenses/lens?pid={{ item.product_id }}">add on the product page</a>{% endif %}</span>
                 {% if boxes %}
+                {# Buttons post through #owLensBoxesForm, declared after the checkout form: a form cannot nest in a form. #}
                 <span class="ow-ck-qty ow-ck-qty--eye">
-                  <a href="/cart/lens-boxes/{{ item.product_id }}/{{ eye }}/decrease" aria-label="One box fewer, {{ label }}">&minus;</a>
+                  <button type="submit" form="owLensBoxesForm" formaction="/cart/lens-boxes/{{ item.product_id }}/{{ eye }}/decrease" aria-label="One box fewer, {{ label }}">&minus;</button>
                   <span>{{ boxes }} box{{ 'es' if boxes != 1 }}</span>
-                  <a href="/cart/lens-boxes/{{ item.product_id }}/{{ eye }}/increase" aria-label="One box more, {{ label }}">+</a>
+                  <button type="submit" form="owLensBoxesForm" formaction="/cart/lens-boxes/{{ item.product_id }}/{{ eye }}/increase" aria-label="One box more, {{ label }}">+</button>
+                  {% if (item.right_qty|default(0)|int) and (item.left_qty|default(0)|int) %}
+                  <button type="submit" form="owLensBoxesForm" formaction="/cart/lens-boxes/{{ item.product_id }}/{{ eye }}/remove" class="ow-ck-eye-remove" aria-label="Remove {{ label }} from this order">Remove eye</button>
+                  {% endif %}
                 </span>
                 {% endif %}
               </div>
@@ -1775,6 +1784,7 @@ footer{ display:none !important; }
 
 </div><!-- /ow-ck -->
 </form>
+<form id="owLensBoxesForm" method="post" action="{{ url_for('main.checkout_page') }}" hidden></form>
 
 <!-- Toast -->
 <div class="ow-ck-toast" id="owToast"></div>

@@ -1006,19 +1006,25 @@ def lens_add_to_cart():
     return redirect(url_for('main.checkout'))
 
 
-@bp.route('/cart/lens-boxes/<product_id>/<eye>/<action>', methods=['GET', 'POST'])
+LENS_BOX_ACTIONS = ('increase', 'decrease', 'remove')
+
+
+@bp.route('/cart/lens-boxes/<product_id>/<eye>/<action>', methods=['POST'])
 def lens_boxes(product_id, eye, action):
-    """One more or one fewer box for one eye of a lens already in the cart.
+    """One more or one fewer box for one eye of a lens already in the cart,
+    or that eye taken out of the order.
 
     The line is rebuilt through the same validator that admitted it, so a
     change of boxes cannot leave the price, the per-eye counts and the
-    minimum rule disagreeing. Taking an eye to zero drops that eye; the other
+    minimum rule disagreeing. ``remove`` drops the eye whole, since a
+    minimum above one box means it cannot be counted down to zero; the other
     eye then has to meet the single-eye minimum on its own. A change the rule
-    refuses leaves the cart as it was and says why.
+    refuses leaves the cart as it was and says why. POST only: a cart must not
+    change because a link was prefetched or followed from another site.
     """
     if current_site() == SITE_IN:
         return "Not found", 404
-    if eye not in lens_order.EYES or action not in ('increase', 'decrease'):
+    if eye not in lens_order.EYES or action not in LENS_BOX_ACTIONS:
         return "Not found", 404
     cart = copy.deepcopy(session.get('cart', []))
     line = next((i for i in cart if str(i.get('product_id')) == str(product_id)
@@ -1031,8 +1037,19 @@ def lens_boxes(product_id, eye, action):
     if not lens:
         return "Product not found", 404
     current = lens_order.boxes(line.get('%s_qty' % eye))
-    wanted = current + 1 if action == 'increase' else max(0, current - 1)
+    if action == 'increase':
+        wanted = current + 1
+    elif action == 'decrease':
+        wanted = max(0, current - 1)
+    else:
+        wanted = 0
     others = [i for i in cart if i is not line]
+    if wanted == 0 and not any(
+            lens_order.boxes(line.get('%s_qty' % other))
+            for other in lens_order.EYES if other != eye):
+        flash('That is the only eye on this line: use Remove to take the '
+              'lens out of your cart.')
+        return redirect(url_for('main.checkout_page'))
     lines, problems = lens_order.validate_detailed(
         _lens_choices(cursor, lens), lens,
         lens_order.selections_from_item(line, {eye: wanted}),
