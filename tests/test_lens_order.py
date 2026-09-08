@@ -800,3 +800,90 @@ class Render(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BoxesFromTheCart(unittest.TestCase):
+    """Changing boxes in the cart is the original order re-validated, per eye."""
+
+    def _line(self):
+        sel = [lens_order.read_eye(_form(right_sph="-4.50", right_cyl="-0.75",
+                                         right_axis="180", right_boxes="6",
+                                         left_sph="-5.00", left_boxes="6"),
+                                   eye) for eye in lens_order.EYES]
+        lines, problems = lens_order.validate_detailed(VARIANTS, LENS, sel)
+        self.assertEqual(problems, [])
+        return lens_order.cart_item(LENS, lines)
+
+    def test_a_stored_line_round_trips_through_the_validator(self):
+        item = self._line()
+        lines, problems = lens_order.validate_detailed(
+            VARIANTS, LENS, lens_order.selections_from_item(item))
+        self.assertEqual(problems, [])
+        self.assertEqual([(l["eye"], l["boxes"]) for l in lines],
+                         [("right", 6), ("left", 6)])
+        self.assertEqual(lens_order.cart_item(LENS, lines), item)
+
+    def test_one_eye_changes_and_the_other_is_untouched(self):
+        item = self._line()
+        lines, problems = lens_order.validate_detailed(
+            VARIANTS, LENS, lens_order.selections_from_item(item, {"left": 7}))
+        self.assertEqual(problems, [])
+        again = lens_order.cart_item(LENS, lines)
+        self.assertEqual((again["right_qty"], again["left_qty"]), (6, 7))
+        self.assertEqual(again["order_quantity"], 13)
+        self.assertEqual(again["ATC_WCL"], round(39.90 * 13, 2))
+        self.assertEqual(again["right_pwr"], "-4.50")
+
+    def test_going_below_the_minimum_is_refused_not_applied(self):
+        lens = dict(LENS, min_boxes_single_eye=12, min_boxes_both_per_eye=6)
+        item = self._line()
+        lines, problems = lens_order.validate_detailed(
+            VARIANTS, lens, lens_order.selections_from_item(item, {"left": 5}),
+            site="optiwar.com")
+        self.assertEqual(lines, [])
+        self.assertEqual([c for c, _ in problems], [lens_order.REFUSED_MINIMUM])
+        # With the eyewear waiver the same change is fine.
+        lines, problems = lens_order.validate_detailed(
+            VARIANTS, lens, lens_order.selections_from_item(item, {"left": 5}),
+            site="optiwar.com", waived=True)
+        self.assertEqual(problems, [])
+
+    def test_dropping_one_eye_leaves_the_other_to_the_single_eye_minimum(self):
+        lens = dict(LENS, min_boxes_single_eye=12, min_boxes_both_per_eye=6)
+        item = self._line()
+        lines, problems = lens_order.validate_detailed(
+            VARIANTS, lens, lens_order.selections_from_item(item, {"left": 0}),
+            site="optiwar.com")
+        self.assertEqual([c for c, _ in problems], [lens_order.REFUSED_MINIMUM])
+        self.assertIn("12 boxes for a single eye", problems[0][1])
+
+
+class CartWiring(unittest.TestCase):
+    """The checkout page changes a lens line per eye, and only that way."""
+
+    def setUp(self):
+        self.src = _read("models.py")
+        self.ck = _read(os.path.join("templates", "checkout.html"))
+
+    def test_the_per_eye_route_revalidates_and_commits_through_the_gate(self):
+        self.assertIn("@bp.route('/cart/lens-boxes/<product_id>/<eye>/<action>'",
+                      self.src)
+        body = self.src.split("def lens_boxes(")[1].split("\n@bp.route")[0]
+        self.assertIn("current_site() == SITE_IN", body)
+        self.assertIn("_released_or_previewed_lens(", body)
+        self.assertIn("lens_order.selections_from_item(line, {eye: wanted})", body)
+        self.assertIn("waived=_minimums_waived(others)", body)
+        self.assertIn("_commit_cart(cursor, others + [lens_order.cart_item(lens, lines)])",
+                      body)
+
+    def test_the_aggregate_quantity_route_refuses_a_lens_line(self):
+        body = self.src.split("def update_quantity(")[1].split("\n@bp.route")[0]
+        self.assertEqual(body.count("if lens_cart.is_lens(item):"), 2)
+
+    def test_the_line_shows_each_eye_with_its_own_stepper_and_money(self):
+        self.assertIn("/cart/lens-boxes/{{ item.product_id }}/{{ eye }}/decrease", self.ck)
+        self.assertIn("/cart/lens-boxes/{{ item.product_id }}/{{ eye }}/increase", self.ck)
+        self.assertIn("('right', 'Right (OD)'), ('left', 'Left (OS)')", self.ck)
+        self.assertIn("{% if not is_lens_line %}", self.ck)
+        self.assertIn("&euro;{{ '%.2f'|format(item_price) }}", self.ck)
+        self.assertNotIn("&euro;{{ item_price }}", self.ck)

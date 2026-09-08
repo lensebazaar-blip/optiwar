@@ -13,6 +13,7 @@ from . import ops_refunds
 from flaskr.notifications import notify_payment_attempted, notify_payment_success, notify_payment_failed, notify_order_confirmed, notify_order_shipped
 import os
 import MySQLdb
+from markupsafe import escape
 from flask import (
     Blueprint, flash, g, render_template, request, redirect, url_for, current_app, session, make_response, jsonify, json, send_from_directory, abort
 )
@@ -998,9 +999,54 @@ def lens_add_to_cart():
     # checkout page; "Add to cart" leaves the customer on the lens page. Neither
     # skips authentication, payment or the checkout's own confirmation.
     if request.form.get('intent') == 'cart' and lens.get('product_slug'):
-        flash('Added to your cart: %s' % item['product_name'])
+        flash('Added to your cart: %s &mdash; <a href="%s">view cart and '
+              'checkout</a>' % (escape(item['product_name']),
+                                url_for('main.checkout_page')))
         return redirect(lens_seo.lens_path(lens))
     return redirect(url_for('main.checkout'))
+
+
+@bp.route('/cart/lens-boxes/<product_id>/<eye>/<action>', methods=['GET', 'POST'])
+def lens_boxes(product_id, eye, action):
+    """One more or one fewer box for one eye of a lens already in the cart.
+
+    The line is rebuilt through the same validator that admitted it, so a
+    change of boxes cannot leave the price, the per-eye counts and the
+    minimum rule disagreeing. Taking an eye to zero drops that eye; the other
+    eye then has to meet the single-eye minimum on its own. A change the rule
+    refuses leaves the cart as it was and says why.
+    """
+    if current_site() == SITE_IN:
+        return "Not found", 404
+    if eye not in lens_order.EYES or action not in ('increase', 'decrease'):
+        return "Not found", 404
+    cart = copy.deepcopy(session.get('cart', []))
+    line = next((i for i in cart if str(i.get('product_id')) == str(product_id)
+                 and lens_cart.is_lens(i)), None)
+    if line is None:
+        return redirect(url_for('main.checkout_page'))
+    db = get_db()
+    cursor = db.cursor()
+    lens, _ = _released_or_previewed_lens(cursor, product_id)
+    if not lens:
+        return "Product not found", 404
+    current = lens_order.boxes(line.get('%s_qty' % eye))
+    wanted = current + 1 if action == 'increase' else max(0, current - 1)
+    others = [i for i in cart if i is not line]
+    lines, problems = lens_order.validate_detailed(
+        _lens_choices(cursor, lens), lens,
+        lens_order.selections_from_item(line, {eye: wanted}),
+        site=SITE_COM, waived=_minimums_waived(others))
+    if problems:
+        acr.log_event(db, acr.EV_LENS_ORDER_REFUSED,
+                      failure_code=problems[0][0], success=False,
+                      payload={'product_id': str(lens['product_id']),
+                               'reasons': sorted({c for c, _ in problems}),
+                               'from': 'cart'})
+        flash('Boxes not changed. ' + ' '.join(m for _, m in problems))
+        return redirect(url_for('main.checkout_page'))
+    _commit_cart(cursor, others + [lens_order.cart_item(lens, lines)])
+    return redirect(url_for('main.checkout_page'))
 
 
 @bp.route('/contact-lenses/<facet_slug>')
@@ -1923,6 +1969,10 @@ def categories(category=None):
     return render_template('categories.html',category=category,products=products)
 
 
+LENS_QTY_PER_EYE = ('Contact lenses are counted per eye: change the boxes '
+                    'for the right or left eye on the line itself.')
+
+
 @bp.route('/update_quantity', methods=['POST'])
 @bp.route('/update_quantity/<product_id>/<path:rest>', methods=['GET'])
 def update_quantity(product_id=None, rest=None):
@@ -1933,6 +1983,9 @@ def update_quantity(product_id=None, rest=None):
         cart = copy.deepcopy(session.get('cart', []))
         for item in cart:
             if item['product_id'] == str(product_id):
+                if lens_cart.is_lens(item):
+                    flash(LENS_QTY_PER_EYE)
+                    return redirect(url_for('main.checkout_page'))
                 old_qty = max(1, int(item.get('order_quantity', 1)))
                 if action == 'increase':
                     quantity = old_qty + 1
@@ -1970,6 +2023,9 @@ def update_quantity(product_id=None, rest=None):
         if rx_id:
             match = match and str(item.get('rx_id', '')) == str(rx_id)
         if match:
+            if lens_cart.is_lens(item):
+                flash(LENS_QTY_PER_EYE)
+                return redirect(url_for('main.checkout_page'))
             old_qty = max(1, int(item.get('order_quantity', 1)))
             item['order_quantity'] = quantity
 
