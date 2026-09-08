@@ -16,6 +16,7 @@ from itsdangerous import URLSafeSerializer, BadSignature
 from openai import OpenAI
 from . import acr
 from . import catalogue
+from . import dev_defects
 from . import lens_prompt
 from . import lens_order
 from . import lens_rx
@@ -480,6 +481,8 @@ def _lens_context(page_url, is_india, customer_id, page_state=None):
             db.close()
     except Exception as e:
         current_app.logger.warning('[Chat] lens page context unavailable: %s', e)
+        dev_defects.record('CHAT_LENS_CONTEXT_UNAVAILABLE',
+                           where=type(e).__name__, page=page_url)
         return None, None, None, ''
     state = page_state if isinstance(page_state, dict) else {}
     eyes_state = {e: bool(state.get(e)) for e in lens_order.EYES} \
@@ -1694,6 +1697,8 @@ def chat_message():
                        status='failed',
                        metadata={'error': error[:500]})
         _log_event(db, session_id, 'ai_failed', {'error': error[:500]})
+        dev_defects.record('CHAT_AI_REPLY_FAILED', where=str(error)[:60],
+                           page=page_url)
         cur.execute(
             """UPDATE chat_sessions SET status = 'active', last_activity = NOW()
                WHERE session_id = %s""",
@@ -2101,6 +2106,11 @@ def acr_qc_export_pdf():
         'X-QC-Document-Id': meta['document_id'],
         'Cache-Control': 'no-store',
     })
+
+
+@bp.route('/dev-defect', methods=['POST'])
+def dev_defect():
+    return dev_defects.browser_defect()
 
 
 @bp.route('/status', methods=['GET'])
