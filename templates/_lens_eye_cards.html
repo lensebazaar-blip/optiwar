@@ -428,8 +428,6 @@
       update();
     }
     cards[eye] = {
-      // Set the card to `values` ({sph, cyl, ...}; a missing key keeps the
-      // selector's current value, an empty one clears it).
       // Set the card to `values` ({sph, cyl, ...}: a complete prescription
       // for the eye, a key it lacks clears that selector); null keeps what
       // the card shows.
@@ -457,11 +455,16 @@
       }
     };
 
+    // A change the customer makes ends the applied prescription: from here
+    // on the dependency chain keeps what the selectors show, not `want`.
+    function manual(refresh) {
+      return function () { want = {}; refresh(); };
+    }
     if (!byRules) {
-      if (color) { color.addEventListener('change', refreshBc); }
-      if (bc && bc.tagName === 'SELECT') { bc.addEventListener('change', refreshSph); }
-      if (sph && sph.tagName === 'SELECT') { sph.addEventListener('change', refreshCyl); }
-      if (cyl && cyl.tagName === 'SELECT') { cyl.addEventListener('change', refreshAxis); }
+      if (color) { color.addEventListener('change', manual(refreshBc)); }
+      if (bc && bc.tagName === 'SELECT') { bc.addEventListener('change', manual(refreshSph)); }
+      if (sph && sph.tagName === 'SELECT') { sph.addEventListener('change', manual(refreshCyl)); }
+      if (cyl && cyl.tagName === 'SELECT') { cyl.addEventListener('change', manual(refreshAxis)); }
     }
     fieldset.addEventListener('change', update);
     boxes.addEventListener('input', update);
@@ -648,7 +651,7 @@
       PARAMS.forEach(function (name) {
         var wanted = rx[eye][name];
         if (wanted === undefined || wanted === null || wanted === '') { return; }
-        if (!(name in actual)) { return; }
+        if (!(name in actual)) { mismatch.push(eye + '_' + name); return; }
         if (!same(actual[name], wanted)) { mismatch.push(eye + '_' + name); }
       });
     });
