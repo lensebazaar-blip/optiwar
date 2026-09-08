@@ -189,6 +189,31 @@
     if (window.owVoiceWidget) window.owVoiceWidget.open();
   };
 
+  // The page's own entry point (the lens page's "Ask AI" button): straight
+  // into the text chat, without the Text/Voice menu in between.
+  window.owChatOpen = function(mode) {
+    choiceMenuOpen = false;
+    choiceMenu.classList.remove('open');
+    if (mode === 'voice' && window.owVoiceWidget) { window.owVoiceWidget.open(); return; }
+    try { localStorage.setItem('ow_chat_mode', 'text'); } catch(e) {}
+    togglePanel(true);
+  };
+
+  // A failure of the widget itself is a defect for the development team,
+  // reported with a code and a short place; never the message text.
+  function reportDefect(code, where) {
+    try {
+      var body = JSON.stringify({code: code, where: String(where || '').slice(0, 120),
+                                 page: window.location.pathname});
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon('/api/chat/dev-defect', new Blob([body], {type: 'application/json'}));
+      } else {
+        fetch('/api/chat/dev-defect', {method: 'POST', body: body, keepalive: true,
+                                  headers: {'Content-Type': 'application/json'}});
+      }
+    } catch (e) {}
+  }
+
   // Close choice menu when clicking elsewhere
   document.addEventListener('click', function(e) {
     if (choiceMenuOpen && !btn.contains(e.target) && !choiceMenu.contains(e.target)) {
@@ -296,7 +321,8 @@
       sessionLabel.textContent = 'Session: ' + sessionId.replace('chat_', '#');
       loadMessages();
       startPolling();
-    }).catch(function() {
+    }).catch(function(e) {
+      reportDefect('CHAT_START_FAILED', e && e.message);
       renderSystemMsg('Failed to connect. Please refresh the page.');
     });
   }
@@ -345,10 +371,14 @@
           setTimeout(function() { attempt(triesLeft - 1); }, wait);
           return;
         }
-        if (!res.ok) { onFinalFailure(retryable); return; }
+        if (!res.ok) {
+          if (!retryable) { reportDefect('CHAT_MESSAGE_HTTP_' + res.status, err && err.code); }
+          onFinalFailure(retryable); return;
+        }
         onSuccess(res.data);
-      }).catch(function() {
+      }).catch(function(e) {
         // Network error: treat as non-retryable here (avoid duplicate sends on flaky links)
+        reportDefect('CHAT_MESSAGE_NETWORK', e && e.message);
         onFinalFailure(false);
       });
     }

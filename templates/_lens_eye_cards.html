@@ -125,8 +125,10 @@
 {% set right_on = (not submitted) or ('right_boxes' not in submitted) or (submitted.get('right_boxes')|int(0)) > 0 %}
 {% set left_on = (not submitted) or ('left_boxes' not in submitted) or (submitted.get('left_boxes')|int(0)) > 0 %}
 
+{# autocomplete=off: a browser restoring the fields' previous state on reload
+   would put its own memory over the values the server pre-filled. #}
 <form action="{{ url_for('main.lens_add_to_cart') }}" method="post"
-      id="owLensForm" class="ow-rx">
+      id="owLensForm" class="ow-rx" autocomplete="off">
   <input type="hidden" name="product_id" value="{{ lens.product_id }}">
 
   {# Every path ends in the same per-eye fields below: nothing is ordered from
@@ -166,10 +168,10 @@
 
   {% if saved_loaded %}
   <input type="hidden" name="reused_from" value="{{ saved_loaded.cl_rx_id }}">
-  <p class="ow-rx-loaded">Loaded your saved prescription ({{ saved_loaded.summary }}). Choose the boxes, check every value, then add to cart.</p>
+  <p class="ow-rx-loaded" data-role="loaded-note">Loaded your saved prescription ({{ saved_summary }}). Choose the boxes, check every value, then add to cart.</p>
   {% elif ai_proposal %}
   <input type="hidden" name="rx_source" value="AI_ASSISTED_CONFIRMED">
-  <p class="ow-rx-loaded">Optiwar AI read these values from your chat. They are a suggestion: check each one against your prescription and change anything that is wrong before you add to cart.</p>
+  <p class="ow-rx-loaded" data-role="loaded-note">Optiwar AI read these values from your chat. They are a suggestion: check each one against your prescription and change anything that is wrong before you add to cart.</p>
   {% endif %}
 
   <div class="ow-rx-grid">
@@ -280,6 +282,23 @@
   var maxBoxes = {{ max_boxes }};
   var form = document.getElementById('owLensForm');
   var bar = document.getElementById('owLensBar');
+  // A defect on this page is reported to the development team, not just to
+  // the console: code and a short place, never a prescription value.
+  function defect(code, where) {
+    try {
+      var body = JSON.stringify({code: code, where: String(where || '').slice(0, 120),
+                                 page: window.location.pathname});
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon('/api/chat/dev-defect', new Blob([body], {type: 'application/json'}));
+      } else {
+        fetch('/api/chat/dev-defect', {method: 'POST', body: body, keepalive: true,
+                                  headers: {'Content-Type': 'application/json'}});
+      }
+    } catch (e) { /* reporting must never break the page */ }
+  }
+  window.addEventListener('error', function (event) {
+    if (event && event.message) { defect('LENS_PAGE_JS_ERROR', event.message); }
+  });
 
   function euro(n) {
     return '\u20ac' + (Math.round(n * 100) / 100).toFixed(2);
@@ -352,11 +371,27 @@
       var perColor = matrix[code] || {};
       return perColor[bc ? bc.value : ''] || perColor[''] || {};
     }
+    // The values the server pre-filled (typed, saved or proposed) are put on
+    // the selectors explicitly: a browser restoring the form's earlier state
+    // on reload must not win over the page it was given.
+    function applySubmitted() {
+      ['color', 'bc', 'sph', 'cyl', 'axis', 'add'].forEach(function (name) {
+        var field = role(fieldset, name);
+        var value = submitted[eye + '_' + name];
+        if (!field || field.tagName !== 'SELECT' || value === undefined) { return; }
+        var has = Array.prototype.some.call(field.options, function (o) {
+          return o.value === value;
+        });
+        if (has) { field.value = value; }
+        else if (value) { defect('LENS_SAVED_VALUE_NOT_OFFERED', eye + '_' + name); }
+      });
+    }
     function refreshBc() {
       if (!byRules) {
         fill(bc, options.base_curves || [], submitted[eye + '_bc'], 'Select');
         refreshSph();
       } else {
+        applySubmitted();
         update();
       }
     }
@@ -588,8 +623,16 @@
           savedPanel.hidden = button.getAttribute('data-help') !== 'saved';
         }
         if (button.getAttribute('data-help') === 'ai') {
-          var launcher = document.querySelector('.ow-chat-btn, .ow-login-btn');
-          if (launcher) { launcher.click(); }
+          // The widget's own entry point opens the text chat; clicking the
+          // orb would only open its Text/Voice menu, which this same click,
+          // bubbling on, closes again.
+          if (typeof window.owChatOpen === 'function') {
+            window.owChatOpen('text');
+          } else {
+            var launcher = document.querySelector('.ow-login-btn');
+            if (launcher) { launcher.click(); }
+            else { defect('LENS_ASK_AI_NO_WIDGET', 'owChatOpen missing'); }
+          }
         }
       });
     });

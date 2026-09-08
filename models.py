@@ -975,6 +975,7 @@ def _lens_selection_context(lens, shape, errors=(), submitted=None,
         saved_rx=_saved_prescriptions(cursor) if cursor is not None else [],
         signed_in=bool(session.get('user_id')),
         saved_loaded=saved,
+        saved_summary=lens_rx.saved_summary(saved) if saved else '',
         ai_proposal=proposal)
 
 
