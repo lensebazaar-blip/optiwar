@@ -540,6 +540,7 @@ def cart_item(product, lines):
         "vertical": "CONTACT_LENS",
         "availability": (product.get("availability") or "").strip().upper(),
         "lead_time_days": product.get("lead_time_days"),
+        # Written at checkout by lens_rx.record(), in the order's transaction.
         "rx_id": None,
         "recommendations": product.get("product_name"),
     }
@@ -556,6 +557,7 @@ def cart_item(product, lines):
             "%s_axis" % eye: _axis(variant.get("axis")),
             "%s_add" % eye: _num(variant.get("add_power")),
             "%s_bc" % eye: _num(variant.get("base_curve")),
+            "%s_dia" % eye: _num(variant.get("diameter")),
             "%s_lens_color" % eye: (variant.get("color_code") or ""),
             "%s_variant_id" % eye: variant.get("variant_id"),
             "%s_eye" % eye: (describe(variant, count) if count

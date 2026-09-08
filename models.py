@@ -26,8 +26,8 @@ from .catalogue import (
     current_site, strip_ineligible_urls, age_group, ensure_gmc_columns,
     live_lenses, lens_matrix_summary, SITE_IN, SITE_COM,
 )
-from . import (acr, lens_cart, lens_feed, lens_order, lens_preview, lens_seo,
-               lens_view)
+from . import (acr, lens_cart, lens_feed, lens_order, lens_preview, lens_rx,
+               lens_seo, lens_view)
 from .cart_persist import save_cart_to_db, clear_cart_in_db
 import copy
 from .cl_range_model import add_prescription_of_cl
@@ -3192,6 +3192,12 @@ def checkout():
             addon_3_name = item.get('addon_3_name')
             addon_3_price = item.get('addon_3_price', 0)
             rx_id = item.get('rx_id', None)
+            if not rx_id and lens_rx.is_lens_line(item):
+                # The lens line's prescription, written with the order line so
+                # the two commit together; the powers do not live only in the
+                # session once an order exists.
+                rx_id = lens_rx.record(cursor, item, customer_id, order_id,
+                                       _get_site_from())
 
             if rx_id:
                 cursor.execute(
@@ -3398,6 +3404,9 @@ def test_checkout():
             recommendations = ', '.join(reco_list) if reco_list else None
             recommendation_price = item.get('optical_lens_price', 0)
             rx_id = item.get('rx_id', None)
+            if not rx_id and lens_rx.is_lens_line(item):
+                rx_id = lens_rx.record(cursor, item, customer_id, order_id,
+                                       _get_site_from())
 
             if rx_id:
                 cursor.execute(

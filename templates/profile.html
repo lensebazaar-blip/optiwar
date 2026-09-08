@@ -748,24 +748,22 @@
                 {% set r = item.right_eye.split('/') %}
                 {% set l = item.left_eye.split('/') if item.left_eye and '/' in (item.left_eye|string) else ['—','—','—','—'] %}
                 <div class="oh-rx-details">
-                  <div class="oh-eye oh-eye--r">
-                    <span class="oh-eye-label">RIGHT EYE (OD)</span>
+                  {# A lens row is pwr/cyl/boxes/color/axis/add/bc (lens_rx.legacy_eye_string); a frame row is sph/cyl/axis/add. #}
+                  {% if item.product_category == 'Contact Lenses' %}
+                    {% set cells = [('PWR', 0), ('CYL', 1), ('AXIS', 4), ('BOXES', 2)] %}
+                  {% else %}
+                    {% set cells = [('SPH', 0), ('CYL', 1), ('AXIS', 2), ('ADD', 3)] %}
+                  {% endif %}
+                  {% for eye_label, eye_class, vals in [('RIGHT EYE (OD)', 'r', r), ('LEFT EYE (OS)', 'l', l)] %}
+                  <div class="oh-eye oh-eye--{{ eye_class }}">
+                    <span class="oh-eye-label">{{ eye_label }}</span>
                     <div class="oh-eye-grid">
-                      <div class="oh-eye-cell"><small>SPH</small><strong>{{ r[0]|default('—') }}</strong></div>
-                      <div class="oh-eye-cell"><small>CYL</small><strong>{{ r[1]|default('—') }}</strong></div>
-                      <div class="oh-eye-cell"><small>AXIS</small><strong>{{ r[2]|default('—') }}</strong></div>
-                      <div class="oh-eye-cell"><small>ADD</small><strong>{{ r[3]|default('—') }}</strong></div>
+                      {% for label, i in cells %}
+                      <div class="oh-eye-cell"><small>{{ label }}</small><strong>{{ (vals[i] if vals|length > i and vals[i] else '—') }}</strong></div>
+                      {% endfor %}
                     </div>
                   </div>
-                  <div class="oh-eye oh-eye--l">
-                    <span class="oh-eye-label">LEFT EYE (OS)</span>
-                    <div class="oh-eye-grid">
-                      <div class="oh-eye-cell"><small>SPH</small><strong>{{ l[0]|default('—') }}</strong></div>
-                      <div class="oh-eye-cell"><small>CYL</small><strong>{{ l[1]|default('—') }}</strong></div>
-                      <div class="oh-eye-cell"><small>AXIS</small><strong>{{ l[2]|default('—') }}</strong></div>
-                      <div class="oh-eye-cell"><small>ADD</small><strong>{{ l[3]|default('—') }}</strong></div>
-                    </div>
-                  </div>
+                  {% endfor %}
                 </div>
                 {% endif %}
 

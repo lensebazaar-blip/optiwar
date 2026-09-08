@@ -357,7 +357,10 @@
                 </div>
                 <div class="osp-eye-grid">
                   <div class="osp-eye-row"><span class="osp-eye-label">PWR</span><span class="osp-eye-val">{{ right_vals[0]|default('—') }}</span></div>
-                  <div class="osp-eye-row"><span class="osp-eye-label">COLOR</span><span class="osp-eye-val">{{ right_vals[3]|default('—') }}</span></div>
+                  {% if right_vals|length > 1 and right_vals[1] %}<div class="osp-eye-row"><span class="osp-eye-label">CYL</span><span class="osp-eye-val">{{ right_vals[1] }}</span></div>{% endif %}
+                  {% if right_vals|length > 4 and right_vals[4] %}<div class="osp-eye-row"><span class="osp-eye-label">AXIS</span><span class="osp-eye-val">{{ right_vals[4] }}&deg;</span></div>{% endif %}
+                  {% if right_vals|length > 5 and right_vals[5] %}<div class="osp-eye-row"><span class="osp-eye-label">ADD</span><span class="osp-eye-val">{{ right_vals[5] }}</span></div>{% endif %}
+                  {% if right_vals|length > 3 and right_vals[3] %}<div class="osp-eye-row"><span class="osp-eye-label">COLOR</span><span class="osp-eye-val">{{ right_vals[3] }}</span></div>{% endif %}
                   <div class="osp-eye-row"><span class="osp-eye-label">QTY</span><span class="osp-eye-val">{{ right_vals[2]|default('—') }} boxes</span></div>
                 </div>
               </div>
@@ -369,7 +372,10 @@
                 </div>
                 <div class="osp-eye-grid">
                   <div class="osp-eye-row"><span class="osp-eye-label">PWR</span><span class="osp-eye-val">{{ left_vals[0]|default('—') }}</span></div>
-                  <div class="osp-eye-row"><span class="osp-eye-label">COLOR</span><span class="osp-eye-val">{{ left_vals[3]|default('—') }}</span></div>
+                  {% if left_vals|length > 1 and left_vals[1] %}<div class="osp-eye-row"><span class="osp-eye-label">CYL</span><span class="osp-eye-val">{{ left_vals[1] }}</span></div>{% endif %}
+                  {% if left_vals|length > 4 and left_vals[4] %}<div class="osp-eye-row"><span class="osp-eye-label">AXIS</span><span class="osp-eye-val">{{ left_vals[4] }}&deg;</span></div>{% endif %}
+                  {% if left_vals|length > 5 and left_vals[5] %}<div class="osp-eye-row"><span class="osp-eye-label">ADD</span><span class="osp-eye-val">{{ left_vals[5] }}</span></div>{% endif %}
+                  {% if left_vals|length > 3 and left_vals[3] %}<div class="osp-eye-row"><span class="osp-eye-label">COLOR</span><span class="osp-eye-val">{{ left_vals[3] }}</span></div>{% endif %}
                   <div class="osp-eye-row"><span class="osp-eye-label">QTY</span><span class="osp-eye-val">{{ left_vals[2]|default('—') }} boxes</span></div>
                 </div>
               </div>
