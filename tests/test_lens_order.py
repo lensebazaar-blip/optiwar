@@ -857,6 +857,24 @@ class BoxesFromTheCart(unittest.TestCase):
         self.assertEqual([c for c, _ in problems], [lens_order.REFUSED_MINIMUM])
         self.assertIn("12 boxes for a single eye", problems[0][1])
 
+    def test_an_eye_is_removed_whole_when_the_other_can_stand_alone(self):
+        lens = dict(LENS, min_boxes_single_eye=12, min_boxes_both_per_eye=6)
+        item = self._line()
+        # 6 -> 5 is refused, so counting down can never reach zero...
+        _, problems = lens_order.validate_detailed(
+            VARIANTS, lens, lens_order.selections_from_item(item, {"left": 5}),
+            site="optiwar.com")
+        self.assertTrue(problems)
+        # ...which is what the ``remove`` action is for: right at 12, left gone.
+        lines, problems = lens_order.validate_detailed(
+            VARIANTS, lens,
+            lens_order.selections_from_item(item, {"right": 12, "left": 0}),
+            site="optiwar.com")
+        self.assertEqual(problems, [])
+        again = lens_order.cart_item(lens, lines)
+        self.assertEqual((again["right_qty"], again["left_qty"]), (12, 0))
+        self.assertEqual(again["left_pwr"], "")
+
 
 class CartWiring(unittest.TestCase):
     """The checkout page changes a lens line per eye, and only that way."""
@@ -866,10 +884,13 @@ class CartWiring(unittest.TestCase):
         self.ck = _read(os.path.join("templates", "checkout.html"))
 
     def test_the_per_eye_route_revalidates_and_commits_through_the_gate(self):
-        self.assertIn("@bp.route('/cart/lens-boxes/<product_id>/<eye>/<action>'",
+        self.assertIn("@bp.route('/cart/lens-boxes/<product_id>/<eye>/<action>', "
+                      "methods=['POST'])", self.src)
+        self.assertIn("LENS_BOX_ACTIONS = ('increase', 'decrease', 'remove')",
                       self.src)
         body = self.src.split("def lens_boxes(")[1].split("\n@bp.route")[0]
         self.assertIn("current_site() == SITE_IN", body)
+        self.assertIn("action not in LENS_BOX_ACTIONS", body)
         self.assertIn("_released_or_previewed_lens(", body)
         self.assertIn("lens_order.selections_from_item(line, {eye: wanted})", body)
         self.assertIn("waived=_minimums_waived(others)", body)
@@ -883,7 +904,19 @@ class CartWiring(unittest.TestCase):
     def test_the_line_shows_each_eye_with_its_own_stepper_and_money(self):
         self.assertIn("/cart/lens-boxes/{{ item.product_id }}/{{ eye }}/decrease", self.ck)
         self.assertIn("/cart/lens-boxes/{{ item.product_id }}/{{ eye }}/increase", self.ck)
+        self.assertIn("/cart/lens-boxes/{{ item.product_id }}/{{ eye }}/remove", self.ck)
         self.assertIn("('right', 'Right (OD)'), ('left', 'Left (OS)')", self.ck)
         self.assertIn("{% if not is_lens_line %}", self.ck)
+        # The same classification lens_cart.is_lens applies, so a legacy line
+        # is drawn per eye too rather than with a stepper the route refuses.
+        self.assertIn("(item.product_category|default('')|trim|lower) == "
+                      "'contact lenses' and (item.right_qty is defined or "
+                      "item.left_qty is defined)", self.ck)
+        # Mutations post; no <a href> can change a cart.
+        self.assertNotIn('href="/cart/lens-boxes/', self.ck)
+        self.assertEqual(self.ck.count('form="owLensBoxesForm"'), 3)
+        self.assertIn('<form id="owLensBoxesForm" method="post"', self.ck)
+        # A dropped eye has no power left on the line; it is re-added on the PDP.
+        self.assertIn("add on the product page", self.ck)
         self.assertIn("&euro;{{ '%.2f'|format(item_price) }}", self.ck)
         self.assertNotIn("&euro;{{ item_price }}", self.ck)
