@@ -138,3 +138,54 @@ def is_lens_availability_faq(item):
     text = " ".join(str(item.get(k) or "").lower()
                     for k in ("question", "answer"))
     return any(w in text for w in _LENS_WORDS)
+
+
+PDP_CONTEXT_RULES = """  The customer is looking at THIS lens's page right now. Their eye cards are
+  what places the order; you do not. You may:
+  - explain what PWR/SPH, CYL, AXIS, ADD, BC and DIA on their prescription mean
+    and which card (Right/OD, Left/OS) each value goes into;
+  - when the customer states their prescription values in the chat, read them
+    back and end your reply with ONE tag on its own line, exactly like
+    [LENS_RX:{"right":{"sph":"-3.75"},"left":{"sph":"-2.50"}}]
+    with only the eyes and parameters the customer stated (keys: sph, cyl,
+    axis, add, bc, color, boxes). Omit an eye they did not state. Do not invent,
+    round or "correct" a value, and never put a value in the tag the customer
+    did not say. Tell them the page will show the values pre-filled for them to
+    check and confirm; the tag itself is invisible to them.
+  - NOT tell them a combination is or is not made: the page checks that when
+    they confirm. Do not state box minimums other than the ones listed above.
+"""
+
+
+def pdp_context_section(row, summary=None, minimums=None, eyes_state=None,
+                        saved_count=0):
+    """The one lens the customer is looking at, for the model's context.
+
+    Everything here is catalogue fact already allowed by ``lens_line``; the
+    only additions are the page's state (which eyes are ticked) and how many
+    saved prescriptions the signed-in customer has — a count, never a value,
+    so nothing medical is put in a prompt the model might echo.
+    """
+    lines = ["", "CURRENT LENS PAGE (the customer is on this product page):",
+             lens_line(row, summary)]
+    minimums = minimums or {}
+    if minimums.get("single") and minimums.get("both"):
+        if minimums.get("waived"):
+            lines.append("  Minimum boxes: waived for this cart by the eyewear "
+                         "benefit (stated %d one eye / %d per eye both)."
+                         % (minimums["stated_single"], minimums["stated_both"]))
+        else:
+            lines.append("  Minimum boxes: %d for one eye, or %d per eye when "
+                         "ordering both." % (minimums["single"],
+                                             minimums["both"]))
+    if eyes_state:
+        ticked = [e for e in ("right", "left") if eyes_state.get(e)]
+        lines.append("  Eyes ticked on the page: %s."
+                     % (", ".join(ticked) if ticked else "none yet"))
+    if saved_count:
+        lines.append("  The customer has %d saved contact-lens prescription%s; "
+                     "the 'Saved Rx' button on the page lets them reuse one "
+                     "(you cannot see the values)."
+                     % (saved_count, "" if saved_count == 1 else "s"))
+    lines.append(PDP_CONTEXT_RULES)
+    return "\n".join(lines)

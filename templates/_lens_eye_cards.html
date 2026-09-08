@@ -51,6 +51,11 @@
 .ow-rx-summary .ow-rx-row[hidden] { display:none; }
 .ow-rx-summary .ow-rx-total { border-top:1px solid #e5e7eb; margin-top:6px; padding-top:8px; font-size:18px; font-weight:800; color:#111; }
 .ow-rx-min, .ow-rx-note { font-size:12px; color:#777; margin:6px 0; }
+.ow-rx-saved { list-style:none; margin:0 0 12px; padding:0; display:grid; gap:6px; }
+.ow-rx-saved li { display:flex; align-items:center; justify-content:space-between; gap:10px; border:1px solid #e5e7eb; border-radius:10px; padding:8px 12px; font-size:13px; }
+.ow-rx-saved li small { display:block; color:#6b7280; font-size:11px; }
+.ow-rx-saved a { flex-shrink:0; font-weight:700; color:#4f46e5; text-decoration:none; padding:6px 10px; border:1px solid #c7d2fe; border-radius:8px; }
+.ow-rx-loaded { background:#ecfdf5; color:#065f46; border-radius:8px; padding:8px 12px; font-size:13px; margin:0 0 12px; }
 .ow-rx-min { font-size:13px; color:#374151; background:#f3f4f6; border-radius:8px; padding:8px 12px; }
 .ow-rx-min b { color:#111; }
 .ow-rx-min.is-waived { background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0; }
@@ -116,8 +121,9 @@
   {%- endif -%}
 {% endmacro %}
 
-{% set right_on = (not submitted) or (submitted.get('right_boxes')|int(0)) > 0 %}
-{% set left_on = (not submitted) or (submitted.get('left_boxes')|int(0)) > 0 %}
+{# An eye is on unless what was submitted (or pre-filled) says 0 boxes for it. #}
+{% set right_on = (not submitted) or ('right_boxes' not in submitted) or (submitted.get('right_boxes')|int(0)) > 0 %}
+{% set left_on = (not submitted) or ('left_boxes' not in submitted) or (submitted.get('left_boxes')|int(0)) > 0 %}
 
 <form action="{{ url_for('main.lens_add_to_cart') }}" method="post"
       id="owLensForm" class="ow-rx">
@@ -137,6 +143,34 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8Z"/><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8Z"/></svg><span>Ask AI</span></button>
   </div>
   <p class="ow-rx-note" data-role="help-note" hidden></p>
+
+  {# Saved Rx: the customer's own contact-lens prescriptions, listed by the
+     server from their signed-in account; "Use" reloads the page with the
+     cards pre-filled. Values are reviewed and confirmed here like typed ones. #}
+  <div data-role="saved-panel" hidden>
+  {% if not signed_in %}
+    <p class="ow-rx-note">Sign in to reuse a prescription from an earlier contact-lens order.
+      <a href="{{ url_for('auth.login') }}">Sign in</a></p>
+  {% elif not saved_rx %}
+    <p class="ow-rx-note">No saved contact-lens prescription yet. The prescription of your first lens order is saved to your account for next time.</p>
+  {% else %}
+    <ul class="ow-rx-saved">
+    {% for entry in saved_rx %}
+      <li><div>{{ entry.summary }}<small>from your order of {{ entry.created_at }}</small></div>
+        <a href="?pid={{ lens.product_id }}&amp;saved={{ entry.cl_rx_id }}#owLensForm">Use</a></li>
+    {% endfor %}
+    </ul>
+    <p class="ow-rx-note">Check the values against your current prescription before ordering.</p>
+  {% endif %}
+  </div>
+
+  {% if saved_loaded %}
+  <input type="hidden" name="reused_from" value="{{ saved_loaded.cl_rx_id }}">
+  <p class="ow-rx-loaded">Loaded your saved prescription ({{ saved_loaded.summary }}). Choose the boxes, check every value, then add to cart.</p>
+  {% elif ai_proposal %}
+  <input type="hidden" name="rx_source" value="AI_ASSISTED_CONFIRMED">
+  <p class="ow-rx-loaded">Optiwar AI read these values from your chat. They are a suggestion: check each one against your prescription and change anything that is wrong before you add to cart.</p>
+  {% endif %}
 
   <div class="ow-rx-grid">
   {% for eye in eyes %}
@@ -528,10 +562,15 @@
     manual: '',
     upload: 'Prescription upload is being prepared for this lens. Until then, ' +
             'type the values from your prescription into the cards below.',
-    saved: 'Saved prescriptions are being prepared. Type the values from your ' +
-           'prescription into the cards below.',
-    ai: 'Optiwar AI can explain the values on your prescription. It does not ' +
-        'place the order: the cards below do.'
+    saved: '',
+    ai: 'Tell Optiwar AI the values on your prescription and it will fill the ' +
+        'cards for you to check. It does not place the order: the cards below do.'
+  };
+  // What the assistant is told about this page: which eyes are ticked and
+  // whether the eyewear benefit applies. Booleans only, never a power.
+  window.owLensPageState = function () {
+    return {right: included('right'), left: included('left'),
+            waived: {{ 'true' if minimums.waived else 'false' }}};
   };
   Array.prototype.forEach.call(
     role(form, 'help').querySelectorAll('button'), function (button) {
@@ -544,6 +583,10 @@
         var text = helpNotes[button.getAttribute('data-help')] || '';
         note.textContent = text;
         note.hidden = !text;
+        var savedPanel = role(form, 'saved-panel');
+        if (savedPanel) {
+          savedPanel.hidden = button.getAttribute('data-help') !== 'saved';
+        }
         if (button.getAttribute('data-help') === 'ai') {
           var launcher = document.querySelector('.ow-chat-btn, .ow-login-btn');
           if (launcher) { launcher.click(); }

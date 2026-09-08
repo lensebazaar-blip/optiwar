@@ -327,7 +327,10 @@
           session_id: sessionId,
           content: text,
           page_url: window.location.href,
-          client_message_id: cmid
+          client_message_id: cmid,
+          // On a lens page: which eyes are ticked, nothing more (booleans).
+          page_state: (typeof window.owLensPageState === 'function')
+            ? window.owLensPageState() : undefined
         })
       }).then(function(r) {
         return r.json().catch(function() { return {}; }).then(function(data) {
@@ -361,6 +364,16 @@
       }
       if (data.actions && data.actions.indexOf('human_handover') >= 0) {
         renderSystemMsg('Connecting you to our support team...');
+      }
+      // A prescription the assistant read back was accepted by the lens page's
+      // validator and is waiting there, pre-filled, for the customer to check.
+      // The cart is not touched; the page reload only shows the cards filled.
+      if (data.lens_rx_proposal && data.lens_rx_proposal.accepted && !data.navigate_url) {
+        renderSystemMsg('Filling the eye cards on this page with those values for you to check\u2026');
+        setTimeout(function() {
+          window.location.href = window.location.pathname + window.location.search + '#owLensForm';
+          window.location.reload();
+        }, 2500);
       }
       if (data.navigate_url) {
         var acrAction = data.action && data.action.action_id ? data.action : null;
