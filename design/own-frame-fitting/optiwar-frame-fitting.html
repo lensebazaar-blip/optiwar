@@ -25,10 +25,22 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Hel
 .devnote{background:#111827;color:#e5e7eb;font-size:12.5px;padding:10px 16px;text-align:center;}
 .devnote b{color:#fbbf24;}
 
-/* ---- minimal brand bar (context only — real header/lens-nav not rebuilt here) ---- */
-.ow-topbar{background:#fff;border-bottom:1px solid var(--ow-border);padding:14px 16px;display:flex;align-items:center;justify-content:space-between;}
-.ow-word{font-weight:800;font-size:18px;letter-spacing:.3px;color:var(--ow-ink);}
+/* ---- site header, matching the real optiwar.in top bar (icon+label nav) ---- */
+.ow-topbar{background:#fff;border-bottom:1px solid var(--ow-border);padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:16px;}
+.ow-word{font-weight:800;font-size:18px;letter-spacing:.3px;color:var(--ow-ink);white-space:nowrap;}
 .ow-word small{display:block;font-size:9.5px;font-weight:700;letter-spacing:1.5px;color:var(--ow-faint);text-transform:uppercase;}
+.ow-header-icons{display:flex;align-items:center;gap:26px;}
+.ow-hicon{display:flex;flex-direction:column;align-items:center;gap:3px;border:0;background:transparent;cursor:pointer;color:var(--ow-muted);text-decoration:none;position:relative;padding:0;font-family:inherit;}
+.ow-hicon svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;}
+.ow-hicon span{font-size:11px;font-weight:600;color:var(--ow-ink);white-space:nowrap;}
+.ow-hicon:hover{color:var(--ow-primary);}
+.ow-hicon:hover span{color:var(--ow-primary);}
+.ow-hicon-new{color:var(--ow-primary);}
+.ow-hicon-new span{color:var(--ow-primary);}
+.ow-hicon-badge{position:absolute;top:-3px;right:-8px;background:var(--ow-red);color:#fff;font-size:8.5px;font-weight:800;letter-spacing:.3px;padding:1.5px 4px;border-radius:6px;line-height:1.3;}
+.ow-hicon-flash{animation:owFlash 1.4s ease-out;}
+@keyframes owFlash{0%{box-shadow:0 0 0 3px var(--ow-primary);}100%{box-shadow:0 0 0 3px transparent;}}
+html{scroll-behavior:smooth;}
 
 /* ---- profile header ---- */
 .ow-profile-head{background:var(--ow-grad);border-radius:0 0 20px 20px;padding:28px 16px 24px;color:#fff;margin-bottom:18px;}
@@ -223,10 +235,41 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Hel
 </head>
 <body>
 
-<div class="devnote">Design mockup for <b>optiwar.in</b> — "My Own Frame Fittings". Not the real header/lens-nav; scoped to the new profile tab's content. Placeholder pricing marked below.</div>
+<div class="devnote">Design mockup for <b>optiwar.in</b> — "My Own Frame Fittings". Header icon-nav below now matches the real site's icon+label style, with <b>My Frames</b> added as the new front-end entry point (click it). Placeholder pricing marked below.</div>
 
 <div class="ow-topbar">
   <div class="ow-word">OPTIWAR<small>Factory Outlet Opticals</small></div>
+  <div class="ow-header-icons">
+    <a href="#" class="ow-hicon" aria-label="Faces">
+      <svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><circle cx="12" cy="14" r="3.2"/><path d="M8 7l1.5-3h5L16 7"/></svg>
+      <span>Faces</span>
+    </a>
+    <a href="#mfEntry" class="ow-hicon ow-hicon-new" aria-label="My Frames" onclick="mfHeaderJump(event)">
+      <svg viewBox="0 0 24 24"><path d="M2 12h5l1.5-3h7L17 12h5"/><path d="M7 12a5 5 0 0 0 10 0"/></svg>
+      <span>My Frames</span>
+      <span class="ow-hicon-badge">NEW</span>
+    </a>
+    <a href="#" class="ow-hicon" aria-label="Search">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <span>Search</span>
+    </a>
+    <a href="#" class="ow-hicon" aria-label="Favorites">
+      <svg viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+      <span>Favorites</span>
+    </a>
+    <a href="#" class="ow-hicon" aria-label="Cart">
+      <svg viewBox="0 0 24 24"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+      <span>Cart</span>
+    </a>
+    <a href="#" class="ow-hicon" aria-label="Login">
+      <svg viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/></svg>
+      <span>Login</span>
+    </a>
+    <a href="#" class="ow-hicon" aria-label="Language">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg>
+      <span>EN</span>
+    </a>
+  </div>
 </div>
 
 <div class="ow-profile-head">
@@ -243,7 +286,7 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Hel
 
 <div class="wrap">
 
-  <div class="ow-profile-tabs">
+  <div class="ow-profile-tabs" id="mfEntry">
     <button class="ow-tab-btn" disabled>
       <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span>Account</span>
     </button>
@@ -484,6 +527,18 @@ const DEFAULT_ADDON_PRICES = {
 const BUNDLE_ADDON_PRICES = { // placeholder only — real values live in lens_pricing.json
   arc01: 0, bcm02: 50, arcmat03: 100, opsix1: 0, ops672: 150, pcgreystyle: 150, pcbostyle: 300
 };
+
+// Header entry point demo: "My Frames" icon in the site-wide top nav jumps
+// straight to this same in-page flow and briefly highlights it, standing in
+// for real client-side routing to /profile?tab=my-frames on the live site.
+function mfHeaderJump(e){
+  e.preventDefault();
+  const target = document.getElementById('mfEntry');
+  target.scrollIntoView({behavior: 'smooth', block: 'start'});
+  target.classList.remove('ow-hicon-flash');
+  void target.offsetWidth; // restart animation if clicked twice
+  target.classList.add('ow-hicon-flash');
+}
 
 function mfShowSub(which){
   document.getElementById('mfNew').style.display = which === 'new' ? '' : 'none';

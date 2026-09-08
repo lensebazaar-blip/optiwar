@@ -86,6 +86,23 @@ the submitted Rx and addon codes server-side.
 - EWS: Email, WhatsApp, SMS at every tracker stage — surfaced as a single
   notice at the top of each tracked request, not per-line noise.
 
+## Front-end entry point — header icon
+
+Added to the mockup's top bar (matching the real optiwar.in header's
+icon-over-label style — Faces / Search / Favorites / Cart / Login / EN):
+a new **My Frames** icon, indigo-highlighted with a small "NEW" badge so
+it's discoverable from anywhere on the site, not just from inside Profile.
+Clicking it smooth-scrolls straight into the flow and briefly highlights it —
+standing in for real client-side routing to the My Frames tab.
+
+Real counterpart: one new icon in the site's global header/nav template
+(wherever Faces/Search/Favorites/Cart/Login already live), linking to
+`/profile?tab=my-frames` (or however the existing tab-routing works — the
+Account/Addresses/Orders/My Face tabs already do this, My Frames should match
+their pattern exactly, not invent a new one). No new page — it's a nav
+shortcut into the profile tab this whole mockup already describes. Only
+needed on `.in`; `.com` has no My Frames tab to link to.
+
 ## What this mockup does not resolve
 
 - Real addon and bundle pricing (needs `lens_pricing.json` off the box, or
@@ -104,6 +121,7 @@ the submitted Rx and addon codes server-side.
 | Mockup concept | Likely real counterpart |
 |---|---|
 | `My Frames` tab | new block in `templates/profile.html`, alongside the existing 4 |
+| Header "My Frames" icon | new icon in the global header/nav template, routed the same way the other profile tabs already are |
 | Per-frame Rx + addon form | new route, mirrors `add_to_cart_with_lenses` minus frame-price terms |
 | `get_addon_price_map()` | reused as-is — same JSON, same context-swap logic |
 | Pickup fee / weight surcharge | new admin-editable settings, own table/row |
