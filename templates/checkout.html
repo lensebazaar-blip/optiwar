@@ -351,6 +351,12 @@ footer{ display:none !important; }
   display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:center;
   padding:12px; border-radius:16px; border:1px solid rgba(148,163,184,.18); background:#fafbfc;
 }
+/* A lens line is tall (two eye rows), so its price sits under the body instead of claiming a third column. */
+@media(min-width:768px){
+  .ow-ck-item--lens{ grid-template-columns:auto 1fr; align-items:start; }
+  .ow-ck-item--lens .ow-ck-price{ grid-column:2; justify-self:end; }
+  .ow-ck-qty--eye>span{ white-space:nowrap; }
+}
 .ow-ck-thumb{ width:clamp(56px,7vw,80px);height:clamp(56px,7vw,80px);border-radius:14px;overflow:hidden;background:#f1f5f9;display:grid;place-items:center; }
 .ow-ck-thumb img{ width:100%;height:100%;object-fit:cover; }
 .ow-ck-item h3{ font-size:clamp(.85rem,1.1vw,1rem);font-weight:600;color:#0f172a;margin:0 0 4px; }
@@ -1000,7 +1006,9 @@ footer{ display:none !important; }
       <p class="ow-mob-subtitle">Review your item before checkout</p>
       <div class="ow-ck-list">
         {% for item in cart %}
-        <article class="ow-ck-item">
+        {# The same rule as lens_cart.is_lens, so what is drawn per eye is what update_quantity refuses. #}
+        {% set is_lens_line = item.vertical == 'CONTACT_LENS' or ((item.product_category|default('')|trim|lower) == 'contact lenses' and (item.right_qty is defined or item.left_qty is defined)) %}
+        <article class="ow-ck-item{% if is_lens_line %} ow-ck-item--lens{% endif %}">
           <div class="ow-ck-thumb">
             {% set pid = item.product_id|string %}
             {% if product_image_map.get(pid) %}
@@ -1011,8 +1019,6 @@ footer{ display:none !important; }
           </div>
           <div class="ow-ck-body">
             <h3>{{ item.product_name|default('Spectacle Frame') }}</h3>
-            {# The same rule as lens_cart.is_lens, so what is drawn per eye is what update_quantity refuses. #}
-            {% set is_lens_line = item.vertical == 'CONTACT_LENS' or ((item.product_category|default('')|trim|lower) == 'contact lenses' and (item.right_qty is defined or item.left_qty is defined)) %}
             {% if is_lens_line %}
             <p class="ow-ck-meta">{{ item.order_quantity|default(0) }} box{{ 'es' if item.order_quantity|default(0) != 1 }} in total</p>
             {% else %}
@@ -1030,7 +1036,7 @@ footer{ display:none !important; }
               {% if item.addon_2_name %}{% if item.addon_1_name %} · {% endif %}{{ item.addon_2_name }}{% endif %}
               {% if item.addon_3_name %}{% if item.addon_1_name or item.addon_2_name %} · {% endif %}{{ item.addon_3_name }}{% endif %}
             </p>
-            {% elif item.recommendations %}
+            {% elif item.recommendations and not is_lens_line %}
             <p class="ow-ck-lens">{{ item.recommendations }}</p>
             {% elif item.optical_lens_type %}
             <p class="ow-ck-lens">{{ item.optical_lens_type }}</p>
