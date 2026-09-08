@@ -346,6 +346,32 @@ def read_eye(form, eye):
     }
 
 
+def selections_from_item(item, boxes_by_eye=None):
+    """A cart line's per-eye choices back in the shape ``read_eye`` returns.
+
+    ``boxes_by_eye`` overrides the boxes of the eyes it names, so a change of
+    quantity from the cart goes through ``validate_detailed`` exactly as the
+    original order did: the same matrix, the same minimum, the same price.
+    """
+    boxes_by_eye = boxes_by_eye or {}
+    out = []
+    for eye in EYES:
+        count = boxes_by_eye.get(eye)
+        if count is None:
+            count = boxes(item.get("%s_qty" % eye))
+        out.append({
+            "eye": eye,
+            "base_curve": _num(item.get("%s_bc" % eye)),
+            "sph": _num(item.get("%s_pwr" % eye)),
+            "cyl": _num(item.get("%s_cyl" % eye)),
+            "axis": _axis(item.get("%s_axis" % eye)),
+            "add_power": _num(item.get("%s_add" % eye)),
+            "color": _code(item.get("%s_lens_color" % eye)),
+            "boxes": max(0, int(count)),
+        })
+    return out
+
+
 def box_price(product):
     """EUR per box: the offer price, and the list price only if there is none."""
     for field in ("product_special_price_eur", "product_price_eur"):

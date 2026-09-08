@@ -359,6 +359,12 @@ footer{ display:none !important; }
 .ow-ck-qty{ display:flex;align-items:center;gap:6px;margin-top:6px; }
 .ow-ck-qty a{ display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;background:#eef2ff;color:#4f46e5;font-weight:900;text-decoration:none;font-size:14px;border:1px solid rgba(148,163,184,.18); }
 .ow-ck-qty span{ font-size:13px;font-weight:600;color:#0f172a;min-width:18px;text-align:center; }
+.ow-ck-eyes{ display:grid;gap:6px;margin-top:6px; }
+.ow-ck-eye{ display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:8px;font-size:13px; }
+.ow-ck-eye-label{ font-weight:700;color:#0f172a; }
+.ow-ck-eye-rx{ color:#475569;white-space:nowrap; }
+.ow-ck-qty--eye{ display:inline-flex;margin-top:0; }
+.ow-ck-qty--eye span{ min-width:56px; }
 .ow-ck-remove{ font-size:11px;color:#ef4444;text-decoration:none;font-weight:600;margin-left:6px; }
 
 /* Lens details */
@@ -998,7 +1004,12 @@ footer{ display:none !important; }
           </div>
           <div>
             <h3>{{ item.product_name|default('Spectacle Frame') }}</h3>
+            {% set is_lens_line = item.vertical == 'CONTACT_LENS' %}
+            {% if is_lens_line %}
+            <p class="ow-ck-meta">{{ item.order_quantity|default(0) }} box{{ 'es' if item.order_quantity|default(0) != 1 }} in total</p>
+            {% else %}
             <p class="ow-ck-meta">Qty: {{ item.order_quantity|default(1) }}</p>
+            {% endif %}
             {% if item.product_color or item.product_size %}
             <p class="ow-ck-variant" style="font-size:12px;color:#94a3b8;margin-bottom:4px;">
               {{ item.product_color|default('') }}{% if item.product_size %} &middot; {{ item.product_size }}{% endif %}
@@ -1016,7 +1027,24 @@ footer{ display:none !important; }
             {% elif item.optical_lens_type %}
             <p class="ow-ck-lens">{{ item.optical_lens_type }}</p>
             {% endif %}
-            {% if item.right_pwr or item.left_pwr %}
+            {% if is_lens_line %}
+            <div class="ow-ck-eyes">
+              {% for eye, label in (('right', 'Right (OD)'), ('left', 'Left (OS)')) %}
+              {% set boxes = item[eye ~ '_qty']|default(0)|int %}
+              <div class="ow-ck-eye">
+                <span class="ow-ck-eye-label">{{ label }}</span>
+                <span class="ow-ck-eye-rx">{% if boxes %}{{ item[eye ~ '_pwr'] }}{% if item[eye ~ '_cyl'] %} / {{ item[eye ~ '_cyl'] }}{% endif %}{% if item[eye ~ '_axis'] %} &times; {{ item[eye ~ '_axis'] }}{% endif %}{% else %}not ordered{% endif %}</span>
+                {% if boxes %}
+                <span class="ow-ck-qty ow-ck-qty--eye">
+                  <a href="/cart/lens-boxes/{{ item.product_id }}/{{ eye }}/decrease" aria-label="One box fewer, {{ label }}">&minus;</a>
+                  <span>{{ boxes }} box{{ 'es' if boxes != 1 }}</span>
+                  <a href="/cart/lens-boxes/{{ item.product_id }}/{{ eye }}/increase" aria-label="One box more, {{ label }}">+</a>
+                </span>
+                {% endif %}
+              </div>
+              {% endfor %}
+            </div>
+            {% elif item.right_pwr or item.left_pwr %}
             <p class="ow-ck-lens" style="margin-top:4px;">
               {% if item.right_pwr %}R: {{ item.right_pwr }}{% if item.right_cyl %}/{{ item.right_cyl }}{% endif %}{% endif %}
               {% if item.right_pwr and item.left_pwr %} &middot; {% endif %}
@@ -1212,14 +1240,16 @@ footer{ display:none !important; }
             </div>
             {% endif %}
             <div class="ow-ck-qty">
+              {% if not is_lens_line %}
               <a href="/update_quantity/{{ item.product_id }}/{{ item.product_category|default('spectacles-frame') }}/decrease">−</a>
               <span>{{ item.order_quantity|default(1) }}</span>
               <a href="/update_quantity/{{ item.product_id }}/{{ item.product_category|default('spectacles-frame') }}/increase">+</a>
+              {% endif %}
               <a href="/remove_from_cart/{{ item.product_id }}/{{ item.product_category|default('spectacles-frame') }}" class="ow-ck-remove">Remove</a>
             </div>
           </div>
           <div class="ow-ck-price">
-            {% set item_price = item.ATC_total|default(0) + item.server_total_price|default(0) + item.ATC_WCL|default(0) %}{% if item_price == 0 %}{% set item_price = item.product_special_price|default(0) * item.order_quantity|default(1) %}{% endif %}{% if is_india %}Rs {{ item_price|int }}{% else %}&euro;{{ item_price }}{% endif %}
+            {% set item_price = item.ATC_total|default(0) + item.server_total_price|default(0) + item.ATC_WCL|default(0) %}{% if item_price == 0 %}{% set item_price = item.product_special_price|default(0) * item.order_quantity|default(1) %}{% endif %}{% if is_india %}Rs {{ item_price|int }}{% else %}&euro;{{ '%.2f'|format(item_price) }}{% endif %}
           </div>
         </article>
         {% endfor %}
