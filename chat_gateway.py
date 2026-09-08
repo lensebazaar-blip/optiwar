@@ -17,6 +17,8 @@ from openai import OpenAI
 from . import acr
 from . import catalogue
 from . import lens_prompt
+from . import lens_order
+from . import lens_rx
 from .mail import create_ticket_in_db
 import smtplib
 from email.message import EmailMessage
@@ -434,7 +436,94 @@ def _build_contact_lens_section(is_india=False):
     return lens_prompt.contact_lens_section(lenses)
 
 
-def _build_system_prompt(contact_name, is_india=False, user_message='', customer_id=None):
+_LENS_PDP_PATH = re.compile(r'/categories/contact-lenses/[^/?#]+\?(?:.*&)?pid=(\d+)')
+
+
+def _lens_page_product_id(page_url, is_india=False):
+    """The released lens whose page the customer is on, or ``None``.
+
+    Read off the page URL the widget sends; a .in page is never a lens page.
+    """
+    if is_india or not page_url:
+        return None
+    match = _LENS_PDP_PATH.search(page_url)
+    return int(match.group(1)) if match else None
+
+
+def _lens_context(page_url, is_india, customer_id, page_state=None):
+    """``(lens_row, matrix_shape, minimums, prompt_section)`` for the lens
+    page the customer is on, or ``(None, None, None, '')``.
+
+    Only a lens the release gate shows this storefront counts; the page state
+    is the widget's report of which eyes are ticked (booleans only).
+    """
+    product_id = _lens_page_product_id(page_url, is_india)
+    if not product_id:
+        return None, None, None, ''
+    try:
+        db = _get_db()
+        try:
+            cur = db.cursor()
+            row = next((r for r in catalogue.live_lenses(cur, catalogue.SITE_COM)
+                        if int(r['product_id']) == product_id), None)
+            if not row:
+                return None, None, None, ''
+            summary = catalogue.lens_matrix_summary(cur, product_id)
+            if (row.get('param_mode') or '').strip().upper() == 'RULES':
+                shape = lens_order.selectable(
+                    lens_order.param_rules(cur, product_id), row.get('lens_type'))
+            else:
+                shape = lens_order.selectable(lens_order.variants(cur, product_id))
+            saved_count = (len(lens_rx.saved_for_customer(cur, customer_id))
+                           if customer_id else 0)
+        finally:
+            db.close()
+    except Exception as e:
+        current_app.logger.warning('[Chat] lens page context unavailable: %s', e)
+        return None, None, None, ''
+    state = page_state if isinstance(page_state, dict) else {}
+    eyes_state = {e: bool(state.get(e)) for e in lens_order.EYES} \
+        if any(e in state for e in lens_order.EYES) else None
+    mins = lens_order.minimums(row, catalogue.SITE_COM,
+                               waived=bool(state.get('waived')))
+    section = lens_prompt.pdp_context_section(
+        row, summary, minimums=mins, eyes_state=eyes_state,
+        saved_count=saved_count)
+    return row, shape, mins, section
+
+
+def _park_lens_proposal(reply, lens, shape, minimums):
+    """Strip the model's ``[LENS_RX:...]`` tag; keep the values as a proposal
+    only when the lens's own validator accepts them.
+
+    Returns ``(reply, proposal_summary_or_None)``. The proposal goes into the
+    customer's Flask session, where the lens page pre-fills the eye cards from
+    it; the cart is untouched until the customer presses Add to Cart. A tag
+    with no lens page behind it is simply removed.
+    """
+    from flask import session as flask_session
+    reply, proposal = lens_rx.extract_proposal(reply)
+    if not proposal or lens is None:
+        return reply, None
+    selections = lens_rx.proposal_selections(proposal, minimums)
+    lines, problems = lens_order.validate_detailed(
+        shape, lens, selections, site=catalogue.SITE_COM,
+        waived=bool((minimums or {}).get('waived')))
+    if problems:
+        return reply, {'accepted': False,
+                       'reasons': sorted({c for c, _ in problems})}
+    flask_session[lens_rx.PROPOSAL_SESSION_KEY] = {
+        'product_id': str(lens['product_id']),
+        'eyes': proposal,
+        'form': lens_rx.proposal_form(proposal, selections),
+        'created_at': datetime.utcnow().isoformat(timespec='seconds'),
+    }
+    flask_session.modified = True
+    return reply, {'accepted': True, 'eyes': [ln['eye'] for ln in lines]}
+
+
+def _build_system_prompt(contact_name, is_india=False, user_message='', customer_id=None,
+                         extra_sections=()):
     """Build system prompt for DeepSeek."""
     catalog_section = _build_catalog_summary(is_india)
     knowledge = _load_knowledge()
@@ -505,6 +594,7 @@ CUSTOMER'S FACE MEASUREMENTS (from AI Face Measurement tool):
 
     # Build lens catalog (what we don't sell + power recommendations)
     contact_lens_section = _build_contact_lens_section(is_india)
+    contact_lens_section += ''.join(extra_sections)
 
     lens_avail_section = ''
     if lens_catalog:
@@ -1553,7 +1643,13 @@ def chat_message():
     is_india = 'in.optiwar.com' in (page_url or '') or 'optiwar.in' in (page_url or '')
 
     customer_id = session.get('customer_id')
-    system_prompt = _build_system_prompt(contact_name, is_india, content, customer_id=customer_id)
+    # The lens page the customer is on, if any: its catalogue facts go into the
+    # prompt; its validator judges any prescription the model reads back.
+    lens_row, lens_shape, lens_mins, lens_section = _lens_context(
+        page_url, is_india, customer_id, data.get('page_state'))
+    system_prompt = _build_system_prompt(
+        contact_name, is_india, content, customer_id=customer_id,
+        extra_sections=(lens_section,) if lens_section else ())
     history = _get_conversation_history(db, session_id)
     ai_reply, error = _call_deepseek(system_prompt, history, content, is_india=is_india,
                                      endpoint="chat_gateway.message", gate_key=session_id)
@@ -1609,6 +1705,22 @@ def chat_message():
             'reply': fail_msg,
             'status': 'failed'
         })
+
+    # A prescription the model read back is a proposal for the lens page, or
+    # nothing; it is never part of the text and never reaches the cart.
+    ai_reply, lens_proposal = _park_lens_proposal(ai_reply, lens_row,
+                                                  lens_shape, lens_mins)
+    if lens_proposal is not None:
+        acr.log_event(db, acr.EV_LENS_RX_PROPOSED, session_id=session_id,
+                      page_url=page_url, success=lens_proposal['accepted'],
+                      failure_code=(None if lens_proposal['accepted']
+                                    else lens_proposal['reasons'][0]),
+                      # eye names and refusal codes only; never a power
+                      payload={'product_id': str(lens_row['product_id']),
+                               'eyes': [e for e in (lens_proposal.get('eyes')
+                                                    or ()) if e in ('right',
+                                                                    'left')],
+                               'reasons': lens_proposal.get('reasons')})
 
     # Clean AI reply (handle action tags)
     ai_reply, actions, navigate_url = _clean_ai_reply(ai_reply)
@@ -1797,6 +1909,8 @@ def chat_message():
         resp['navigate_url'] = navigate_url
     if acr_action:
         resp['action'] = acr_action
+    if lens_proposal is not None:
+        resp['lens_rx_proposal'] = lens_proposal
     return jsonify(resp)
 
 

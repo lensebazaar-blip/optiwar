@@ -87,7 +87,7 @@ DEPLOY_SET = ("acr.py", "ai_api.py", "ai_client.py", "catalogue.py", "chat.py",
               "templates/lens_select.html", "templates/_lens_eye_cards.html",
               "templates/product_page.html", "templates/product_page_lens.html",
               "templates/_product_reviews.html", "templates/_picture.html",
-              "templates/base.html",
+              "templates/base.html", "static/js/chat-widget.js",
               "templates/all_frames.html", "templates/guide_frame_shapes.html")
 
 # Files that do not exist in production yet. Absence is otherwise a block, so

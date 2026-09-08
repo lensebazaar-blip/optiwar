@@ -252,6 +252,10 @@ EV_QC_EXPORT = "QC_EXPORT"
 # prescription values a customer typed.
 EV_LENS_ORDER_VALIDATED = "LENS_ORDER_VALIDATED"
 EV_LENS_ORDER_REFUSED = "LENS_ORDER_REFUSED"
+# The assistant read a prescription back from a chat on a lens page and the
+# page's validator accepted (success) or refused (failure_code) it as a
+# proposal for the customer to confirm. Product and eyes only, never values.
+EV_LENS_RX_PROPOSED = "LENS_RX_PROPOSED"
 
 # Journey stages (coarse, safe to store).
 STAGE_LANDING = "LANDING"

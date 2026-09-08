@@ -551,6 +551,9 @@ def cart_item(product, lines):
     Priced here from the catalogue row: boxes × box price, so a posted price
     cannot decide what is charged. Written in the shape checkout, the order
     tables and the confirmation email already read for a lens line.
+    ``source``/``reused_from`` are the provenance the add route established
+    (a saved prescription the customer owns, an AI proposal they confirmed);
+    the checkout writes them onto the snapshot.
     """
     price = box_price(product)
     per_eye = {eye: next((ln for ln in lines if ln["eye"] == eye), None)
@@ -568,6 +571,10 @@ def cart_item(product, lines):
         "lead_time_days": product.get("lead_time_days"),
         # Written at checkout by lens_rx.record(), in the order's transaction.
         "rx_id": None,
+        # Provenance of the values (lens_rx.SOURCE_*), set by the route that
+        # can vouch for it; None is MANUAL.
+        "rx_source": None,
+        "reused_from": None,
         "recommendations": product.get("product_name"),
     }
     total_boxes = 0

@@ -894,8 +894,8 @@ class CartWiring(unittest.TestCase):
         self.assertIn("_released_or_previewed_lens(", body)
         self.assertIn("lens_order.selections_from_item(line, {eye: wanted})", body)
         self.assertIn("waived=_minimums_waived(others)", body)
-        self.assertIn("_commit_cart(cursor, others + [lens_order.cart_item(lens, lines)])",
-                      body)
+        self.assertIn("rebuilt = lens_order.cart_item(lens, lines)", body)
+        self.assertIn("_commit_cart(cursor, others + [rebuilt])", body)
 
     def test_the_aggregate_quantity_route_refuses_a_lens_line(self):
         body = self.src.split("def update_quantity(")[1].split("\n@bp.route")[0]

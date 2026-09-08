@@ -920,8 +920,49 @@ def lens_removal_decision():
     return redirect(url_for('main.checkout_page'))
 
 
-def _lens_selection_context(lens, shape, errors=(), submitted=None):
-    """What the per-eye purchase block needs, wherever it is rendered."""
+def _lens_proposal(lens):
+    """The AI-proposed prescription parked for this lens, or ``None``.
+
+    Stored by the chat gateway after the validator accepted it; shown once on
+    the lens page as pre-filled cards the customer confirms with Add to Cart.
+    A proposal for another lens is not this page's business.
+    """
+    proposal = session.get(lens_rx.PROPOSAL_SESSION_KEY) or {}
+    if str(proposal.get('product_id')) != str(lens.get('product_id')):
+        return None
+    return proposal
+
+
+def _saved_prescriptions(cursor):
+    """The signed-in customer's own saved contact-lens prescriptions."""
+    customer_id = session.get('user_id')
+    if not customer_id:
+        return []
+    entries = lens_rx.saved_for_customer(cursor, customer_id)
+    for entry in entries:
+        entry['summary'] = lens_rx.saved_summary(entry)
+    return entries
+
+
+def _lens_selection_context(lens, shape, errors=(), submitted=None,
+                            cursor=None):
+    """What the per-eye purchase block needs, wherever it is rendered.
+
+    With nothing submitted, the cards are pre-filled from — in this order —
+    a saved prescription the customer asked for (``?saved=<id>``, only if it
+    is theirs) or an AI proposal parked for this lens. Both pre-fill only:
+    the values are on the page to be looked at, changed and confirmed.
+    """
+    proposal = _lens_proposal(lens)
+    saved = None
+    if not submitted and cursor is not None and request.args.get('saved'):
+        saved = lens_rx.saved_entry(cursor, session.get('user_id'),
+                                    request.args.get('saved'))
+        if saved:
+            submitted = lens_rx.saved_form(saved)
+            proposal = None
+    if not submitted and proposal:
+        submitted = proposal.get('form') or {}
     return dict(
         lens=lens,
         options=shape.options(),
@@ -930,13 +971,40 @@ def _lens_selection_context(lens, shape, errors=(), submitted=None):
         box_price=lens_order.box_price(lens),
         errors=list(errors), submitted=submitted or {},
         eyes=lens_order.EYES,
-        max_boxes=lens_order.MAX_BOXES_PER_EYE)
+        max_boxes=lens_order.MAX_BOXES_PER_EYE,
+        saved_rx=_saved_prescriptions(cursor) if cursor is not None else [],
+        signed_in=bool(session.get('user_id')),
+        saved_loaded=saved,
+        ai_proposal=proposal)
 
 
-def _lens_selection(lens, shape, errors=(), submitted=None):
+def _lens_provenance(cursor, lens, form, selections):
+    """``(source, reused_from)`` for the line being added — as far as the
+    server can vouch for it.
+
+    A saved prescription counts only when the id posted is one the signed-in
+    customer owns and the values being added are still its values; an AI
+    proposal only when one for this very lens is parked in the session and
+    the values are the ones it proposed. Anything else is what it always
+    was: values the customer typed, ``MANUAL``.
+    """
+    reused = form.get('reused_from')
+    if reused:
+        entry = lens_rx.saved_entry(cursor, session.get('user_id'), reused)
+        if entry and lens_rx.selections_match_saved(entry, selections):
+            return lens_rx.SOURCE_SAVED_REUSED, entry['cl_rx_id']
+    proposal = _lens_proposal(lens)
+    if form.get('rx_source') == lens_rx.SOURCE_AI_ASSISTED_CONFIRMED \
+            and proposal and lens_rx.selections_match_saved(
+                {'eyes': proposal.get('eyes') or {}}, selections):
+        return lens_rx.SOURCE_AI_ASSISTED_CONFIRMED, None
+    return lens_rx.SOURCE_MANUAL, None
+
+
+def _lens_selection(lens, shape, errors=(), submitted=None, cursor=None):
     return make_response(render_template(
         'lens_select.html',
-        **_lens_selection_context(lens, shape, errors, submitted)))
+        **_lens_selection_context(lens, shape, errors, submitted, cursor)))
 
 
 @bp.route('/contact-lenses/select', methods=['GET', 'POST'])
@@ -949,7 +1017,8 @@ def lens_select():
         cursor, request.values.get('product_id'))
     if not lens:
         return "Product not found", 404
-    response = _lens_selection(lens, _lens_choices(cursor, lens))
+    response = _lens_selection(lens, _lens_choices(cursor, lens),
+                               cursor=cursor)
     return _noindex(response) if previewing else response
 
 
@@ -983,9 +1052,15 @@ def lens_add_to_cart():
                       payload={'product_id': str(lens['product_id']),
                                'reasons': sorted({c for c, _ in problems})})
         return _lens_selection(lens, shape, [m for _, m in problems],
-                               request.form)
+                               request.form, cursor=cursor)
+    source, reused_from = _lens_provenance(cursor, lens, request.form,
+                                           selections)
     item = lens_order.cart_item(lens, lines)
+    item['rx_source'], item['reused_from'] = source, reused_from
     _persist_cart(others + [item])
+    if source == lens_rx.SOURCE_AI_ASSISTED_CONFIRMED:
+        session.pop(lens_rx.PROPOSAL_SESSION_KEY, None)
+        session.modified = True
     acr.log_event(db, acr.EV_LENS_ORDER_VALIDATED, success=True,
                   payload={'product_id': item['product_id'],
                            'boxes': item['order_quantity'],
@@ -1062,7 +1137,11 @@ def lens_boxes(product_id, eye, action):
                                'from': 'cart'})
         flash('Boxes not changed. ' + ' '.join(m for _, m in problems))
         return redirect(url_for('main.checkout_page'))
-    _commit_cart(cursor, others + [lens_order.cart_item(lens, lines)])
+    rebuilt = lens_order.cart_item(lens, lines)
+    # Only the boxes changed; the values, and where they came from, did not.
+    rebuilt['rx_source'] = line.get('rx_source')
+    rebuilt['reused_from'] = line.get('reused_from')
+    _commit_cart(cursor, others + [rebuilt])
     return redirect(url_for('main.checkout_page'))
 
 
@@ -1660,7 +1739,7 @@ def product_page(category, product_slug):
         # The per-eye purchase block lives on the page itself, so the page
         # carries the same stated choices the selection route validates.
         lens_selection = _lens_selection_context(
-            lens, _lens_choices(cursor, lens))
+            lens, _lens_choices(cursor, lens), cursor=cursor)
     else:
         lens_selection = {}
 
