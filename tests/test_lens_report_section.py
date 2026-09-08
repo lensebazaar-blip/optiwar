@@ -179,6 +179,24 @@ class TestRendering(unittest.TestCase):
         self.assertIn("ON_ORDER (live) 1", out)
         self.assertIn("accepted 3", out)
 
+    def test_prescriptions_stored_are_counted_never_read(self):
+        self.s._CACHE.append(({
+            "rows": [_released()], "gate": object(), "live": [_released()],
+            "held": [], "reasons": {}, "types": {"SPHERICAL": 1},
+            "on_order": [], "variants_live": 120, "in_exposed": [],
+            "refusals": {}, "accepted": 2, "rx_stored": 2, "rx_total": 40,
+            "rx_customers": 31, "rx_unsnapshotted": 1,
+            "rx_past_retention": 0}, []))
+        out = self.s.build()
+        self.assertIn("Prescriptions stored (last 24h): 2 | total 40 across 31 "
+                      "customers | lens orders WITHOUT a snapshot: 1", out)
+        self.assertIn("past 24-month retention: 0", out)
+        self.assertTrue(any("no prescription snapshot" in f.message
+                            for f in self.s.findings()))
+        src = open(os.path.join(_ROOT, "reports", "lens_report_section.py")).read()
+        for column in ("right_sph", "left_sph", "right_axis", "right_cyl"):
+            self.assertNotIn(column, src)
+
     def test_no_prescription_values_are_selected(self):
         for column in ("sph", "cyl", "axis", "add_power"):
             self.assertNotIn(column, self.s.LENS_ROWS_SQL)

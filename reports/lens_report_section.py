@@ -230,6 +230,25 @@ def _collect():
         "SELECT COUNT(*) FROM ai_events WHERE event_type='LENS_ORDER_VALIDATED'"
         " AND created_at >= %s" % SINCE)))
 
+    # Customer prescriptions held as data (contact_lens_prescriptions): counts
+    # only, so a lens order that reached Ops without its powers would show up
+    # as a gap between accepted orders and snapshots. Values are never read.
+    safe("rx_stored", lambda: to_int(scalar(
+        "SELECT COUNT(*) FROM contact_lens_prescriptions "
+        "WHERE created_at >= %s" % SINCE)))
+    safe("rx_total", lambda: to_int(scalar(
+        "SELECT COUNT(*) FROM contact_lens_prescriptions")))
+    safe("rx_customers", lambda: to_int(scalar(
+        "SELECT COUNT(DISTINCT customer_id) FROM contact_lens_prescriptions "
+        "WHERE customer_id IS NOT NULL")))
+    safe("rx_unsnapshotted", lambda: to_int(scalar(
+        "SELECT COUNT(*) FROM orders o JOIN products p ON p.product_id=o.product_id "
+        "WHERE p.product_vertical='CONTACT_LENS' AND o.rx_id IS NULL "
+        "AND o.date_created >= %s" % SINCE)))
+    safe("rx_past_retention", lambda: to_int(scalar(
+        "SELECT COUNT(*) FROM contact_lens_prescriptions "
+        "WHERE retain_until < CURDATE()")))
+
     return m, errs
 
 
@@ -265,6 +284,10 @@ def status(m):
         return AMBER, ("%d lens(es) loaded, none released"
                        % len(m["rows"]))
     return GREEN, None
+
+
+def _na(v):
+    return "n/a" if v is None else v
 
 
 def _brand_tally(rows):
@@ -338,6 +361,16 @@ def build():
         add("      %-34s %d" % (code, count))
 
     add("")
+    add("  Prescriptions stored (last %dh): %s | total %s across %s customers"
+        "%s | past 24-month retention: %s"
+        % (WINDOW_HOURS, _na(m.get("rx_stored")), _na(m.get("rx_total")),
+           _na(m.get("rx_customers")),
+           "" if not m.get("rx_unsnapshotted")
+           else " | lens orders WITHOUT a snapshot: %d   [RED]"
+           % m["rx_unsnapshotted"],
+           _na(m.get("rx_past_retention"))))
+
+    add("")
     # The invariant, stated even when it holds: a line that only appears on
     # failure is a line nobody notices has stopped being checked.
     add("  INVARIANT  contact lenses exposed on optiwar.in: %s%s"
@@ -363,6 +396,11 @@ def findings():
                         "contact-lens section unavailable: %s" % e, "lens")]
 
     out = []
+    if m.get("rx_unsnapshotted"):
+        out.append(Finding(
+            WARNING, "contact_lens",
+            "%d contact-lens order line(s) in the window carry no prescription "
+            "snapshot (orders.rx_id NULL)" % m["rx_unsnapshotted"], "lens"))
     exposed = m.get("in_exposed")
     if exposed:
         out.append(Finding(
