@@ -270,6 +270,21 @@ class SavedRxApplyEngine(unittest.TestCase):
         self.assertIn("if (mismatch.length) {", self.apply)
         self.assertIn("if (!same(actual[name], wanted)) { mismatch.push(eye + '_' + name); }",
                       self.apply)
+        # A stated parameter the lens has no field for is a mismatch, not a
+        # value silently dropped on the way to the cards.
+        self.assertIn("if (!(name in actual)) { mismatch.push(eye + '_' + name); return; }",
+                      self.apply)
+
+    def test_a_manual_change_after_use_ends_the_applied_prescription(self):
+        # Changing colour / base curve / sphere by hand clears `want`, so the
+        # dependency chain keeps the customer's selection instead of
+        # restoring the saved one.
+        self.assertIn("return function () { want = {}; refresh(); };", self.cards)
+        for handler in ("color.addEventListener('change', manual(refreshBc))",
+                        "bc.addEventListener('change', manual(refreshSph))",
+                        "sph.addEventListener('change', manual(refreshCyl))",
+                        "cyl.addEventListener('change', manual(refreshAxis))"):
+            self.assertIn(handler, self.cards)
         # A failed apply leaves no reused_from claim on the form.
         self.assertEqual(self.apply.count("if (reused) { reused.value = ''; }"), 2)
         self.assertLess(self.apply.index("if (reused) { reused.value = ''; }"),

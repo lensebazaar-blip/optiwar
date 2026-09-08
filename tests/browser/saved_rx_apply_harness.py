@@ -238,6 +238,58 @@ async def incompatible_case(browser, html_path, label):
     return failures
 
 
+async def unsupported_field_case(browser, html_path, label):
+    """A saved prescription stating a parameter this lens has no field for
+    (a cylinder on a spherical lens) is not applied and not called loaded."""
+    ctx = await browser.new_context()
+    page = await ctx.new_page()
+    beacons = []
+
+    async def route(r):
+        if "/api/chat/dev-defect" in r.request.url:
+            beacons.append(json.loads(r.request.post_data or "{}"))
+            await r.fulfill(status=204, body="")
+        else:
+            await r.continue_()
+    await page.route("**/*", route)
+    await page.goto(html_path)
+    await page.click('[data-help="saved"]')
+    await page.click('[data-role="use-saved"][data-cl-rx-id="98"]')
+    actual = await page.evaluate(READ)
+    failures = []
+    if not actual["failed"] or "could not be applied" not in (actual["note"] or ""):
+        failures.append("%s: note=%r" % (label, actual["note"]))
+    if actual["reused"] != "":
+        failures.append("%s: reused_from kept %r" % (label, actual["reused"]))
+    where = " ".join(b.get("where", "") for b in beacons
+                     if b.get("code") == "RX_SAVED_STATE_MISMATCH")
+    if "right_cyl" not in where:
+        failures.append("%s: mismatch not attributed to right_cyl: %r" % (label, beacons))
+    await ctx.close()
+    return failures
+
+
+async def manual_edit_case(browser, html_path, label):
+    """After Use, a power the customer changes by hand survives a later
+    base-curve change: the dependency chain must not restore the saved one."""
+    ctx = await browser.new_context()
+    page = await ctx.new_page()
+    await page.goto(html_path)
+    await page.click('[data-help="saved"]')
+    await page.click('[data-role="use-saved"][data-cl-rx-id="6"]')
+    a = await page.evaluate(READ)
+    failures = []
+    if a["right"]["sph"] != "-0.50" or a["right"]["cyl"] != "-0.75":
+        failures.append("%s: Use did not land %r" % (label, a["right"]))
+    await page.select_option('[name="right_sph"]', "-1.50")
+    await page.select_option('[name="right_bc"]', "8.90")
+    a = await page.evaluate(READ)
+    if a["right"]["sph"] != "-1.50" or "PWR -1.50" not in (a["right"]["summary"] or ""):
+        failures.append("%s: saved power came back over the manual one: %r" % (label, a["right"]))
+    await ctx.close()
+    return failures
+
+
 async def ai_case(browser, html_path, label):
     """Ask AI regression: the proposal the server rendered reaches the cards
     through the same engine, stays editable, and is never called "saved"."""
@@ -279,6 +331,7 @@ async def main():
     toric_other = saved_entry(7, {"sph": "-0.50", "cyl": "-1.25", "axis": "90", "bc": "8.60"}, None)
     bad = saved_entry(99, {"sph": "-9.75", "bc": "8.30"}, None)
     bad["eyes"]["right"]["sph"] = "-99.00"
+    cyl_on_sphere = saved_entry(98, {"sph": "-0.50", "cyl": "-0.75", "bc": "8.30"}, None)
 
     tmp = tempfile.mkdtemp()
     # Served over http so the defect beacon is a same-origin request the
@@ -292,7 +345,7 @@ async def main():
     base = "http://127.0.0.1:%d/" % server.server_address[1]
     rules = base + "rules.html"
     with open(os.path.join(tmp, "rules.html"), "w") as fh:
-        fh.write(render(RULES_OPTIONS, RULES_FIXED, [both, right, left, other, bad]))
+        fh.write(render(RULES_OPTIONS, RULES_FIXED, [both, right, left, other, bad, cyl_on_sphere]))
     matrix = base + "matrix.html"
     with open(os.path.join(tmp, "matrix.html"), "w") as fh:
         fh.write(render(MATRIX_OPTIONS, {"diameter": "14.50"}, [toric, toric_other]))
@@ -329,6 +382,12 @@ async def main():
         f = await incompatible_case(browser, rules, "incompatible")
         failures += f
         print("incompatible saved value -> no success, defect logged: %s" % ("PASS" if not f else "FAIL"))
+        f = await unsupported_field_case(browser, rules, "unsupported field")
+        failures += f
+        print("saved cylinder on a spherical lens -> no success, right_cyl named: %s" % ("PASS" if not f else "FAIL"))
+        f = await manual_edit_case(browser, matrix, "manual edit after Use")
+        failures += f
+        print("manual power survives a base-curve change after Use: %s" % ("PASS" if not f else "FAIL"))
         f = await ai_case(browser, ai, "ask-ai proposal")
         failures += f
         print("Ask AI proposal -> cards, editable, no saved claim: %s" % ("PASS" if not f else "FAIL"))
