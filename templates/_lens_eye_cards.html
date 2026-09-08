@@ -54,8 +54,9 @@
 .ow-rx-saved { list-style:none; margin:0 0 12px; padding:0; display:grid; gap:6px; }
 .ow-rx-saved li { display:flex; align-items:center; justify-content:space-between; gap:10px; border:1px solid #e5e7eb; border-radius:10px; padding:8px 12px; font-size:13px; }
 .ow-rx-saved li small { display:block; color:#6b7280; font-size:11px; }
-.ow-rx-saved a { flex-shrink:0; font-weight:700; color:#4f46e5; text-decoration:none; padding:6px 10px; border:1px solid #c7d2fe; border-radius:8px; }
+.ow-rx-saved .ow-rx-use { flex-shrink:0; font:inherit; font-weight:700; color:#4f46e5; background:#fff; cursor:pointer; padding:6px 10px; border:1px solid #c7d2fe; border-radius:8px; }
 .ow-rx-loaded { background:#ecfdf5; color:#065f46; border-radius:8px; padding:8px 12px; font-size:13px; margin:0 0 12px; }
+.ow-rx-loaded.is-failed { background:#fef2f2; color:#991b1b; }
 .ow-rx-min { font-size:13px; color:#374151; background:#f3f4f6; border-radius:8px; padding:8px 12px; }
 .ow-rx-min b { color:#111; }
 .ow-rx-min.is-waived { background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0; }
@@ -147,8 +148,11 @@
   <p class="ow-rx-note" data-role="help-note" hidden></p>
 
   {# Saved Rx: the customer's own contact-lens prescriptions, listed by the
-     server from their signed-in account; "Use" reloads the page with the
-     cards pre-filled. Values are reviewed and confirmed here like typed ones. #}
+     server from their signed-in account. "Use" applies one to the cards on
+     this page through the same engine every entry method uses, and says so
+     only after reading the cards back. Values are reviewed and confirmed
+     here like typed ones. (A link to ?saved= was a fragment-only navigation
+     once the page was already at that URL: nothing reloaded, nothing applied.) #}
   <div data-role="saved-panel" hidden>
   {% if not signed_in %}
     <p class="ow-rx-note">Sign in to reuse a prescription from an earlier contact-lens order.
@@ -159,19 +163,24 @@
     <ul class="ow-rx-saved">
     {% for entry in saved_rx %}
       <li><div>{{ entry.summary }}<small>from your order of {{ entry.created_at }}</small></div>
-        <a href="?pid={{ lens.product_id }}&amp;saved={{ entry.cl_rx_id }}#owLensForm">Use</a></li>
+        <button type="button" class="ow-rx-use" data-role="use-saved"
+                data-cl-rx-id="{{ entry.cl_rx_id }}" data-summary="{{ entry.summary }}"
+                data-rx='{{ entry.eyes|tojson }}'>Use</button></li>
     {% endfor %}
     </ul>
     <p class="ow-rx-note">Check the values against your current prescription before ordering.</p>
   {% endif %}
   </div>
 
+  <input type="hidden" name="reused_from" value="{{ saved_loaded.cl_rx_id if saved_loaded else '' }}" data-role="reused-from">
+  {# The saved note is confirmed by the browser: it is shown only once the
+     cards have been read back and hold the saved values. #}
+  <p class="ow-rx-loaded" data-role="loaded-note" hidden></p>
   {% if saved_loaded %}
-  <input type="hidden" name="reused_from" value="{{ saved_loaded.cl_rx_id }}">
-  <p class="ow-rx-loaded" data-role="loaded-note">Loaded your saved prescription ({{ saved_summary }}). Choose the boxes, check every value, then add to cart.</p>
+  <span hidden data-role="saved-bootstrap" data-cl-rx-id="{{ saved_loaded.cl_rx_id }}" data-summary="{{ saved_summary }}"></span>
   {% elif ai_proposal %}
   <input type="hidden" name="rx_source" value="AI_ASSISTED_CONFIRMED">
-  <p class="ow-rx-loaded" data-role="loaded-note">Optiwar AI read these values from your chat. They are a suggestion: check each one against your prescription and change anything that is wrong before you add to cart.</p>
+  <p class="ow-rx-loaded" data-role="ai-note">Optiwar AI read these values from your chat. They are a suggestion: check each one against your prescription and change anything that is wrong before you add to cart.</p>
   {% endif %}
 
   <div class="ow-rx-grid">
@@ -286,7 +295,8 @@
   // the console: code and a short place, never a prescription value.
   function defect(code, where) {
     try {
-      var body = JSON.stringify({code: code, where: String(where || '').slice(0, 120),
+      var body = JSON.stringify({code: code,
+                                 where: ('product_id={{ lens.product_id }} ' + String(where || '')).slice(0, 120),
                                  page: window.location.pathname});
       if (navigator.sendBeacon) {
         navigator.sendBeacon('/api/chat/dev-defect', new Blob([body], {type: 'application/json'}));
@@ -346,7 +356,7 @@
       var option = document.createElement('option');
       option.value = entry.value;
       option.textContent = entry.label;
-      if (entry.value === keep || (!keep && entry.value === previous)) {
+      if (entry.value === keep || (keep === undefined && entry.value === previous)) {
         option.selected = true;
       }
       select.appendChild(option);
@@ -355,6 +365,12 @@
     var wrap = select.closest('label');
     if (wrap) { wrap.hidden = entries.length < 2; }
   }
+
+  var PARAMS = ['color', 'bc', 'sph', 'cyl', 'axis', 'add'];
+  // One controller per eye card. `want` is the prescription the card is being
+  // set to (typed, saved, proposed): the selectors are rebuilt from it in
+  // dependency order, and read back from the DOM, never from `want`.
+  var cards = {};
 
   function wire(fieldset) {
     var eye = fieldset.getAttribute('data-eye');
@@ -365,53 +381,81 @@
     var axis = role(fieldset, 'axis');
     var add = role(fieldset, 'add');
     var boxes = role(fieldset, 'boxes');
+    var want = {};
 
     function branch() {
       var code = color ? color.value : '';
       var perColor = matrix[code] || {};
       return perColor[bc ? bc.value : ''] || perColor[''] || {};
     }
-    // The values the server pre-filled (typed, saved or proposed) are put on
-    // the selectors explicitly: a browser restoring the form's earlier state
-    // on reload must not win over the page it was given.
-    function applySubmitted() {
-      ['color', 'bc', 'sph', 'cyl', 'axis', 'add'].forEach(function (name) {
+    // The wanted values are put on the selectors explicitly: a browser
+    // restoring the form's earlier state must not win over them.
+    function applyWanted() {
+      PARAMS.forEach(function (name) {
         var field = role(fieldset, name);
-        var value = submitted[eye + '_' + name];
+        var value = want[name];
         if (!field || field.tagName !== 'SELECT' || value === undefined) { return; }
         var has = Array.prototype.some.call(field.options, function (o) {
           return o.value === value;
         });
         if (has) { field.value = value; }
-        else if (value) { defect('LENS_SAVED_VALUE_NOT_OFFERED', eye + '_' + name); }
       });
     }
     function refreshBc() {
       if (!byRules) {
-        fill(bc, options.base_curves || [], submitted[eye + '_bc'], 'Select');
+        fill(bc, options.base_curves || [], want.bc, 'Select');
         refreshSph();
       } else {
-        applySubmitted();
+        applyWanted();
         update();
       }
     }
     function refreshSph() {
-      fill(sph, Object.keys(branch()), submitted[eye + '_sph'], 'Select');
+      fill(sph, Object.keys(branch()), want.sph, 'Select');
       refreshCyl();
     }
     function refreshCyl() {
       var node = branch()[sph.value] || {};
       fill(cyl, Object.keys(node).filter(function (k) { return k !== ''; }),
-           submitted[eye + '_cyl'], 'None');
+           want.cyl, 'None');
       refreshAxis();
     }
     function refreshAxis() {
       var node = (branch()[sph.value] || {})[cyl.value] ||
                  (branch()[sph.value] || {})[''] || {axes: [], adds: []};
-      fill(axis, node.axes || [], submitted[eye + '_axis'], 'Not applicable');
-      fill(add, node.adds || [], submitted[eye + '_add'], 'Not applicable');
+      fill(axis, node.axes || [], want.axis, 'Not applicable');
+      fill(add, node.adds || [], want.add, 'Not applicable');
       update();
     }
+    cards[eye] = {
+      // Set the card to `values` ({sph, cyl, ...}; a missing key keeps the
+      // selector's current value, an empty one clears it).
+      // Set the card to `values` ({sph, cyl, ...}: a complete prescription
+      // for the eye, a key it lacks clears that selector); null keeps what
+      // the card shows.
+      set: function (values) {
+        want = {};
+        if (values) {
+          PARAMS.forEach(function (name) {
+            var v = values[name];
+            want[name] = (v === undefined || v === null) ? '' : String(v);
+          });
+        }
+        if (color && color.tagName === 'SELECT' && want.color !== undefined) {
+          color.value = want.color;
+        }
+        refreshBc();
+      },
+      // What the card holds now, read from the fields themselves.
+      read: function () {
+        var out = {};
+        PARAMS.forEach(function (name) {
+          var field = role(fieldset, name);
+          if (field) { out[name] = field.value; }
+        });
+        return out;
+      }
+    };
 
     if (!byRules) {
       if (color) { color.addEventListener('change', refreshBc); }
@@ -437,7 +481,6 @@
       boxes.value = Math.min(maxBoxes, Number(boxes.value || 0) + 1);
       update();
     });
-    refreshBc();
   }
 
   function warn(text) {
@@ -557,6 +600,90 @@
     update();
   }
 
+  function same(a, b) {
+    var x = Number(a), y = Number(b);
+    if (a !== '' && b !== '' && isFinite(x) && isFinite(y)) { return x === y; }
+    return String(a) === String(b);
+  }
+  function loadedNote(text, ok) {
+    var note = role(form, 'loaded-note');
+    note.textContent = text;
+    note.hidden = !text;
+    note.classList.toggle('is-failed', !ok);
+  }
+  // The one way a prescription reaches the cards, whichever door it came in
+  // by (typed by the server after a refused submit, saved, proposed by the
+  // assistant, later an upload). rx = {right: {sph, ...} | null, left: ...}.
+  // Eyes the prescription has are ticked, the others unticked; every stated
+  // value is set through the card's own dependency chain; then the cards are
+  // read back and compared, and only a match is reported as loaded.
+  function applyPrescription(rx, source, meta) {
+    meta = meta || {};
+    var eyes = ['right', 'left'].filter(function (eye) {
+      return rx && rx[eye] && Object.keys(rx[eye]).length;
+    });
+    var reused = role(form, 'reused-from');
+    if (!eyes.length) {
+      if (source === 'saved') {
+        defect('RX_SAVED_INCOMPATIBLE', 'no eye values');
+        loadedNote('Saved prescription could not be applied. Please try again.', false);
+        if (reused) { reused.value = ''; }
+      }
+      return false;
+    }
+    ['right', 'left'].forEach(function (eye) {
+      includeBox(eye).checked = eyes.indexOf(eye) >= 0;
+    });
+    applyIncluded();
+    eyes.forEach(function (eye) { cards[eye].set(rx[eye]); });
+    warn('');
+    update();
+    // Postcondition: the purchase form now says what was asked of it.
+    var mismatch = [];
+    ['right', 'left'].forEach(function (eye) {
+      if (included(eye) !== (eyes.indexOf(eye) >= 0)) { mismatch.push(eye + '_include'); }
+    });
+    eyes.forEach(function (eye) {
+      var actual = cards[eye].read();
+      PARAMS.forEach(function (name) {
+        var wanted = rx[eye][name];
+        if (wanted === undefined || wanted === null || wanted === '') { return; }
+        if (!(name in actual)) { return; }
+        if (!same(actual[name], wanted)) { mismatch.push(eye + '_' + name); }
+      });
+    });
+    if (source !== 'saved') { return mismatch.length === 0; }
+    if (mismatch.length) {
+      defect('RX_SAVED_STATE_MISMATCH', 'post_apply_verification ' + mismatch.join(' '));
+      loadedNote('Saved prescription could not be applied. Please try again.', false);
+      if (reused) { reused.value = ''; }
+      return false;
+    }
+    if (reused) { reused.value = meta.clRxId || ''; }
+    var rxSource = form.querySelector('[name="rx_source"]');
+    if (rxSource) { rxSource.value = ''; }
+    loadedNote('Loaded your saved prescription (' + (meta.summary || '') +
+               '). Choose the boxes, check every value, then add to cart.', true);
+    return true;
+  }
+  window.owApplyPrescription = applyPrescription;
+
+  // The prescription the server rendered into the cards, as an rx object.
+  function submittedRx() {
+    var rx = {right: null, left: null};
+    ['right', 'left'].forEach(function (eye) {
+      var on = !((eye + '_boxes') in submitted) ||
+               Number(submitted[eye + '_boxes'] || 0) > 0;
+      if (!on) { return; }
+      rx[eye] = {};
+      PARAMS.forEach(function (name) {
+        var v = submitted[eye + '_' + name];
+        if (v !== undefined && v !== null) { rx[eye][name] = v; }
+      });
+    });
+    return rx;
+  }
+
   form.addEventListener('submit', function (event) {
     var blocked = [];
     ['right', 'left'].forEach(function (eye) {
@@ -574,6 +701,26 @@
 
   Array.prototype.forEach.call(
     document.querySelectorAll('.ow-rx-eye'), wire);
+  Array.prototype.forEach.call(
+    form.querySelectorAll('[data-role="use-saved"]'), function (button) {
+      button.addEventListener('click', function () {
+        var rx;
+        try { rx = JSON.parse(button.getAttribute('data-rx') || 'null'); }
+        catch (e) { rx = null; }
+        if (!rx) {
+          defect('RX_SAVED_FETCH_FAILED', 'unreadable entry');
+          loadedNote('Saved prescription could not be applied. Please try again.', false);
+          return;
+        }
+        var ok = applyPrescription(rx, 'saved', {
+          clRxId: button.getAttribute('data-cl-rx-id'),
+          summary: button.getAttribute('data-summary')
+        });
+        if (!ok) { defect('RX_SAVED_APPLY_FAILED', 'use'); }
+        var note = role(form, 'loaded-note');
+        if (note && note.scrollIntoView) { note.scrollIntoView({block: 'nearest'}); }
+      });
+    });
   ['right', 'left'].forEach(function (eye) {
     includeBox(eye).addEventListener('change', function (event) {
       // An order is for at least one eye: the last ticked box stays ticked.
@@ -637,7 +784,21 @@
       });
     });
 
-  applyIncluded();
+  // Initial state goes through the same engine as every later change. A
+  // ?saved= bootstrap is confirmed like a click on Use; a typed or proposed
+  // pre-fill is set the same way and left to the customer to check.
+  var bootstrap = role(form, 'saved-bootstrap');
+  if (bootstrap) {
+    applyPrescription(submittedRx(), 'saved', {
+      clRxId: bootstrap.getAttribute('data-cl-rx-id'),
+      summary: bootstrap.getAttribute('data-summary')
+    });
+  } else if (Object.keys(submitted).length) {
+    applyPrescription(submittedRx(), role(form, 'ai-note') ? 'ai' : 'manual');
+  } else {
+    ['right', 'left'].forEach(function (eye) { cards[eye].set(null); });
+    applyIncluded();
+  }
 })();
 </script>
 {% endif %}

@@ -42,7 +42,10 @@ def _read(name):
 class SavedRxReload(unittest.TestCase):
     def test_the_loaded_notice_names_the_prescription(self):
         cards = _read("templates/_lens_eye_cards.html")
-        self.assertIn("Loaded your saved prescription ({{ saved_summary }})",
+        # The summary travels to the browser, which says "Loaded" only after
+        # reading the cards back (see test_saved_rx_apply_engine).
+        self.assertIn('data-summary="{{ saved_summary }}"', cards)
+        self.assertIn("'Loaded your saved prescription (' + (meta.summary || '')",
                       cards)
         self.assertNotIn("saved_loaded.summary", cards)
         models = _read("models.py")
@@ -52,11 +55,11 @@ class SavedRxReload(unittest.TestCase):
     def test_the_server_prefill_wins_over_the_browser_form_memory(self):
         cards = _read("templates/_lens_eye_cards.html")
         self.assertIn('id="owLensForm" class="ow-rx" autocomplete="off"', cards)
-        self.assertIn("function applySubmitted()", cards)
+        self.assertIn("function applyWanted()", cards)
         # RULES-mode lenses (Precision1) render their selectors server-side
         # and never went through fill(); the values are applied explicitly.
         rules_path = cards[cards.index("function refreshBc()"):][:400]
-        self.assertIn("applySubmitted();\n        update();", rules_path)
+        self.assertIn("applyWanted();\n        update();", rules_path)
 
     def test_ask_ai_opens_the_text_chat_itself(self):
         cards = _read("templates/_lens_eye_cards.html")
@@ -184,6 +187,113 @@ class ReportSection(unittest.TestCase):
         self.assertEqual(groups, {})
         self.assertIn("STATUS: GREEN", section.build(groups))
         self.assertEqual(section.findings(groups), [])
+
+
+class SavedRxApplyEngine(unittest.TestCase):
+    """The production defect: "Loaded your saved prescription (R -0.50 ·
+    L -0.50)" over cards still holding -1.50 / -1.50. The saved values were
+    fetched and the note rendered by the server, but "Use" was a link to
+    ?saved=<id>#owLensForm: with the same id already in the URL the browser
+    performs a fragment-only navigation, nothing is reloaded, and the cards
+    keep whatever the customer had selected. One apply function now owns
+    every entry method and says "Loaded" only after reading the cards back.
+
+    The interactive proof (20 Use cycles over an active prescription, edit,
+    reset, desktop + iPhone, both / right / left eyes) is
+    tests/browser/saved_rx_apply_harness.py; these tests pin the wiring."""
+
+    def setUp(self):
+        self.cards = _read("templates/_lens_eye_cards.html")
+        self.js = self.cards[self.cards.index("function applyPrescription("):]
+        self.apply = self.js[:self.js.index("window.owApplyPrescription")]
+
+    def test_saved_rx_replaces_existing_active_prescription(self):
+        # Use is an in-page action on the current DOM, never a navigation the
+        # browser can satisfy from the fragment.
+        self.assertNotIn("saved={{ entry.cl_rx_id }}", self.cards)
+        self.assertNotIn("#owLensForm", self.cards)
+        self.assertIn('<button type="button" class="ow-rx-use" '
+                      'data-role="use-saved"', self.cards)
+        self.assertIn("data-rx='{{ entry.eyes|tojson }}'", self.cards)
+        # The engine sets the eye inclusion, every parameter, and recomputes
+        # the summary, in that order, whatever was there before.
+        for step in ("includeBox(eye).checked = eyes.indexOf(eye) >= 0",
+                     "applyIncluded();",
+                     "eyes.forEach(function (eye) { cards[eye].set(rx[eye]); });",
+                     "update();"):
+            self.assertIn(step, self.apply)
+        self.assertLess(self.apply.index("applyIncluded();"),
+                        self.apply.index("cards[eye].set(rx[eye])"))
+        self.assertLess(self.apply.index("cards[eye].set(rx[eye])"),
+                        self.apply.index("update();"))
+        # A card's set() replaces the whole wanted state: a parameter the
+        # saved prescription does not state is cleared, not kept from before.
+        card = self.cards[self.cards.index("set: function (values)"):][:600]
+        self.assertIn("want = {};", card)
+        self.assertIn("want[name] = (v === undefined || v === null) ? '' : String(v);",
+                      card)
+        # fill() must not let a stale previous selection win over an explicit
+        # (possibly empty) wanted value.
+        self.assertIn("(keep === undefined && entry.value === previous)",
+                      self.cards)
+        self.assertNotIn("(!keep && entry.value === previous)", self.cards)
+
+    def test_saved_rx_can_be_reapplied_multiple_times(self):
+        # Every entry method — the ?saved= bootstrap, the AI proposal, the
+        # manual form and each Use click — is the same function, so the
+        # second Use cannot differ from the first.
+        self.assertEqual(self.cards.count("function applyPrescription("), 1)
+        self.assertIn("applyPrescription(submittedRx(), 'saved', {", self.cards)
+        self.assertIn("role(form, 'ai-note') ? 'ai' : 'manual'", self.cards)
+        use = self.cards[self.cards.index('[data-role="use-saved"]\'), function (button)'):]
+        self.assertIn("var ok = applyPrescription(rx, 'saved', {", use[:800])
+        # Nothing is cached across clicks: the values come off the button's
+        # own attribute each time and the state is read from the live DOM.
+        self.assertIn("JSON.parse(button.getAttribute('data-rx')", use[:800])
+        self.assertNotIn("pageshow", self.cards)
+        state = self.cards[self.cards.index("window.owLensPageState = function"):][:200]
+        self.assertIn("return {right: included('right'), left: included('left')", state)
+
+    def test_saved_rx_success_requires_state_readback_match(self):
+        # The note is hidden server-side; only the browser shows it, and only
+        # after the read-back agrees with the requested prescription.
+        self.assertIn('<p class="ow-rx-loaded" data-role="loaded-note" hidden></p>',
+                      self.cards)
+        self.assertNotIn("Loaded your saved prescription ({{", self.cards)
+        readback = self.apply.index("var actual = cards[eye].read();")
+        success = self.apply.index("'Loaded your saved prescription ('")
+        failure = self.apply.index("if (mismatch.length) {")
+        self.assertIn("'Saved prescription could not be applied. Please try again.'",
+                      self.apply[failure:success])
+        self.assertLess(readback, failure)
+        self.assertLess(failure, success)
+        self.assertIn("if (mismatch.length) {", self.apply)
+        self.assertIn("if (!same(actual[name], wanted)) { mismatch.push(eye + '_' + name); }",
+                      self.apply)
+        # A failed apply leaves no reused_from claim on the form.
+        self.assertEqual(self.apply.count("if (reused) { reused.value = ''; }"), 2)
+        self.assertLess(self.apply.index("if (reused) { reused.value = ''; }"),
+                        self.apply.index("if (reused) { reused.value = meta.clRxId || ''; }"))
+
+    def test_saved_rx_defects_are_distinguished_and_carry_no_power(self):
+        for code in ("RX_SAVED_FETCH_FAILED", "RX_SAVED_INCOMPATIBLE",
+                     "RX_SAVED_APPLY_FAILED", "RX_SAVED_STATE_MISMATCH"):
+            self.assertIn("defect('%s'" % code, self.cards)
+        self.assertIn("defect('RX_SAVED_STATE_MISMATCH', 'post_apply_verification ' "
+                      "+ mismatch.join(' '))", self.apply)
+        self.assertIn("'product_id={{ lens.product_id }} '", self.cards)
+        # The where-text names fields (right_sph), never values.
+        self.assertNotIn("actual[name]", self.apply[self.apply.index("defect('RX_SAVED_STATE_MISMATCH'"):])
+        app, log = DefectChannel._app(self)
+        with app.test_client() as client:
+            client.post("/api/chat/dev-defect", json={
+                "code": "RX_SAVED_STATE_MISMATCH",
+                "where": "product_id=1015 post_apply_verification right_sph -0.50",
+                "page": "/categories/contact-lenses/precision1"})
+        line = [rec for rec in log if "RX_SAVED_STATE_MISMATCH" in rec][0]
+        self.assertIn("product_id=1015 post_apply_verification right_sph", line)
+        self.assertNotIn("-0.50", line)
+        self.assertNotIn("0.50", line)
 
 
 if __name__ == "__main__":

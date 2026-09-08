@@ -273,7 +273,11 @@ class Wiring(unittest.TestCase):
         cards = self._read("templates/_lens_eye_cards.html")
         self.assertIn('name="reused_from"', cards)
         self.assertIn('name="rx_source" value="AI_ASSISTED_CONFIRMED"', cards)
-        self.assertIn("saved={{ entry.cl_rx_id }}", cards)
+        # "Use" is a button that applies the entry on this page; a link to
+        # ?saved= was a fragment-only navigation the second time round.
+        self.assertIn('data-role="use-saved"', cards)
+        self.assertIn('data-cl-rx-id="{{ entry.cl_rx_id }}"', cards)
+        self.assertNotIn("saved={{ entry.cl_rx_id }}", cards)
         # Both pre-fills are inside the form the customer submits: nothing is
         # added to the cart until they press the button.
         self.assertLess(cards.index("<form action"), cards.index("reused_from"))
