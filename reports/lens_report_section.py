@@ -61,8 +61,9 @@ GATE_COLUMNS = (
     "product_price_eur", "product_special_price_eur",
     "brand", "manufacturer", "gtin", "manufacturer_mpn",
     "modality", "lens_type", "availability", "lead_time_days",
-    "merchant_enabled", "param_mode", "variant_count", "rule_count",
-    "image_count",
+    "merchant_enabled", "param_mode",
+    "min_boxes_single_eye", "min_boxes_both_per_eye",
+    "variant_count", "rule_count", "image_count",
 )
 
 LENS_ROWS_SQL = """
@@ -73,6 +74,7 @@ SELECT p.product_id, p.product_code, p.product_name, p.product_slug,
        c.brand, c.manufacturer, c.gtin, c.manufacturer_mpn,
        c.modality, c.lens_type, c.availability, c.lead_time_days,
        c.merchant_enabled, c.param_mode,
+       c.min_boxes_single_eye, c.min_boxes_both_per_eye,
        (SELECT COUNT(*) FROM contact_lens_variants v
          WHERE v.product_id = p.product_id AND v.available = 1),
        (SELECT COUNT(*) FROM contact_lens_param_rules r
@@ -119,6 +121,13 @@ def load_gate(app_dir=None):
 def lens_rows():
     """Every contact lens as a dict keyed like the application's own rows."""
     return [dict(zip(GATE_COLUMNS, row)) for row in run_sql(LENS_ROWS_SQL)]
+
+
+def _minimum_line(row):
+    """``Precision1 12 / 6`` — the stated one-eye and both-eyes-per-eye minimum."""
+    return "%s %s / %s" % (row.get("product_code") or row.get("product_id"),
+                           row.get("min_boxes_single_eye") or "?",
+                           row.get("min_boxes_both_per_eye") or "?")
 
 
 def _group(row):
@@ -335,6 +344,8 @@ def build():
            if live else "-"))
     add("  ON_ORDER (live) %s"
         % (len(m["on_order"]) if m.get("on_order") is not None else "n/a"))
+    add("  Minimums (live) %s"
+        % (", ".join(_minimum_line(r) for r in live) if live else "-"))
 
     add("")
     add("  Held back, by reason:")

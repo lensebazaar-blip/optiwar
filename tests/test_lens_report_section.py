@@ -11,6 +11,7 @@ the section does and assert the section quotes it rather than re-deriving
 """
 import importlib.util
 import os
+import re
 import unittest
 
 _HERE = os.path.dirname(__file__)
@@ -86,6 +87,33 @@ class TestGate(unittest.TestCase):
         self.assertEqual(len(live), 1)
         self.assertEqual(held, [])
         self.assertEqual(self.s.orderable_count(live), 77)
+
+    def test_the_report_selects_every_column_the_gate_reads(self):
+        # The gate is the application's; the rows are the report's own SQL. A
+        # column the gate reads and the SQL omits is None to the gate, and the
+        # report holds back a lens the storefront sells (the 2026-09-08 report
+        # said "no minimum boxes stated" of a lens stated 12 / 6).
+        src = open(os.path.join(_ROOT, "catalogue.py")).read()
+        start = src.index("def lens_release_blockers(")
+        end = src.index("\ndef ", start + 1)
+        end = src.index("\ndef is_lens_live(", end)
+        read = set(re.findall(r'row\.get\("([a-z_]+)"\)', src[start:end]))
+        read |= {"sell_on_com", "sell_on_in"}
+        self.assertTrue(read >= {"min_boxes_single_eye",
+                                 "min_boxes_both_per_eye", "merchant_enabled"})
+        missing = read - set(self.s.GATE_COLUMNS)
+        self.assertEqual(missing, set())
+        for col in self.s.GATE_COLUMNS:
+            if col not in ("variant_count", "rule_count", "image_count"):
+                self.assertIn(col, self.s.LENS_ROWS_SQL, col)
+        self.assertEqual(self.s.LENS_ROWS_SQL.count("SELECT COUNT(*)"), 3)
+
+    def test_a_stated_minimum_reaches_the_gate_from_the_row_shape(self):
+        row = dict(zip(self.s.GATE_COLUMNS, [None] * len(self.s.GATE_COLUMNS)))
+        row.update(_released())
+        live, _held, reasons = self.s.blocker_tally([row], self.gate)
+        self.assertEqual(len(live), 1)
+        self.assertNotIn("no minimum boxes stated", reasons)
 
     def test_missing_gate_is_a_coverage_gap_not_a_zero(self):
         with self.assertRaises(self.s.GateUnavailable):
