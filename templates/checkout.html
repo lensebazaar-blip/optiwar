@@ -334,6 +334,8 @@ footer{ display:none !important; }
 
 /* 3-col layout */
 .ow-ck-layout{ display:grid; grid-template-columns:1fr; gap:18px; width:100%; }
+/* A grid track's floor is its content's min width; a wide cart line must not squeeze the address column. */
+.ow-ck-layout>*,.ow-ck-item>.ow-ck-body,.ow-ck-eye>*{ min-width:0; }
 
 /* Glass card */
 .ow-ck-card{
@@ -360,13 +362,14 @@ footer{ display:none !important; }
 .ow-ck-qty a{ display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;background:#eef2ff;color:#4f46e5;font-weight:900;text-decoration:none;font-size:14px;border:1px solid rgba(148,163,184,.18); }
 .ow-ck-qty span{ font-size:13px;font-weight:600;color:#0f172a;min-width:18px;text-align:center; }
 .ow-ck-eyes{ display:grid;gap:6px;margin-top:6px; }
-.ow-ck-eye{ display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:8px;font-size:13px; }
+.ow-ck-eye{ display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;font-size:13px; }
+.ow-ck-eye .ow-ck-eye-rx{ flex:1 1 auto; }
 .ow-ck-eye-label{ font-weight:700;color:#0f172a; }
 .ow-ck-eye-rx{ color:#475569;white-space:nowrap; }
 .ow-ck-qty--eye{ display:inline-flex;margin-top:0; }
 .ow-ck-qty--eye span{ min-width:56px; }
 .ow-ck-qty--eye button{ display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;background:#eef2ff;color:#4f46e5;font-weight:900;font-size:14px;border:1px solid rgba(148,163,184,.18);cursor:pointer;font-family:inherit; }
-.ow-ck-qty--eye .ow-ck-eye-remove{ width:auto;padding:0 8px;font-size:11px;font-weight:600;background:#fff;color:#ef4444;border-color:#fecaca; }
+.ow-ck-qty--eye .ow-ck-eye-remove{ width:auto;padding:0 8px;white-space:nowrap;font-size:11px;font-weight:600;background:#fff;color:#ef4444;border-color:#fecaca; }
 .ow-ck-eye-rx a{ color:#4f46e5; }
 .ow-ck-remove{ font-size:11px;color:#ef4444;text-decoration:none;font-weight:600;margin-left:6px; }
 
@@ -1006,7 +1009,7 @@ footer{ display:none !important; }
             <span style="font-size:1.8rem;">👓</span>
             {% endif %}
           </div>
-          <div>
+          <div class="ow-ck-body">
             <h3>{{ item.product_name|default('Spectacle Frame') }}</h3>
             {# The same rule as lens_cart.is_lens, so what is drawn per eye is what update_quantity refuses. #}
             {% set is_lens_line = item.vertical == 'CONTACT_LENS' or ((item.product_category|default('')|trim|lower) == 'contact lenses' and (item.right_qty is defined or item.left_qty is defined)) %}
