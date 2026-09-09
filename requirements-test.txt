@@ -12,3 +12,6 @@ PyMySQL
 # imaging library and array maths the pipeline runs on.
 Pillow
 numpy
+# Uploaded prescriptions arrive as PDFs too; lens_documents rasterises them
+# with PyMuPDF (optional at runtime: a host without it refuses PDFs politely).
+pymupdf

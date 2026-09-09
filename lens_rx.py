@@ -182,6 +182,8 @@ def record(cursor, item, customer_id, order_id, site, source=None,
         source = item.get("rx_source") or SOURCE_MANUAL
     if reused_from is None:
         reused_from = _int(item.get("reused_from"))
+    if document_id is None:
+        document_id = _int(item.get("document_id"))
     if source not in SOURCES:
         raise ValueError("unknown prescription source %r" % (source,))
     now = now or datetime.datetime.now()
@@ -499,8 +501,15 @@ def extract_proposal(reply):
         raw = json.loads(match.group(1))
     except ValueError:
         return cleaned, None
+    return cleaned, proposal_from_mapping(raw)
+
+
+def proposal_from_mapping(raw):
+    """A proposal from a ``{"right": {...}, "left": {...}}`` mapping, or
+    None when neither eye carries a power. Shared by the chat tag and the
+    uploaded-document reading, so both arrive in the one shape."""
     if not isinstance(raw, dict):
-        return cleaned, None
+        return None
     proposal = {}
     for eye in lens_order.EYES:
         values = raw.get(eye)
@@ -519,8 +528,8 @@ def extract_proposal(reply):
                 out[field] = lens_order._canonical(column, v)
         proposal[eye] = out if out.get("sph") else None
     if not any(proposal.values()):
-        return cleaned, None
-    return cleaned, proposal
+        return None
+    return proposal
 
 
 def proposal_selections(proposal, minimums=None):

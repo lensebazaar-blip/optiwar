@@ -54,7 +54,10 @@
 .ow-rx-saved { list-style:none; margin:0 0 12px; padding:0; display:grid; gap:6px; }
 .ow-rx-saved li { display:flex; align-items:center; justify-content:space-between; gap:10px; border:1px solid #e5e7eb; border-radius:10px; padding:8px 12px; font-size:13px; }
 .ow-rx-saved li small { display:block; color:#6b7280; font-size:11px; }
-.ow-rx-saved .ow-rx-use { flex-shrink:0; font:inherit; font-weight:700; color:#4f46e5; background:#fff; cursor:pointer; padding:6px 10px; border:1px solid #c7d2fe; border-radius:8px; }
+.ow-rx-saved .ow-rx-use, .ow-rx-upload .ow-rx-use { flex-shrink:0; font:inherit; font-weight:700; color:#4f46e5; background:#fff; cursor:pointer; padding:6px 10px; border:1px solid #c7d2fe; border-radius:8px; }
+.ow-rx-upload { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:0 0 8px; }
+.ow-rx-upload input[type=file] { flex:1 1 200px; min-width:0; font-size:13px; }
+.ow-rx-upload .ow-rx-use:disabled { opacity:.6; cursor:wait; }
 .ow-rx-loaded { background:#ecfdf5; color:#065f46; border-radius:8px; padding:8px 12px; font-size:13px; margin:0 0 12px; }
 .ow-rx-loaded.is-failed { background:#fef2f2; color:#991b1b; }
 .ow-rx-min { font-size:13px; color:#374151; background:#f3f4f6; border-radius:8px; padding:8px 12px; }
@@ -172,15 +175,33 @@
   {% endif %}
   </div>
 
+  {# Upload Rx: a photo or PDF of the prescription, read by the vision model
+     into the same proposal an Ask-AI reading arrives as, then into the cards
+     through the same engine. The server keeps the document with the account
+     and validates the reading against this lens before it reaches the page;
+     the cart changes only through Add to Cart. #}
+  <div data-role="upload-panel" hidden>
+  {% if not signed_in %}
+    <p class="ow-rx-note">Sign in to upload a prescription; it is kept with your account for your next order.
+      <a href="{{ url_for('auth.login') }}">Sign in</a></p>
+  {% else %}
+    <div class="ow-rx-upload">
+      <input type="file" data-role="upload-file" accept="image/jpeg,image/png,image/webp,application/pdf" aria-label="Prescription photo or PDF">
+      <button type="button" class="ow-rx-use" data-role="upload-read">Read my prescription</button>
+    </div>
+    <p class="ow-rx-note">JPEG, PNG, WebP or PDF up to 12 MB. Optiwar AI reads the values into the cards for you to check; nothing is ordered from the picture.</p>
+  {% endif %}
+  </div>
+
   <input type="hidden" name="reused_from" value="{{ saved_loaded.cl_rx_id if saved_loaded else '' }}" data-role="reused-from">
+  <input type="hidden" name="rx_source" data-role="rx-source" value="{% if ai_proposal and not saved_loaded %}{{ 'UPLOADED_CONFIRMED' if proposal_source == 'upload' else 'AI_ASSISTED_CONFIRMED' }}{% endif %}">
   {# The saved note is confirmed by the browser: it is shown only once the
      cards have been read back and hold the saved values. #}
   <p class="ow-rx-loaded" data-role="loaded-note" hidden></p>
   {% if saved_loaded %}
   <span hidden data-role="saved-bootstrap" data-cl-rx-id="{{ saved_loaded.cl_rx_id }}" data-summary="{{ saved_summary }}"></span>
   {% elif ai_proposal %}
-  <input type="hidden" name="rx_source" value="AI_ASSISTED_CONFIRMED">
-  <p class="ow-rx-loaded" data-role="ai-note">Optiwar AI read these values from your chat. They are a suggestion: check each one against your prescription and change anything that is wrong before you add to cart.</p>
+  <p class="ow-rx-loaded" data-role="ai-note">Optiwar AI read these values from your {{ 'upload' if proposal_source == 'upload' else 'chat' }}. They are a suggestion: check each one against your prescription and change anything that is wrong before you add to cart.</p>
   {% endif %}
 
   <div class="ow-rx-grid">
@@ -655,6 +676,21 @@
         if (!same(actual[name], wanted)) { mismatch.push(eye + '_' + name); }
       });
     });
+    var rxSource = role(form, 'rx-source');
+    if (source === 'upload') {
+      if (mismatch.length) {
+        defect('RX_UPLOAD_STATE_MISMATCH', 'post_apply_verification ' + mismatch.join(' '));
+        loadedNote('Your prescription was read but could not be placed in the cards. Please type the values.', false);
+        if (rxSource) { rxSource.value = ''; }
+        return false;
+      }
+      if (reused) { reused.value = ''; }
+      if (rxSource) { rxSource.value = 'UPLOADED_CONFIRMED'; }
+      loadedNote('Optiwar AI read these values from your upload. They are a suggestion: ' +
+                 'check each one against your prescription, change anything that is wrong, ' +
+                 'then choose the boxes and add to cart.', true);
+      return true;
+    }
     if (source !== 'saved') { return mismatch.length === 0; }
     if (mismatch.length) {
       defect('RX_SAVED_STATE_MISMATCH', 'post_apply_verification ' + mismatch.join(' '));
@@ -663,7 +699,6 @@
       return false;
     }
     if (reused) { reused.value = meta.clRxId || ''; }
-    var rxSource = form.querySelector('[name="rx_source"]');
     if (rxSource) { rxSource.value = ''; }
     loadedNote('Loaded your saved prescription (' + (meta.summary || '') +
                '). Choose the boxes, check every value, then add to cart.', true);
@@ -745,8 +780,7 @@
 
   var helpNotes = {
     manual: '',
-    upload: 'Prescription upload is being prepared for this lens. Until then, ' +
-            'type the values from your prescription into the cards below.',
+    upload: '',
     saved: '',
     ai: 'Tell Optiwar AI the values on your prescription and it will fill the ' +
         'cards for you to check. It does not place the order: the cards below do.'
@@ -772,6 +806,10 @@
         if (savedPanel) {
           savedPanel.hidden = button.getAttribute('data-help') !== 'saved';
         }
+        var uploadPanel = role(form, 'upload-panel');
+        if (uploadPanel) {
+          uploadPanel.hidden = button.getAttribute('data-help') !== 'upload';
+        }
         if (button.getAttribute('data-help') === 'ai') {
           // The widget's own entry point opens the text chat; clicking the
           // orb would only open its Text/Voice menu, which this same click,
@@ -786,6 +824,51 @@
         }
       });
     });
+
+  // Upload: the file goes to the server, the reading comes back as an rx
+  // object and enters the cards by the same door as Saved and Ask AI.
+  var uploadRead = role(form, 'upload-read');
+  if (uploadRead) {
+    uploadRead.addEventListener('click', function () {
+      var input = role(form, 'upload-file');
+      var file = input && input.files && input.files[0];
+      if (!file) {
+        loadedNote('Choose a photo or PDF of your prescription first.', false);
+        return;
+      }
+      var body = new FormData();
+      body.append('product_id', '{{ lens.product_id }}');
+      body.append('document', file);
+      uploadRead.disabled = true;
+      loadedNote('Reading your prescription\u2026', true);
+      fetch('/contact-lenses/rx-upload', {method: 'POST', body: body, credentials: 'same-origin'})
+        .then(function (response) {
+          return response.json().then(function (data) { return data; }, function () {
+            return {ok: false, code: 'RX_UPLOAD_BAD_RESPONSE',
+                    message: 'We could not read your prescription right now. Please type the values.'};
+          });
+        })
+        .then(function (data) {
+          uploadRead.disabled = false;
+          if (!data || !data.ok) {
+            var code = (data && data.code) || 'RX_UPLOAD_FAILED';
+            if (code !== 'RX_UPLOAD_SIGN_IN') { defect(code, 'browser'); }
+            loadedNote((data && data.message) ||
+                       'We could not read your prescription right now. Please type the values.', false);
+            return;
+          }
+          var ok = applyPrescription(data.eyes, 'upload', {documentId: data.document_id});
+          if (!ok) { defect('RX_UPLOAD_APPLY_FAILED', 'read'); }
+          var note = role(form, 'loaded-note');
+          if (note && note.scrollIntoView) { note.scrollIntoView({block: 'nearest'}); }
+        })
+        .catch(function () {
+          uploadRead.disabled = false;
+          defect('RX_UPLOAD_FETCH_FAILED', 'network');
+          loadedNote('We could not read your prescription right now. Please type the values.', false);
+        });
+    });
+  }
 
   // Initial state goes through the same engine as every later change. A
   // ?saved= bootstrap is confirmed like a click on Use; a typed or proposed

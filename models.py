@@ -27,8 +27,8 @@ from .catalogue import (
     current_site, strip_ineligible_urls, age_group, ensure_gmc_columns,
     live_lenses, lens_matrix_summary, SITE_IN, SITE_COM,
 )
-from . import (acr, lens_cart, lens_feed, lens_order, lens_preview, lens_rx,
-               lens_seo, lens_view)
+from . import (acr, lens_cart, lens_documents, lens_feed, lens_order,
+               lens_preview, lens_rx, lens_seo, lens_upload, lens_view)
 from .cart_persist import save_cart_to_db, clear_cart_in_db
 import copy
 from .cl_range_model import add_prescription_of_cl
@@ -49,6 +49,9 @@ bp = Blueprint('main', __name__)
 # the deployment set: a blueprint of its own could not be registered without
 # editing a file the deploy tool cannot safely replace.
 ops_refunds.register(bp)
+# Uploaded-prescription routes (customer upload + Ops signed download), for
+# the same reason.
+lens_upload.register(bp)
 
 @bp.route('/eu/')
 @bp.route('/eu/<path:rest>')
@@ -976,11 +979,12 @@ def _lens_selection_context(lens, shape, errors=(), submitted=None,
         signed_in=bool(session.get('user_id')),
         saved_loaded=saved,
         saved_summary=lens_rx.saved_summary(saved) if saved else '',
-        ai_proposal=proposal)
+        ai_proposal=proposal,
+        proposal_source=(proposal or {}).get('source') or 'ai')
 
 
 def _lens_provenance(cursor, lens, form, selections):
-    """``(source, reused_from)`` for the line being added — as far as the
+    """``(source, reused_from, document_id)`` for the line being added — as far as the
     server can vouch for it.
 
     A saved prescription counts only when the id posted is one the signed-in
@@ -993,13 +997,22 @@ def _lens_provenance(cursor, lens, form, selections):
     if reused:
         entry = lens_rx.saved_entry(cursor, session.get('user_id'), reused)
         if entry and lens_rx.selections_match_saved(entry, selections):
-            return lens_rx.SOURCE_SAVED_REUSED, entry['cl_rx_id']
+            return lens_rx.SOURCE_SAVED_REUSED, entry['cl_rx_id'], None
     proposal = _lens_proposal(lens)
+    matches = bool(proposal) and lens_rx.selections_match_saved(
+        {'eyes': proposal.get('eyes') or {}}, selections)
     if form.get('rx_source') == lens_rx.SOURCE_AI_ASSISTED_CONFIRMED \
-            and proposal and lens_rx.selections_match_saved(
-                {'eyes': proposal.get('eyes') or {}}, selections):
-        return lens_rx.SOURCE_AI_ASSISTED_CONFIRMED, None
-    return lens_rx.SOURCE_MANUAL, None
+            and matches and proposal.get('source') != 'upload':
+        return lens_rx.SOURCE_AI_ASSISTED_CONFIRMED, None, None
+    if form.get('rx_source') == lens_rx.SOURCE_UPLOADED_CONFIRMED \
+            and matches and proposal.get('source') == 'upload':
+        # The document is the session's, checked against its owner — never
+        # an id the form names.
+        doc = lens_documents.owned(cursor, session.get('user_id'),
+                                   proposal.get('document_id'))
+        if doc:
+            return lens_rx.SOURCE_UPLOADED_CONFIRMED, None, doc['document_id']
+    return lens_rx.SOURCE_MANUAL, None, None
 
 
 def _lens_selection(lens, shape, errors=(), submitted=None, cursor=None):
@@ -1054,14 +1067,21 @@ def lens_add_to_cart():
                                'reasons': sorted({c for c, _ in problems})})
         return _lens_selection(lens, shape, [m for _, m in problems],
                                request.form, cursor=cursor)
-    source, reused_from = _lens_provenance(cursor, lens, request.form,
-                                           selections)
+    source, reused_from, document_id = _lens_provenance(
+        cursor, lens, request.form, selections)
     item = lens_order.cart_item(lens, lines)
     item['rx_source'], item['reused_from'] = source, reused_from
+    item['document_id'] = document_id
     _persist_cart(others + [item])
-    if source == lens_rx.SOURCE_AI_ASSISTED_CONFIRMED:
+    if source in (lens_rx.SOURCE_AI_ASSISTED_CONFIRMED,
+                  lens_rx.SOURCE_UPLOADED_CONFIRMED):
         session.pop(lens_rx.PROPOSAL_SESSION_KEY, None)
         session.modified = True
+    if source == lens_rx.SOURCE_UPLOADED_CONFIRMED:
+        lens_documents.mark_confirmed(cursor, document_id, session.get('user_id'))
+        lens_documents.audit(cursor, document_id, lens_documents.AUD_CONFIRMED,
+                             actor='customer', detail='add_to_cart')
+        db.commit()
     acr.log_event(db, acr.EV_LENS_ORDER_VALIDATED, success=True,
                   payload={'product_id': item['product_id'],
                            'boxes': item['order_quantity'],
@@ -1142,6 +1162,7 @@ def lens_boxes(product_id, eye, action):
     # Only the boxes changed; the values, and where they came from, did not.
     rebuilt['rx_source'] = line.get('rx_source')
     rebuilt['reused_from'] = line.get('reused_from')
+    rebuilt['document_id'] = line.get('document_id')
     _commit_cart(cursor, others + [rebuilt])
     return redirect(url_for('main.checkout_page'))
 

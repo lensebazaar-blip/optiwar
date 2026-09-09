@@ -257,6 +257,22 @@ def _collect():
     safe("rx_past_retention", lambda: to_int(scalar(
         "SELECT COUNT(*) FROM contact_lens_prescriptions "
         "WHERE retain_until < CURDATE()")))
+    # Uploaded prescription documents (contact_lens_documents): how many
+    # arrived, how many the reader could not use, how many were confirmed into
+    # a cart, and how many are past retention and not yet purged. Counts only.
+    safe("doc_uploaded", lambda: to_int(scalar(
+        "SELECT COUNT(*) FROM contact_lens_documents "
+        "WHERE created_at >= %s" % SINCE)))
+    safe("doc_unread", lambda: to_int(scalar(
+        "SELECT COUNT(*) FROM contact_lens_documents "
+        "WHERE created_at >= %s AND status IN ('UNREADABLE','INCOMPATIBLE')"
+        % SINCE)))
+    safe("doc_confirmed", lambda: to_int(scalar(
+        "SELECT COUNT(*) FROM contact_lens_documents "
+        "WHERE confirmed_at >= %s" % SINCE)))
+    safe("doc_purge_due", lambda: to_int(scalar(
+        "SELECT COUNT(*) FROM contact_lens_documents "
+        "WHERE retain_until < CURDATE() AND purged_at IS NULL")))
 
     return m, errs
 
@@ -380,6 +396,10 @@ def build():
            else " | lens orders WITHOUT a snapshot: %d   [RED]"
            % m["rx_unsnapshotted"],
            _na(m.get("rx_past_retention"))))
+    add("  Prescription uploads (last %dh): %s | unreadable/incompatible %s | "
+        "confirmed into a cart %s | past retention, not purged: %s"
+        % (WINDOW_HOURS, _na(m.get("doc_uploaded")), _na(m.get("doc_unread")),
+           _na(m.get("doc_confirmed")), _na(m.get("doc_purge_due"))))
 
     add("")
     # The invariant, stated even when it holds: a line that only appears on

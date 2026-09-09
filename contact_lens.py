@@ -49,10 +49,11 @@ never OUT_OF_STOCK. It is IN_STOCK, or ON_ORDER with a lead time, and it is
 purchasable in both states.
 """
 try:
-    from . import lens_minimums, lens_rx
+    from . import lens_documents, lens_minimums, lens_rx
 except ImportError:  # run as a plain module (tests, deploy tool, scripts)
     import lens_minimums
     import lens_rx
+    import lens_documents
 
 VERTICAL = "CONTACT_LENS"
 
@@ -261,7 +262,7 @@ TABLES = (
     ("contact_lens_images", IMAGES_SCHEMA),
     ("contact_lens_min_order", lens_minimums.SCHEMA),
     lens_rx.TABLE,
-)
+) + lens_documents.TABLES
 
 _SCHEMA_READY = False
 

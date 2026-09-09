@@ -285,8 +285,9 @@ class SavedRxApplyEngine(unittest.TestCase):
                         "sph.addEventListener('change', manual(refreshCyl))",
                         "cyl.addEventListener('change', manual(refreshAxis))"):
             self.assertIn(handler, self.cards)
-        # A failed apply leaves no reused_from claim on the form.
-        self.assertEqual(self.apply.count("if (reused) { reused.value = ''; }"), 2)
+        # A failed apply leaves no reused_from claim on the form (no eyes,
+        # saved mismatch), and an applied upload is not a saved reuse.
+        self.assertEqual(self.apply.count("if (reused) { reused.value = ''; }"), 3)
         self.assertLess(self.apply.index("if (reused) { reused.value = ''; }"),
                         self.apply.index("if (reused) { reused.value = meta.clRxId || ''; }"))
 

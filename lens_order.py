@@ -575,6 +575,7 @@ def cart_item(product, lines):
         # can vouch for it; None is MANUAL.
         "rx_source": None,
         "reused_from": None,
+        "document_id": None,
         "recommendations": product.get("product_name"),
     }
     total_boxes = 0
