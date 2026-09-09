@@ -187,7 +187,7 @@
   {% else %}
     <div class="ow-rx-upload">
       <input type="file" data-role="upload-file" accept="image/jpeg,image/png,image/webp,application/pdf" aria-label="Prescription photo or PDF">
-      <button type="button" class="ow-rx-use" data-role="upload-read">Read my prescription</button>
+      <button type="button" class="ow-rx-use" data-role="upload-read">Read again</button>
     </div>
     <p class="ow-rx-note">JPEG, PNG, WebP or PDF up to 12 MB. Optiwar AI reads the values into the cards for you to check; nothing is ordered from the picture.</p>
   {% endif %}
@@ -634,6 +634,9 @@
     note.textContent = text;
     note.hidden = !text;
     note.classList.toggle('is-failed', !ok);
+    // One notice at a time: a server-rendered proposal note gives way.
+    var stale = role(form, 'ai-note');
+    if (text && stale) { stale.hidden = true; }
   }
   // The one way a prescription reaches the cards, whichever door it came in
   // by (typed by the server after a refused submit, saved, proposed by the
@@ -828,14 +831,22 @@
   // Upload: the file goes to the server, the reading comes back as an rx
   // object and enters the cards by the same door as Saved and Ask AI.
   var uploadRead = role(form, 'upload-read');
-  if (uploadRead) {
-    uploadRead.addEventListener('click', function () {
-      var input = role(form, 'upload-file');
+  var uploadFile = role(form, 'upload-file');
+  if (uploadRead && uploadFile) {
+    // Choosing the file starts the reading; the button re-reads the same file.
+    uploadFile.addEventListener('change', function () {
+      if (uploadFile.files && uploadFile.files[0]) { readUpload(); }
+    });
+    uploadRead.addEventListener('click', readUpload);
+  }
+  function readUpload() {
+      var input = uploadFile;
       var file = input && input.files && input.files[0];
       if (!file) {
         loadedNote('Choose a photo or PDF of your prescription first.', false);
         return;
       }
+      if (uploadRead.disabled) { return; }
       var body = new FormData();
       body.append('product_id', '{{ lens.product_id }}');
       body.append('document', file);
@@ -867,7 +878,6 @@
           defect('RX_UPLOAD_FETCH_FAILED', 'network');
           loadedNote('We could not read your prescription right now. Please type the values.', false);
         });
-    });
   }
 
   // Initial state goes through the same engine as every later change. A

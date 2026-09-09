@@ -936,6 +936,20 @@ def _lens_proposal(lens):
     return proposal
 
 
+def _proposal_prefill(proposal):
+    """The parked proposal's form the first time this page shows it, None
+    after that. The proposal stays in the session so Add to Cart can still
+    vouch for values that match it; but a page opened afresh later starts
+    empty rather than announcing an old reading over whatever the customer
+    does next."""
+    if not proposal or proposal.get('shown'):
+        return None
+    proposal['shown'] = True
+    session[lens_rx.PROPOSAL_SESSION_KEY] = proposal
+    session.modified = True
+    return proposal
+
+
 def _saved_prescriptions(cursor):
     """The signed-in customer's own saved contact-lens prescriptions."""
     customer_id = session.get('user_id')
@@ -964,8 +978,10 @@ def _lens_selection_context(lens, shape, errors=(), submitted=None,
         if saved:
             submitted = lens_rx.saved_form(saved)
             proposal = None
-    if not submitted and proposal:
-        submitted = proposal.get('form') or {}
+    if not submitted:
+        proposal = _proposal_prefill(proposal)
+        if proposal:
+            submitted = proposal.get('form') or {}
     return dict(
         lens=lens,
         options=shape.options(),

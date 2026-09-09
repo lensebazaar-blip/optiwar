@@ -8,6 +8,7 @@ CI MariaDB and are skipped without one.
 """
 import datetime
 import importlib.util
+import ast
 import io
 import os
 import shutil
@@ -661,6 +662,10 @@ class UploadRoutes(unittest.TestCase):
             "/api/ops/lens-documents/%d/link" % document_id).status_code, 404)
 
 
+class _DictSession(dict):
+    modified = False
+
+
 class Wiring(unittest.TestCase):
 
     def _read(self, rel):
@@ -686,6 +691,43 @@ class Wiring(unittest.TestCase):
                      "RX_UPLOAD_FETCH_FAILED", "RX_UPLOAD_BAD_RESPONSE"):
             self.assertIn(code, cards)
         self.assertNotIn("Prescription upload is being prepared", cards)
+
+    def test_choosing_a_file_starts_the_reading_and_the_button_only_repeats_it(self):
+        cards = self._read("templates/_lens_eye_cards.html")
+        self.assertIn("uploadFile.addEventListener('change'", cards)
+        self.assertIn("uploadRead.addEventListener('click', readUpload)", cards)
+        self.assertEqual(cards.count("fetch('/contact-lenses/rx-upload'"), 1)
+        read = cards[cards.index("function readUpload()"):]
+        # a reading already in flight is not started twice
+        self.assertLess(read.index("if (uploadRead.disabled) { return; }"),
+                        read.index("uploadRead.disabled = true;"))
+        self.assertNotIn("Read my prescription", cards)
+
+    def test_a_new_notice_hides_a_stale_server_rendered_proposal_note(self):
+        cards = self._read("templates/_lens_eye_cards.html")
+        note = cards[cards.index("function loadedNote("):]
+        note = note[:note.index("\n  }\n")]
+        self.assertIn("role(form, 'ai-note')", note)
+        self.assertIn("stale.hidden = true", note)
+
+    def test_a_parked_proposal_prefills_the_page_once_and_stays_for_provenance(self):
+
+        tree = ast.parse(self._read("models.py"))
+        fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                  and n.name == "_proposal_prefill")
+        ns = {"session": _DictSession(), "lens_rx": _load("lens_rx")}
+        exec(compile(ast.Module(body=[fn], type_ignores=[]), "models.py", "exec"), ns)
+        prefill = ns["_proposal_prefill"]
+        proposal = {"product_id": "1015", "form": {"right_sph": "-6.00"}}
+        self.assertIs(prefill(proposal), proposal)          # first page: shown
+        self.assertTrue(proposal["shown"])
+        self.assertTrue(ns["session"].modified)
+        self.assertIsNone(prefill(proposal))                # later page: not again
+        self.assertIsNone(prefill(None))
+        # an upload's proposal is parked already shown: the browser applied it
+        self.assertIn('"shown": True', self._read("lens_upload.py"))
+        models = self._read("models.py")
+        self.assertIn("proposal = _proposal_prefill(proposal)", models)
 
     def test_the_server_vouches_for_upload_provenance_only_against_its_own_row(self):
         models = self._read("models.py")
