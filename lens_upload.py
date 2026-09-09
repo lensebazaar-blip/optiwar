@@ -243,8 +243,9 @@ def register(bp):
             db.commit()
             return _refuse("RX_UPLOAD_INCOMPATIBLE",
                            "We read your prescription, but this lens is not made "
-                           "in one of those values. Check the values on the cards "
-                           "below or ask us in the chat.",
+                           "in one of those values, so nothing was changed on the "
+                           "cards. Another lens may suit you: ask us in the chat, "
+                           "or type the values yourself.",
                            status=422, where=where + " " + " ".join(reasons))
 
         lens_documents.mark_parsed(cursor, document_id, workload, model, proposal,
@@ -257,6 +258,7 @@ def register(bp):
             "eyes": proposal,
             "form": lens_rx.proposal_form(proposal, selections),
             "source": "upload",
+            "shown": True,
             "document_id": int(document_id),
             "created_at": now.isoformat(timespec="seconds"),
         }
