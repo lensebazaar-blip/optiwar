@@ -272,7 +272,9 @@ class Wiring(unittest.TestCase):
     def test_the_eye_cards_confirm_a_saved_or_proposed_prescription(self):
         cards = self._read("templates/_lens_eye_cards.html")
         self.assertIn('name="reused_from"', cards)
-        self.assertIn('name="rx_source" value="AI_ASSISTED_CONFIRMED"', cards)
+        self.assertIn('name="rx_source" data-role="rx-source"', cards)
+        self.assertIn("'AI_ASSISTED_CONFIRMED'", cards)
+        self.assertIn("'UPLOADED_CONFIRMED' if proposal_source == 'upload'", cards)
         # "Use" is a button that applies the entry on this page; a link to
         # ?saved= was a fragment-only navigation the second time round.
         self.assertIn('data-role="use-saved"', cards)

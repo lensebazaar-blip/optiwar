@@ -69,11 +69,23 @@ REGISTRY = {
         "declared_on": "2026-08-12",
     },
     "openai_vision": {
-        "purpose": "Image understanding for picture-led product search.",
-        "fallback": "Text-only search; the image is not retried elsewhere.",
+        "purpose": "Image understanding for picture-led product search, and "
+                   "the live reader of uploaded contact-lens prescriptions "
+                   "(lens_documents.py; LENS_RX_VISION_PROVIDER default).",
+        "fallback": "Text-only search; an unread prescription is typed by the "
+                    "customer (RX_UPLOAD_PROVIDER_FAILED recorded).",
         "timeout_env": "AI_DEADLINE_VISION",
         "cost_basis": UNDECLARED,
         "declared_on": "2026-08-12",
+    },
+    "deepseek_vision": {
+        "purpose": "Alternate reader of uploaded contact-lens prescriptions; "
+                   "same prompt and answer shape as openai_vision, selected "
+                   "by LENS_RX_VISION_PROVIDER=deepseek_vision.",
+        "fallback": "As openai_vision: the customer types the values.",
+        "timeout_env": "AI_DEADLINE_VISION",
+        "cost_basis": UNDECLARED,
+        "declared_on": "2026-09-08",
     },
 }
 

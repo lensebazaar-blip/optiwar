@@ -148,6 +148,18 @@ _WORKLOADS = {
         "model": lambda: _cfg("OPENAI_VISION_MODEL", "gpt-4o"),
         "deadline": lambda: _cfg_int("AI_DEADLINE_VISION", 28),
     },
+    # Same question, same answer shape as openai_vision (lens_documents.py);
+    # selected by LENS_RX_VISION_PROVIDER. Not the default until its reading
+    # has been compared against openai_vision on the same documents.
+    "deepseek_vision": {
+        "provider": "deepseek",
+        "base_url": lambda: _cfg("DEEPSEEK_VISION_BASE_URL",
+                                 _cfg("LLM_BASE_URL", "https://api.deepseek.com")),
+        "api_key": lambda: _cfg("DEEPSEEK_API_KEY", ""),
+        "model": lambda: _cfg("DEEPSEEK_VISION_MODEL", "deepseek-vl2"),
+        "deadline": lambda: _cfg_int("AI_DEADLINE_VISION", 28),
+        "thinking": lambda: _cfg("AI_DEEPSEEK_THINKING", "disabled"),
+    },
 }
 
 
@@ -183,6 +195,7 @@ def _get_pools():
                     "deepseek_recommend": ds,
                     "openai_chat": oc,
                     "openai_vision": ov,
+                    "deepseek_vision": ov,
                 })
     return _pools
 
