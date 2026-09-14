@@ -27,8 +27,9 @@ from .catalogue import (
     current_site, strip_ineligible_urls, age_group, ensure_gmc_columns,
     live_lenses, lens_matrix_summary, SITE_IN, SITE_COM,
 )
-from . import (acr, lens_cart, lens_documents, lens_feed, lens_order,
-               lens_preview, lens_rx, lens_seo, lens_upload, lens_view)
+from . import (acr, lens_cart, lens_config, lens_documents, lens_feed,
+               lens_order, lens_preview, lens_rx, lens_seo, lens_upload,
+               lens_view)
 from .cart_persist import save_cart_to_db, clear_cart_in_db
 import copy
 from .cl_range_model import add_prescription_of_cl
@@ -847,13 +848,12 @@ def _noindex(response):
 
 
 def _lens_choices(cursor, lens):
-    """What this lens states as orderable, in whichever shape it states it."""
-    if (lens.get('param_mode') or '').strip().upper() == 'RULES':
-        return lens_order.selectable(
-            lens_order.param_rules(cursor, lens['product_id']),
-            lens.get('lens_type'))
-    return lens_order.selectable(lens_order.variants(cursor,
-                                                     lens['product_id']))
+    """What this lens states as orderable, in whichever shape it states it.
+
+    Read through the compiled configuration (cache -> config row -> variant
+    rows); every shape is the same ``lens_order`` object at the end.
+    """
+    return lens_config.shape(cursor, lens)
 
 
 def _minimums_waived(cart=None):

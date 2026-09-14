@@ -37,7 +37,8 @@ both — it is never sold out because a frame column says 0.
 
 VARIANTS_SQL = """
 SELECT variant_id, sph, cyl, axis, add_power, base_curve, diameter,
-       color_code, color_name
+       color_code, color_name, fulfilment_status, lead_time_text,
+       lead_time_min_days, lead_time_max_days
 FROM contact_lens_variants
 WHERE product_id = %s AND available = 1
 ORDER BY color_code, sph, cyl, axis, add_power
@@ -67,6 +68,12 @@ TYPE_PARAMS = {
 }
 
 MAX_BOXES_PER_EYE = 24
+
+# Per combination (lens_rules): stocked, or made by the manufacturer on demand
+# with a lead time the customer reads before ordering. A row written before
+# the column existed is STANDARD, which is what it was.
+FULFILMENT_STANDARD = "STANDARD"
+FULFILMENT_MADE_TO_ORDER = "MADE_TO_ORDER"
 
 # Why an order was refused, as codes rather than sentences: the sentence is the
 # customer's, the code is what the event stream and the daily report count. A
@@ -207,7 +214,23 @@ class Matrix(object):
             if add_value and add_value not in per_cyl["adds"]:
                 per_cyl["adds"].append(add_value)
         return {"mode": self.mode, "colors": colors, "tree": tree,
-                "base_curves": curves, "lists": {}}
+                "base_curves": curves, "lists": {},
+                "fulfilment": self.fulfilment()}
+
+    def fulfilment(self):
+        """The combinations that are not simply stocked, by signature.
+
+        ``{"bc|sph|cyl|axis|add|color": [status, lead_time_text]}`` — only
+        the exceptions, so a matrix with none ships an empty object and the
+        page has nothing to say. The signature is ``key()``'s order.
+        """
+        out = {}
+        for row in self.rows:
+            status = fulfilment_of(row)
+            if status != FULFILMENT_STANDARD:
+                out["|".join(key(row))] = [status,
+                                           row.get("lead_time_text") or ""]
+        return out
 
 
 class Rules(object):
@@ -322,6 +345,18 @@ def fixed_choices(source, lens_type=None):
         if len(values) == 1:
             fixed[param] = values[0]
     return fixed
+
+
+def fulfilment_of(variant):
+    """A matched combination's fulfilment status, STANDARD when unstated."""
+    status = ((variant or {}).get("fulfilment_status") or "").strip().upper()
+    return status or FULFILMENT_STANDARD
+
+
+def made_to_order_lines(lines):
+    """The validated eye lines that are made to order, with their lead time."""
+    return [ln for ln in lines
+            if fulfilment_of(ln.get("variant")) == FULFILMENT_MADE_TO_ORDER]
 
 
 def boxes(value):
@@ -569,6 +604,12 @@ def cart_item(product, lines):
         "vertical": "CONTACT_LENS",
         "availability": (product.get("availability") or "").strip().upper(),
         "lead_time_days": product.get("lead_time_days"),
+        # The line is made to order if either eye is; the eye-level fields
+        # below say which, and with what lead time. Frozen onto the order.
+        "fulfilment_status": FULFILMENT_STANDARD,
+        "lead_time_text": None,
+        "ships_within_text": product.get("ships_within_text"),
+        "rule_version": product.get("rule_version"),
         # Written at checkout by lens_rx.record(), in the order's transaction.
         "rx_id": None,
         # Provenance of the values (lens_rx.SOURCE_*), set by the route that
@@ -594,9 +635,19 @@ def cart_item(product, lines):
             "%s_dia" % eye: _num(variant.get("diameter")),
             "%s_lens_color" % eye: (variant.get("color_code") or ""),
             "%s_variant_id" % eye: variant.get("variant_id"),
+            "%s_fulfilment" % eye: fulfilment_of(variant) if count else None,
+            "%s_lead_time" % eye: (variant.get("lead_time_text") or None)
+            if count else None,
             "%s_eye" % eye: (describe(variant, count) if count
                              else "No RX selected"),
         })
+    made = made_to_order_lines(lines)
+    if made:
+        # The line waits for its slowest eye.
+        slowest = max(made, key=lambda ln: _int(
+            ln["variant"].get("lead_time_max_days")))
+        item["fulfilment_status"] = FULFILMENT_MADE_TO_ORDER
+        item["lead_time_text"] = slowest["variant"].get("lead_time_text")
     item["order_quantity"] = total_boxes
     item["ATC_WCL"] = round(price * total_boxes, 2)
     item["total_savings"] = 0

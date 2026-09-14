@@ -78,6 +78,7 @@ DEPLOY_SET = ("acr.py", "ai_api.py", "ai_client.py", "catalogue.py", "chat.py",
               "chat_gateway.py", "contact_lens.py", "dev_defects.py",
               "lens_minimums.py",
               "lens_rx.py", "lens_documents.py", "lens_upload.py",
+              "lens_rules.py", "lens_config.py", "lens_identity.py",
               "lens_cart.py", "lens_prompt.py",
               "lens_feed.py", "lens_seo.py", "lens_order.py", "lens_view.py",
               "lens_preview.py", "crm.py", "orders.py",
@@ -102,6 +103,7 @@ NEW_IN_RELEASE = ("paid_orders.py", "razorpay_events.py", "rx_powers.py",
                   "refunds.py", "ops_refunds.py", "catalogue.py",
                   "contact_lens.py", "dev_defects.py", "lens_minimums.py",
                   "lens_rx.py", "lens_documents.py", "lens_upload.py",
+                  "lens_rules.py", "lens_config.py", "lens_identity.py",
                   "lens_cart.py", "lens_prompt.py", "lens_feed.py",
                   "lens_seo.py", "lens_order.py", "lens_view.py",
                   "lens_preview.py", "templates/lens_landing.html",
@@ -345,10 +347,10 @@ def migration():
     items += [("products.%s (column)" % name,
                "ALTER TABLE products ADD COLUMN %s %s" % (name, decl))
               for name, decl in cl.PRODUCTS_COLUMNS]
-    items += [("contact_lens_products.%s (column)" % name,
-               "ALTER TABLE contact_lens_products ADD COLUMN %s %s"
-               % (name, decl))
-              for name, decl in cl.PROFILE_COLUMNS]
+    for table, columns in cl.ADDED_COLUMNS:
+        items += [("%s.%s (column)" % (table, name),
+                   "ALTER TABLE %s ADD COLUMN %s %s" % (table, name, decl))
+                  for name, decl in columns]
     items += [("contact_lens_products.%s (index)" % name,
                "ALTER TABLE contact_lens_products ADD UNIQUE KEY %s (%s)"
                % (name, cols))

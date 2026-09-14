@@ -75,6 +75,11 @@ CREATE TABLE IF NOT EXISTS contact_lens_prescriptions (
     left_color_code   VARCHAR(40) NULL,
     left_variant_id   INT NULL,
     left_boxes        SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    right_fulfilment  VARCHAR(16) NULL,
+    right_lead_time   VARCHAR(80) NULL,
+    left_fulfilment   VARCHAR(16) NULL,
+    left_lead_time    VARCHAR(80) NULL,
+    rule_version      INT NULL,
     site              VARCHAR(32) NULL,
     created_at        DATETIME NOT NULL,
     retain_until      DATE NOT NULL,
@@ -88,6 +93,17 @@ CREATE TABLE IF NOT EXISTS contact_lens_prescriptions (
 """
 
 TABLE = ("contact_lens_prescriptions", SCHEMA)
+
+# What the order was placed under, per eye: stocked or made to order, and
+# the lead time the customer was shown. Frozen here because the matrix that
+# said so may be recompiled next week; the order keeps its own terms.
+COLUMNS = (
+    ("right_fulfilment", "VARCHAR(16) NULL"),
+    ("right_lead_time", "VARCHAR(80) NULL"),
+    ("left_fulfilment", "VARCHAR(16) NULL"),
+    ("left_lead_time", "VARCHAR(80) NULL"),
+    ("rule_version", "INT NULL"),
+)
 
 
 def _dec(value):
@@ -250,6 +266,12 @@ def _insert(cursor, item, product_id, customer_id, order_id, site, source,
         for field in EYE_FIELDS:
             cols.append("%s_%s" % (eye, field))
             vals.append(eyes[eye][field])
+        boxes = eyes[eye]["boxes"]
+        cols += ["%s_fulfilment" % eye, "%s_lead_time" % eye]
+        vals += [(item.get("%s_fulfilment" % eye) or None) if boxes else None,
+                 (item.get("%s_lead_time" % eye) or None) if boxes else None]
+    cols.append("rule_version")
+    vals.append(_int(item.get("rule_version")))
     try:
         cursor.execute(
             "INSERT INTO contact_lens_prescriptions (%s) VALUES (%s)"

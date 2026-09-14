@@ -31,6 +31,8 @@
 .ow-rx-body { display:grid; grid-template-columns:1fr; gap:10px 12px; margin-top:10px; }
 .ow-rx-body label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:#666; font-weight:600; letter-spacing:.2px; }
 .ow-rx-body label[hidden] { display:none; }
+.ow-rx-mto { margin:0; padding:8px 10px; border-radius:8px; background:#fffbeb; border:1px solid #fcd34d; color:#92400e; font-size:13px; font-weight:600; }
+.ow-rx-mto[hidden] { display:none; }
 .ow-rx-body select { font-size:15px; padding:11px 10px; border:1px solid #d1d5db; border-radius:8px; background:#fff; color:#111; width:100%; min-height:44px; }
 .ow-rx-boxes { display:flex; align-items:stretch; border:1px solid #d1d5db; border-radius:8px; overflow:hidden; background:#fff; min-height:44px; }
 .ow-rx-boxes button { width:48px; border:0; background:#f3f4f6; color:#111; font-size:22px; cursor:pointer; }
@@ -243,6 +245,8 @@
           <button type="button" data-role="plus" aria-label="One box more">+</button>
         </span>
       </label>
+      {# Said only once a combination the chart marks made-to-order is selected; the text is the tier's own. #}
+      <p class="ow-rx-mto" data-role="fulfilment" role="status" hidden></p>
       <button type="button" class="ow-rx-copy" data-role="copy-{{ eye }}" hidden>
         Same as {{ 'left' if eye == 'right' else 'right' }} eye</button>
     </div>
@@ -307,6 +311,9 @@
   // has it. RULES: independent lists, which is all the source states.
   var matrix = options.tree || {};
   var byRules = options.mode === 'RULES';
+  // Combinations that are not simply stocked, keyed exactly as the server
+  // keys a variant (bc|sph|cyl|axis|add|color): [status, lead-time words].
+  var fulfilment = options.fulfilment || {};
   var submitted = {{ submitted|tojson }};
   var boxPrice = {{ box_price }};
   var maxBoxes = {{ max_boxes }};
@@ -562,6 +569,28 @@
       });
   }
 
+  function fulfilmentOf(fieldset) {
+    // Option values are the server's canonical strings already.
+    var parts = ['bc', 'sph', 'cyl', 'axis', 'add', 'color'].map(function (name) {
+      var field = role(fieldset, name);
+      return field ? (field.value || '') : '';
+    });
+    return fulfilment[parts.join('|')] || null;
+  }
+  function showFulfilment(fieldset, on, missing) {
+    var note = role(fieldset, 'fulfilment');
+    if (!note) { return; }
+    var entry = (on && !missing.length) ? fulfilmentOf(fieldset) : null;
+    if (entry && entry[0] === 'MADE_TO_ORDER') {
+      note.textContent = 'Made to order' + (entry[1] ? ' \u2014 ' + entry[1] : '') +
+        '. This power is made by the manufacturer for your order; the lead time is shown again at checkout.';
+      note.hidden = false;
+    } else {
+      note.textContent = '';
+      note.hidden = true;
+    }
+  }
+
   function describe(fieldset) {
     var parts = [];
     ['sph', 'cyl', 'axis', 'add'].forEach(function (name) {
@@ -583,6 +612,7 @@
       var on = included(eye);
       var missing = on ? missingFor(fieldset) : [];
       var n = (on && !missing.length) ? Number(role(fieldset, 'boxes').value || 0) : 0;
+      showFulfilment(fieldset, on, missing);
       if (row) {
         row.hidden = !on;
         row.classList.toggle('is-incomplete', missing.length > 0);

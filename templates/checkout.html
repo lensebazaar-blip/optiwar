@@ -1048,6 +1048,9 @@ footer{ display:none !important; }
               <div class="ow-ck-eye">
                 <span class="ow-ck-eye-label">{{ label }}</span>
                 <span class="ow-ck-eye-rx">{% if boxes %}{{ item[eye ~ '_pwr'] }}{% if item[eye ~ '_cyl'] %} / {{ item[eye ~ '_cyl'] }}{% endif %}{% if item[eye ~ '_axis'] %} &times; {{ item[eye ~ '_axis'] }}{% endif %}{% else %}not ordered &middot; <a href="/categories/contact-lenses/lens?pid={{ item.product_id }}">add on the product page</a>{% endif %}</span>
+                {% if boxes and item[eye ~ '_fulfilment'] == 'MADE_TO_ORDER' %}
+                <span class="ow-ck-eye-mto" style="display:block;font-size:12px;color:#92400e;font-weight:600;">Made to order{% if item[eye ~ '_lead_time'] %} &mdash; {{ item[eye ~ '_lead_time'] }}{% endif %}</span>
+                {% endif %}
                 {% if boxes %}
                 {# Buttons post through #owLensBoxesForm, declared after the checkout form: a form cannot nest in a form. #}
                 <span class="ow-ck-qty ow-ck-qty--eye">

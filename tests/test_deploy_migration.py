@@ -43,8 +43,8 @@ class DeployMigrationTest(unittest.TestCase):
         expected += ["%s (table)" % n for n, _d in self.cl.TABLES]
         expected += ["products.%s (column)" % n
                      for n, _d in self.cl.PRODUCTS_COLUMNS]
-        expected += ["contact_lens_products.%s (column)" % n
-                     for n, _d in self.cl.PROFILE_COLUMNS]
+        for table, columns in self.cl.ADDED_COLUMNS:
+            expected += ["%s.%s (column)" % (table, n) for n, _d in columns]
         expected += ["contact_lens_products.%s (index)" % n
                      for n, _d in self.cl.PROFILE_INDEXES]
         expected += ["contact_lens_images.%s (column)" % n
@@ -89,10 +89,22 @@ class DeployMigrationTest(unittest.TestCase):
         # which is either nullable or defaulted. The release flag's default must
         # be 0 in particular: a lens whose readiness nobody has asserted is not
         # released, and an import must not put one on a surface.
-        for name, decl in self.cl.PROFILE_COLUMNS:
-            self.assertRegex(decl.upper(), r"DEFAULT |\bNULL\b", name)
-            if name == "merchant_enabled":
-                self.assertIn("DEFAULT 0", decl.upper(), name)
+        for _table, columns in self.cl.ADDED_COLUMNS:
+            for name, decl in columns:
+                self.assertRegex(decl.upper(), r"DEFAULT |\bNULL\b", name)
+                if name == "merchant_enabled":
+                    self.assertIn("DEFAULT 0", decl.upper(), name)
+
+    def test_every_lens_table_is_in_the_migration_before_its_columns(self):
+        # A column on a table that arrives in the same migration is created
+        # with the table; the ALTER must still come after the CREATE.
+        labels = [label for label, _sql in self.deploy.migration()]
+        for table, columns in self.cl.ADDED_COLUMNS:
+            for name, _decl in columns:
+                self.assertLess(labels.index("%s (table)" % table),
+                                labels.index("%s.%s (column)" % (table, name)))
+        for name, _ddl in self.cl.TABLES:
+            self.assertIn("%s (table)" % name, labels)
 
     def test_lens_tables_are_created_before_the_columns_that_reference_them(self):
         labels = [label for label, _sql in self.deploy.migration()]
@@ -177,7 +189,8 @@ class DeployMigrationTest(unittest.TestCase):
         # information_schema; a label it cannot parse silently checks the
         # wrong name.
         known = {"ai_events", "ai_actions", "products",
-                 "contact_lens_products", "contact_lens_images"}
+                 "contact_lens_products", "contact_lens_images",
+                 "contact_lens_variants", "contact_lens_prescriptions"}
         for label, sql in self.deploy.migration():
             if label.endswith("(table)"):
                 self.assertIn(label.split(" ", 1)[0], sql, label)
