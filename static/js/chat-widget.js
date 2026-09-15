@@ -283,7 +283,16 @@
     return '';
   }
 
-  function uploadAttachment(f) {
+  // The owner cookie is issued by /start; /status only names the session. A
+  // browser that adopted its session from /status (or whose cookie expired)
+  // is re-bound with one resume call before the upload is given up on.
+  function rebindSession() {
+    return apiCall('POST', '/start', {
+      email: userEmail, name: userName, customer_id: customerId, page_url: window.location.href
+    }).then(function(data) { return data.session_id === sessionId; });
+  }
+
+  function uploadAttachment(f, isRetry) {
     var problem = attachProblem(f);
     if (problem) { renderSystemMsg(problem); return; }
     attachBusy = true; attachBtn.disabled = true;
@@ -298,6 +307,17 @@
           return { ok: r.ok, status: r.status, data: data };
         });
       }).then(function(res) {
+        if (res.status === 403 && !isRetry) {
+          if (pending && pending.parentNode) pending.parentNode.removeChild(pending);
+          return rebindSession().then(function(same) {
+            attachBusy = false; attachBtn.disabled = false;
+            if (same) { uploadAttachment(f, true); return; }
+            renderSystemMsg('Your chat session was refreshed. Please attach the photo again.');
+          }, function() {
+            attachBusy = false; attachBtn.disabled = false;
+            renderSystemMsg('That photo could not be attached. Please refresh the page and try again.');
+          });
+        }
         attachBusy = false; attachBtn.disabled = false;
         if (!res.ok) {
           if (pending && pending.parentNode) pending.parentNode.removeChild(pending);
@@ -795,6 +815,9 @@
     if (data.has_active) {
       sessionId = data.session_id;
       sessionLabel.textContent = 'Session: ' + sessionId.replace('chat_', '#');
+      // Resume it on the server too, so this browser holds the owner cookie
+      // the transcript poll and photo upload are gated on.
+      rebindSession().catch(function() {});
     }
   }).catch(function() {});
 })();
