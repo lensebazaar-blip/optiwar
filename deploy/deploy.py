@@ -89,6 +89,7 @@ DEPLOY_SET = ("acr.py", "ai_api.py", "ai_client.py", "catalogue.py", "chat.py",
               "razorpay_reconcile.py", "csrf_guard.py", "rx_powers.py",
               "profile.py", "customer_orders.py", "refunds.py",
               "ops_refunds.py", "cart_persist.py", "policy_terms.py",
+              "return_assessment.py",
               "notifications.py", "templates/terms-and-conditions.html",
               "templates/success.html", "templates/profile.html", "templates/checkout.html", "templates/lens_landing.html",
               "templates/lens_select.html", "templates/_lens_eye_cards.html",
@@ -113,6 +114,7 @@ NEW_IN_RELEASE = ("paid_orders.py", "razorpay_events.py", "rx_powers.py",
                   "lens_preview.py", "cl_import.py", "image_pipeline.py",
                   "lens_import_write.py", "lens_import_schema.py",
                   "lens_import.py", "customer_orders.py", "policy_terms.py",
+                  "return_assessment.py",
                   "templates/lens_landing.html",
                   "templates/lens_select.html",
                   "templates/_lens_eye_cards.html",
@@ -320,6 +322,16 @@ def policy_terms_module():
     return mod
 
 
+def return_assessment_module():
+    if REPO not in sys.path:
+        sys.path.insert(0, REPO)
+    spec = importlib.util.spec_from_file_location(
+        "return_assessment_for_deploy", os.path.join(REPO, "return_assessment.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def catalogue_columns():
     """``catalogue.GMC_COLUMNS``, read from the source without importing it.
 
@@ -363,6 +375,8 @@ def migration():
               for name, ddl in cl.TABLES]
     items += [("%s (table)" % name, " ".join(ddl.split()))
               for name, ddl in policy_terms_module().TABLES]
+    items += [("%s (table)" % name, " ".join(ddl.split()))
+              for name, ddl in return_assessment_module().TABLES]
     items += [("products.%s (column)" % name,
                "ALTER TABLE products ADD COLUMN %s %s" % (name, decl))
               for name, decl in cl.PRODUCTS_COLUMNS]
