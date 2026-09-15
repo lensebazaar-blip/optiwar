@@ -290,6 +290,17 @@ def parse_product(row):
                                       "min_boxes_single_eye"),
         "min_boxes_both_per_eye": whole(row.get("min_boxes_both_per_eye"),
                                         "min_boxes_both_per_eye"),
+        # Identity and provenance (PR-D1 columns). The GTIN is one carton's,
+        # so the power printed on that carton is recorded beside it; the
+        # legacy id is a reference into the system the row came from and
+        # never becomes a code, slug or identifier of ours.
+        "gtin_reference_power": _text(row.get("gtin_reference_power")),
+        "canonical_name": _text(row.get("canonical_name")),
+        "also_known_as": [a.strip() for a in
+                          _text(row.get("also_known_as")).split(";")
+                          if a.strip()],
+        "legacy_ref_id": _text(row.get("legacy_ref_id")),
+        "ships_within_text": _text(row.get("ships_within_text")),
     }
     _resolve_minimums(product)
     missing = [f for f in PRODUCT_REQUIRED if not product.get(f)]
@@ -320,6 +331,11 @@ def parse_product(row):
         raise RowError("manufacturer_mpn %r is the product's own name or SKU, "
                        "not a manufacturer part number — leave it empty"
                        % product["manufacturer_mpn"])
+    if product["gtin_reference_power"] and not product["gtin"]:
+        raise RowError("gtin_reference_power without a gtin")
+    if product["canonical_name"].lower() in {
+            a.lower() for a in product["also_known_as"]}:
+        raise RowError("also_known_as repeats the canonical name")
     if product["special_price_eur"] and (product["special_price_eur"]
                                          > product["price_eur"]):
         raise RowError("special_price_eur is above price_eur")

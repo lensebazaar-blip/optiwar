@@ -54,7 +54,10 @@ import tempfile
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
-from embed_helper import DERIVATIVE_FORMATS, DERIVATIVE_WIDTHS
+try:
+    from .embed_helper import DERIVATIVE_FORMATS, DERIVATIVE_WIDTHS
+except ImportError:  # run as a plain module (scripts, tests)
+    from embed_helper import DERIVATIVE_FORMATS, DERIVATIVE_WIDTHS
 
 # JPEG quality for a master (visually lossless at 2000px) and for the ladder.
 MASTER_QUALITY = 92

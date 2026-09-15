@@ -56,10 +56,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cl_import  # noqa: E402
 import contact_lens  # noqa: E402
 import image_pipeline  # noqa: E402
+import lens_import_write  # noqa: E402
 
-# The .com-only launch. Site eligibility lives on products because one function
-# in catalogue.py decides it for every vertical and every surface.
-SELL_ON = {"sell_on_com": 1, "sell_on_in": 0}
+SELL_ON = lens_import_write.SELL_ON
 
 
 def read_rows(path):
@@ -108,234 +107,23 @@ def connect():
         cursorclass=pymysql.cursors.DictCursor, autocommit=False, **options)
 
 
-def existing(cursor, product):
-    cursor.execute("SELECT product_id FROM contact_lens_products"
-                   " WHERE source_system = %s AND source_ref = %s",
-                   (product["source_system"], product["source_ref"]))
-    row = cursor.fetchone()
-    return row["product_id"] if row else None
-
-
-def product_code(product):
-    """Our internal offer id. Never sent as the manufacturer's identifier."""
-    return ("CL-" + product["source_ref"].upper())[:20]
-
-
-def slug(product):
-    name = product["product_name"]
-    text = name if name.lower().startswith(product["brand"].lower()) else (
-        "%s %s" % (product["brand"], name))
-    keep = [c.lower() if c.isalnum() else "-" for c in text]
-    return "-".join("".join(keep).split("-")[:12]).strip("-")[:180]
-
-
-def in_rupees(amount, rate):
-    """EUR -> INR at a stated rate, or None when no rate was supplied.
-
-    EUR is canonical. A rupee price is derived from it once, at a rate the run
-    was given and records; it is never re-derived from a previous conversion,
-    which is how a price drifts every time somebody re-imports.
-    """
-    if not rate or amount in (None, ""):
-        return None
-    # products.product_price is whole rupees, so the rounding is done here
-    # where it is stated rather than by the column on the way in.
-    return int(round(float(amount) * float(rate)))
-
-
-def upsert_product(cursor, product, product_id, rate=None):
-    fields = {
-        "product_code": product_code(product),
-        "product_name": product["product_name"],
-        "product_details": product["product_details"],
-        "product_price_eur": product["price_eur"],
-        "product_special_price_eur": product["special_price_eur"],
-        "product_image": product["image_url"],
-        "product_slug": slug(product),
-        "product_vertical": contact_lens.VERTICAL,
-        "product_status": "ACTIVE",
-    }
-    fields.update(SELL_ON)
-    rupees = in_rupees(product["price_eur"], rate)
-    if rupees is not None:
-        fields["product_price"] = rupees
-        fields["product_special_price"] = in_rupees(
-            product["special_price_eur"] or product["price_eur"], rate)
-    if product_id:
-        assignments = ", ".join("%s = %%s" % k for k in fields)
-        cursor.execute("UPDATE products SET %s WHERE product_id = %%s"
-                       % assignments,
-                       tuple(fields.values()) + (product_id,))
-        return product_id
-    columns = ", ".join(fields)
-    marks = ", ".join(["%s"] * len(fields))
-    cursor.execute("INSERT INTO products (%s) VALUES (%s)" % (columns, marks),
-                   tuple(fields.values()))
-    return cursor.lastrowid
-
-
-def upsert_profile(cursor, product, product_id, rate=None):
-    fields = {
-        "product_id": product_id,
-        "brand": product["brand"],
-        "manufacturer": product["manufacturer"],
-        "source_manufacturer": product["source_manufacturer"] or None,
-        "param_mode": product["param_mode"],
-        "param_source": product["param_source"] or None,
-        "min_boxes_single_eye": product["min_boxes_single_eye"],
-        "min_boxes_both_per_eye": product["min_boxes_both_per_eye"],
-        "min_order_model": product["min_order_model"] or None,
-        "gtin": product["gtin"] or None,
-        "manufacturer_mpn": product["manufacturer_mpn"] or None,
-        "modality": product["modality"],
-        "lens_type": product["lens_type"],
-        "pack_quantity": product["pack_quantity"],
-        "material": product["material"] or None,
-        "water_content": product["water_content"],
-        "replacement_days": product["replacement_days"],
-        "availability": product["availability"],
-        "lead_time_days": product["lead_time_days"],
-        "source_system": product["source_system"],
-        "source_ref": product["source_ref"],
-        "imported_at": datetime.datetime.now(),
-        "eur_inr_rate": rate,
-        "eur_inr_rate_at": datetime.datetime.now() if rate else None,
-    }
-    columns = ", ".join(fields)
-    marks = ", ".join(["%s"] * len(fields))
-    # merchant_enabled is absent on purpose: an update must not re-release a
-    # lens somebody withdrew, and an insert takes the column's default of 0.
-    # The conversion metadata is held back for the same reason upsert_product
-    # leaves the rupee prices alone when no rate was given: the recorded rate
-    # describes the rupee price that is still there, and blanking it would
-    # leave a converted price nothing accounts for.
-    kept = {"product_id"} if rate else {"product_id", "eur_inr_rate",
-                                        "eur_inr_rate_at"}
-    updates = ", ".join("%s = VALUES(%s)" % (k, k) for k in fields
-                        if k not in kept)
-    cursor.execute("INSERT INTO contact_lens_products (%s) VALUES (%s)"
-                   " ON DUPLICATE KEY UPDATE %s" % (columns, marks, updates),
-                   tuple(fields.values()))
-
-
-def upsert_variants(cursor, product, product_id):
-    """Upsert every stated combination; withdraw the ones no longer stated.
-
-    Withdrawal is ``available = 0`` rather than a DELETE, because an order line
-    that pointed at a combination must remain readable after the manufacturer
-    stops making it.
-    """
-    stated = set()
-    for variant in product["variants"]:
-        cursor.execute(
-            "INSERT INTO contact_lens_variants (product_id, sph, cyl, axis,"
-            " add_power, base_curve, diameter, color_code, color_name,"
-            " available) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
-            " ON DUPLICATE KEY UPDATE color_name = VALUES(color_name),"
-            " available = VALUES(available)",
-            (product_id, variant["sph"], variant["cyl"], variant["axis"],
-             variant["add_power"], variant["base_curve"], variant["diameter"],
-             variant["color_code"], variant["color_name"] or None,
-             variant["available"]))
-        stated.add(cl_import.variant_signature(variant))
-    cursor.execute("SELECT variant_id, variant_sig FROM contact_lens_variants"
-                   " WHERE product_id = %s AND available = 1", (product_id,))
-    withdrawn = [r["variant_id"] for r in (cursor.fetchall() or ())
-                 if r["variant_sig"] not in stated]
-    for variant_id in withdrawn:
-        cursor.execute("UPDATE contact_lens_variants SET available = 0"
-                       " WHERE variant_id = %s", (variant_id,))
-    return len(stated), len(withdrawn)
-
-
-def upsert_rules(cursor, product, product_id):
-    """Upsert every stated value; withdraw the ones no longer stated.
-
-    Withdrawal is ``available = 0`` for the same reason a combination's is: an
-    order that was placed on a power the supplier has dropped stays readable.
-    """
-    stated = set()
-    for order, rule in enumerate(product["rules"]):
-        cursor.execute(
-            "INSERT INTO contact_lens_param_rules (product_id, parameter,"
-            " value, label, sort_order, available)"
-            " VALUES (%s, %s, %s, %s, %s, %s)"
-            " ON DUPLICATE KEY UPDATE label = VALUES(label),"
-            " sort_order = VALUES(sort_order), available = VALUES(available)",
-            (product_id, rule["parameter"], rule["value"], rule["label"],
-             order, rule["available"]))
-        stated.add((rule["parameter"], rule["value"]))
-    cursor.execute("SELECT rule_id, parameter, value FROM"
-                   " contact_lens_param_rules"
-                   " WHERE product_id = %s AND available = 1", (product_id,))
-    withdrawn = [r["rule_id"] for r in (cursor.fetchall() or ())
-                 if (r["parameter"], r["value"]) not in stated]
-    for rule_id in withdrawn:
-        cursor.execute("UPDATE contact_lens_param_rules SET available = 0"
-                       " WHERE rule_id = %s", (rule_id,))
-    return len(stated), len(withdrawn)
-
-
-def upsert_image(cursor, product, product_id):
-    cursor.execute("SELECT image_id FROM contact_lens_images"
-                   " WHERE product_id = %s AND image_url = %s",
-                   (product_id, product["image_url"]))
-    if cursor.fetchone():
-        return
-    cursor.execute("INSERT INTO contact_lens_images (product_id, color_code,"
-                   " image_url, image_type, sort_order)"
-                   " VALUES (%s, NULL, %s, 'PRIMARY', 0)",
-                   (product_id, product["image_url"]))
+# The writers live in lens_import_write so the Ops console and this CLI write
+# a lens identically; the names are re-exported for the tests that import them.
+existing = lens_import_write.existing
+product_code = lens_import_write.product_code
+slug = lens_import_write.slug
+in_rupees = lens_import_write.in_rupees
+upsert_product = lens_import_write.upsert_product
+upsert_profile = lens_import_write.upsert_profile
+upsert_variants = lens_import_write.upsert_variants
+upsert_rules = lens_import_write.upsert_rules
+upsert_image = lens_import_write.upsert_image
+withdraw_all = lens_import_write.withdraw_all
 
 
 def upsert_views(cursor, recipe, product_id):
-    """One row per approved view of the recipe, keyed on the view code.
-
-    A row is matched by ``view_code`` or, for imagery loaded before views were
-    recorded, by ``image_url``, and updated in place; nothing is deleted. The
-    recipe is the only source of what the images are, so the gallery, the
-    feed and the sitemap cannot disagree with what was photographed. A view
-    the recipe no longer names is marked WITHDRAWN, which every reader skips,
-    so a withdrawn photograph stops being published without a row being lost.
-    """
-    written = 0
-    records = image_pipeline.image_records(recipe)
-    codes = [r["code"] for r in records]
-    cursor.execute("UPDATE contact_lens_images SET image_type = 'WITHDRAWN',"
-                   " gmc_eligible = 0 WHERE product_id = %%s AND (color_code"
-                   " IS NULL OR color_code = '') AND view_code IS NOT NULL"
-                   " AND view_code NOT IN (%s)"
-                   % ", ".join(["%s"] * len(codes)),
-                   (product_id,) + tuple(codes))
-    for record in records:
-        fields = {
-            "image_url": record["path"],
-            "image_type": "PRIMARY" if record["is_primary"] else "GALLERY",
-            "sort_order": record["position"],
-            "view_code": record["code"],
-            "view_name": record["view"],
-            "alt_text": record["alt"],
-            "gmc_eligible": 1 if record["gmc"] else 0,
-        }
-        cursor.execute("SELECT image_id FROM contact_lens_images"
-                       " WHERE product_id = %s AND (color_code IS NULL OR"
-                       " color_code = '') AND (view_code = %s OR"
-                       " image_url = %s) ORDER BY image_id LIMIT 1",
-                       (product_id, record["code"], record["path"]))
-        row = cursor.fetchone()
-        if row:
-            assignments = ", ".join("%s = %%s" % k for k in fields)
-            cursor.execute("UPDATE contact_lens_images SET %s"
-                           " WHERE image_id = %%s" % assignments,
-                           tuple(fields.values()) + (row["image_id"],))
-        else:
-            columns = ", ".join(["product_id", "color_code"] + list(fields))
-            marks = ", ".join(["%s", "NULL"] + ["%s"] * len(fields))
-            cursor.execute("INSERT INTO contact_lens_images (%s) VALUES (%s)"
-                           % (columns, marks),
-                           (product_id,) + tuple(fields.values()))
-        written += 1
-    return written
+    return lens_import_write.upsert_views(
+        cursor, image_pipeline.image_records(recipe), product_id)
 
 
 def recipe_for(recipes, product):
@@ -350,37 +138,11 @@ def image_url_is_primary(recipe, image_url):
                for r in image_pipeline.image_records(recipe))
 
 
-def withdraw_all(cursor, table, product_id):
-    """Withdraw whatever the shape a product no longer uses still offers.
-
-    A lens states what may be ordered in one shape or the other. If it changes
-    shape, the rows of the shape it left are still marked available, and the
-    storefront would have two answers to the same question. They are withdrawn,
-    not deleted, so an order placed against one stays readable.
-    """
-    cursor.execute("UPDATE %s SET available = 0"
-                   " WHERE product_id = %%s AND available = 1" % table,
-                   (product_id,))
-    return cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
-
-
 def import_one(cursor, product, rate=None, recipe=None):
     """One product and everything it states, inside the caller's transaction."""
-    product_id = existing(cursor, product)
-    product_id = upsert_product(cursor, product, product_id, rate)
-    upsert_profile(cursor, product, product_id, rate)
-    if product["param_mode"] == cl_import.PARAM_MODE_RULES:
-        written, withdrawn = upsert_rules(cursor, product, product_id)
-        withdrawn += withdraw_all(cursor, "contact_lens_variants", product_id)
-    else:
-        written, withdrawn = upsert_variants(cursor, product, product_id)
-        withdrawn += withdraw_all(cursor, "contact_lens_param_rules",
-                                  product_id)
-    if recipe:
-        upsert_views(cursor, recipe, product_id)
-    else:
-        upsert_image(cursor, product, product_id)
-    return product_id, written, withdrawn
+    return lens_import_write.import_one(
+        cursor, product, rate,
+        image_pipeline.image_records(recipe) if recipe else None)
 
 
 def main():
