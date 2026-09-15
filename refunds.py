@@ -22,8 +22,10 @@ the operator a line breakdown, never to decide what to refund.
 import json
 
 try:
+    from . import return_assessment
     from .paid_orders import add_history, append_status
 except ImportError:      # loaded by path in tests, without the package
+    import return_assessment
     from paid_orders import add_history, append_status
 
 # What the ledger row means, and therefore what the operator is shown.
@@ -104,6 +106,7 @@ def ensure_schema(cursor):
     if _SCHEMA_READY:
         return
     cursor.execute(SCHEMA)
+    cursor.execute(return_assessment.SCHEMA)
     _SCHEMA_READY = True
 
 
@@ -327,8 +330,12 @@ def provider_status(state):
 
 def execute(db, order_id, amount_minor, currency, reason_code, comment,
             idempotency_key, requested_by, service_identity, approved_message,
-            provider, requested_status=None, logger=None):
+            provider, requested_status=None, logger=None, assessment_id=None):
     """Validate, refund, then record — in that order, and never the reverse.
+
+    A ``RETURN_RECEIVED`` refund executes a return assessment: the amount is
+    the assessed proposal, not one the operator typed, and an assessment pays
+    out once.
 
     The order is not moved to ``Refunded`` until the provider has accepted the
     refund: an order that says refunded when no money moved is worse than an
@@ -345,6 +352,17 @@ def execute(db, order_id, amount_minor, currency, reason_code, comment,
 
     facts = preview(cursor, order_id, provider)
     kind = validate(facts, amount_minor, currency, reason_code, requested_status)
+    if reason_code == 'RETURN_RECEIVED' or assessment_id is not None:
+        if assessment_id is None:
+            raise RefundRejected('assessment_required',
+                                 'a return refund names the return assessment '
+                                 'whose proposed refund it pays')
+        try:
+            return_assessment.check_refund_matches(
+                return_assessment.get(cursor, assessment_id), order_id,
+                amount_minor, currency)
+        except return_assessment.AssessmentRejected as exc:
+            raise RefundRejected(exc.code, exc.message)
 
     try:
         refund_id = _claim(
@@ -383,6 +401,9 @@ def execute(db, order_id, amount_minor, currency, reason_code, comment,
     if status != FAILED:
         _record_outcome(db, cursor, order_id, amount_minor, currency, kind,
                         reason_code, requested_by, result, requested_status)
+        if assessment_id is not None:
+            return_assessment.mark_executed(cursor, assessment_id, refund_id)
+            db.commit()
     if logger:
         logger.info("ACTIVITY:REFUND_%s order:%s refund:%s provider_refund:%s"
                     % (status, order_id, refund_id, result.get('id')))

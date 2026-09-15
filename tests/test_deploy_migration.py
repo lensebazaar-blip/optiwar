@@ -11,6 +11,7 @@ labels ``pending_ddl`` parses stay parseable.
 import ast
 import importlib.util
 import os
+import sys
 import unittest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -32,6 +33,9 @@ class DeployMigrationTest(unittest.TestCase):
                         os.path.join(REPO, "contact_lens.py"))
         self.pt = _load("pt_for_deploy_test",
                         os.path.join(REPO, "policy_terms.py"))
+        sys.path.insert(0, REPO)
+        self.ra = _load("ra_for_deploy_test",
+                        os.path.join(REPO, "return_assessment.py"))
 
     def test_covers_every_column_and_index_ensure_schema_adds(self):
         labels = [label for label, _sql in self.deploy.migration()]
@@ -44,6 +48,7 @@ class DeployMigrationTest(unittest.TestCase):
                      for n, _c in self.acr._AI_ACTIONS_EXTRA_IDX]
         expected += ["%s (table)" % n for n, _d in self.cl.TABLES]
         expected += ["%s (table)" % n for n, _d in self.pt.TABLES]
+        expected += ["%s (table)" % n for n, _d in self.ra.TABLES]
         expected += ["products.%s (column)" % n
                      for n, _d in self.cl.PRODUCTS_COLUMNS]
         for table, columns in self.cl.ADDED_COLUMNS:
