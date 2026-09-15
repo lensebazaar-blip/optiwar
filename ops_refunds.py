@@ -23,6 +23,7 @@ Routes are attached to an existing blueprint rather than registering a new one:
 main, so a module that had to be registered there could not be deployed safely.
 """
 import hmac
+import json
 import os
 
 import requests
@@ -30,6 +31,8 @@ from flask import current_app, jsonify, request
 
 from .db import get_db
 from . import refunds
+from . import return_assessment
+from . import policy_terms
 
 SERVICE_IDENTITY = 'eu-ops'
 SCOPES = ('orders:read', 'refunds:create')
@@ -288,7 +291,8 @@ def register(bp):
                 approved_message=body.get('approved_message'),
                 provider=_provider(),
                 requested_status=body.get('requested_status'),
-                logger=current_app.logger)
+                logger=current_app.logger,
+                assessment_id=body.get('assessment_id'))
         except refunds.RefundRejected as exc:
             current_app.logger.info(
                 'ACTIVITY:REFUND_REJECTED order:%s reason:%s by:%s service:%s'
@@ -300,6 +304,81 @@ def register(bp):
         out = _ledger_json(row)
         return jsonify({'ok': row['status'] != refunds.FAILED, 'refund': out}), (
             200 if row['status'] != refunds.FAILED else 502)
+
+    @bp.route('/api/ops/orders/<order_id>/return/assess', methods=['POST'])
+    def ops_return_assess(order_id):
+        """Calculate and record a proposed refund for a return.
+
+        paid − approved customized-lens deduction (≤ cap of the returned
+        spectacle value) − approved reverse logistics. Deductions need the
+        inspection reason, evidence and findings; incorrect-supply / defect
+        claims carry none; a discretionary .com refund needs a written
+        override. Writes the assessment, moves no money.
+        """
+        if not _authorised('refunds:create'):
+            return _deny()
+        operator = _operator()
+        if not operator:
+            return jsonify({'ok': False, 'error': 'operator_required',
+                            'message': 'X-Ops-Operator must name the human '
+                                       'who inspected and assessed'}), 400
+        body = request.get_json(silent=True) or {}
+        db = get_db()
+        cursor = db.cursor()
+        refunds.ensure_schema(cursor)
+        try:
+            facts = refunds.preview(cursor, order_id, _provider())
+            acceptance = policy_terms.for_order(cursor, order_id)
+            proposal = return_assessment.propose(
+                facts, acceptance,
+                claim_type=body.get('claim_type'),
+                spectacle_value_minor=body.get('spectacle_value_minor', 0),
+                lens_deduction_minor=body.get('lens_deduction_minor', 0),
+                reverse_logistics_minor=body.get('reverse_logistics_minor', 0),
+                inspection_reason=(body.get('inspection_reason') or '')[:4000],
+                inspection_evidence=(body.get('inspection_evidence') or '')[:4000],
+                inspection_findings=body.get('inspection_findings'),
+                policy_override_reason=(body.get('policy_override_reason') or '')[:4000])
+        except refunds.RefundRejected as exc:
+            return _rejected(exc)
+        except return_assessment.AssessmentRejected as exc:
+            current_app.logger.info(
+                'ACTIVITY:RETURN_ASSESSMENT_REJECTED order:%s reason:%s by:%s'
+                % (order_id, exc.code, operator))
+            return jsonify({'ok': False, 'error': exc.code,
+                            'message': exc.message}), 422
+        except ProviderError as exc:
+            return jsonify({'ok': False, 'error': 'provider_unavailable',
+                            'message': str(exc)}), 502
+        assessment_id = return_assessment.record(cursor, proposal, operator,
+                                                 SERVICE_IDENTITY)
+        db.commit()
+        current_app.logger.info(
+            'ACTIVITY:RETURN_ASSESSED order:%s assessment:%s claim:%s paid:%s '
+            'lens_deduction:%s reverse:%s proposed:%s by:%s'
+            % (order_id, assessment_id, proposal['claim_type'], proposal['paid_minor'],
+               proposal['lens_deduction_minor'], proposal['reverse_logistics_minor'],
+               proposal['proposed_refund_minor'], operator))
+        return jsonify({'ok': True, 'assessment_id': assessment_id,
+                        'assessment': proposal}), 201
+
+    @bp.route('/api/ops/orders/<order_id>/return/assessments', methods=['GET'])
+    def ops_return_assessments(order_id):
+        if not _authorised('orders:read'):
+            return _deny()
+        cursor = get_db().cursor()
+        refunds.ensure_schema(cursor)
+        rows = return_assessment.for_order(cursor, order_id)
+        for r in rows:
+            for k in ('assessed_at', 'executed_at'):
+                if r.get(k) is not None:
+                    r[k] = r[k].isoformat()
+            if r.get('inspection_findings'):
+                try:
+                    r['inspection_findings'] = json.loads(r['inspection_findings'])
+                except ValueError:
+                    pass
+        return jsonify({'ok': True, 'assessments': rows})
 
     @bp.route('/api/ops/refunds/<path:idempotency_key>', methods=['GET'])
     def ops_refund_tracking(idempotency_key):
