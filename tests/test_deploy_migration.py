@@ -30,6 +30,8 @@ class DeployMigrationTest(unittest.TestCase):
         self.acr = _load("acr_for_deploy_test", os.path.join(REPO, "acr.py"))
         self.cl = _load("cl_for_deploy_test",
                         os.path.join(REPO, "contact_lens.py"))
+        self.pt = _load("pt_for_deploy_test",
+                        os.path.join(REPO, "policy_terms.py"))
 
     def test_covers_every_column_and_index_ensure_schema_adds(self):
         labels = [label for label, _sql in self.deploy.migration()]
@@ -41,6 +43,7 @@ class DeployMigrationTest(unittest.TestCase):
         expected += ["ai_actions.%s (index)" % n
                      for n, _c in self.acr._AI_ACTIONS_EXTRA_IDX]
         expected += ["%s (table)" % n for n, _d in self.cl.TABLES]
+        expected += ["%s (table)" % n for n, _d in self.pt.TABLES]
         expected += ["products.%s (column)" % n
                      for n, _d in self.cl.PRODUCTS_COLUMNS]
         for table, columns in self.cl.ADDED_COLUMNS:

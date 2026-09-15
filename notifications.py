@@ -18,6 +18,11 @@ from urllib3.util import connection as _urllib3_connection
 from flask import current_app
 from flask_mail import Message
 
+try:
+    from . import policy_terms
+except ImportError:  # imported as a plain module (tests, deploy tool)
+    import policy_terms
+
 # MSG91 IP-Security whitelists only this server's IPv4 address; DNS for MSG91/other
 # hosts returns IPv6 first, so requests would egress over the (non-whitelisted,
 # dynamic) IPv6 and get 401. Force urllib3/requests to use IPv4 so outbound API
@@ -344,13 +349,14 @@ def notify_payment_failed(customer_email, customer_phone, order_id, amount, curr
 # Order Notifications
 # ═══════════════════════════════════════════════════════════════════
 
-def notify_order_confirmed(customer_email, customer_phone, customer_name, order_id, amount, currency_symbol, site_host, profile_email=None):
+def notify_order_confirmed(customer_email, customer_phone, customer_name, order_id, amount, currency_symbol, site_host, profile_email=None, acceptance=None):
     """Trigger EWS for order confirmed (after successful payment)."""
     _log(f"TRIGGER:ORDER_CONFIRMED order={order_id} email={customer_email} phone={customer_phone} amount={currency_symbol}{amount}")
 
     results = {'email': False, 'whatsapp': False, 'sms': False}
 
     subject = f"Order Confirmed — {order_id} | Optiwar"
+    _policy_line, _terms_url, _returns_url = policy_terms.confirmation_line(site_host, acceptance)
     body_html = f"""
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
         <h2 style="color:#16a34a;">Order Confirmed! 🎉</h2>
@@ -358,6 +364,8 @@ def notify_order_confirmed(customer_email, customer_phone, customer_name, order_
         <p>Your order <strong>{order_id}</strong> for <strong>{currency_symbol}{amount}</strong> has been confirmed!</p>
         <p>We're preparing your eyewear now. You'll receive a shipping notification once your order is on its way.</p>
         <p style="margin-top:20px;"><a href="https://{site_host}/success/{order_id}" style="background:#4f46e5;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;">View Order</a></p>
+        <p style="color:#475569;font-size:12px;margin-top:24px;line-height:1.6;">{_policy_line}<br>
+        <a href="{_terms_url}" style="color:#4f46e5;">Terms &amp; Conditions</a> &middot; <a href="{_returns_url}" style="color:#4f46e5;">Returns, Replacements &amp; Limited Warranty Policy</a></p>
         <p style="color:#64748b;font-size:13px;margin-top:30px;">&mdash; Optiwar Team</p>
     </div>
     """

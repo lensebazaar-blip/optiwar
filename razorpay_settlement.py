@@ -25,9 +25,11 @@ import json
 try:
     from .paid_orders import (apply_paid_order, order_amount_minor, order_currency,
                               order_statuses, PAID_STATUS)
+    from . import policy_terms
 except ImportError:      # loaded by path in tests, without the package
     from paid_orders import (apply_paid_order, order_amount_minor, order_currency,
                              order_statuses, PAID_STATUS)
+    import policy_terms
 
 # Razorpay order ``notes`` we write at creation, so a payment entity — which
 # carries the order's notes — names our order on its own. The receipt stays
@@ -190,6 +192,17 @@ def settle(db, order_id, payment, site, source, method='', event='', logger=None
     return out
 
 
+def _acceptance(cursor, order_id, logger=None):
+    """The policy versions the order was placed under; None must not stop the
+    mail, so a lookup failure is logged and the email says so without them."""
+    try:
+        return policy_terms.for_order(cursor, order_id)
+    except Exception as exc:  # noqa: BLE001
+        if logger:
+            logger.error("POLICY:ACCEPTANCE_LOOKUP_FAILED order:%s %s" % (order_id, exc))
+        return None
+
+
 def notify_paid_order(cursor, order_id, settled, host, notify_success,
                       notify_confirmed, logger=None):
     """The customer acknowledgement a successful checkout sends, for a
@@ -222,7 +235,8 @@ def notify_paid_order(cursor, order_id, settled, host, notify_success,
         if paid['fulfilled_count'] > 0:
             notify_confirmed(to_email, to_phone, cust.get('customer_name') or 'Customer',
                              order_id, total, symbol, host,
-                             profile_email=cust['customer_email'])
+                             profile_email=cust['customer_email'],
+                             acceptance=_acceptance(cursor, order_id, logger))
         return True
     except Exception as exc:  # noqa: BLE001
         if logger:

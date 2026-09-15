@@ -88,7 +88,8 @@ DEPLOY_SET = ("acr.py", "ai_api.py", "ai_client.py", "catalogue.py", "chat.py",
               "razorpay_events.py", "razorpay_settlement.py",
               "razorpay_reconcile.py", "csrf_guard.py", "rx_powers.py",
               "profile.py", "customer_orders.py", "refunds.py",
-              "ops_refunds.py", "cart_persist.py",
+              "ops_refunds.py", "cart_persist.py", "policy_terms.py",
+              "notifications.py", "templates/terms-and-conditions.html",
               "templates/success.html", "templates/profile.html", "templates/checkout.html", "templates/lens_landing.html",
               "templates/lens_select.html", "templates/_lens_eye_cards.html",
               "templates/product_page.html", "templates/product_page_lens.html",
@@ -111,7 +112,7 @@ NEW_IN_RELEASE = ("paid_orders.py", "razorpay_events.py", "rx_powers.py",
                   "lens_seo.py", "lens_order.py", "lens_view.py",
                   "lens_preview.py", "cl_import.py", "image_pipeline.py",
                   "lens_import_write.py", "lens_import_schema.py",
-                  "lens_import.py", "customer_orders.py",
+                  "lens_import.py", "customer_orders.py", "policy_terms.py",
                   "templates/lens_landing.html",
                   "templates/lens_select.html",
                   "templates/_lens_eye_cards.html",
@@ -309,6 +310,16 @@ def contact_lens_module():
     return mod
 
 
+def policy_terms_module():
+    """``policy_terms.py``'s table declarations, imported the way contact_lens.py's
+    are: it is stdlib-only, and the versions/acceptance tables are declared once."""
+    spec = importlib.util.spec_from_file_location(
+        "policy_terms_for_deploy", os.path.join(REPO, "policy_terms.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def catalogue_columns():
     """``catalogue.GMC_COLUMNS``, read from the source without importing it.
 
@@ -350,6 +361,8 @@ def migration():
     cl = contact_lens_module()
     items += [("%s (table)" % name, " ".join(ddl.split()))
               for name, ddl in cl.TABLES]
+    items += [("%s (table)" % name, " ".join(ddl.split()))
+              for name, ddl in policy_terms_module().TABLES]
     items += [("products.%s (column)" % name,
                "ALTER TABLE products ADD COLUMN %s %s" % (name, decl))
               for name, decl in cl.PRODUCTS_COLUMNS]

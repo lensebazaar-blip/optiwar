@@ -15,7 +15,8 @@
 {% block content %}
 <div class="terms-section">
     <h1>{{ _('Terms and Conditions') }}</h1>
-     <p><strong> Latest updated: 12th June 2025</strong></p>
+     <p><strong> Latest updated: 15th September 2026</strong></p>
+     <p><em> Previously updated: 12th June 2025</em> </p>
      <p><em> Last Updated: 30th September 2024</em> </p>
 
     <p>Welcome to Optiwar ("the Website"). These Terms and Conditions ("Terms") govern your use of the Website, operated by Krishna Ecommerce Technologies Private Limited ("Company", "we", "us", or "our"), located at Godown Village Fazilpur, Badshahpur Tethar(222), Badshahpur, Gurgaon-122101 India. By accessing or using the Website, you agree to comply with and be bound by these Terms. If you do not agree with these Terms, please do not use the Website.</p>
@@ -42,12 +43,11 @@
    </p>
     </li>
 
-	<li>
-	<h2> Returns and Replacement policy </h2>
-	<p> Optiwar is wholesale optical outlets and returns replacements are subjective and most cases restricted</p>
-	<p> Any customer retail or wholesale requesting to return the product must return the product(s) back to Optiwar given location in writing and upon receiving of goods back at Optiwar refund will be processed at 5% discount of the value of product.</p>
-	<br> Product used || damaged will not be refunded and abandoned at our disposal unless customer intends to pickup immediately in written confirmation. Optiwar from time to time give written confirmation in all cases of returns / replacement request.
-	<p> Cost of returns / replacements to be borne by customer whether retail or wholesale OR charged to customer once return approved for reverse pickup. A GST bill of reverse charges will be provided</p>
+	<li id="returns">
+	<div class="returns-policy">
+	{{ returns_policy_html|safe }}
+	<p><em>Policy version {{ returns_policy_version }} &middot; Terms version {{ terms_version }}</em></p>
+	</div>
 	</li>
 
     <li>
