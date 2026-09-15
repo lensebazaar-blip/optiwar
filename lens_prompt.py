@@ -47,6 +47,13 @@ RULES = """  These are the ONLY contact lenses you may discuss, and the facts ab
 """
 
 
+def _int(value):
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _span(lo, hi, fmt="%+.2f"):
     if lo is None and hi is None:
         return None
@@ -98,8 +105,17 @@ def lens_line(row, summary=None):
         facts.append(str(row["material"]))
     if price is not None:
         facts.append("\u20ac%.2f per pack" % float(price))
+    if row.get("also_known_as"):
+        facts.append("formerly / also known as %s" % row["also_known_as"])
     if row.get("availability"):
         facts.append("availability %s" % row["availability"])
+    if row.get("ships_within_text"):
+        facts.append(str(row["ships_within_text"]))
+    if _int(row.get("made_to_order_count")):
+        # Which powers, and how long, is on the page after the customer picks
+        # them; the assistant says only that such powers exist.
+        facts.append("some powers are made to order with a longer lead time "
+                     "shown on the product page when chosen")
     rng = matrix_range(summary)
     if rng:
         facts.append(rng)

@@ -197,6 +197,10 @@ def product_jsonld(row, base, matrix=None):
         "category": lens_feed.lens_product_type(row),
         "itemCondition": "https://schema.org/NewCondition",
     }
+    aliases = [a.strip() for a in _text(row.get("also_known_as")).split("|")
+               if a.strip()]
+    if aliases:
+        data["alternateName"] = aliases if len(aliases) > 1 else aliases[0]
     if _text(row.get("manufacturer")):
         data["manufacturer"] = {"@type": "Organization",
                                 "name": _text(row.get("manufacturer"))}

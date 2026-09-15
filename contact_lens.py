@@ -49,11 +49,14 @@ never OUT_OF_STOCK. It is IN_STOCK, or ON_ORDER with a lead time, and it is
 purchasable in both states.
 """
 try:
-    from . import lens_documents, lens_minimums, lens_rx
+    from . import (lens_documents, lens_identity, lens_minimums, lens_rules,
+                   lens_rx)
 except ImportError:  # run as a plain module (tests, deploy tool, scripts)
     import lens_minimums
     import lens_rx
     import lens_documents
+    import lens_rules
+    import lens_identity
 
 VERTICAL = "CONTACT_LENS"
 
@@ -106,6 +109,31 @@ PROFILE_COLUMNS = (
     # can be explained, and so nobody converts a converted price again.
     ("eur_inr_rate", "DECIMAL(10,4) NULL"),
     ("eur_inr_rate_at", "DATETIME NULL"),
+    # Which compiled rule set is live (lens_rules): 0 is "no rule set, the
+    # variant rows are as the importer wrote them". Changing it is the
+    # publication; readers key their cache on it.
+    ("rule_version", "INT NOT NULL DEFAULT 0"),
+    # The standard shipping window, in the words the customer reads
+    # ("Ships within 3-5 days"); a made-to-order combination states its own.
+    ("ships_within_text", "VARCHAR(80) NULL"),
+    # The one real carton GTIN we hold is for one power; this says which, so
+    # nobody reads it as the identifier of the whole matrix.
+    ("gtin_reference_power", "VARCHAR(40) NULL"),
+    # The name we publish when it differs from products.product_name's
+    # history, and the id the lens had in the system it was taken from.
+    ("canonical_name", "VARCHAR(160) NULL"),
+    ("legacy_ref_id", "VARCHAR(64) NULL"),
+)
+
+# Columns added to an existing ``contact_lens_variants`` by the rule compiler.
+VARIANTS_COLUMNS = lens_rules.VARIANT_COLUMNS
+
+# Every ALTER-in-place the lens schema makes, by table, in one list so the
+# deploy tool and ``ensure_schema`` read the same declaration.
+ADDED_COLUMNS = (
+    ("contact_lens_products", PROFILE_COLUMNS),
+    ("contact_lens_variants", VARIANTS_COLUMNS),
+    ("contact_lens_prescriptions", lens_rx.COLUMNS),
 )
 
 # Columns added to an existing ``contact_lens_images``. An image is a
@@ -202,6 +230,11 @@ CREATE TABLE IF NOT EXISTS contact_lens_variants (
     color_code  VARCHAR(40) NOT NULL DEFAULT '',
     color_name  VARCHAR(80) NULL,
     available   TINYINT(1) NOT NULL DEFAULT 1,
+    fulfilment_status  VARCHAR(16) NOT NULL DEFAULT 'STANDARD',
+    lead_time_text     VARCHAR(80) NULL,
+    lead_time_min_days SMALLINT UNSIGNED NULL,
+    lead_time_max_days SMALLINT UNSIGNED NULL,
+    lead_time_source   VARCHAR(200) NULL,
     variant_sig VARCHAR(160) AS (CONCAT_WS('|',
                     COALESCE(CAST(sph AS CHAR), 'NA'),
                     COALESCE(CAST(cyl AS CHAR), 'NA'),
@@ -262,7 +295,7 @@ TABLES = (
     ("contact_lens_images", IMAGES_SCHEMA),
     ("contact_lens_min_order", lens_minimums.SCHEMA),
     lens_rx.TABLE,
-) + lens_documents.TABLES
+) + lens_documents.TABLES + lens_rules.TABLES + lens_identity.TABLES
 
 _SCHEMA_READY = False
 
@@ -280,11 +313,12 @@ def ensure_schema(cursor):
         return
     for _name, ddl in TABLES:
         cursor.execute(ddl)
-    have_profile = _table_columns(cursor, "contact_lens_products")
-    for name, decl in PROFILE_COLUMNS:
-        if name not in have_profile:
-            cursor.execute("ALTER TABLE contact_lens_products ADD COLUMN %s %s"
-                           % (name, decl))
+    for table, columns in ADDED_COLUMNS:
+        have = _table_columns(cursor, table)
+        for name, decl in columns:
+            if name not in have:
+                cursor.execute("ALTER TABLE %s ADD COLUMN %s %s"
+                               % (table, name, decl))
     have_profile_idx = _table_indexes(cursor, "contact_lens_products")
     for name, cols in PROFILE_INDEXES:
         if name not in have_profile_idx:

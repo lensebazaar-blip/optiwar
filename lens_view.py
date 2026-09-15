@@ -181,6 +181,11 @@ def passport(row, matrix=None, base="https://optiwar.com"):
             "vertical": _text(row.get("product_vertical")),
             "sites": {"com": bool(_int(row.get("sell_on_com"))),
                       "in": bool(_int(row.get("sell_on_in")))},
+            "canonical_name": _text(row.get("canonical_name")) or None,
+            "also_known_as": [a.strip() for a in
+                              _text(row.get("also_known_as")).split("|")
+                              if a.strip()],
+            "legacy_ref_id": _text(row.get("legacy_ref_id")) or None,
         },
         "identity": {
             "brand": _text(row.get("brand")),
@@ -189,6 +194,10 @@ def passport(row, matrix=None, base="https://optiwar.com"):
             "mpn": _text(row.get("manufacturer_mpn")) or None,
             "identifier_exists": bool(_text(row.get("gtin"))
                                       or _text(row.get("manufacturer_mpn"))),
+            # One real carton's GTIN, for one power: a contact lens has a
+            # GTIN per box, so this says which box it is.
+            "gtin_reference_power": _text(row.get("gtin_reference_power"))
+            or None,
         },
         "lens": {
             "modality": _text(row.get("modality")),
@@ -208,9 +217,15 @@ def passport(row, matrix=None, base="https://optiwar.com"):
             "google": availability,
             "available_on": available_on or None,
             "lead_time_days": _int(row.get("lead_time_days")),
+            "ships_within": _text(row.get("ships_within_text")) or None,
+            # Per-combination fulfilment lives on the variant rows; here only
+            # that such combinations exist, and how many.
+            "made_to_order_combinations": _int(
+                row.get("made_to_order_count")) or 0,
         },
         "ordering": {
             "param_mode": _text(row.get("param_mode")).upper() or "MATRIX",
+            "rule_version": _int(row.get("rule_version")) or 0,
             "param_source": _text(row.get("param_source")) or None,
             "min_boxes_single_eye": _int(row.get("min_boxes_single_eye")),
             "min_boxes_both_per_eye": _int(row.get("min_boxes_both_per_eye")),

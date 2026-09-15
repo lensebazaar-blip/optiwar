@@ -17,6 +17,7 @@ from openai import OpenAI
 from . import acr
 from . import catalogue
 from . import dev_defects
+from . import lens_config
 from . import lens_prompt
 from . import lens_order
 from . import lens_rx
@@ -470,11 +471,7 @@ def _lens_context(page_url, is_india, customer_id, page_state=None):
             if not row:
                 return None, None, None, ''
             summary = catalogue.lens_matrix_summary(cur, product_id)
-            if (row.get('param_mode') or '').strip().upper() == 'RULES':
-                shape = lens_order.selectable(
-                    lens_order.param_rules(cur, product_id), row.get('lens_type'))
-            else:
-                shape = lens_order.selectable(lens_order.variants(cur, product_id))
+            shape = lens_config.shape(cur, row)
             saved_count = (len(lens_rx.saved_for_customer(cur, customer_id))
                            if customer_id else 0)
         finally:

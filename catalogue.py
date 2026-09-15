@@ -172,8 +172,17 @@ SELECT p.product_id, p.product_code, p.product_name, p.product_slug,
        c.param_mode, c.param_source,
        c.min_boxes_single_eye, c.min_boxes_both_per_eye,
        c.eur_inr_rate, c.eur_inr_rate_at,
+       c.rule_version, c.ships_within_text, c.gtin_reference_power,
+       c.canonical_name, c.legacy_ref_id,
        (SELECT COUNT(*) FROM contact_lens_variants v
          WHERE v.product_id = p.product_id AND v.available = 1) AS variant_count,
+       (SELECT COUNT(*) FROM contact_lens_variants v
+         WHERE v.product_id = p.product_id AND v.available = 1
+           AND v.fulfilment_status = 'MADE_TO_ORDER') AS made_to_order_count,
+       (SELECT GROUP_CONCAT(a.value ORDER BY a.value SEPARATOR ' | ')
+          FROM contact_lens_aliases a
+         WHERE a.product_id = p.product_id
+           AND a.alias_type = 'ALSO_KNOWN_AS') AS also_known_as,
        (SELECT COUNT(*) FROM contact_lens_param_rules r
          WHERE r.product_id = p.product_id AND r.available = 1) AS rule_count,
        (SELECT COUNT(*) FROM contact_lens_images i
