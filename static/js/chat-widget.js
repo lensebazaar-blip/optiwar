@@ -71,6 +71,8 @@
 .ow-chat-input input:focus{border-color:#1F93FF}
 .ow-chat-input button{width:36px;height:36px;border-radius:50%;border:none;background:#1F93FF;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .ow-chat-input button:disabled{background:#ccc;cursor:not-allowed}
+.ow-chat-input button svg,.ow-chat-panel svg{position:static;left:auto;top:auto;width:18px;height:18px;color:inherit;display:block;pointer-events:none}
+.ow-chat-input .ow-attach svg{stroke:#444}
 .ow-chat-input .ow-attach{background:#f1f3f5;color:#555}
 .ow-chat-input .ow-attach:hover{background:#e2e6ea}
 .ow-chat-input input[type=file]{display:none}
