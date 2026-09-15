@@ -10,6 +10,7 @@ from .razorpay_settlement import (resolve_order_reference, settle, notify_paid_o
                                   AMOUNT_MISMATCH, CURRENCY_MISMATCH, BY_BROWSER)
 from .rx_powers import normalize_rows
 from . import ops_refunds
+from . import policy_terms
 from flaskr.notifications import notify_payment_attempted, notify_payment_success, notify_payment_failed, notify_order_confirmed, notify_order_shipped
 import os
 import MySQLdb
@@ -3088,7 +3089,7 @@ def checkout_page():
 
     import uuid as _uuid
     session['checkout_token'] = str(_uuid.uuid4())
-    return render_template('checkout.html', cart=cart,ship_days=ship_days,product_image_map=product_image_map, grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, right_eye=right_eye, left_eye=left_eye,right_pwr=right_pwr, right_lens_color=right_lens_color, right_cyl=right_cyl, right_qty=right_qty, right_axis=right_axis, right_add=right_add, left_pwr=left_pwr, left_lens_color=left_lens_color, left_cyl=left_cyl, left_qty=left_qty, left_axis=left_axis, left_add=left_add, lens_recommendations=lens_recommendations, prefill=prefill, saved_addresses=saved_addresses, lens_removal_pending=lens_removal_pending, lens_removal_confirm_text=lens_cart.CONFIRM_REMOVAL)
+    return render_template('checkout.html', cart=cart,ship_days=ship_days,product_image_map=product_image_map, grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, right_eye=right_eye, left_eye=left_eye,right_pwr=right_pwr, right_lens_color=right_lens_color, right_cyl=right_cyl, right_qty=right_qty, right_axis=right_axis, right_add=right_add, left_pwr=left_pwr, left_lens_color=left_lens_color, left_cyl=left_cyl, left_qty=left_qty, left_axis=left_axis, left_add=left_add, lens_recommendations=lens_recommendations, prefill=prefill, saved_addresses=saved_addresses, lens_removal_pending=lens_removal_pending, lens_removal_confirm_text=lens_cart.CONFIRM_REMOVAL, **policy_terms.checkout_context(cart, _get_site_from()))
 
 """
 @bp.route('/initiate-payment', methods=['POST'])
@@ -3173,6 +3174,13 @@ def checkout():
     if _dropped:
         _persist_cart(cart)
         flash(lens_cart.describe_removed(_dropped))
+        return redirect(url_for('main.checkout_page'))
+    # No acceptance, no order: the box is unchecked by default and the server
+    # is the one that refuses, whatever the page did.
+    try:
+        policy_terms.require(request.form, _get_site_from())
+    except policy_terms.NotAccepted as _na:
+        flash(str(_na))
         return redirect(url_for('main.checkout_page'))
 
     grand_total = 0
@@ -3426,6 +3434,9 @@ def checkout():
                 ('Pending', order_id)
             )
 
+        policy_terms.record(cursor, order_id, _get_site_from(), cart,
+                            checkout_token=_checkout_token, customer_id=customer_id,
+                            ip_address=client_ip)
         if not _reuse_order_id:
             cursor.execute("UPDATE order_intents SET order_id=%s, status='created' WHERE token=%s", (order_id, _checkout_token))
         db.commit()
@@ -3480,7 +3491,7 @@ def checkout():
                     post_saved_addresses = [a for a in post_saved_addresses if (a.get('country') or '').strip().lower() != 'india']
         except Exception:
             pass
-        return render_template('checkout.html', order_id=order_id, payment_token=txn_token, razorpay_order_id=razorpay_order_id, razorpay_key_id=current_app.config.get('RAZORPAY_KEY_ID',''), grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, cart=cart, product_image_map=product_image_map, prefill=post_prefill, saved_addresses=post_saved_addresses)
+        return render_template('checkout.html', order_id=order_id, payment_token=txn_token, razorpay_order_id=razorpay_order_id, razorpay_key_id=current_app.config.get('RAZORPAY_KEY_ID',''), grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, cart=cart, product_image_map=product_image_map, prefill=post_prefill, saved_addresses=post_saved_addresses, **policy_terms.checkout_context(cart, _get_site_from()))
 
     except Exception as e:
         db.rollback()
@@ -3503,6 +3514,11 @@ def test_checkout():
     if not cart:
         flash('Your cart is empty.')
         return redirect(url_for('main.index'))
+    try:
+        policy_terms.require(request.form, _get_site_from())
+    except policy_terms.NotAccepted as _na:
+        flash(str(_na))
+        return redirect(url_for('main.checkout_page'))
 
     grand_total = 0
     for item in cart:
@@ -3619,6 +3635,8 @@ def test_checkout():
                 ('Processed', order_id)
             )
 
+        policy_terms.record(cursor, order_id, _get_site_from(), cart,
+                            customer_id=customer_id, ip_address=client_ip)
         import json as _json
         test_dump = _json.dumps({'method': 'TEST_BUY', 'amount': str(grand_total), 'test': True})
         cursor.execute(
@@ -4073,7 +4091,12 @@ def success(order_id):
 
 @bp.route('/terms_and_conditions')
 def terms_and_conditions():
-    return render_template('terms-and-conditions.html')
+    site = 'in' if _req_is_india() else 'com'
+    cur = policy_terms.current(site)
+    return render_template('terms-and-conditions.html',
+                           returns_policy_html=policy_terms.returns_html(site),
+                           returns_policy_version=cur['returns']['version'],
+                           terms_version=cur['terms']['version'])
 
 
 @bp.route('/privacy_policy')

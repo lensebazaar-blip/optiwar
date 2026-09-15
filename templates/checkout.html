@@ -298,6 +298,19 @@ footer{ display:none !important; }
 .terms-widget:hover .terms-arrow{ transform:translateX(4px); }
 @keyframes floatIcon{ 0%,100%{transform:translateY(0)} 50%{transform:translateY(-3px)} }
 @keyframes termsShine{ 0%{left:-120%} 100%{left:150%} }
+.ow-ck-policy{ margin:14px 0 12px;padding:14px;border:1px solid #e2e8f0;border-radius:14px;background:#f8fafc;text-align:left; }
+.ow-ck-policy-summary strong{ display:block;font-size:13px;color:#0f172a;margin-bottom:6px; }
+.ow-ck-policy-item{ padding:8px 0;border-top:1px dashed #e2e8f0; }
+.ow-ck-policy-name{ display:block;font-size:12px;font-weight:700;color:#334155;margin-bottom:4px; }
+.ow-ck-policy-item dl{ display:grid;grid-template-columns:1fr auto;gap:2px 12px;margin:0;font-size:12px;color:#475569; }
+.ow-ck-policy-item dt{ font-weight:500; } .ow-ck-policy-item dd{ margin:0;text-align:right;color:#0f172a; }
+.ow-ck-policy-warn{ margin-top:10px;padding:10px 12px;border-radius:10px;background:#fff7ed;border:1px solid #fed7aa; }
+.ow-ck-policy-warn p{ margin:0 0 6px;font-size:12px;line-height:1.55;color:#7c2d12; }
+.ow-ck-policy-warn p:last-child{ margin-bottom:0; }
+.ow-ck-policy-accept{ display:flex;gap:10px;align-items:flex-start;margin-top:12px;font-size:12px;line-height:1.55;color:#334155;cursor:pointer; }
+.ow-ck-policy-accept input{ margin-top:3px;width:18px;height:18px;flex:0 0 18px;accent-color:#2563eb; }
+.ow-ck-policy-accept a{ color:#2563eb;font-weight:600;text-decoration:underline; }
+.ow-ck-policy-missing{ border-color:#dc2626;box-shadow:0 0 0 3px rgba(220,38,38,.15); }
 /* Desktop: center the terms widget */
 .ow-terms-wrap{ display:flex;justify-content:center;margin-top:16px; }
 @media(max-width:767px){ .ow-terms-wrap{ display:none !important; } }
@@ -1746,6 +1759,51 @@ footer{ display:none !important; }
         </div>
       </div>
 
+      {% if acceptance_text is defined %}
+      {# The disclosure and the box live next to the Pay button, not in the
+         long T&C page. The box is never pre-checked; the server refuses a
+         checkout without it (policy_terms.require). #}
+      <div class="ow-ck-policy" id="owPolicyBlock">
+        {% if spectacle_summary %}
+        <div class="ow-ck-policy-summary">
+          <strong>Your customized spectacles</strong>
+          {% for sp in spectacle_summary %}
+          <div class="ow-ck-policy-item">
+            <span class="ow-ck-policy-name">{{ sp.product_name }}{% if sp.quantity > 1 %} &times;{{ sp.quantity }}{% endif %}</span>
+            <dl>
+              <dt>Frame</dt><dd>{% if is_india %}Rs {{ sp.frame|int }}{% else %}&euro;{{ '%.2f'|format(sp.frame) }}{% endif %}</dd>
+              <dt>Prescription lens / customization</dt><dd>{% if sp.customized %}{% if is_india %}Rs {{ sp.lens|int }}{% else %}&euro;{{ '%.2f'|format(sp.lens) }}{% endif %}{% if sp.lens_label %} <small>({{ sp.lens_label }})</small>{% endif %}{% else %}None (frame only){% endif %}</dd>
+              <dt>Other options</dt><dd>{% if sp.others %}{% for name, price in sp.others %}{{ name }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}None{% endif %}</dd>
+              <dt>Total</dt><dd><strong>{% if is_india %}Rs {{ sp.total|int }}{% else %}&euro;{{ '%.2f'|format(sp.total) }}{% endif %}</strong></dd>
+            </dl>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+        <div class="ow-ck-policy-warn" role="note">
+          {% if policy_is_international %}
+          <p><strong>International order &mdash; non-returnable and non-refundable.</strong> Orders on optiwar.com are exported from India and cannot be returned or refunded once placed. Please check every frame, prescription and lens selection now.</p>
+          {% else %}
+          {% if disclosures.lens_deduction_shown %}
+          <p><strong>Customized prescription lenses:</strong> Optiwar does not offer change-of-mind returns. If a discretionary return of prescription spectacles is approved, up to {{ lens_deduction_cap_percent }}% of the relevant returned spectacle value may be deducted for the customized lenses after inspection.</p>
+          {% else %}
+          <p><strong>No change-of-mind returns.</strong> Correctly supplied products are returnable only with Optiwar's written authorization, subject to inspection.</p>
+          {% endif %}
+          <p>Return or reverse-pickup charges are payable by the customer unless Optiwar confirms otherwise in writing.</p>
+          {% endif %}
+          {% if disclosures.contact_lens_hygiene_shown %}
+          <p><strong>Contact lenses:</strong> opened, worn, unsealed or tampered packs are hygiene-sensitive and cannot be returned. Please verify brand, power, cylinder, axis, ADD, BC and quantity before paying.</p>
+          {% endif %}
+        </div>
+        <label class="ow-ck-policy-accept" for="owTermsAccepted">
+          <input type="checkbox" id="owTermsAccepted" name="{{ terms_field }}" value="1" required>
+          <span>{{ acceptance_text|replace("Terms & Conditions", '<a href="' ~ terms_url ~ '" target="_blank" rel="noopener">Terms &amp; Conditions</a>')|replace("Returns, Replacements & Limited Warranty Policy", '<a href="' ~ returns_url ~ '" target="_blank" rel="noopener">Returns, Replacements &amp; Limited Warranty Policy</a>')|safe }}</span>
+        </label>
+        <input type="hidden" name="{{ terms_version_field }}" value="{{ returns_policy_version }}">
+        <input type="hidden" name="terms_version" value="{{ terms_version }}">
+      </div>
+      {% endif %}
+
       <button type="submit" class="ow-ck-pay-btn" id="owPayBtn">
         <span class="ow-ck-btn-text">Pay {% if is_india %}Rs {{ grand_total|int }}{% else %}&euro;{{ '%.2f'|format(grand_total_eur|default(grand_total)) }}{% endif %}</span>
         <span class="ow-ck-spinner">
@@ -1989,8 +2047,18 @@ function owValidateForm() {
     if (el && !el.value.trim()) { el.classList.add('ow-ck-field-missing'); valid = false; }
   });
   if (!valid) owShowToast('Please fill all required fields');
+  var terms = document.getElementById('owTermsAccepted');
+  if (valid && terms && !terms.checked) {
+    document.getElementById('owPolicyBlock').classList.add('ow-ck-policy-missing');
+    owShowToast('Please accept the Terms & Conditions and Returns Policy to continue');
+    terms.focus();
+    valid = false;
+  }
   return valid;
 }
+document.getElementById('owTermsAccepted') && document.getElementById('owTermsAccepted').addEventListener('change', function() {
+  document.getElementById('owPolicyBlock').classList.remove('ow-ck-policy-missing');
+});
 function owClearMissing() {
   document.querySelectorAll('.ow-ck-field-missing').forEach(function(el) { el.classList.remove('ow-ck-field-missing'); });
 }
