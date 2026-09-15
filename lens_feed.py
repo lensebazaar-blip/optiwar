@@ -289,6 +289,35 @@ def lens_details(row):
     return out
 
 
+# Google's contact-lens policy: the category may not be offered in South Korea.
+# Merchant Center's target list decides where a feed is served; this is the
+# feed's own statement of the one country a lens offer must never reach, for
+# the market gate and the tests to read.
+EXCLUDED_COUNTRIES = ("KR",)
+
+
+def lens_ships_to(country):
+    return _text(country).upper() not in EXCLUDED_COUNTRIES
+
+
+def lens_identifiers(row):
+    """``(gtin, mpn)`` the feed may send; "" for each it may not.
+
+    A contact-lens GTIN is a per-carton identifier, so the one we hold is
+    only meaningful with the power it was read from: without
+    ``gtin_reference_power`` it is withheld. The MPN is the manufacturer's,
+    never our ``product_code``, and never the same text as the GTIN.
+    """
+    gtin = _text(row.get("gtin"))
+    if gtin and not _text(row.get("gtin_reference_power")):
+        gtin = ""
+    mpn = _text(row.get("manufacturer_mpn"))
+    if mpn and mpn.upper() in (_text(row.get("product_code")).upper(),
+                               gtin.upper()):
+        mpn = ""
+    return gtin, mpn
+
+
 def lens_offer(row, base, today=None):
     """One offer as ordered ``(tag, value)`` pairs, or ``None`` if not live.
 
@@ -323,7 +352,7 @@ def lens_offer(row, base, today=None):
         fields.append(("g:sale_price", "%s EUR" % sale))
     fields.append(("g:condition", "new"))
     fields.append(("g:brand", _text(row.get("brand"))))
-    gtin, mpn = _text(row.get("gtin")), _text(row.get("manufacturer_mpn"))
+    gtin, mpn = lens_identifiers(row)
     if gtin:
         fields.append(("g:gtin", gtin))
     if mpn:

@@ -312,6 +312,13 @@ def _load_upload(get_db, ops_auth, call_model, site):
     real("lens_order")
     real("lens_rx")
     docs = real("lens_documents")
+    # The Ops import console shares this module's register(); its imports.
+    for name in ("lens_minimums", "lens_identity", "lens_rules",
+                 "lens_import_schema", "contact_lens", "cl_import",
+                 "embed_helper", "image_pipeline", "lens_import_write",
+                 "lens_feed", "lens_seo", "lens_view", "lens_preview",
+                 "lens_import"):
+        real(name)
 
     def _lens_choices(cursor, lens):
         return pkg.lens_order.selectable(VARIANTS)

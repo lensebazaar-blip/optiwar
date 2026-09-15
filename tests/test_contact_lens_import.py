@@ -433,18 +433,23 @@ class _Recorder(object):
 
 
 class ImporterContractTest(unittest.TestCase):
-    """Properties of the writing script that must not quietly change."""
+    """Properties of the writing script and the writer module it shares
+    with the Ops console (lens_import_write) that must not quietly change."""
 
     def setUp(self):
         path = os.path.join(REPO, "scripts", "import_contact_lenses.py")
         with open(path, encoding="utf-8") as fh:
             self.src = fh.read()
+        with open(os.path.join(REPO, "lens_import_write.py"),
+                  encoding="utf-8") as fh:
+            self.writer = fh.read()
 
     def test_it_never_deletes(self):
         # A combination a manufacturer withdraws becomes available = 0, because
         # an order line that pointed at it must stay readable.
-        self.assertNotIn("DELETE FROM", self.src.upper())
-        self.assertNotIn("TRUNCATE", self.src.upper())
+        for src in (self.src, self.writer):
+            self.assertNotIn("DELETE FROM", src.upper())
+            self.assertNotIn("TRUNCATE", src.upper())
 
     def test_it_writes_only_on_apply(self):
         self.assertIn("--apply", self.src)
@@ -453,12 +458,13 @@ class ImporterContractTest(unittest.TestCase):
     def test_it_does_not_release_what_it_imports(self):
         # merchant_enabled must not appear in the upsert: an import puts a lens
         # in the database, and a person puts it on a surface.
-        upsert = self.src.split("def upsert_profile", 1)[1].split("def ", 1)[0]
+        upsert = self.writer.split("def upsert_profile", 1)[1].split("def ", 1)[0]
         self.assertNotIn("\"merchant_enabled\"", upsert)
 
     def test_it_loads_the_vertical_off_and_india_off(self):
-        self.assertIn("\"sell_on_com\": 1", self.src)
-        self.assertIn("\"sell_on_in\": 0", self.src)
+        self.assertIn("\"sell_on_com\": 1", self.writer)
+        self.assertIn("\"sell_on_in\": 0", self.writer)
+        self.assertIn("lens_import_write.SELL_ON", self.src)
 
     def test_the_rupee_price_is_derived_from_euro_at_a_stated_rate(self):
         # EUR is what the supplier quotes; INR is derived once, at a rate the

@@ -48,6 +48,7 @@ LIVE = {
     "brand": "CooperVision",
     "manufacturer": "CooperVision",
     "gtin": "5060138341234",
+    "gtin_reference_power": "-3.00 / -0.75 x 180",
     "manufacturer_mpn": "MDT-30",
     "modality": "DAILY",
     "lens_type": "TORIC",

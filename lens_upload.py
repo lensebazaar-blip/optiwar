@@ -23,7 +23,8 @@ import time
 from flask import (current_app, jsonify, request, send_file, session,
                    url_for)
 
-from . import ai_client, dev_defects, lens_documents, lens_order, lens_rx
+from . import (ai_client, dev_defects, lens_documents, lens_import,
+               lens_order, lens_preview, lens_rx)
 from .catalogue import SITE_COM, SITE_IN
 from .db import get_db
 
@@ -348,3 +349,139 @@ def register(bp):
         db.commit()
         row = lens_documents.by_id(cursor, document_id)
         return jsonify({"ok": True, "ket": lens_documents.ket_reference(row)})
+
+
+    # ------------------------------------------------------------------
+    # Ops lens import console (lens_import.py). Every route is behind the
+    # same gate as the document routes above; every write names a human.
+    # ------------------------------------------------------------------
+
+    def _import_actor(body):
+        return (body.get("by") or _actor() or "").strip()[:80]
+
+    def _import_refused(exc, status=400):
+        return jsonify({"ok": False, "code": exc.code, "message": exc.message,
+                        "detail": exc.detail}), status
+
+    @bp.route("/api/ops/lenses/import/parse", methods=["POST"])
+    def lens_import_parse():
+        if not _ops_auth():
+            return jsonify({"error": "unauthorized"}), 401
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"ok": False, "code": "payload_shape",
+                            "message": "send a JSON object"}), 400
+        db = get_db()
+        cursor = db.cursor()
+        try:
+            staged = lens_import.stage(cursor, payload, actor=_actor())
+        except lens_import.ImportRefused as exc:
+            return _import_refused(exc)
+        db.commit()
+        return jsonify({"ok": staged["status"] == lens_import.STAGED,
+                        "staging": staged})
+
+    @bp.route("/api/ops/lenses/import/review", methods=["POST"])
+    def lens_import_review():
+        if not _ops_auth():
+            return jsonify({"error": "unauthorized"}), 401
+        body = request.get_json(silent=True) or {}
+
+        def ask(messages):
+            resp = ai_client.call_model(
+                workload="openai_vision", messages=messages, max_tokens=900,
+                temperature=0, endpoint="/api/ops/lenses/import/review")
+            try:
+                return resp.choices[0].message.content or ""
+            except (AttributeError, IndexError):
+                return ""
+
+        db = get_db()
+        cursor = db.cursor()
+        try:
+            result = lens_import.review(cursor, body.get("staging_id"), ask,
+                                        actor=_actor())
+        except lens_import.ImportRefused as exc:
+            return _import_refused(exc, 404)
+        except ai_client.ModelError as exc:
+            return jsonify({"ok": False, "code": "review_unavailable",
+                            "message": str(exc)}), 502
+        db.commit()
+        return jsonify({"ok": True, "review": result})
+
+    @bp.route("/api/ops/lenses/import/preview/<int:staging_id>", methods=["GET"])
+    def lens_import_preview(staging_id):
+        if not _ops_auth():
+            return jsonify({"error": "unauthorized"}), 401
+        db = get_db()
+        cursor = db.cursor()
+        try:
+            link = lens_import.preview_link(
+                cursor, staging_id, lens_preview.secret(os.environ),
+                actor=_actor(), base=request.url_root.rstrip("/"))
+        except lens_import.ImportRefused as exc:
+            return _import_refused(exc, 404 if exc.code == "not_found" else 409)
+        db.commit()
+        return jsonify({"ok": True, "preview": link})
+
+    @bp.route("/api/ops/lenses/import/confirm", methods=["POST"])
+    def lens_import_confirm():
+        if not _ops_auth():
+            return jsonify({"error": "unauthorized"}), 401
+        body = request.get_json(silent=True) or {}
+        if body.get("confirm") is not True:
+            return jsonify({"ok": False, "code": "confirm_required",
+                            "message": "send confirm: true"}), 400
+        rate = body.get("eur_inr_rate")
+        try:
+            rate = float(rate) if rate is not None else None
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "code": "rate_invalid",
+                            "message": "eur_inr_rate must be a number"}), 400
+        try:
+            result = lens_import.confirm(get_db(), body.get("staging_id"),
+                                         _import_actor(body), rate=rate)
+        except lens_import.ImportRefused as exc:
+            return _import_refused(exc, 409 if exc.code != "not_found" else 404)
+        return jsonify({"ok": True, "result": result})
+
+    @bp.route("/api/ops/lenses/import/withdraw", methods=["POST"])
+    def lens_import_withdraw():
+        if not _ops_auth():
+            return jsonify({"error": "unauthorized"}), 401
+        body = request.get_json(silent=True) or {}
+        db = get_db()
+        try:
+            result = lens_import.withdraw(db.cursor(), body.get("product_id"),
+                                          _import_actor(body))
+        except lens_import.ImportRefused as exc:
+            db.rollback()
+            return _import_refused(exc, 404 if exc.code == "not_found" else 400)
+        db.commit()
+        return jsonify({"ok": True, "result": result})
+
+    @bp.route("/api/ops/lenses/release", methods=["POST"])
+    def lens_import_release():
+        if not _ops_auth():
+            return jsonify({"error": "unauthorized"}), 401
+        body = request.get_json(silent=True) or {}
+        db = get_db()
+        try:
+            result = lens_import.release(db.cursor(), body.get("product_id"),
+                                         _import_actor(body))
+        except lens_import.ImportRefused as exc:
+            db.commit()  # the refusal is logged; the product is untouched
+            return _import_refused(exc, 404 if exc.code == "not_found" else 409)
+        db.commit()
+        return jsonify({"ok": True, "result": result})
+
+    @bp.route("/api/ops/lenses/import/log", methods=["GET"])
+    def lens_import_log():
+        if not _ops_auth():
+            return jsonify({"error": "unauthorized"}), 401
+        cursor = get_db().cursor()
+        rows = lens_import.audit_log(
+            cursor, product_id=request.args.get("product_id", type=int),
+            staging_id=request.args.get("staging_id", type=int),
+            limit=request.args.get("limit", default=200, type=int))
+        return jsonify({"ok": True, "log": rows})
