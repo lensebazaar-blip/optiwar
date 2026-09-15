@@ -29,8 +29,10 @@ co = _load("customer_orders")
 WHEN = datetime.datetime(2026, 9, 8, 13, 6)
 
 
-def line(order_id, status, paid, total=100, qty=1, product="Frame A"):
+def line(order_id, status, paid, total=100, qty=1, product="Frame A",
+         test=False):
     return {
+        "is_test_order": 1 if test else 0,
         "order_id": order_id, "order_status_name": status,
         "payment_date": WHEN if paid else None, "order_total": total,
         "order_quantity": qty, "product_name": product,
@@ -64,6 +66,25 @@ class CustomerOrdersTests(unittest.TestCase):
             self.assertNotIn("Pay on delivery", fh.read())
         with open(os.path.join(REPO, "paid_orders.py")) as fh:
             self.assertNotIn("COD", fh.read())
+
+    def test_a_test_purchase_is_not_a_customers_order(self):
+        """The screenshot: six Rs 36 /test-checkout orders shown CONFIRMED.
+
+        /test-checkout writes TXN_SUCCESS + Processed with no money, so both
+        signals ``payment_state`` trusts say paid; only the test flag knows."""
+        rows = [line("ZXMU-3603", "Processed", True, total=46, test=True),
+                line("SDNF-5939", "Processed", False, total=36, test=True),
+                line("KJNPJB-286809", "Complete", True, total=999)]
+        ids = [o["order_id"] for o in co.customer_orders(rows)]
+        self.assertEqual(ids, ["KJNPJB-286809"])
+
+    def test_sql_flags_test_orders_by_column_and_by_legacy_dump(self):
+        sql = co.ORDER_LINES_SQL
+        self.assertIn("o.is_test = 1", sql)
+        self.assertIn("t.payment_dump LIKE '%%TEST_BUY%%'", sql)
+        self.assertIn("AS is_test_order", sql)
+        self.assertIn("AND payment_dump NOT LIKE '%%TEST_BUY%%'", sql)
+        self.assertNotIn("'%TEST_BUY%'", sql.replace("%%", ""))
 
     def test_order_ops_moved_on_is_shown_without_a_payment_row(self):
         (order,) = co.customer_orders([line("X-3", "Shipped", False)])
