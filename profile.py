@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, sessio
 from .db import get_db
 from .auth import login_required
 from .rx_powers import normalize_rows
+from .customer_orders import ORDER_LINES_SQL, customer_orders
 
 bp = Blueprint('profile', __name__, url_prefix='/profile')
 
@@ -36,56 +37,27 @@ def profile_page():
         )
         addresses = cursor.fetchall()
 
-    # Get recent orders (with payment, prescription, product details)
+    # Order lines (latest status + payment proof per order); only paid orders
+    # survive customer_orders(). LIMIT counts lines, not orders, so it is wide
+    # enough that unpaid attempts do not push real orders off the page.
     orders = []
-    order_query = (
-        "SELECT o.order_id, o.order_quantity, o.order_total, os.order_status_name, o.date_created, "
-        "p.product_name, p.product_image, p.product_special_price, p.product_code, p.product_category, "
-        "rc.right_eye, rc.left_eye, rc.recommendations, "
-        "rc.addon_1_name, rc.addon_1_price, rc.addon_2_name, rc.addon_2_price, "
-        "rc.addon_3_name, rc.addon_3_price, "
-        "pc.status as payment_status, pc.date_created as payment_date "
-        "FROM orders o "
-        "JOIN order_status os ON o.order_id = os.order_id "
-        "JOIN products p ON o.product_id = p.product_id "
-        "LEFT JOIN rx_collector rc ON rc.rx_id = o.rx_id "
-        "LEFT JOIN payment_collector pc ON pc.order_id = o.order_id "
-    )
     if user_id:
         cursor.execute(
-            order_query + "WHERE o.customer_id = %s ORDER BY o.date_created DESC LIMIT 30",
+            ORDER_LINES_SQL + "WHERE o.customer_id = %s ORDER BY o.date_created DESC LIMIT 300",
             (user_id,)
         )
         orders = cursor.fetchall()
     if not orders and user_email:
         cursor.execute(
-            order_query +
+            ORDER_LINES_SQL +
             "JOIN customers c ON o.customer_id = c.customer_id "
-            "WHERE c.customer_email = %s ORDER BY o.date_created DESC LIMIT 30",
+            "WHERE c.customer_email = %s ORDER BY o.date_created DESC LIMIT 300",
             (user_email,)
         )
         orders = cursor.fetchall()
 
     normalize_rows(orders)
-
-    # Group orders by order_id for display
-    from collections import OrderedDict
-    grouped_orders = OrderedDict()
-    for o in orders:
-        oid = o['order_id']
-        if oid not in grouped_orders:
-            grouped_orders[oid] = {
-                'order_id': oid,
-                'date_created': o['date_created'],
-                'order_status_name': o['order_status_name'],
-                'payment_status': o.get('payment_status'),
-                'payment_date': o.get('payment_date'),
-                'items': [],
-                'grand_total': 0,
-            }
-        grouped_orders[oid]['items'].append(o)
-        grouped_orders[oid]['grand_total'] += (o['order_total'] or 0)
-    grouped_orders = list(grouped_orders.values())
+    grouped_orders = customer_orders(orders)[:30]
 
     # Get face measurement data
     face_data = None
