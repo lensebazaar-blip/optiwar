@@ -16,6 +16,7 @@ from itsdangerous import URLSafeSerializer, BadSignature
 from openai import OpenAI
 from . import acr
 from . import catalogue
+from . import chat_attachments
 from . import dev_defects
 from . import lens_config
 from . import lens_prompt
@@ -114,6 +115,13 @@ def init_chat_gateway(app):
         acr.ensure_schema(_get_db)
     except Exception as e:  # noqa: BLE001
         app.logger.warning(f"[ACR] schema ensure skipped: {e}")
+    try:
+        _db = _get_db()
+        chat_attachments.ensure_schema(_db.cursor())
+        _db.commit()
+        _db.close()
+    except Exception as e:  # noqa: BLE001
+        app.logger.warning(f"[ChatAttach] schema ensure skipped: {e}")
 
 
 # ─── DB Helpers ───
@@ -1090,6 +1098,168 @@ Full Chat Transcript:
         return False
 
 
+def _attachments_dir():
+    path = os.path.join(os.path.dirname(current_app.root_path), "secure_uploads", "chat")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _read_attachment_bytes(row):
+    with open(os.path.join(_attachments_dir(), row['stored_name']), "rb") as fh:
+        return fh.read()
+
+
+def _pending_attachments(db, session_id):
+    """``[(row, bytes), ...]`` for the session's photos KET has not seen, oldest first."""
+    cur = db.cursor()
+    cur.execute(
+        """SELECT id, filename, mime_type, byte_size, stored_name FROM chat_attachments
+           WHERE session_id = %s AND ket_status = %s ORDER BY id ASC""",
+        (session_id, chat_attachments.KET_PENDING))
+    out = []
+    for row in cur.fetchall():
+        try:
+            out.append((row, _read_attachment_bytes(row)))
+        except OSError as e:
+            current_app.logger.error(f"[ChatAttach] unreadable id={row['id']}: {e}")
+    return out
+
+
+def _forward_attachment_to_ket(db, row, data, ticket_uid):
+    """Option B: the ticket already exists, so the photo goes to its attachments."""
+    from .crm import ket_attachment_upload
+    ok, detail = ket_attachment_upload(ticket_uid, row['filename'], row['mime_type'], data)
+    cur = db.cursor()
+    if ok:
+        cur.execute(
+            "UPDATE chat_attachments SET ket_status = %s, ket_via = 'attachments', "
+            "ket_ticket_uid = %s, ket_error = NULL, ket_sent_at = NOW() WHERE id = %s",
+            (chat_attachments.KET_SENT, ticket_uid, row['id']))
+    else:
+        cur.execute(
+            "UPDATE chat_attachments SET ket_status = %s, ket_via = 'attachments', "
+            "ket_ticket_uid = %s, ket_error = %s WHERE id = %s",
+            (chat_attachments.KET_FAILED, ticket_uid, str(detail)[:255], row['id']))
+    db.commit()
+    return ok
+
+
+@bp.route('/attachment', methods=['POST'])
+def chat_attachment_upload():
+    """A photo from the customer: validated from its bytes, stored outside the
+    web root, written into the transcript, and forwarded to KET now if the
+    conversation is already a ticket (otherwise on the ticket's create call).
+    Owner-gated like the transcript: only the browser that started the session."""
+    session_id = (request.form.get('session_id') or '').strip()
+    if not session_id:
+        return jsonify({'error': {'code': 'SESSION_REQUIRED', 'message': 'session_id required'}}), 400
+    if not _is_chat_owner(session_id):
+        return jsonify({'error': {'code': 'FORBIDDEN', 'message': 'forbidden'}}), 403
+    upload = request.files.get(chat_attachments.FIELD)
+    if upload is None:
+        return jsonify({'error': {'code': 'ATTACHMENT_MISSING',
+                                  'message': 'Choose a photo to attach.'}}), 400
+    data = upload.read(chat_attachments.MAX_BYTES + 1)
+    try:
+        info = chat_attachments.validate(data, upload.filename)
+    except chat_attachments.Rejected as e:
+        return jsonify({'error': {'code': e.code, 'message': e.message}}), 400
+
+    db = _get_db()
+    cur = db.cursor()
+    cur.execute(
+        "SELECT session_id, status, ket_ticket_uid FROM chat_sessions WHERE session_id = %s",
+        (session_id,))
+    session = cur.fetchone()
+    if not session:
+        db.close()
+        return jsonify({'error': {'code': 'SESSION_NOT_FOUND', 'message': 'session not found'}}), 404
+    if session['status'] == 'archived':
+        db.close()
+        return jsonify({'error': {'code': 'SESSION_ARCHIVED',
+                                  'message': 'This conversation has been archived.'}}), 409
+    cur.execute("SELECT COUNT(*) AS n FROM chat_attachments WHERE session_id = %s", (session_id,))
+    if (cur.fetchone() or {}).get('n', 0) >= chat_attachments.MAX_PER_SESSION:
+        db.close()
+        return jsonify({'error': {'code': 'ATTACHMENT_LIMIT',
+                                  'message': 'You can attach up to %d photos in one conversation.'
+                                             % chat_attachments.MAX_PER_SESSION}}), 400
+
+    message_id = _insert_message(
+        db, session_id, 'customer', 'user', chat_attachments.transcript_line(info['filename']),
+        metadata={'attachment': True})
+    cur.execute(
+        """INSERT INTO chat_attachments
+               (session_id, message_id, filename, mime_type, byte_size, sha256, stored_name, ket_status)
+           VALUES (%s, %s, %s, %s, %s, %s, '', %s)""",
+        (session_id, message_id, info['filename'], info['mime_type'], info['byte_size'],
+         info['sha256'], chat_attachments.KET_PENDING))
+    attachment_id = cur.lastrowid
+    name = chat_attachments.stored_name(attachment_id, info['kind'])
+    try:
+        with open(os.path.join(_attachments_dir(), name), "wb") as fh:
+            fh.write(data)
+    except OSError as e:
+        # The connection autocommits, so undo the two rows by hand: a transcript
+        # marker for a photo that was never kept would mislead agent and AI.
+        cur.execute("DELETE FROM chat_attachments WHERE id = %s", (attachment_id,))
+        cur.execute("DELETE FROM chat_messages WHERE id = %s", (message_id,))
+        db.commit()
+        db.close()
+        current_app.logger.error(f"[ChatAttach] store failed session={session_id}: {e}")
+        return jsonify({'error': {'code': 'ATTACHMENT_STORE',
+                                  'message': 'That photo could not be saved. Please try again.'}}), 503
+    cur.execute("UPDATE chat_attachments SET stored_name = %s WHERE id = %s", (name, attachment_id))
+    cur.execute("UPDATE chat_messages SET metadata = %s WHERE id = %s",
+                (json.dumps({'attachment_id': attachment_id}), message_id))
+    cur.execute("UPDATE chat_sessions SET last_activity = NOW() WHERE session_id = %s", (session_id,))
+    db.commit()
+    current_app.logger.info(
+        f"[ChatAttach] stored id={attachment_id} session={session_id} kind={info['kind']} "
+        f"bytes={info['byte_size']}")
+
+    ket_status = chat_attachments.KET_PENDING
+    if session.get('ket_ticket_uid'):
+        row = {'id': attachment_id, 'filename': info['filename'], 'mime_type': info['mime_type']}
+        ok = _forward_attachment_to_ket(db, row, data, session['ket_ticket_uid'])
+        ket_status = chat_attachments.KET_SENT if ok else chat_attachments.KET_FAILED
+    db.close()
+    return jsonify({
+        'session_id': session_id,
+        'attachment_id': attachment_id,
+        'message_id': message_id,
+        'filename': info['filename'],
+        'mime_type': info['mime_type'],
+        'byte_size': info['byte_size'],
+        'ket_status': ket_status,
+        'url': '/api/chat/attachment/%d' % attachment_id,
+    })
+
+
+@bp.route('/attachment/<int:attachment_id>', methods=['GET'])
+def chat_attachment_get(attachment_id):
+    """The customer's own photo back to the widget; owner-gated by the session cookie."""
+    db = _get_db()
+    cur = db.cursor()
+    cur.execute("SELECT session_id, mime_type, stored_name FROM chat_attachments WHERE id = %s",
+                (attachment_id,))
+    row = cur.fetchone()
+    db.close()
+    if not row or not row['stored_name']:
+        return jsonify({'error': 'not found'}), 404
+    if not _is_chat_owner(row['session_id']):
+        return jsonify({'error': 'forbidden'}), 403
+    try:
+        data = _read_attachment_bytes(row)
+    except OSError:
+        return jsonify({'error': 'not found'}), 404
+    resp = Response(data, mimetype=row['mime_type'])
+    resp.headers['Cache-Control'] = 'private, max-age=600'
+    resp.headers['X-Content-Type-Options'] = 'nosniff'
+    resp.headers['Content-Disposition'] = 'inline'
+    return resp
+
+
 def _forward_ticket_from_chat(db, session_id, session, page_url):
     """
     Create ticket from AI chat — mirrors contact form flow.
@@ -1127,11 +1297,20 @@ def _forward_ticket_from_chat(db, session_id, session, page_url):
     except Exception as e:
         current_app.logger.error(f"[Chat Ticket] DB insert failed: {e}")
 
-    # STEP 2: Forward to KET (with transcript + session_id)
+    # STEP 2: Forward to KET (with transcript + session_id + the photos the
+    # customer attached so far, on the create call — the only path KET's
+    # first-pass auto-resolve sees). _forward_to_ket returns a dict; the
+    # customer is told the human ref, the UUID is kept for later photos.
     ket_ticket_id = None
+    all_pending = _pending_attachments(db, session_id)
+    # Only the first VISION_ANALYSED photos ride on the create call (those are
+    # the ones KET describes); the rest follow by Option B so the JSON body
+    # stays bounded (4 x 8 MB base64 ~ 43 MB, not 8 x).
+    pending = all_pending[:chat_attachments.VISION_ANALYSED]
+    overflow = all_pending[chat_attachments.VISION_ANALYSED:]
     try:
-        from .crm import _forward_to_ket
-        ket_ticket_id = _forward_to_ket(
+        from .crm import _forward_to_ket, persist_ticket_mapping
+        ket = _forward_to_ket(
             name=contact_name,
             email=contact_email,
             phone='',
@@ -1139,12 +1318,45 @@ def _forward_ticket_from_chat(db, session_id, session, page_url):
             description=f"[AI-Assisted Ticket]\n\n{summary}",
             source="ai_chat_handover",
             chat_transcript=json.dumps([{'role': m['role'], 'content': m['content']} for m in history]),
-            session_id=session_id
+            session_id=session_id,
+            images=chat_attachments.ket_images(
+                [(row, data) for row, data in pending]) or None,
         )
-        if ket_ticket_id:
-            current_app.logger.info(f"[Chat Ticket] KET ticket {ket_ticket_id} created")
+        if ket:
+            ket_ticket_id = ket.get('ticket_ref') or ket.get('ticket_id') or ket.get('ticket_uid')
+            ket_uid = ket.get('ticket_uid') or ''
+            current_app.logger.info(
+                f"[Chat Ticket] KET ticket {ket_ticket_id} created uid={ket_uid or '-'} "
+                f"images={len(pending)}")
+            cur = db.cursor()
+            cur.execute(
+                "UPDATE chat_sessions SET ket_ticket_uid = %s, ket_ticket_ref = %s "
+                "WHERE session_id = %s",
+                (ket_uid or None, str(ket_ticket_id)[:191], session_id))
+            if pending:
+                cur.execute(
+                    "UPDATE chat_attachments SET ket_status = %s, ket_via = 'create', "
+                    "ket_ticket_uid = %s, ket_sent_at = NOW() WHERE id IN (%s)"
+                    % ("%s", "%s", ",".join(["%s"] * len(pending))),
+                    [chat_attachments.KET_SENT, ket_uid or None]
+                    + [row['id'] for row, _ in pending])
+            db.commit()
+            for row, data in overflow:
+                if ket_uid:
+                    _forward_attachment_to_ket(db, row, data, ket_uid)
+            if local_ticket_id:
+                persist_ticket_mapping(local_ticket_id, ket.get('ticket_id') or ket_ticket_id,
+                                       source_system='ai_chat', ket_uid=ket_uid,
+                                       ket_ref=ket.get('ticket_ref') or '')
         else:
             current_app.logger.warning("[Chat Ticket] KET forwarding returned None")
+            if all_pending:
+                cur = db.cursor()
+                cur.execute(
+                    "UPDATE chat_attachments SET ket_status = %s, ket_error = 'create failed' "
+                    "WHERE id IN (%s)" % ("%s", ",".join(["%s"] * len(all_pending))),
+                    [chat_attachments.KET_FAILED] + [row['id'] for row, _ in all_pending])
+                db.commit()
     except Exception as e:
         current_app.logger.error(f"[Chat Ticket] KET forwarding failed: {e}")
 
@@ -1916,6 +2128,17 @@ def chat_message():
     return jsonify(resp)
 
 
+def _attachment_id_of(metadata):
+    if not metadata:
+        return None
+    try:
+        meta = json.loads(metadata) if isinstance(metadata, str) else metadata
+        value = int(meta.get('attachment_id') or 0)
+    except (ValueError, TypeError, AttributeError):
+        return None
+    return value or None
+
+
 @bp.route('/messages/<session_id>', methods=['GET'])
 def chat_messages(session_id):
     """Get messages for a session (polling endpoint).
@@ -1958,14 +2181,19 @@ def chat_messages(session_id):
     # Serialize
     result = []
     for m in messages:
-        result.append({
+        item = {
             'id': m['id'],
             'source': m['source'],
             'role': m['role'],
             'content': m['content'],
             'status': m['status'],
             'created_at': m['created_at'].isoformat() if m['created_at'] else None,
-        })
+        }
+        attachment_id = _attachment_id_of(m.get('metadata'))
+        if attachment_id:
+            item['attachment_id'] = attachment_id
+            item['attachment_url'] = '/api/chat/attachment/%d' % attachment_id
+        result.append(item)
 
     return jsonify({
         'session_id': session_id,

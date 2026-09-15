@@ -71,6 +71,12 @@
 .ow-chat-input input:focus{border-color:#1F93FF}
 .ow-chat-input button{width:36px;height:36px;border-radius:50%;border:none;background:#1F93FF;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .ow-chat-input button:disabled{background:#ccc;cursor:not-allowed}
+.ow-chat-input .ow-attach{background:#f1f3f5;color:#555}
+.ow-chat-input .ow-attach:hover{background:#e2e6ea}
+.ow-chat-input input[type=file]{display:none}
+.ow-msg-photo{display:block;max-width:220px;max-height:220px;border-radius:12px;margin-bottom:4px;object-fit:cover}
+.ow-msg-photo-name{font-size:12px;opacity:.8}
+.ow-chat-panel.ow-dropping .ow-chat-messages{outline:2px dashed #1F93FF;outline-offset:-8px}
 .ow-unread{position:absolute;top:-4px;right:-4px;width:18px;height:18px;background:#e74c3c;border-radius:50%;font-size:10px;color:#fff;display:none;align-items:center;justify-content:center;font-weight:bold}
 .ow-msg-wrap{display:flex;flex-direction:column;max-width:85%}
 .ow-msg-wrap.ow-wrap-user{align-self:flex-end}
@@ -148,7 +154,7 @@
     <button class="ow-reset-no" id="ow-reset-no">Cancel</button>
   </div>
 </div>
-<div class="ow-chat-input"><input type="text" id="ow-input" placeholder="Type a message..." autocomplete="off"><button id="ow-send" aria-label="Send"><svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg></button></div>
+<div class="ow-chat-input"><input type="file" id="ow-file" accept="image/jpeg,image/png,image/gif,image/webp"><button id="ow-attach" class="ow-attach" type="button" aria-label="Attach a photo" title="Attach a photo (JPEG, PNG, GIF, WebP, up to 8 MB)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button><input type="text" id="ow-input" placeholder="Type a message..." autocomplete="off"><button id="ow-send" aria-label="Send"><svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg></button></div>
 `;
 
   document.body.appendChild(btn);
@@ -234,6 +240,108 @@
   input.onkeydown = function(e) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   };
+
+  // ─── Photo attachments ───
+  // The file goes to Optiwar (/api/chat/attachment), never to KET from here:
+  // the server validates the bytes, keeps the photo with the conversation and
+  // forwards it to the support ticket. Same limits KET applies, checked first
+  // so the customer hears about a 9 MB or HEIC photo before it uploads.
+  var ATTACH_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+  var ATTACH_MAX_BYTES = 8 * 1024 * 1024;
+  var fileInput = document.getElementById('ow-file');
+  var attachBtn = document.getElementById('ow-attach');
+  var attachBusy = false;
+  attachBtn.onclick = function() { if (sessionId && !attachBusy) fileInput.click(); };
+  fileInput.onchange = function() {
+    var f = fileInput.files && fileInput.files[0];
+    fileInput.value = '';
+    if (f) uploadAttachment(f);
+  };
+  ['dragenter', 'dragover'].forEach(function(ev) {
+    panel.addEventListener(ev, function(e) {
+      if (!e.dataTransfer || !sessionId) return;
+      e.preventDefault(); panel.classList.add('ow-dropping');
+    });
+  });
+  ['dragleave', 'drop'].forEach(function(ev) {
+    panel.addEventListener(ev, function(e) {
+      panel.classList.remove('ow-dropping');
+      if (ev === 'drop') {
+        e.preventDefault();
+        var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (f && sessionId) uploadAttachment(f);
+      }
+    });
+  });
+
+  function attachProblem(f) {
+    if (ATTACH_TYPES.indexOf(f.type) < 0) return 'Only JPEG, PNG, GIF or WebP photos can be attached.';
+    if (f.size > ATTACH_MAX_BYTES) return 'That photo is over 8 MB. Please send a smaller one.';
+    if (f.size === 0) return 'That file is empty. Please choose a photo.';
+    return '';
+  }
+
+  function uploadAttachment(f) {
+    var problem = attachProblem(f);
+    if (problem) { renderSystemMsg(problem); return; }
+    attachBusy = true; attachBtn.disabled = true;
+    var localUrl = URL.createObjectURL(f);
+    var pending = renderPhotoMsg('user', localUrl, f.name, new Date().toISOString(), true);
+    var form = new FormData();
+    form.append('session_id', sessionId);
+    form.append('file', f, f.name);
+    fetch(API + '/attachment', { method: 'POST', body: form, credentials: 'same-origin' })
+      .then(function(r) {
+        return r.json().catch(function() { return {}; }).then(function(data) {
+          return { ok: r.ok, status: r.status, data: data };
+        });
+      }).then(function(res) {
+        attachBusy = false; attachBtn.disabled = false;
+        if (!res.ok) {
+          if (pending && pending.parentNode) pending.parentNode.removeChild(pending);
+          var err = res.data && res.data.error;
+          renderSystemMsg((err && err.message) || 'That photo could not be attached. Please try again.');
+          reportDefect('CHAT_ATTACHMENT_HTTP_' + res.status, err && err.code);
+          return;
+        }
+        var d = res.data;
+        pending.classList.remove('ow-msg-pending');
+        messages.push({ source: 'customer', content: '[Photo attached: ' + d.filename + ']',
+                        id: d.message_id, created_at: new Date().toISOString(), attachment_id: d.attachment_id });
+        renderSystemMsg(d.ket_status === 'sent'
+          ? 'Photo added to your support ticket.'
+          : 'Photo attached. Tell me what I\u2019m looking at, or ask for a supervisor and it goes with the ticket.');
+      }).catch(function(e) {
+        attachBusy = false; attachBtn.disabled = false;
+        if (pending && pending.parentNode) pending.parentNode.removeChild(pending);
+        renderSystemMsg('That photo could not be attached. Please check your connection and try again.');
+        reportDefect('CHAT_ATTACHMENT_NETWORK', e && e.message);
+      });
+  }
+
+  function renderPhotoMsg(type, url, name, timestamp, pending) {
+    var wrap = document.createElement('div');
+    wrap.className = 'ow-msg-wrap ow-wrap-' + (type === 'user' ? 'user' : 'ai') + (pending ? ' ow-msg-pending' : '');
+    var div = document.createElement('div');
+    div.className = 'ow-msg ow-msg-' + (type === 'user' ? 'user' : 'ai');
+    var img = document.createElement('img');
+    img.className = 'ow-msg-photo';
+    img.alt = name || 'photo';
+    img.src = url;
+    div.appendChild(img);
+    var cap = document.createElement('div');
+    cap.className = 'ow-msg-photo-name';
+    cap.textContent = name || '';
+    div.appendChild(cap);
+    wrap.appendChild(div);
+    var timeEl = document.createElement('div');
+    timeEl.className = 'ow-msg-time';
+    timeEl.textContent = formatTime(timestamp);
+    wrap.appendChild(timeEl);
+    msgContainer.appendChild(wrap);
+    scrollToBottom();
+    return wrap;
+  }
 
   // Mode buttons
   modeFullBtn.onclick = function() { setMode('full'); };
@@ -488,6 +596,7 @@
           msgContainer.innerHTML = '';
           data.messages.forEach(function(m) {
             var type = m.source === 'customer' ? 'user' : (m.source === 'system' ? 'system' : 'ai');
+            if (m.attachment_url) { renderPhotoMsg(type, m.attachment_url, photoName(m.content), m.created_at, false); return; }
             renderMsgDirect(type, m.content, true, m.created_at);
           });
           scrollToBottom();
@@ -545,6 +654,11 @@
   });
 
   // ─── Render ───
+  function photoName(content) {
+    var m = /^\[Photo attached: (.+)\]$/.exec(content || '');
+    return m ? m[1] : 'photo';
+  }
+
   function renderMsg(type, content) {
     var now = new Date().toISOString();
     messages.push({ source: type === 'user' ? 'customer' : type, content: content, id: Date.now(), created_at: now });

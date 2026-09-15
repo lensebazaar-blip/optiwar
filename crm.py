@@ -198,11 +198,15 @@ def _ket_api_key():
     return os.environ.get('KET_SUPPORT_KEY_OPTIWAR', '')
 
 
-def _forward_to_ket(name, email, phone, subject, description, source="web_form", chat_transcript=None, session_id=None):
+def _forward_to_ket(name, email, phone, subject, description, source="web_form", chat_transcript=None, session_id=None,
+                    images=None):
     """
     Push a contact-form or AI-chat event to KET Support via the new per-site
     push API (X-API-Key auth, POST /api/v1/external/messages).
     Fire-and-forget — never breaks existing flow.
+    ``images`` is KET's ``images[]`` (filename / mime_type / data_base64), built
+    by chat_attachments.ket_images(); sent on the create call so the first-pass
+    auto-resolve sees the photo. Never logged.
     Returns a dict {ticket_id, ticket_ref, ticket_uid} on success, None on failure.
     """
     try:
@@ -233,6 +237,8 @@ def _forward_to_ket(name, email, phone, subject, description, source="web_form",
         }
         if session_id:
             payload["session_id"] = session_id
+        if images:
+            payload["images"] = list(images)
 
         # transcript: accept a JSON string or a list; normalise to [{role,content}]
         if chat_transcript:
@@ -257,9 +263,9 @@ def _forward_to_ket(name, email, phone, subject, description, source="web_form",
                 KET_API_URL,
                 headers={"X-API-Key": api_key, "Content-Type": "application/json"},
                 json=payload,
-                timeout=15,
+                timeout=30 if payload.get("images") else 15,
             )
-            if resp.status_code == 200:
+            if resp.status_code in (200, 201):
                 j = resp.json()
                 # KET is standardising on an immutable UUID as the join key. The
                 # create response returns the human ref today (ticket_id) and will
@@ -271,7 +277,8 @@ def _forward_to_ket(name, email, phone, subject, description, source="web_form",
                 }
                 logging.info(
                     f"KET ticket created: id={result['ticket_id']} "
-                    f"uid={result['ticket_uid'] or '-'}"
+                    f"uid={result['ticket_uid'] or '-'} "
+                    f"images={len(payload.get('images') or [])}"
                 )
                 return result
             retryable = resp.status_code == 429 or 500 <= resp.status_code < 600
@@ -288,6 +295,47 @@ def _forward_to_ket(name, email, phone, subject, description, source="web_form",
     except Exception as e:
         logging.error(f"KET push failed: {e}")
     return None
+
+
+def ket_attachment_upload(ticket_uid, filename, mime_type, data):
+    """Option B: a photo attached after the KET ticket exists.
+
+    ``POST {KET_API_URL}/{ticket_uid}/attachments``, multipart field ``file``,
+    same per-site key. Returns ``(ok, detail)`` where detail is KET's reference
+    on success or a short reason on failure; the bytes are never logged. One
+    retry on 429/5xx, none on other 4xx (a refusal is a fact about the file).
+    """
+    if not ticket_uid:
+        return False, "no ticket_uid"
+    api_key = _ket_api_key()
+    if not api_key:
+        return False, "no API key configured for this site"
+    url = "%s/%s/attachments" % (KET_API_URL.rstrip("/"), ticket_uid)
+    last = "unreachable"
+    for attempt in (1, 2):
+        try:
+            resp = requests.post(
+                url, headers={"X-API-Key": api_key},
+                files={"file": (filename, data, mime_type)}, timeout=20)
+        except requests.RequestException as e:
+            last = "network: %s" % type(e).__name__
+            logging.warning(f"KET attachment upload failed uid={ticket_uid}: {last}")
+            continue
+        if resp.status_code in (200, 201):
+            ref = ""
+            try:
+                j = resp.json()
+                ref = str(j.get("attachment_id") or j.get("id") or j.get("uid") or "")
+            except ValueError:
+                pass
+            logging.info(f"KET attachment stored uid={ticket_uid} ref={ref or '-'} bytes={len(data)}")
+            return True, ref
+        last = "http %d" % resp.status_code
+        logging.warning(f"KET attachment upload uid={ticket_uid} returned {resp.status_code}: {resp.text[:200]}")
+        if not (resp.status_code == 429 or 500 <= resp.status_code < 600):
+            break
+        time.sleep(1.0)
+    return False, last
 
 
 

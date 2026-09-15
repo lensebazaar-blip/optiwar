@@ -36,6 +36,8 @@ class DeployMigrationTest(unittest.TestCase):
         sys.path.insert(0, REPO)
         self.ra = _load("ra_for_deploy_test",
                         os.path.join(REPO, "return_assessment.py"))
+        self.ca = _load("ca_for_deploy_test",
+                        os.path.join(REPO, "chat_attachments.py"))
 
     def test_covers_every_column_and_index_ensure_schema_adds(self):
         labels = [label for label, _sql in self.deploy.migration()]
@@ -49,6 +51,9 @@ class DeployMigrationTest(unittest.TestCase):
         expected += ["%s (table)" % n for n, _d in self.cl.TABLES]
         expected += ["%s (table)" % n for n, _d in self.pt.TABLES]
         expected += ["%s (table)" % n for n, _d in self.ra.TABLES]
+        expected += ["%s (table)" % n for n, _d in self.ca.TABLES]
+        for table, columns in self.ca.SESSION_COLUMNS:
+            expected += ["%s.%s (column)" % (table, n) for n, _d in columns]
         expected += ["products.%s (column)" % n
                      for n, _d in self.cl.PRODUCTS_COLUMNS]
         for table, columns in self.cl.ADDED_COLUMNS:
@@ -198,7 +203,8 @@ class DeployMigrationTest(unittest.TestCase):
         # wrong name.
         known = {"ai_events", "ai_actions", "products",
                  "contact_lens_products", "contact_lens_images",
-                 "contact_lens_variants", "contact_lens_prescriptions"}
+                 "contact_lens_variants", "contact_lens_prescriptions",
+                 "chat_sessions"}
         for label, sql in self.deploy.migration():
             if label.endswith("(table)"):
                 self.assertIn(label.split(" ", 1)[0], sql, label)
