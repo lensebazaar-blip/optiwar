@@ -322,6 +322,13 @@ class OnMariaDB(unittest.TestCase):
         cur = cls.db.cursor()
         cur.execute(CHAT_SESSIONS_DDL)
         cur.execute(CHAT_MESSAGES_DDL)
+        # Another suite may have created chat_messages first, without the
+        # idempotency column production has; bring it up to that shape.
+        cur.execute("SELECT COUNT(*) AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() "
+                    "AND TABLE_NAME='chat_messages' AND COLUMN_NAME='client_message_id'")
+        if not cur.fetchone()["n"]:
+            cur.execute("ALTER TABLE chat_messages ADD COLUMN client_message_id VARCHAR(64) NULL, "
+                        "ADD UNIQUE KEY uq_client (session_id, source, client_message_id)")
         cls.cg.chat_attachments.ensure_schema(cur)
         cls.cg.chat_attachments.ensure_schema(cur)  # idempotent
         cls.cg._get_db = staticmethod(_connect)
