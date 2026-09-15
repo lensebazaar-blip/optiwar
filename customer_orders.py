@@ -46,9 +46,6 @@ ORDER_LINES_SQL = (
 # position on the Confirmed → Shipped → Delivered track (0 = off-track).
 STAGES = {
     'Processed': ('Confirmed', 'confirmed', 1),
-    'COD not verified': ('Confirmed · pay on delivery', 'confirmed', 1),
-    'COD verfieid': ('Confirmed · pay on delivery', 'confirmed', 1),
-    'COD verified': ('Confirmed · pay on delivery', 'confirmed', 1),
     'Shipped': ('Shipped', 'shipped', 2),
     'Delivery-assist': ('Out for delivery', 'shipped', 2),
     'Complete': ('Delivered', 'delivered', 3),
@@ -96,8 +93,6 @@ def customer_orders(rows):
                 'stage_step': step,
                 'track': TRACK,
                 'payment_date': row.get('payment_date'),
-                'pay_on_delivery': status in (
-                    'COD not verified', 'COD verfieid', 'COD verified'),
                 'items': [],
                 'grand_total': 0,
                 'item_count': 0,

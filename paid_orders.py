@@ -40,11 +40,6 @@ class DuplicatePayment(Exception):
     """The gateway sent this payment reference before; it was already applied."""
 
 
-# Cash on delivery is confirmed without any money having arrived: it is paid to
-# the courier, so the customer must not be told their order is unpaid.
-COD_STATUSES = ('COD not verified', 'COD verfieid', 'COD verified')
-
-
 def payment_state(has_successful_payment, latest_status):
     """'paid', 'pending' or 'failed' for what to tell the customer.
 
@@ -61,8 +56,6 @@ def payment_state(has_successful_payment, latest_status):
     if has_successful_payment:
         return 'paid'
     status = (latest_status or '').strip()
-    if status in COD_STATUSES:
-        return 'paid'
     if status == 'Payment Failed':
         return 'failed'
     if status and status != 'Pending':

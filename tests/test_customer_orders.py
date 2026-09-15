@@ -53,10 +53,17 @@ class CustomerOrdersTests(unittest.TestCase):
         self.assertEqual(
             co.customer_orders([line("X-1", "Payment Failed", False)]), [])
 
-    def test_cod_order_is_shown_without_a_payment_row(self):
+    def test_optiwar_has_no_cash_on_delivery(self):
+        """Legacy COD status rows are just ops statuses; nothing says COD."""
         (order,) = co.customer_orders([line("X-2", "COD verified", False)])
-        self.assertTrue(order["pay_on_delivery"])
-        self.assertEqual(order["stage_label"], "Confirmed · pay on delivery")
+        self.assertNotIn("pay_on_delivery", order)
+        self.assertNotIn("delivery", order["stage_label"].lower())
+        for name in co.STAGES.values():
+            self.assertNotIn("pay on delivery", name[0].lower())
+        with open(os.path.join(REPO, "templates", "profile.html")) as fh:
+            self.assertNotIn("Pay on delivery", fh.read())
+        with open(os.path.join(REPO, "paid_orders.py")) as fh:
+            self.assertNotIn("COD", fh.read())
 
     def test_order_ops_moved_on_is_shown_without_a_payment_row(self):
         (order,) = co.customer_orders([line("X-3", "Shipped", False)])
