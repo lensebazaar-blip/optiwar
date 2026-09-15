@@ -5,9 +5,13 @@ moves. Most of those rows are attempts the gateway never came back from, and
 they used to appear in the customer's order history as PENDING, one card per
 attempt, next to the orders they actually paid for. The account panel shows an
 order only when ``paid_orders.payment_state`` calls it paid — a successful
-``payment_collector`` row, a cash-on-delivery status, or a status ops moved it
-to deliberately. Unpaid attempts stay in the database for Ops; they are not
-the customer's orders.
+``payment_collector`` row or a status ops moved it to deliberately. Unpaid
+attempts stay in the database for Ops; they are not the customer's orders.
+
+A test purchase (``/test-checkout``) writes a ``TXN_SUCCESS`` row whose dump
+says ``TEST_BUY`` and a ``Processed`` status without any money moving. It is
+flagged ``orders.is_test``; older test orders predate the flag and carry only
+the dump. Neither is a customer's order, so both are left out of the panel.
 
 ``order_status`` is append-only history (one row per status), so the panel
 reads the latest row per order rather than joining every row, which used to
@@ -33,12 +37,16 @@ ORDER_LINES_SQL = (
     "rc.right_eye, rc.left_eye, rc.recommendations, "
     "rc.addon_1_name, rc.addon_1_price, rc.addon_2_name, rc.addon_2_price, "
     "rc.addon_3_name, rc.addon_3_price, "
-    "pc.payment_date "
+    "pc.payment_date, "
+    "(o.is_test = 1 OR EXISTS (SELECT 1 FROM payment_collector t "
+    "   WHERE t.order_id = o.order_id AND t.payment_dump LIKE '%%TEST_BUY%%')) "
+    "AS is_test_order "
     "FROM orders o "
     "JOIN products p ON o.product_id = p.product_id "
     "LEFT JOIN rx_collector rc ON rc.rx_id = o.rx_id "
     "LEFT JOIN (SELECT order_id, MIN(date_created) AS payment_date "
     "           FROM payment_collector WHERE status='TXN_SUCCESS' "
+    "             AND payment_dump NOT LIKE '%%TEST_BUY%%' "
     "           GROUP BY order_id) pc ON pc.order_id = o.order_id "
 )
 
@@ -72,10 +80,13 @@ def customer_orders(rows):
 
     ``rows`` are ``ORDER_LINES_SQL`` results, newest first. Returns a list of
     dicts the profile template renders; an order whose payment state is
-    ``pending`` or ``failed`` is not in it.
+    ``pending`` or ``failed`` is not in it, and neither is a test order
+    (``is_test_order`` truthy).
     """
     grouped = OrderedDict()
     for row in rows:
+        if row.get('is_test_order'):
+            continue
         oid = row['order_id']
         order = grouped.get(oid)
         if order is None:
