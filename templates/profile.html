@@ -612,13 +612,24 @@
     .oh-date{font-size:12px;color:#94a3b8;display:block;margin-top:1px;}
     .oh-head-right{display:flex;align-items:center;gap:10px;flex-shrink:0;}
     .oh-status{font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:0.3px;}
-    .oh-status-processed{background:#ecfdf5;color:#059669;}
-    .oh-status-pending{background:#fef3c7;color:#92400e;}
+    .oh-status-confirmed{background:#ecfdf5;color:#059669;}
     .oh-status-shipped{background:#dbeafe;color:#1d4ed8;}
-    .oh-status-returned,.oh-status-refunded,.oh-status-partially-refunded{background:#fef2f2;color:#dc2626;}
-    .oh-status-payment-failed{background:#fef2f2;color:#dc2626;}
-    .oh-status-cod-not-verified{background:#fef3c7;color:#92400e;}
-    .oh-status-cod-verified{background:#ecfdf5;color:#059669;}
+    .oh-status-delivered{background:#eef2ff;color:#4338ca;}
+    .oh-status-returned,.oh-status-refunded{background:#fef2f2;color:#dc2626;}
+    .oh-summary{font-size:12px;color:#64748b;display:block;margin-top:2px;}
+
+    /* Progress track: Confirmed → Shipped → Delivered */
+    .oh-track{display:flex;align-items:center;margin:14px 0 4px;}
+    .oh-step{display:flex;flex-direction:column;align-items:center;gap:6px;flex:0 0 auto;font-size:11px;font-weight:600;color:#94a3b8;}
+    .oh-step-dot{width:22px;height:22px;border-radius:50%;border:2px solid #e2e8f0;background:#fff;display:flex;align-items:center;justify-content:center;}
+    .oh-step-dot svg{width:12px;height:12px;stroke:#fff;fill:none;stroke-width:3;display:none;}
+    .oh-step.oh-done{color:#059669;}
+    .oh-step.oh-done .oh-step-dot{background:#059669;border-color:#059669;}
+    .oh-step.oh-done .oh-step-dot svg{display:block;}
+    .oh-step.oh-now{color:#1e293b;}
+    .oh-step.oh-now .oh-step-dot{border-color:#059669;box-shadow:0 0 0 4px #ecfdf5;}
+    .oh-track-line{flex:1;height:2px;background:#e2e8f0;margin:0 6px 20px;}
+    .oh-track-line.oh-done{background:#059669;}
     .oh-chevron{width:20px;height:20px;stroke:#94a3b8;fill:none;stroke-width:2;transition:transform .25s;}
     .oh-card.oh-open .oh-chevron{transform:rotate(180deg);}
 
@@ -709,15 +720,28 @@
               {% if order.date_created %}
               <span class="oh-date">{{ order.date_created.strftime('%d %b %Y, %I:%M %p') }}</span>
               {% endif %}
+              <span class="oh-summary">{{ order.item_count }} item{% if order.item_count != 1 %}s{% endif %} &middot; {% if is_india %}Rs{% else %}&euro;{% endif %} {{ order.grand_total|int }}</span>
             </div>
           </div>
           <div class="oh-head-right">
-            <span class="oh-status oh-status-{{ order.order_status_name|lower|replace(' ', '-') }}">{{ order.order_status_name }}</span>
+            <span class="oh-status oh-status-{{ order.stage_tone }}">{{ order.stage_label }}</span>
             <svg class="oh-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
           </div>
         </div>
         <div class="oh-body">
           <div class="oh-body-inner" onclick="event.stopPropagation()">
+            {% if order.stage_step %}
+            <div class="oh-track" aria-label="Order progress: {{ order.stage_label }}">
+              {% for name in order.track %}
+              {% set n = loop.index %}
+              {% if not loop.first %}<div class="oh-track-line{% if n <= order.stage_step %} oh-done{% endif %}"></div>{% endif %}
+              <div class="oh-step{% if n < order.stage_step %} oh-done{% elif n == order.stage_step %} oh-now{% endif %}">
+                <div class="oh-step-dot"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+                <span>{{ name }}</span>
+              </div>
+              {% endfor %}
+            </div>
+            {% endif %}
             <!-- Items -->
             {% for item in order['items'] %}
             <div class="oh-item">
@@ -800,7 +824,7 @@
               </div>
               <div class="oh-pay-row">
                 <span class="oh-pay-label">Status</span>
-                <span class="oh-pay-val oh-pay-val--green">{{ order.payment_status or 'N/A' }}</span>
+                <span class="oh-pay-val oh-pay-val--green">{% if order.pay_on_delivery %}Pay on delivery{% else %}Paid{% endif %}</span>
               </div>
               {% if order.payment_date %}
               <div class="oh-pay-row">
