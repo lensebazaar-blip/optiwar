@@ -50,6 +50,9 @@ CREATE TABLE IF NOT EXISTS chat_attachments (
     ket_ticket_uid VARCHAR(191) NULL,
     ket_error      VARCHAR(255) NULL,
     ket_sent_at    DATETIME NULL,
+    vision_json    TEXT NULL,
+    vision_model   VARCHAR(64) NULL,
+    vision_error   VARCHAR(255) NULL,
     created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     KEY idx_ca_session (session_id, created_at),
@@ -61,10 +64,18 @@ TABLES = (("chat_attachments", SCHEMA),)
 
 # The KET ticket a chat became, kept on the session so a later photo knows
 # where to go. The mapping table keys on the Optiwar ticket, not the session.
-SESSION_COLUMNS = (("chat_sessions", (
-    ("ket_ticket_uid", "VARCHAR(191) NULL"),
-    ("ket_ticket_ref", "VARCHAR(191) NULL"),
-)),)
+SESSION_COLUMNS = (
+    ("chat_sessions", (
+        ("ket_ticket_uid", "VARCHAR(191) NULL"),
+        ("ket_ticket_ref", "VARCHAR(191) NULL"),
+    )),
+    # What the vision model saw (JSON), which model, or why it could not look.
+    ("chat_attachments", (
+        ("vision_json", "TEXT NULL"),
+        ("vision_model", "VARCHAR(64) NULL"),
+        ("vision_error", "VARCHAR(255) NULL"),
+    )),
+)
 
 
 def ensure_schema(cursor):

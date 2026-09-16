@@ -301,12 +301,18 @@
     var form = new FormData();
     form.append('session_id', sessionId);
     form.append('file', f, f.name);
+    form.append('page_url', window.location.href);
+    if (typeof window.owLensPageState === 'function') {
+      try { form.append('page_state', JSON.stringify(window.owLensPageState())); } catch (e) {}
+    }
+    showTyping();
     fetch(API + '/attachment', { method: 'POST', body: form, credentials: 'same-origin' })
       .then(function(r) {
         return r.json().catch(function() { return {}; }).then(function(data) {
           return { ok: r.ok, status: r.status, data: data };
         });
       }).then(function(res) {
+        hideTyping();
         if (res.status === 403 && !isRetry) {
           if (pending && pending.parentNode) pending.parentNode.removeChild(pending);
           return rebindSession().then(function(same) {
@@ -330,10 +336,26 @@
         pending.classList.remove('ow-msg-pending');
         messages.push({ source: 'customer', content: '[Photo attached: ' + d.filename + ']',
                         id: d.message_id, created_at: new Date().toISOString(), attachment_id: d.attachment_id });
-        renderSystemMsg(d.ket_status === 'sent'
-          ? 'Photo added to your support ticket.'
-          : 'Photo attached. Tell me what I\u2019m looking at, or ask for a supervisor and it goes with the ticket.');
+        // The assistant looked at the photo on the server and answers here;
+        // an escalation (photo on the KET ticket) arrives inside that reply.
+        if (d.reply) {
+          var replyTime = new Date().toISOString();
+          messages.push({ source: 'ai', content: d.reply, id: d.reply_message_id || Date.now(), created_at: replyTime });
+          renderMsgDirect('ai', d.reply, false, replyTime);
+          scrollToBottom();
+          lastPollTime = replyTime;
+        } else if (d.ket_status === 'sent') {
+          renderSystemMsg('Photo added to your support ticket.');
+        }
+        if (d.lens_rx_proposal && d.lens_rx_proposal.accepted) {
+          renderSystemMsg('Filling the eye cards on this page with those values for you to check\u2026');
+          setTimeout(function() {
+            window.location.href = window.location.pathname + window.location.search + '#owLensForm';
+            window.location.reload();
+          }, 4000);
+        }
       }).catch(function(e) {
+        hideTyping();
         attachBusy = false; attachBtn.disabled = false;
         if (pending && pending.parentNode) pending.parentNode.removeChild(pending);
         renderSystemMsg('That photo could not be attached. Please check your connection and try again.');
