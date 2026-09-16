@@ -3,6 +3,7 @@ from .db import get_db
 from .auth import login_required
 from .rx_powers import normalize_rows
 from .customer_orders import ORDER_LINES_SQL, customer_orders
+from . import face_profiles, face_profiles_api
 
 bp = Blueprint('profile', __name__, url_prefix='/profile')
 
@@ -82,9 +83,31 @@ def profile_page():
             except Exception:
                 face_data['frame_candidates_list'] = []
 
+    # Multi-person accounts (Stage-1 gate): the tab becomes My Faces and lists
+    # every profile; everybody else keeps the single-face card above.
+    face_profiles_enabled = False
+    face_profile_list = []
+    if cust_id and face_profiles_api.gate_enabled():
+        face_profiles_enabled = True
+        face_profiles.ensure_schema(db)
+        face_profiles.migrate_customer(
+            db, cust_id, customer['customer_name'] if customer else None)
+        face_profile_list = [
+            face_profiles.public_view(
+                r, "/api/face-profiles/%d/capture" % int(r['id']))
+            for r in face_profiles.list_profiles(db, cust_id)]
+
     # Always use session email (authenticated email) for display, not DB record
     auth_email = session.get('user_email', '')
-    return render_template('profile.html', customer=customer, addresses=addresses, orders=grouped_orders, auth_email=auth_email, face_data=face_data)
+    return render_template('profile.html', customer=customer, addresses=addresses,
+                           orders=grouped_orders, auth_email=auth_email,
+                           face_data=face_data,
+                           face_profiles_enabled=face_profiles_enabled,
+                           face_profiles=face_profile_list,
+                           face_relationships=[
+                               {'code': c, 'label': face_profiles.RELATIONSHIP_LABELS[c]}
+                               for c in face_profiles.RELATIONSHIPS
+                               if c != face_profiles.REL_SELF])
 
 
 @bp.route('/update', methods=['POST'])

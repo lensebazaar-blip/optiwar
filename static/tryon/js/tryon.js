@@ -565,6 +565,8 @@ async function captureAndSave() {
             })) : []
         };
         if (ss) body.screenshot = ss;
+        const scanFor = document.getElementById('scanForChip');
+        if (scanFor && scanFor.dataset.profileId) body.face_profile_id = scanFor.dataset.profileId;
         
         const r = await fetch('/api/tryon/save', {
             method: 'POST',
@@ -573,7 +575,7 @@ async function captureAndSave() {
         });
         const d = await r.json();
         if (d.success) {
-            btn.innerHTML = '&#10003; Saved!';
+            btn.innerHTML = d.profile ? ('&#10003; Saved for ' + d.profile.display_name) : '&#10003; Saved!';
             btn.classList.add('saved');
             localStorage.setItem('ow_face_measured', '1');
             $('choiceBar').classList.add('show');
@@ -666,7 +668,9 @@ function setStatus(t) {
 
 async function checkExisting() {
     try {
-        const r = await fetch('/api/tryon/my-measurements');
+        const chip = document.getElementById('scanForChip');
+        const q = (chip && chip.dataset.profileId) ? ('?profile=' + encodeURIComponent(chip.dataset.profileId)) : '';
+        const r = await fetch('/api/tryon/my-measurements' + q);
         const d = await r.json();
         if (d.has_measurements) {
             $('existingInfo').style.display = 'flex';

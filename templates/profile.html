@@ -4,6 +4,26 @@
 
 <style>
 /* ===== My Face Tab — v3 (matches reference design) ===== */
+
+.mf-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:16px}
+.mf-title{margin:0;font-size:22px}.mf-sub{margin:4px 0 0;color:#666;font-size:14px}
+.mf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
+.mf-card{position:relative}.mf-card-default{outline:2px solid #1a73e8}
+.mf-name{font-weight:600;font-size:17px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.mf-tag{font-size:11px;padding:2px 8px;border-radius:10px;background:#eee;color:#444;font-weight:500}
+.mf-tag-self{background:#e8f0fe;color:#1a56b8}.mf-tag-default{background:#1a73e8;color:#fff}
+.mf-when{color:#777;font-size:12px;margin-top:2px}
+.mf-metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.mf-metrics>div{display:flex;flex-direction:column;background:#f7f8fa;border-radius:8px;padding:8px 10px}
+.mf-k{font-size:11px;color:#777;text-transform:uppercase}.mf-v{font-weight:600}
+.mf-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.mf-danger{color:#b3261e}
+.mf-modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:1000}
+.mf-modal[hidden]{display:none}
+.mf-modal-box{background:#fff;border-radius:12px;padding:22px;width:min(440px,92vw)}
+.mf-label{display:block;margin:10px 0;font-size:14px}.mf-input{display:block;width:100%;margin-top:4px;padding:8px 10px;border:1px solid #ccc;border-radius:8px}
+.mf-consent{display:flex;gap:8px;align-items:flex-start;font-size:13px;color:#444;margin:10px 0}
+.mf-err{color:#b3261e;font-size:13px}
 .fc-card{
   border-radius:20px; overflow:hidden;
   background:#fff; border:1px solid #e2e8f0;
@@ -253,7 +273,7 @@
     </button>
     <button class="ow-tab-btn" onclick="switchTab('myface')">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="5"/><path d="M3 21c0-4.97 4.03-9 9-9s9 4.03 9 9"/><circle cx="9" cy="7" r="1" fill="currentColor"/><circle cx="15" cy="7" r="1" fill="currentColor"/></svg>
-      <span>My Face</span>
+      <span>{% if face_profiles_enabled %}My Faces{% else %}My Face{% endif %}</span>
     </button>
   </div>
 
@@ -865,7 +885,68 @@
 
   <!-- My Face Tab -->
   <div id="tab-myface" class="ow-tab-content">
-    {% if face_data %}
+    {% if face_profiles_enabled %}
+    {# ---- My Faces: one card per person; Self protected; one default ---- #}
+    <div class="mf-head">
+      <div>
+        <h2 class="mf-title">My Faces</h2>
+        <p class="mf-sub">The people you buy glasses for. Frames are fitted to the person you are shopping for.</p>
+      </div>
+      <button type="button" class="fc-btn fc-btn-primary" onclick="mfOpenAdd()">+ Add person</button>
+    </div>
+    <div id="mfCards" class="mf-grid">
+      {% for p in face_profiles %}
+      <div class="fc-card mf-card{% if p.is_default %} mf-card-default{% endif %}" data-id="{{ p.id }}">
+        <div class="mf-card-top">
+          <div>
+            <div class="mf-name">{{ p.display_name }}
+              {% if p.is_self %}<span class="mf-tag mf-tag-self">Me</span>{% else %}<span class="mf-tag">{{ p.relationship_label }}</span>{% endif %}
+              {% if p.is_default %}<span class="mf-tag mf-tag-default">Shopping for</span>{% endif %}
+            </div>
+            {% if p.has_scan %}<div class="mf-when">Measured {{ p.measurements.measured_at[:10] }}</div>{% else %}<div class="mf-when">No scan yet</div>{% endif %}
+          </div>
+        </div>
+        {% if p.has_scan %}
+        <div class="mf-metrics">
+          <div><span class="mf-k">Far PD</span><span class="mf-v">{{ '%.1f'|format(p.measurements.pd_far) }} mm</span></div>
+          <div><span class="mf-k">Near PD</span><span class="mf-v">{% if p.measurements.pd_near %}{{ '%.1f'|format(p.measurements.pd_near) }} mm{% else %}—{% endif %}</span></div>
+          <div><span class="mf-k">Face width</span><span class="mf-v">{{ '%.1f'|format(p.measurements.face_width) }} mm</span></div>
+          <div><span class="mf-k">Frame size</span><span class="mf-v">{{ p.measurements.recommended_size or '—' }}</span></div>
+        </div>
+        {% endif %}
+        <div class="mf-actions">
+          {% if p.has_scan %}<a class="fc-btn fc-btn-primary" href="/tryon?profile={{ p.id }}">Rescan</a>
+          {% if p.is_default %}<a class="fc-btn" href="/eyeglasses/all-spectacle-frames.html?filter=facematch">Matching frames</a>{% endif %}
+          {% else %}<a class="fc-btn fc-btn-primary" href="/tryon?profile={{ p.id }}">Scan face</a>{% endif %}
+          {% if not p.is_default %}<button type="button" class="fc-btn" onclick="mfSetDefault({{ p.id }})">Shop for {{ p.display_name.split(' ')[0] }}</button>{% endif %}
+          <button type="button" class="fc-btn" onclick="mfOpenEdit({{ p.id }}, {{ p.display_name|tojson }}, {{ p.relationship_type|tojson }}, {{ 'true' if p.is_self else 'false' }})">Rename</button>
+          {% if not p.is_self %}<button type="button" class="fc-btn mf-danger" onclick="mfDelete({{ p.id }}, {{ p.display_name|tojson }})">Remove</button>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div id="mfModal" class="mf-modal" hidden>
+      <div class="mf-modal-box">
+        <h3 id="mfModalTitle">Add a person</h3>
+        <form id="mfForm" onsubmit="return mfSubmit(event)">
+          <input type="hidden" id="mfId" value="">
+          <label class="mf-label">Name<input id="mfName" class="mf-input" maxlength="60" required></label>
+          <label class="mf-label" id="mfRelWrap">Relationship
+            <select id="mfRel" class="mf-input">
+              {% for r in face_relationships %}<option value="{{ r.code }}">{{ r.label }}</option>{% endfor %}
+            </select>
+          </label>
+          <label class="mf-consent" id="mfConsentWrap"><input type="checkbox" id="mfConsent"> I have this person's permission to save their face measurements to my Optiwar account. Optiwar uses them only to fit frames; no photo is shared.</label>
+          <p class="mf-err" id="mfErr" hidden></p>
+          <div class="mf-actions">
+            <button type="submit" class="fc-btn fc-btn-primary" id="mfSave">Save</button>
+            <button type="button" class="fc-btn" onclick="mfClose()">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    {% elif face_data %}
     <div class="fc-card">
       <!-- Header row: icon + title on left, date badge on right -->
       <div class="fc-header">
@@ -1234,6 +1315,59 @@
 </div>
 
 <script>
+// My Faces
+var mfBase = '/api/face-profiles';
+async function mfReq(method, url, body) {
+  const r = await fetch(url, {method, headers: {'Content-Type': 'application/json'},
+                             body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin'});
+  let d = {}; try { d = await r.json(); } catch (e) {}
+  if (!r.ok) throw new Error(d.message || d.error || ('HTTP ' + r.status));
+  return d;
+}
+function mfShowErr(t){ const e=document.getElementById('mfErr'); e.textContent=t; e.hidden=!t; }
+function mfOpenAdd(){
+  document.getElementById('mfModalTitle').textContent='Add a person';
+  document.getElementById('mfId').value=''; document.getElementById('mfName').value='';
+  document.getElementById('mfRel').value='spouse'; document.getElementById('mfRelWrap').hidden=false;
+  document.getElementById('mfConsentWrap').hidden=false; document.getElementById('mfConsent').checked=false;
+  mfShowErr(''); document.getElementById('mfModal').hidden=false; document.getElementById('mfName').focus();
+}
+function mfOpenEdit(id,name,rel,isSelf){
+  document.getElementById('mfModalTitle').textContent=isSelf?'Rename yourself':'Edit person';
+  document.getElementById('mfId').value=id; document.getElementById('mfName').value=name;
+  document.getElementById('mfRelWrap').hidden=!!isSelf; if(!isSelf) document.getElementById('mfRel').value=rel;
+  document.getElementById('mfConsentWrap').hidden=true; mfShowErr('');
+  document.getElementById('mfModal').hidden=false; document.getElementById('mfName').focus();
+}
+function mfClose(){ document.getElementById('mfModal').hidden=true; }
+async function mfSubmit(ev){
+  ev.preventDefault(); mfShowErr('');
+  const id=document.getElementById('mfId').value, name=document.getElementById('mfName').value.trim();
+  try {
+    if (id) {
+      const body={display_name:name};
+      if(!document.getElementById('mfRelWrap').hidden) body.relationship_type=document.getElementById('mfRel').value;
+      await mfReq('PATCH', mfBase+'/'+id, body);
+    } else {
+      await mfReq('POST', mfBase, {display_name:name, relationship_type:document.getElementById('mfRel').value,
+                                    consent:document.getElementById('mfConsent').checked});
+    }
+    location.hash='#myface'; location.reload();
+  } catch(e){ mfShowErr(e.message); }
+  return false;
+}
+async function mfSetDefault(id){ try { await mfReq('POST', mfBase+'/'+id+'/default'); location.hash='#myface'; location.reload(); } catch(e){ alert(e.message); } }
+async function mfDelete(id,name){
+  if(!confirm('Remove '+name+' from your account? Their measurements are kept on past orders but no longer used for fitting.')) return;
+  try { await mfReq('DELETE', mfBase+'/'+id); location.hash='#myface'; location.reload(); } catch(e){ alert(e.message); }
+}
+if (location.hash === '#myface') {
+  document.addEventListener('DOMContentLoaded', function(){
+    const b=[...document.querySelectorAll('.ow-tab-btn')].find(x=>x.textContent.trim().startsWith('My Face'));
+    if(b) b.click();
+  });
+}
+
 // Tab switching
 function switchTab(tabName) {
   document.querySelectorAll('.ow-tab-content').forEach(el => el.classList.remove('ow-tab-visible'));

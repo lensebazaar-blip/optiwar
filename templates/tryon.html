@@ -28,6 +28,12 @@
         </div>
     </div>
 
+    {% if scan_for %}
+    <!-- Who this scan is for: chosen before measuring, never guessed after -->
+    <div class="existing-chip" id="scanForChip" style="display:flex" data-profile-id="{{ scan_for.id }}">
+        <span>Scanning for: <strong>{{ scan_for.display_name }}</strong>{% if scan_for.is_self %} (Me){% else %} ({{ scan_for.relationship_label }}){% endif %} &middot; <a href="/profile#myface" style="color:inherit">change</a></span>
+    </div>
+    {% endif %}
     <!-- Existing measurement chip -->
     <div class="existing-chip" id="existingInfo">
         <span id="exVals"></span>
@@ -123,6 +129,6 @@
 </div>
 
 <script src="/static/ow_picture.js?v=2"></script>
-<script type="module" src="/static/tryon/js/tryon.js?v=7.2"></script>
+<script type="module" src="/static/tryon/js/tryon.js?v=7.3"></script>
 </body>
 </html>

@@ -28,6 +28,7 @@ from .catalogue import (
     current_site, strip_ineligible_urls, age_group, ensure_gmc_columns,
     live_lenses, lens_matrix_summary, SITE_IN, SITE_COM,
 )
+from . import face_profiles, face_profiles_api
 from . import (acr, lens_cart, lens_config, lens_documents, lens_feed,
                lens_order, lens_preview, lens_rx, lens_seo, lens_upload,
                lens_view)
@@ -54,6 +55,8 @@ ops_refunds.register(bp)
 # Uploaded-prescription routes (customer upload + Ops signed download), for
 # the same reason.
 lens_upload.register(bp)
+# Face profiles (My Faces), for the same reason.
+face_profiles_api.register(bp)
 
 @bp.route('/eu/')
 @bp.route('/eu/<path:rest>')
@@ -6283,8 +6286,25 @@ Response-Time: 24 hours
 @bp.route('/tryon')
 def spectacle_tryon():
     if 'user_id' not in session:
-        return redirect(url_for('auth.login', next='/tryon'))
-    return render_template("tryon.html")
+        return redirect(url_for('auth.login', next=request.full_path.rstrip('?')))
+    # Multi-person accounts scan *for* somebody: the profile chosen before the
+    # scan travels as ?profile=<id> and is resolved as the customer's own or
+    # not at all. Without one, the default profile is scanned.
+    scan_for = None
+    if face_profiles_api.gate_enabled():
+        db = get_db()
+        face_profiles.ensure_schema(db)
+        face_profiles.migrate_customer(db, session['user_id'],
+                                       session.get('user_name'))
+        pid = request.args.get('profile')
+        try:
+            row = (face_profiles.require_profile(db, session['user_id'], pid)
+                   if pid else face_profiles.default_profile(db, session['user_id']))
+        except face_profiles.ProfileError:
+            abort(404)
+        if row:
+            scan_for = face_profiles.public_view(row)
+    return render_template("tryon.html", scan_for=scan_for)
 
 
 @bp.route('/api/tryon/frames')
@@ -6357,25 +6377,52 @@ def api_tryon_save():
     import json as _json
     frame_candidates_json = _json.dumps(frame_candidates_raw) if frame_candidates_raw else None
     
-    # Save screenshot image
-    screenshot_path = None
+    # The capture is a face photograph: it is kept outside the web root,
+    # owner-readable only, and purged on the raw-capture retention. Nothing
+    # may build a public URL to it, so the legacy row keeps only the bare name.
+    img_data = None
     if screenshot_b64:
         try:
-            # Remove data:image/png;base64, prefix
             if ',' in screenshot_b64:
                 screenshot_b64 = screenshot_b64.split(',')[1]
             img_data = base64.b64decode(screenshot_b64)
-            fname = f"face_{customer_id}_{uuid.uuid4().hex[:8]}.png"
-            save_dir = os.path.join(current_app.root_path, 'static', 'tryon', 'captures')
-            os.makedirs(save_dir, exist_ok=True)
-            fpath = os.path.join(save_dir, fname)
-            with open(fpath, 'wb') as f:
-                f.write(img_data)
-            screenshot_path = f"tryon/captures/{fname}"
         except Exception as e:
-            print(f"Screenshot save error: {e}")
-    
+            current_app.logger.warning(f"tryon capture decode failed: {e}")
+            img_data = None
+
     db = get_db()
+
+    if face_profiles_api.gate_enabled():
+        data['frame_candidates_json'] = frame_candidates_json
+        try:
+            scan_id, profile = face_profiles_api.save_scan_from_tryon(
+                db, data, img_data)
+        except face_profiles.ProfileError as exc:
+            return jsonify({"success": False, "error": exc.code,
+                            "message": str(exc)}), exc.status
+        current_app.logger.info(
+            "FACE_SCAN:COMPLETED customer=%s profile=%s scan=%s",
+            customer_id, profile['id'], scan_id)
+        return jsonify({
+            "success": True,
+            "message": "Measurements saved for %s" % profile['display_name'],
+            "profile": face_profiles.public_view(profile),
+            "data": {
+                "pd_far": pd_far,
+                "pd_near": pd_near,
+                "face_width": face_width,
+                "recommended_size": f"{rec_diameter}-{rec_bridge}-{rec_length}"
+            }
+        })
+
+    screenshot_path = None
+    if img_data:
+        try:
+            screenshot_path = face_profiles.store_capture(
+                current_app.root_path, customer_id, img_data)
+        except Exception as e:
+            current_app.logger.warning(f"tryon capture store failed: {e}")
+
     cursor = db.cursor()
     
     # Delete old measurement for this customer (keep latest only)
@@ -6533,11 +6580,25 @@ def api_tryon_my_measurements():
     customer_id = session['user_id']
     db = get_db()
     cursor = db.cursor()
-    cursor.execute("""
-        SELECT * FROM face_measurements WHERE customer_id = %s
-        ORDER BY measured_at DESC LIMIT 1
-    """, (customer_id,))
-    meas = cursor.fetchone()
+    meas = None
+    if request.args.get('profile') and face_profiles_api.gate_enabled():
+        # The chosen person's own latest scan; another customer's id is 404.
+        face_profiles.ensure_schema(db)
+        try:
+            row = face_profiles.get_profile(db, customer_id,
+                                            request.args.get('profile'))
+        except face_profiles.ProfileError:
+            abort(404)
+        if row.get('pd_far') is None:
+            return jsonify({"has_measurements": False,
+                            "profile": face_profiles.public_view(row)})
+        meas = row
+    else:
+        cursor.execute("""
+            SELECT * FROM face_measurements WHERE customer_id = %s
+            ORDER BY measured_at DESC LIMIT 1
+        """, (customer_id,))
+        meas = cursor.fetchone()
     
     if not meas:
         return jsonify({"has_measurements": False})
@@ -6549,7 +6610,7 @@ def api_tryon_my_measurements():
         "face_width": float(meas['face_width']) if meas['face_width'] else None,
         "eye_mouth": float(meas['eye_mouth']) if meas['eye_mouth'] else None,
         "recommended_size": f"{meas['recommended_diameter']}-{meas['recommended_bridge']}-{meas['recommended_length']}",
-        "screenshot": f"/static/{meas['screenshot_path']}" if meas['screenshot_path'] else None,
+        "screenshot": None,
         "measured_at": meas['measured_at'].isoformat() if meas['measured_at'] else None
     })
 # ===== END FACE MEASUREMENT v4 =====
