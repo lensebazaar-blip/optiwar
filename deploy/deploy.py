@@ -90,7 +90,8 @@ DEPLOY_SET = ("acr.py", "ai_api.py", "ai_client.py", "catalogue.py", "chat.py",
               "profile.py", "customer_orders.py", "refunds.py",
               "ops_refunds.py", "cart_persist.py", "policy_terms.py",
               "return_assessment.py", "chat_attachments.py",
-              "chat_vision.py",
+              "chat_vision.py", "face_profiles.py", "face_profiles_api.py",
+              "static/tryon/js/tryon.js", "templates/tryon.html",
               "notifications.py", "templates/terms-and-conditions.html",
               "templates/success.html", "templates/profile.html", "templates/checkout.html", "templates/lens_landing.html",
               "templates/lens_select.html", "templates/_lens_eye_cards.html",
@@ -116,7 +117,7 @@ NEW_IN_RELEASE = ("paid_orders.py", "razorpay_events.py", "rx_powers.py",
                   "lens_import_write.py", "lens_import_schema.py",
                   "lens_import.py", "customer_orders.py", "policy_terms.py",
                   "return_assessment.py", "chat_attachments.py",
-                  "chat_vision.py",
+                  "chat_vision.py", "face_profiles.py", "face_profiles_api.py",
                   "templates/lens_landing.html",
                   "templates/lens_select.html",
                   "templates/_lens_eye_cards.html",
@@ -202,6 +203,10 @@ SMOKE = (
      "https://optiwar.com/api/ops/orders/SMOKE-0/refund/preview", 401),
     ("refund execute rejects anonymous",
      "https://optiwar.com/api/ops/orders/SMOKE-0/refund", 401, "POST"),
+    # Face profiles: the route exists (a models.py that failed to import
+    # face_profiles_api would 404) and refuses an anonymous caller.
+    ("face profiles reject anonymous",
+     "https://optiwar.com/api/face-profiles", 401),
 )
 
 # Canonical events a single canary conversation must produce. Their absence
@@ -342,6 +347,14 @@ def chat_attachments_module():
     return mod
 
 
+def face_profiles_module():
+    spec = importlib.util.spec_from_file_location(
+        "face_profiles_for_deploy", os.path.join(REPO, "face_profiles.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def catalogue_columns():
     """``catalogue.GMC_COLUMNS``, read from the source without importing it.
 
@@ -390,6 +403,8 @@ def migration():
     ca = chat_attachments_module()
     items += [("%s (table)" % name, " ".join(ddl.split()))
               for name, ddl in ca.TABLES]
+    items += [("%s (table)" % name, " ".join(ddl.split()))
+              for name, ddl in face_profiles_module().TABLES]
     for table, columns in ca.SESSION_COLUMNS:
         items += [("%s.%s (column)" % (table, name),
                    "ALTER TABLE %s ADD COLUMN %s %s" % (table, name, decl))
