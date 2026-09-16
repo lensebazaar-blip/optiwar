@@ -53,6 +53,7 @@ ST_EXPIRED = "EXPIRED"
 SRC_TRYON = "tryon"
 SRC_MIGRATED = "migrated"
 SRC_STAFF = "staff_link"
+SRC_REMOTE = "remote_invite"
 
 # Owner-confirmed policy (2026-09-16): seven days is enough to recover a scan
 # or debug one, and a face capture should not outlive its usefulness.
@@ -489,13 +490,17 @@ def references(db, customer_id, profile_id):
 # --------------------------------------------------------------------------
 
 def record_scan(db, customer_id, profile_id, measurements, source=SRC_TRYON,
-                capture_path=None, algorithm_version=None, scan_group_id=None):
+                capture_path=None, algorithm_version=None, scan_group_id=None,
+                commit=True):
     """A completed measurement for one profile.
 
     The previous completed scan of that profile is superseded, the profile's
     ``latest_scan_id`` moves, and — if this profile is the default — the
     legacy ``face_measurements`` row is rewritten so older surfaces keep
     reading the person the account is shopping for.
+
+    ``commit=False`` leaves the transaction open for a caller that must land
+    its own rows in the same one (a remote scan request completing).
     """
     row = require_profile(db, customer_id, profile_id)
     m = clean_measurements(measurements)
@@ -520,7 +525,8 @@ def record_scan(db, customer_id, profile_id, measurements, source=SRC_TRYON,
                     (sid, int(row["id"])))
         if row["default_slot"]:
             _mirror_default(cur, customer_id)
-        db.commit()
+        if commit:
+            db.commit()
     except Exception:
         db.rollback()
         raise

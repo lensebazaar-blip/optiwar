@@ -101,6 +101,12 @@ def _load_api(fp_mod, get_db):
     db_mod.get_db = get_db
     sys.modules[pkg_name + ".db"] = db_mod
     spec = importlib.util.spec_from_file_location(
+        pkg_name + ".face_scan_invites",
+        os.path.join(REPO, "face_scan_invites.py"))
+    fsi = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = fsi
+    spec.loader.exec_module(fsi)
+    spec = importlib.util.spec_from_file_location(
         pkg_name + ".face_profiles_api",
         os.path.join(REPO, "face_profiles_api.py"))
     mod = importlib.util.module_from_spec(spec)

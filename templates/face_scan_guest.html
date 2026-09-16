@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="referrer" content="no-referrer">
+    <title>Face Scan — Optiwar</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <style>
+      body{margin:0;background:#0f0f14;color:#eee;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box}
+      .card{background:#1a1a22;border-radius:16px;padding:26px 22px;max-width:420px;width:100%;box-shadow:0 8px 40px rgba(0,0,0,.5)}
+      .brand{font-size:13px;letter-spacing:2px;text-transform:uppercase;color:#9d8bff;margin-bottom:14px}
+      h1{font-size:21px;margin:0 0 10px}
+      p{font-size:14px;line-height:1.5;color:#c9c9d4;margin:8px 0}
+      .meta{font-size:13px;color:#8a8a99}
+      ul{font-size:13px;color:#c9c9d4;padding-left:18px;line-height:1.55}
+      label.consent{display:flex;gap:10px;align-items:flex-start;font-size:13px;color:#ddd;margin:16px 0;cursor:pointer}
+      label.consent input{margin-top:3px}
+      .btn{display:block;width:100%;padding:14px;border:0;border-radius:28px;font-size:15px;font-weight:600;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;cursor:pointer;box-sizing:border-box;text-align:center;text-decoration:none}
+      .err{color:#ff7b7b;font-size:13px}
+      .ok{width:56px;height:56px;border-radius:50%;background:#173b2c;color:#34d399;display:flex;align-items:center;justify-content:center;font-size:28px;margin-bottom:12px}
+    </style>
+</head>
+<body>
+<div class="card">
+  <div class="brand">Optiwar</div>
+  {% if state == 'consent' %}
+    <h1>Face measurement for {{ guest.profile_name }}</h1>
+    <p><strong>{{ guest.sender_name }}</strong> has asked you to complete a quick face measurement for eyewear fitting. No Optiwar account or login is needed.</p>
+    <p class="meta">This link expires in {{ guest.expires_in_hours }} h and can be used for one scan.</p>
+    <ul>
+      <li>Your camera is used on this device to measure pupil distance and face width.</li>
+      <li>The measurements are saved to the face profile "{{ guest.profile_name }}" in {{ guest.sender_name }}'s Optiwar account.</li>
+      <li>A single still frame is kept for {{ guest.capture_retention_days }} days for quality checks, then deleted. It is never published or shared.</li>
+      <li>You can stop at any time before saving; nothing is stored until you press Save.</li>
+    </ul>
+    <form method="post" action="/face-scan/guest/consent">
+      <label class="consent"><input type="checkbox" name="consent" value="1" required>
+        I recognise {{ guest.sender_name }}, I am the person to be measured (or their parent/guardian), and I agree to this face measurement.</label>
+      {% if error %}<p class="err">Please tick the box to continue.</p>{% endif %}
+      <button class="btn" type="submit">Start face scan</button>
+    </form>
+    <p class="meta">If you were not expecting this request, close this page.</p>
+  {% elif state == 'done' %}
+    <div class="ok">&#10003;</div>
+    <h1>Thank you — measurement saved</h1>
+    <p>Your face measurements have been added to the requester's Optiwar account. You can close this page.</p>
+  {% elif state == 'completed' %}
+    <h1>This scan is already complete</h1>
+    <p>A measurement has already been saved for this request. If a new scan is needed, ask {{ guest.sender_name }} to send a fresh request.</p>
+  {% elif state == 'busy' %}
+    <h1>Please try again shortly</h1>
+    <p>Too many attempts from this connection. Wait a few minutes and open the link again.</p>
+  {% elif state == 'inactive' %}
+    <h1>This link is no longer active</h1>
+    <p>The scan request has expired or was cancelled. Ask the person who sent it to send a new request.</p>
+  {% else %}
+    <h1>This link is not valid</h1>
+    <p>Check that you opened the complete link from the message you received, or ask the sender for a new one.</p>
+  {% endif %}
+</div>
+</body>
+</html>

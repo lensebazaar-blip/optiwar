@@ -24,6 +24,14 @@
 .mf-label{display:block;margin:10px 0;font-size:14px}.mf-input{display:block;width:100%;margin-top:4px;padding:8px 10px;border:1px solid #ccc;border-radius:8px}
 .mf-consent{display:flex;gap:8px;align-items:flex-start;font-size:13px;color:#444;margin:10px 0}
 .mf-err{color:#b3261e;font-size:13px}
+.mf-req{background:#f3f0ff;border-radius:10px;padding:8px 10px;margin-top:10px;font-size:13px}
+.mf-req-expired,.mf-req-cancelled{background:#f7f7f7;color:#666}
+.mf-req-fail{color:#b3261e}
+.mf-choice{display:grid;gap:10px;margin:14px 0}
+.mf-choice-btn{display:flex;flex-direction:column;gap:3px;text-align:left;padding:12px 14px;border:1px solid #d8d8e0;border-radius:10px;background:#fff;cursor:pointer;color:#222;text-decoration:none;font:inherit}
+.mf-choice-btn:hover{border-color:#5b3df5;background:#faf9ff}
+.mf-choice-btn span{font-size:12px;color:#666}
+.mf-seg{display:flex;gap:16px;margin:10px 0 0;font-size:14px}.mf-seg label{display:flex;gap:6px;align-items:center}
 .fc-card{
   border-radius:20px; overflow:hidden;
   background:#fff; border:1px solid #e2e8f0;
@@ -914,13 +922,36 @@
           <div><span class="mf-k">Frame size</span><span class="mf-v">{{ p.measurements.recommended_size or '—' }}</span></div>
         </div>
         {% endif %}
+        {% set sr = p.scan_request if face_remote_scan_enabled else None %}
+        {% if sr and (sr.active or sr.status in ('EXPIRED', 'CANCELLED') or sr.delivery_status == 'FAILED') and not (sr.status == 'COMPLETED') %}
+        <div class="mf-req mf-req-{{ sr.status|lower }}" data-uuid="{{ sr.request_uuid }}">
+          {% if sr.active %}
+            <div class="mf-req-line">
+              {% if sr.consented or sr.status == 'SCANNING' %}Scanning in progress{% elif sr.opened %}Link opened{% else %}Request sent{% endif %}
+              &middot; {{ 'WhatsApp' if sr.channel == 'whatsapp' else 'Email' }} {{ sr.destination }}
+              {% if sr.delivery_status == 'FAILED' %}<span class="mf-req-fail">&middot; not delivered</span>{% elif sr.delivery_status == 'NOT_SENT' %}<span class="mf-req-fail">&middot; sending&hellip;</span>{% endif %}
+            </div>
+            <div class="mf-when">Link expires in {{ (sr.expires_in_seconds // 3600) }} h {{ ((sr.expires_in_seconds % 3600) // 60) }} min</div>
+          {% elif sr.status == 'EXPIRED' %}
+            <div class="mf-req-line">Request expired &middot; {{ 'WhatsApp' if sr.channel == 'whatsapp' else 'Email' }} {{ sr.destination }}</div>
+          {% elif sr.status == 'CANCELLED' %}
+            <div class="mf-req-line">Request cancelled</div>
+          {% endif %}
+        </div>
+        {% endif %}
         <div class="mf-actions">
           {% if p.has_scan %}<a class="fc-btn fc-btn-primary" href="/tryon?profile={{ p.id }}">Rescan</a>
           {% if p.is_default %}<a class="fc-btn" href="/eyeglasses/all-spectacle-frames.html?filter=facematch">Matching frames</a>{% endif %}
+          {% elif sr and sr.active %}
+            <button type="button" class="fc-btn" onclick="mfOpenScan({{ p.id }}, {{ p.display_name|tojson }}, {{ sr|tojson }})">Resend</button>
+            <button type="button" class="fc-btn" onclick="mfCancelRequest({{ p.id }})">Cancel request</button>
+            <a class="fc-btn" href="/tryon?profile={{ p.id }}">Scan here instead</a>
+          {% elif face_remote_scan_enabled and not p.is_self %}
+            <button type="button" class="fc-btn fc-btn-primary" onclick="mfOpenScan({{ p.id }}, {{ p.display_name|tojson }}, {{ (sr or none)|tojson }})">Scan face</button>
           {% else %}<a class="fc-btn fc-btn-primary" href="/tryon?profile={{ p.id }}">Scan face</a>{% endif %}
           {% if not p.is_default %}<button type="button" class="fc-btn" onclick="mfSetDefault({{ p.id }})">Shop for {{ p.display_name.split(' ')[0] }}</button>{% endif %}
           <button type="button" class="fc-btn" onclick="mfOpenEdit({{ p.id }}, {{ p.display_name|tojson }}, {{ p.relationship_type|tojson }}, {{ 'true' if p.is_self else 'false' }})">Rename</button>
-          {% if not p.is_self %}<button type="button" class="fc-btn mf-danger" onclick="mfDelete({{ p.id }}, {{ p.display_name|tojson }})">Remove</button>{% endif %}
+          {% if not p.is_self %}<button type="button" class="fc-btn mf-danger" onclick="mfDelete({{ p.id }}, {{ p.display_name|tojson }}, {{ 'true' if sr and sr.active else 'false' }})">Remove</button>{% endif %}
         </div>
       </div>
       {% endfor %}
@@ -946,6 +977,39 @@
         </form>
       </div>
     </div>
+    {% if face_remote_scan_enabled %}
+    <div id="mfScanModal" class="mf-modal" hidden>
+      <div class="mf-modal-box">
+        <h3 id="mfScanTitle">Scan face</h3>
+        <p class="mf-sub" id="mfScanSub"></p>
+        <div id="mfScanChoice" class="mf-choice">
+          <a id="mfScanHere" class="mf-choice-btn" href="#">
+            <strong>Scan here on this device</strong>
+            <span>They are with you now. Opens the camera scanner.</span>
+          </a>
+          <button type="button" class="mf-choice-btn" onclick="mfScanRemote()">
+            <strong>Send scan request</strong>
+            <span>Not here? Send a secure one-time link by WhatsApp or email. Expires in 24 hours.</span>
+          </button>
+        </div>
+        <form id="mfScanForm" hidden onsubmit="return mfSendRequest(event)">
+          <input type="hidden" id="mfScanPid" value="">
+          <div class="mf-seg">
+            <label><input type="radio" name="mfCh" value="whatsapp" checked onchange="mfChannel()"> WhatsApp</label>
+            <label><input type="radio" name="mfCh" value="email" onchange="mfChannel()"> Email</label>
+          </div>
+          <label class="mf-label" id="mfDestLabel">WhatsApp number<input id="mfDest" class="mf-input" type="tel" inputmode="tel" placeholder="+91 98765 43210" required autocomplete="off"></label>
+          <p class="mf-sub">The link expires in 24 hours and works once. Only this person's measurements are saved &mdash; no photo is shared with you or anyone else.</p>
+          <p class="mf-err" id="mfScanErr" hidden></p>
+          <div class="mf-actions">
+            <button type="submit" class="fc-btn fc-btn-primary" id="mfScanSend">Send request</button>
+            <button type="button" class="fc-btn" onclick="mfScanClose()">Cancel</button>
+          </div>
+        </form>
+        <div id="mfScanFooter" class="mf-actions"><button type="button" class="fc-btn" onclick="mfScanClose()">Close</button></div>
+      </div>
+    </div>
+    {% endif %}
     {% elif face_data %}
     <div class="fc-card">
       <!-- Header row: icon + title on left, date badge on right -->
@@ -1357,9 +1421,62 @@ async function mfSubmit(ev){
   return false;
 }
 async function mfSetDefault(id){ try { await mfReq('POST', mfBase+'/'+id+'/default'); location.hash='#myface'; location.reload(); } catch(e){ alert(e.message); } }
-async function mfDelete(id,name){
-  if(!confirm('Remove '+name+' from your account? Their measurements are kept on past orders but no longer used for fitting.')) return;
+async function mfDelete(id,name,hasRequest){
+  var msg='Remove '+name+' from your account? Their measurements are kept on past orders but no longer used for fitting.';
+  if(hasRequest) msg+='\n\nThe scan request you sent to '+name+' will be cancelled and their link will stop working.';
+  if(!confirm(msg)) return;
   try { await mfReq('DELETE', mfBase+'/'+id); location.hash='#myface'; location.reload(); } catch(e){ alert(e.message); }
+}
+// Scan face: here, or by a one-time remote request
+function mfScanClose(){ var m=document.getElementById('mfScanModal'); if(m) m.hidden=true; }
+function mfOpenScan(pid,name,current){
+  document.getElementById('mfScanPid').value=pid;
+  document.getElementById('mfScanTitle').textContent='Scan face \u2014 '+name;
+  document.getElementById('mfScanHere').href='/tryon?profile='+pid;
+  document.getElementById('mfScanErr').hidden=true;
+  var f=document.getElementById('mfScanForm'), c=document.getElementById('mfScanChoice');
+  if(current && current.active){
+    document.getElementById('mfScanSub').textContent='Resend a new link to '+name+'. The link already sent will stop working.';
+    c.hidden=true; f.hidden=false;
+    var ch=current.channel||'whatsapp';
+    document.querySelector('input[name=mfCh][value='+ch+']').checked=true; mfChannel();
+  } else {
+    document.getElementById('mfScanSub').textContent='Is '+name+' with you right now?';
+    c.hidden=false; f.hidden=true; document.getElementById('mfDest').value='';
+  }
+  document.getElementById('mfScanFooter').hidden=!f.hidden;
+  document.getElementById('mfScanModal').hidden=false;
+}
+function mfScanRemote(){
+  document.getElementById('mfScanChoice').hidden=true;
+  document.getElementById('mfScanForm').hidden=false;
+  document.getElementById('mfScanFooter').hidden=true;
+  mfChannel(); document.getElementById('mfDest').focus();
+}
+function mfChannel(){
+  var ch=document.querySelector('input[name=mfCh]:checked').value, d=document.getElementById('mfDest');
+  document.getElementById('mfDestLabel').firstChild.textContent = ch==='email' ? 'Email address' : 'WhatsApp number';
+  d.type = ch==='email' ? 'email' : 'tel'; d.placeholder = ch==='email' ? 'name@example.com' : '+91 98765 43210';
+}
+async function mfSendRequest(ev){
+  ev.preventDefault();
+  var pid=document.getElementById('mfScanPid').value, btn=document.getElementById('mfScanSend'), err=document.getElementById('mfScanErr');
+  err.hidden=true; btn.disabled=true; btn.textContent='Sending\u2026';
+  try {
+    var d=await mfReq('POST', mfBase+'/'+pid+'/scan-request', {channel:document.querySelector('input[name=mfCh]:checked').value, destination:document.getElementById('mfDest').value.trim()});
+    if(d.scan_request && d.scan_request.delivery_status==='FAILED'){
+      err.textContent='The request was created but the message could not be delivered ('+(d.scan_request.delivery_error||'send failed')+'). Try the other channel or Resend.'; err.hidden=false;
+      btn.disabled=false; btn.textContent='Send request';
+      setTimeout(function(){ location.hash='#myface'; location.reload(); }, 2500);
+      return false;
+    }
+    location.hash='#myface'; location.reload();
+  } catch(e){ err.textContent=e.message; err.hidden=false; btn.disabled=false; btn.textContent='Send request'; }
+  return false;
+}
+async function mfCancelRequest(pid){
+  if(!confirm('Cancel this scan request? The link already sent will stop working.')) return;
+  try { await mfReq('POST', mfBase+'/'+pid+'/scan-request/cancel'); location.hash='#myface'; location.reload(); } catch(e){ alert(e.message); }
 }
 if (location.hash === '#myface') {
   document.addEventListener('DOMContentLoaded', function(){
