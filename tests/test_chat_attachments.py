@@ -364,12 +364,28 @@ class OnMariaDB(unittest.TestCase):
         self._real_upload = crm.ket_attachment_upload
         crm.ket_attachment_upload = fake_upload
         self.crm = crm
+        # The vision model, scripted: by default it sees a frame it is sure of.
+        self.reading = cg.chat_vision.Reading(
+            kind="frame", description="A pair of spectacles on a table.",
+            frame={"colour": "black", "shape": "rectangular"}, pd="", proposal=None,
+            confidence=0.9, unreadable=False)
+        self.seen = []
+
+        def fake_describe(data, mime_type, endpoint="/api/chat/attachment"):
+            self.seen.append((mime_type, data))
+            if isinstance(self.reading, Exception):
+                raise self.reading
+            return self.reading, "scripted-vision"
+
+        self._real_describe = cg.chat_vision.describe
+        cg.chat_vision.describe = fake_describe
         self.client.delete_cookie("ow_chat_token")
         with self.app.test_request_context():
             self.token = cg._chat_cookie_serializer().dumps(self.sid)
 
     def tearDown(self):
         self.crm.ket_attachment_upload = self._real_upload
+        self.cg.chat_vision.describe = self._real_describe
         cur = self.db.cursor()
         for t in ("chat_attachments", "chat_messages", "chat_sessions"):
             cur.execute("DELETE FROM %s WHERE session_id=%%s" % t, (self.sid,))
@@ -542,6 +558,200 @@ class OnMariaDB(unittest.TestCase):
             self.crm._forward_to_ket = real_fwd
             cg._generate_chat_summary = real_sum
             cg._send_fallback_email = real_mail
+
+    # ── the assistant looks at the photo ──────────────────────────────────
+
+    def _ticket_flow(self):
+        """Script the KET create call + summary + mail; returns the create-call list."""
+        cg, forwarded = self.cg, []
+
+        def fake_forward(**kw):
+            forwarded.append(kw)
+            return {"ticket_id": "KET-31", "ticket_ref": "KET-31", "ticket_uid": "uid-31"}
+        self._saved = (self.crm._forward_to_ket, self.crm.persist_ticket_mapping,
+                       cg._generate_chat_summary, cg._send_fallback_email, cg._send_ticket_email)
+        self.crm._forward_to_ket = fake_forward
+        self.crm.persist_ticket_mapping = lambda *a, **k: None
+        cg._generate_chat_summary = lambda db, sid: "summary"
+        cg._send_fallback_email = lambda *a, **k: True
+        cg._send_ticket_email = lambda **k: None
+        self.addCleanup(self._restore_ticket_flow)
+        return forwarded
+
+    def _restore_ticket_flow(self):
+        (self.crm._forward_to_ket, self.crm.persist_ticket_mapping, self.cg._generate_chat_summary,
+         self.cg._send_fallback_email, self.cg._send_ticket_email) = self._saved
+
+    def _ai_messages(self):
+        cur = self.db.cursor()
+        cur.execute("SELECT content, metadata FROM chat_messages WHERE session_id=%s AND source='ai' ORDER BY id",
+                    (self.sid,))
+        return cur.fetchall()
+
+    def test_a_frame_photo_is_described_back_from_the_vision_reading_not_a_canned_line(self):
+        self._as_owner()
+        forwarded = self._ticket_flow()
+        r = self._post(JPEG, name="mine.jpg")
+        j = r.get_json()
+        self.assertEqual(self.seen, [("image/jpeg", JPEG)])       # the bytes went to the model
+        self.assertIn("This looks like a black rectangular frame", j["reply"])
+        self.assertNotIn("Tell me what I", j["reply"])
+        self.assertEqual(j["actions"], [])
+        self.assertEqual(forwarded, [])                            # sure -> no ticket
+        row = self._rows()[0]
+        self.assertEqual(row["vision_model"], "scripted-vision")
+        self.assertEqual(json.loads(row["vision_json"])["kind"], "frame")
+        self.assertIsNone(row["vision_error"])
+        ai = self._ai_messages()
+        self.assertEqual(len(ai), 1)
+        self.assertEqual(ai[0]["content"], j["reply"])
+        # The listing shows the reply as text, not as a second photo.
+        listing = self.client.get("/api/chat/messages/%s" % self.sid).get_json()["messages"]
+        self.assertEqual([m.get("attachment_url") for m in listing],
+                         ["/api/chat/attachment/%d" % j["attachment_id"], None])
+        # The text model is told what the photo showed, so it cannot claim blindness.
+        with self.app.test_request_context():
+            section = self.cg._photo_context(_connect(), self.sid)
+        self.assertIn("never say you cannot view images", section)
+        self.assertIn("mine.jpg (frame, confidence 0.9): A pair of spectacles", section)
+
+    def test_a_prescription_photo_reads_back_per_eye_values_as_a_proposal(self):
+        self._as_owner()
+        self._ticket_flow()
+        self.reading = self.cg.chat_vision.parse(json.dumps({
+            "kind": "prescription", "description": "A printed spectacle prescription.",
+            "prescription": {"right": {"sph": "-3.75", "cyl": "-0.75", "axis": "180", "add": "", "pd": "31"},
+                             "left": {"sph": "-3.50", "cyl": "", "axis": "", "add": "+1.00", "pd": "32"},
+                             "pd": "63"},
+            "confidence": 0.85, "unreadable": False}))
+        j = self._post(PNG, name="rx.png").get_json()
+        self.assertIn("Right eye (OD): SPH -3.75, CYL -0.75, AXIS 180", j["reply"])
+        self.assertIn("Left eye (OS): SPH -3.50, ADD 1.00", j["reply"])
+        self.assertIn("PD: 63", j["reply"])
+        self.assertIn("Nothing is applied until you confirm", j["reply"])
+        self.assertEqual(j["actions"], [])
+        self.assertNotIn("lens_rx_proposal", j)                  # no lens page -> nothing parked
+        self.assertNotIn("[LENS_RX", j["reply"])
+
+    def test_an_unsure_reading_escalates_by_itself_and_the_photo_rides_on_the_ticket(self):
+        self._as_owner()
+        forwarded = self._ticket_flow()
+        self.reading = self.cg.chat_vision.parse(
+            '{"kind": "other", "description": "Something blurred, possibly a receipt.", '
+            '"confidence": 0.3, "unreadable": false}')
+        j = self._post(GIF, name="blur.gif").get_json()
+        self.assertEqual(j["actions"], ["create_ticket"])
+        self.assertIn("I can see Something blurred, possibly a receipt.", j["reply"])
+        self.assertIn("passed it \u2014 photo included \u2014 to our support team", j["reply"])
+        self.assertIn("Your support ticket KET-31 has been created", j["reply"])
+        self.assertEqual(len(forwarded), 1)
+        self.assertEqual([i["filename"] for i in forwarded[0]["images"]], ["blur.gif"])  # Option A
+        self.assertEqual(forwarded[0]["images"][0]["data_base64"], base64.b64encode(GIF).decode("ascii"))
+        self.assertEqual(j["ket_status"], "sent")
+        row = self._rows()[0]
+        self.assertEqual((row["ket_status"], row["ket_via"], row["ket_ticket_uid"]), ("sent", "create", "uid-31"))
+        cur = self.db.cursor()
+        cur.execute("SELECT ket_ticket_uid FROM chat_sessions WHERE session_id=%s", (self.sid,))
+        self.assertEqual(cur.fetchone()["ket_ticket_uid"], "uid-31")
+        self.assertEqual(self._ai_messages()[0]["content"], j["reply"])   # stored with the ref
+
+    def test_unreadable_and_a_prescription_without_values_both_escalate(self):
+        self._as_owner()
+        forwarded = self._ticket_flow()
+        self.reading = self.cg.chat_vision.parse("I'm sorry, I can't tell what this is.")   # no JSON at all
+        j = self._post(JPEG, name="dark.jpg").get_json()
+        self.assertEqual(j["actions"], ["create_ticket"])
+        self.assertIn("can't make it out well enough", j["reply"])
+        self.assertEqual(len(forwarded), 1)
+        # The conversation is a ticket now: the next unsure photo goes by Option B, no second ticket.
+        self.reading = self.cg.chat_vision.parse(
+            '{"kind": "prescription", "description": "A prescription, handwriting illegible.", '
+            '"prescription": {}, "confidence": 0.9, "unreadable": false}')
+        j2 = self._post(PNG, name="rx2.png").get_json()
+        self.assertEqual(j2["actions"], [])
+        self.assertIn("couldn't make out the values clearly, and it's on your open ticket", j2["reply"])
+        self.assertEqual(len(forwarded), 1)
+        self.assertEqual([u[:2] for u in self.uploads], [("uid-31", "rx2.png")])
+        self.assertEqual(j2["ket_status"], "sent")
+
+    def test_a_provider_failure_is_not_a_500_does_not_invent_a_description_and_escalates(self):
+        self._as_owner()
+        forwarded = self._ticket_flow()
+        self.reading = self.cg.chat_vision.ai_client.ModelError("upstream 502")
+        with self.assertLogs(self.app.logger, level="WARNING") as logs:
+            r = self._post(WEBP, name="p.webp", mime="image/webp")
+        self.assertEqual(r.status_code, 200)
+        j = r.get_json()
+        self.assertIn("couldn't analyse that photo just now", j["reply"])
+        self.assertEqual(j["actions"], ["create_ticket"])
+        self.assertEqual(len(forwarded), 1)
+        row = self._rows()[0]
+        self.assertIsNone(row["vision_json"])
+        self.assertEqual(row["vision_error"], "upstream 502")
+        joined = "\n".join(logs.output)
+        self.assertNotIn(base64.b64encode(WEBP).decode("ascii"), joined)
+        self.assertNotIn(repr(WEBP), joined)
+
+    def test_when_a_person_is_answering_the_assistant_only_hands_the_photo_on(self):
+        self.db.cursor().execute(
+            "UPDATE chat_sessions SET status='human_open', ket_ticket_uid='uid-h', ket_ticket_ref='KET-H' "
+            "WHERE session_id=%s", (self.sid,))
+        self._as_owner()
+        j = self._post(JPEG, name="h.jpg").get_json()
+        self.assertEqual(self.seen, [])
+        self.assertEqual(j["reply"], "Your photo has been sent to my supervisor.")
+        self.assertEqual(j["ket_status"], "sent")
+        self.assertEqual([u[:2] for u in self.uploads], [("uid-h", "h.jpg")])
+        cur = self.db.cursor()
+        cur.execute("SELECT status FROM chat_sessions WHERE session_id=%s", (self.sid,))
+        self.assertEqual(cur.fetchone()["status"], "human_open")
+
+
+class VisionReading(unittest.TestCase):
+    """The parser and the customer wording, no database."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cv = _load_gateway().chat_vision
+
+    def test_confidence_rules(self):
+        cv = self.cv
+        sure = cv.parse('{"kind":"frame","description":"x","confidence":0.75}')
+        self.assertTrue(sure.confident)
+        self.assertFalse(cv.parse('{"kind":"frame","description":"x","confidence":0.5}').confident)
+        self.assertFalse(cv.parse('{"kind":"other","description":"a cat","confidence":0.99}').confident)
+        self.assertFalse(cv.parse('{"kind":"frame","description":"x","confidence":0.9,"unreadable":true}').confident)
+        self.assertFalse(cv.parse('{"kind":"prescription","confidence":0.9,"prescription":{}}').confident)
+        self.assertFalse(cv.parse('{"kind":"frame","description":"x"}').confident)      # no confidence given
+        self.assertEqual(cv.parse("```json\n{\"kind\":\"frame\",\"confidence\":\"1.4\"}\n```").confidence, 1.0)
+        bad = cv.parse("nonsense")
+        self.assertTrue(bad.unreadable)
+        self.assertEqual(bad.kind, "other")
+
+    def test_prescription_values_are_canonical_and_pd_is_kept(self):
+        r = self.cv.parse(json.dumps({"kind": "prescription", "confidence": 0.9, "prescription": {
+            "right": {"sph": "-3.75", "cyl": "-0.75", "axis": "180", "pd": "31"},
+            "left": {"sph": "plano"}, "pd": "63"}}))
+        self.assertEqual(r.proposal["right"]["sph"], "-3.75")
+        self.assertEqual(r.proposal["right"]["axis"], "180")
+        self.assertEqual(r["pd"], "63")
+        self.assertTrue(r.confident)
+        text = self.cv.customer_reply(r)
+        self.assertIn("Right eye (OD): SPH -3.75, CYL -0.75, AXIS 180", text)
+        self.assertIn("PD: 63", text)
+
+    def test_the_request_carries_the_image_as_a_data_url_and_the_prompt_asks_per_eye(self):
+        msgs = self.cv.messages_for(b"\xff\xd8bytes", "image/jpeg")
+        parts = msgs[0]["content"]
+        self.assertEqual(parts[0]["type"], "text")
+        for word in ("SPH", "CYL", "AXIS", "ADD", "PD", "colour", "shape", "unreadable"):
+            self.assertIn(word, parts[0]["text"])
+        self.assertTrue(parts[1]["image_url"]["url"].startswith("data:image/jpeg;base64,"))
+        self.assertIn("frame", self.cv.prompt_section([("a.jpg", self.cv.parse(
+            '{"kind":"frame","description":"Round tortoiseshell frame.","confidence":0.8}'))]))
+        self.assertIn("could not read it", self.cv.prompt_section([("b.jpg", self.cv.parse("??"))]))
+        self.assertIn("not analysed", self.cv.prompt_section([("c.jpg", None)]))
+        self.assertEqual(self.cv.prompt_section([]), "")
 
 
 if __name__ == "__main__":

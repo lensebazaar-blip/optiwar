@@ -204,7 +204,7 @@ class DeployMigrationTest(unittest.TestCase):
         known = {"ai_events", "ai_actions", "products",
                  "contact_lens_products", "contact_lens_images",
                  "contact_lens_variants", "contact_lens_prescriptions",
-                 "chat_sessions"}
+                 "chat_sessions", "chat_attachments"}
         for label, sql in self.deploy.migration():
             if label.endswith("(table)"):
                 self.assertIn(label.split(" ", 1)[0], sql, label)

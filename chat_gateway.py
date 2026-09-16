@@ -17,6 +17,7 @@ from openai import OpenAI
 from . import acr
 from . import catalogue
 from . import chat_attachments
+from . import chat_vision
 from . import dev_defects
 from . import lens_config
 from . import lens_prompt
@@ -1165,10 +1166,20 @@ def chat_attachment_upload():
     except chat_attachments.Rejected as e:
         return jsonify({'error': {'code': e.code, 'message': e.message}}), 400
 
+    page_url = (request.form.get('page_url') or '').strip()
+    page_state = None
+    if request.form.get('page_state'):
+        try:
+            page_state = json.loads(request.form['page_state'])
+        except ValueError:
+            page_state = None
+
     db = _get_db()
     cur = db.cursor()
     cur.execute(
-        "SELECT session_id, status, ket_ticket_uid FROM chat_sessions WHERE session_id = %s",
+        "SELECT session_id, status, contact_name, contact_email, customer_id, "
+        "ket_ticket_uid, ket_ticket_ref, current_page_url "
+        "FROM chat_sessions WHERE session_id = %s",
         (session_id,))
     session = cur.fetchone()
     if not session:
@@ -1223,8 +1234,30 @@ def chat_attachment_upload():
         row = {'id': attachment_id, 'filename': info['filename'], 'mime_type': info['mime_type']}
         ok = _forward_attachment_to_ket(db, row, data, session['ket_ticket_uid'])
         ket_status = chat_attachments.KET_SENT if ok else chat_attachments.KET_FAILED
+
+    # The assistant looks at the photo now, and answers from what it saw. A
+    # photo it cannot read, does not recognise, or cannot look at goes to a
+    # person straight away — the customer is not asked to describe it.
+    page_url = page_url or session.get('current_page_url') or ''
+    if session['status'] == 'human_open':
+        # A person is answering this chat: the photo went to their ticket above;
+        # the assistant stays silent, as it does for text.
+        reply, actions, lens_proposal = 'Your photo has been sent to my supervisor.', [], None
+    else:
+        reply, actions, lens_proposal = _answer_photo(
+            db, session, session_id, attachment_id, info, data, page_url, page_state)
+    ai_msg_id = _insert_message(db, session_id, 'ai', 'assistant', reply, status='sent',
+                                metadata={'actions': actions, 'about_attachment_id': attachment_id})
+    if 'create_ticket' in actions:
+        reply = _ticket_for_actions(db, session_id, session, page_url, reply, ai_msg_id, actions)
+        cur.execute("SELECT ket_status FROM chat_attachments WHERE id = %s", (attachment_id,))
+        ket_status = (cur.fetchone() or {}).get('ket_status') or ket_status
+    _log_event(db, session_id, 'ai_completed', {'reply_length': len(reply), 'actions': actions,
+                                                'attachment_id': attachment_id})
+    cur.execute("UPDATE chat_sessions SET last_activity = NOW() WHERE session_id = %s", (session_id,))
+    db.commit()
     db.close()
-    return jsonify({
+    resp = {
         'session_id': session_id,
         'attachment_id': attachment_id,
         'message_id': message_id,
@@ -1233,7 +1266,115 @@ def chat_attachment_upload():
         'byte_size': info['byte_size'],
         'ket_status': ket_status,
         'url': '/api/chat/attachment/%d' % attachment_id,
-    })
+        'reply': reply,
+        'reply_message_id': ai_msg_id,
+        'actions': actions,
+    }
+    if lens_proposal is not None:
+        resp['lens_rx_proposal'] = lens_proposal
+    return jsonify(resp)
+
+
+_TO_TEAM = ("so I've passed it \u2014 photo included \u2014 to our support team, who will "
+            "look at it and reply here.")
+_ON_TICKET = "and it's on your open ticket for our support team to look at."
+
+
+def _answer_photo(db, session, session_id, attachment_id, info, data, page_url, page_state):
+    """``(reply, actions, lens_proposal)`` for a freshly stored photo.
+
+    Reads it with the vision workload, records the reading on the attachment
+    row, and decides: answer from it, or escalate (``create_ticket``) when the
+    reading is unreadable / unrecognised / not confident / not obtainable. One
+    conversation escalates once \u2014 a later photo on an open ticket has already
+    been forwarded to it (Option B) by the caller.
+    """
+    cur = db.cursor()
+    reading, model, vision_error = None, None, None
+    try:
+        reading, model = chat_vision.describe(data, info['mime_type'])
+    except Exception as e:  # noqa: BLE001 - provider down is one outcome, not a 500
+        vision_error = str(e)[:255]
+        current_app.logger.warning(
+            f"[ChatAttach] vision unavailable id={attachment_id}: {type(e).__name__}")
+        dev_defects.record('CHAT_PHOTO_VISION_UNAVAILABLE', where=type(e).__name__[:60],
+                           page=page_url)
+    cur.execute(
+        "UPDATE chat_attachments SET vision_json = %s, vision_model = %s, vision_error = %s "
+        "WHERE id = %s",
+        (json.dumps(reading, sort_keys=True) if reading is not None else None,
+         (model or '')[:64] or None, vision_error, attachment_id))
+    db.commit()
+
+    already_ticketed = bool(session.get('ket_ticket_uid') or session.get('ket_ticket_ref'))
+    handed = _ON_TICKET if already_ticketed else _TO_TEAM
+    lens_proposal = None
+
+    if reading is not None and reading.kind == chat_vision.KIND_PRESCRIPTION and reading.proposal:
+        reply = chat_vision.customer_reply(reading, info['filename'])
+        is_india = 'in.optiwar.com' in page_url or 'optiwar.in' in page_url
+        lens_row, lens_shape, lens_mins, _section = _lens_context(
+            page_url, is_india, session.get('customer_id'), page_state)
+        if lens_row is not None:
+            tagged = reply + ' [LENS_RX:%s]' % json.dumps(reading.proposal)
+            reply, lens_proposal = _park_lens_proposal(tagged, lens_row, lens_shape, lens_mins)
+            if lens_proposal is not None and not lens_proposal.get('accepted'):
+                reply += ("\n\nThese values aren't available for the lens on this page "
+                          "(%s). I can help you find one that is."
+                          % ', '.join(lens_proposal.get('reasons') or ()))
+        return reply, [], lens_proposal
+    if reading is not None and reading.confident:
+        reply = chat_vision.customer_reply(reading, info['filename']) or (
+            reading.description + " How can I help with it?")
+        return reply, [], None
+
+    if reading is None:
+        reply = "I couldn't analyse that photo just now, " + handed
+        reason = 'vision_unavailable'
+    elif reading.kind == chat_vision.KIND_PRESCRIPTION:
+        reply = ("I can see this is a prescription but couldn't make out the values "
+                 "clearly, " + handed)
+        reason = 'unreadable' if reading.unreadable else 'not_confident'
+    elif reading.description and not reading.unreadable:
+        reply = ("I can see %s I'm not sure enough to help on my own, %s"
+                 % (reading.description.rstrip('.') + '.', handed))
+        reason = 'not_confident'
+    else:
+        reply = ("I've looked at your photo but can't make it out well enough to help "
+                 "on my own, " + handed)
+        reason = 'unreadable' if reading.unreadable else 'not_confident'
+
+    actions = []
+    if not already_ticketed:
+        actions.append('create_ticket')
+        acr.log_event(db, acr.EV_HANDOVER_ESCALATED, session_id=session_id,
+                      journey_stage=acr.STAGE_SUPPORT, action_type='PHOTO_ESCALATION',
+                      payload={'attachment_id': attachment_id, 'reason': reason,
+                               'kind': None if reading is None else reading.kind,
+                               'confidence': None if reading is None else reading.confidence})
+    return reply, actions, lens_proposal
+
+
+def _photo_context(db, session_id):
+    """The prompt section describing every photo in this conversation."""
+    cur = db.cursor()
+    try:
+        cur.execute(
+            "SELECT filename, vision_json FROM chat_attachments WHERE session_id = %s "
+            "AND stored_name <> '' ORDER BY id", (session_id,))
+        rows = cur.fetchall()
+    except Exception:  # noqa: BLE001 - table not there yet: no photos
+        return ''
+    out = []
+    for r in rows:
+        reading = None
+        if r.get('vision_json'):
+            try:
+                reading = chat_vision.Reading(json.loads(r['vision_json']))
+            except (ValueError, TypeError):
+                reading = None
+        out.append((r['filename'], reading))
+    return chat_vision.prompt_section(out)
 
 
 @bp.route('/attachment/<int:attachment_id>', methods=['GET'])
@@ -1859,9 +2000,10 @@ def chat_message():
     # prompt; its validator judges any prescription the model reads back.
     lens_row, lens_shape, lens_mins, lens_section = _lens_context(
         page_url, is_india, customer_id, data.get('page_state'))
+    photo_section = _photo_context(db, session_id)
     system_prompt = _build_system_prompt(
         contact_name, is_india, content, customer_id=customer_id,
-        extra_sections=(lens_section,) if lens_section else ())
+        extra_sections=tuple(s for s in (lens_section, photo_section) if s))
     history = _get_conversation_history(db, session_id)
     ai_reply, error = _call_deepseek(system_prompt, history, content, is_india=is_india,
                                      endpoint="chat_gateway.message", gate_key=session_id)
@@ -2049,57 +2191,8 @@ def chat_message():
 
     # --- Ticket Creation ---
     if 'human_handover' in actions or 'create_ticket' in actions:
-        # STEP 1: Create ticket via solid 3-step flow (DB + KET + fallback email)
-        local_ticket_id, ket_ticket_id = _forward_ticket_from_chat(db, session_id, session, page_url)
-
-        # Canonical escalation/ticket events (authoritative point: right after
-        # the ticket flow completes). HANDOVER_ESCALATED marks the human-handover
-        # decision; KET_TICKET_CREATED reconciles against actual ticket creation
-        # and carries only ticket-reference ids (no PII).
-        if 'human_handover' in actions:
-            acr.log_event(db, acr.EV_HANDOVER_ESCALATED, session_id=session_id,
-                          journey_stage=acr.STAGE_SUPPORT, action_type='HANDOVER')
-        if local_ticket_id or ket_ticket_id:
-            acr.log_event(db, acr.EV_KET_TICKET_CREATED, session_id=session_id,
-                          journey_stage=acr.STAGE_SUPPORT, success=bool(ket_ticket_id),
-                          payload={'ket_ticket_id': ket_ticket_id,
-                                   'local_ticket_id': local_ticket_id})
-
-        # Build ticket reference for customer
-        ticket_ref = ""
-        if ket_ticket_id:
-            ticket_ref = ket_ticket_id
-        elif local_ticket_id:
-            ticket_ref = f"#{local_ticket_id}"
-
-        if 'human_handover' in actions:
-            ticket_msg = f"\n\nNow my supervisor will take over further answers. Ticket {ticket_ref}."
-            ai_reply += ticket_msg
-        else:
-            ticket_msg = f"Your support ticket {ticket_ref} has been created. Our team will review and get back to you shortly."
-            if not ai_reply.strip():
-                ai_reply = ticket_msg
-            else:
-                ai_reply += f"\n\n{ticket_msg}"
-
-        # Update stored message with ticket reference
-        cur.execute(
-            "UPDATE chat_messages SET content = %s WHERE id = %s",
-            (ai_reply, ai_msg_id)
-        )
-
-        # Send ticket confirmation email to customer
-        _send_ticket_email(
-            customer_email=session['contact_email'],
-            customer_name=session['contact_name'] or 'Customer',
-            ticket_id=ticket_ref,
-            summary=_generate_chat_summary(db, session_id) if '_summary' not in dir() else _summary,
-            page_url=page_url
-        )
-
-        # WhatsApp/SMS hookpoints (will activate when configured)
-        _send_ticket_whatsapp(None, session['contact_name'] or 'Customer', ticket_ref, '')
-        _send_ticket_sms(None, session['contact_name'] or 'Customer', ticket_ref)
+        ai_reply = _ticket_for_actions(db, session_id, session, page_url,
+                                       ai_reply, ai_msg_id, actions)
     # --- End Ticket Creation ---
 
     # Update session status — AI keeps chatting even after handover
@@ -2126,6 +2219,66 @@ def chat_message():
     if lens_proposal is not None:
         resp['lens_rx_proposal'] = lens_proposal
     return jsonify(resp)
+
+
+def _ticket_for_actions(db, session_id, session, page_url, ai_reply, ai_msg_id, actions):
+    """The ticket flow behind a HUMAN_HANDOVER / CREATE_TICKET action: local
+    ticket + KET (with the chat's photos) + fallback email, the canonical
+    events, and the reference appended to the stored reply. Returns the reply
+    as the customer sees it."""
+    cur = db.cursor()
+    # STEP 1: Create ticket via solid 3-step flow (DB + KET + fallback email)
+    local_ticket_id, ket_ticket_id = _forward_ticket_from_chat(db, session_id, session, page_url)
+
+    # Canonical escalation/ticket events (authoritative point: right after
+    # the ticket flow completes). HANDOVER_ESCALATED marks the human-handover
+    # decision; KET_TICKET_CREATED reconciles against actual ticket creation
+    # and carries only ticket-reference ids (no PII).
+    if 'human_handover' in actions:
+        acr.log_event(db, acr.EV_HANDOVER_ESCALATED, session_id=session_id,
+                      journey_stage=acr.STAGE_SUPPORT, action_type='HANDOVER')
+    if local_ticket_id or ket_ticket_id:
+        acr.log_event(db, acr.EV_KET_TICKET_CREATED, session_id=session_id,
+                      journey_stage=acr.STAGE_SUPPORT, success=bool(ket_ticket_id),
+                      payload={'ket_ticket_id': ket_ticket_id,
+                               'local_ticket_id': local_ticket_id})
+
+    # Build ticket reference for customer
+    ticket_ref = ""
+    if ket_ticket_id:
+        ticket_ref = ket_ticket_id
+    elif local_ticket_id:
+        ticket_ref = f"#{local_ticket_id}"
+
+    if 'human_handover' in actions:
+        ticket_msg = f"\n\nNow my supervisor will take over further answers. Ticket {ticket_ref}."
+        ai_reply += ticket_msg
+    else:
+        ticket_msg = f"Your support ticket {ticket_ref} has been created. Our team will review and get back to you shortly."
+        if not ai_reply.strip():
+            ai_reply = ticket_msg
+        else:
+            ai_reply += f"\n\n{ticket_msg}"
+
+    # Update stored message with ticket reference
+    cur.execute(
+        "UPDATE chat_messages SET content = %s WHERE id = %s",
+        (ai_reply, ai_msg_id)
+    )
+
+    # Send ticket confirmation email to customer
+    _send_ticket_email(
+        customer_email=session['contact_email'],
+        customer_name=session['contact_name'] or 'Customer',
+        ticket_id=ticket_ref,
+        summary=_generate_chat_summary(db, session_id),
+        page_url=page_url
+    )
+
+    # WhatsApp/SMS hookpoints (will activate when configured)
+    _send_ticket_whatsapp(None, session['contact_name'] or 'Customer', ticket_ref, '')
+    _send_ticket_sms(None, session['contact_name'] or 'Customer', ticket_ref)
+    return ai_reply
 
 
 def _attachment_id_of(metadata):
