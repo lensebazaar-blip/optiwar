@@ -284,6 +284,11 @@ CHAT_MESSAGES_DDL = """CREATE TABLE IF NOT EXISTS chat_messages (
     UNIQUE KEY uq_client (session_id, source, client_message_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
 
+CHAT_EVENTS_DDL = """CREATE TABLE IF NOT EXISTS chat_events (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY, session_id VARCHAR(64) NULL,
+    event_type VARCHAR(48) NULL, payload TEXT NULL, created_at DATETIME NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
+
 
 def _load_gateway():
     for name in ("openai", "httpx"):
@@ -322,6 +327,7 @@ class OnMariaDB(unittest.TestCase):
         cur = cls.db.cursor()
         cur.execute(CHAT_SESSIONS_DDL)
         cur.execute(CHAT_MESSAGES_DDL)
+        cur.execute(CHAT_EVENTS_DDL)
         # Another suite may have created chat_messages first, without the
         # idempotency column production has; bring it up to that shape.
         cur.execute("SELECT COUNT(*) AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() "
@@ -387,7 +393,7 @@ class OnMariaDB(unittest.TestCase):
         self.crm.ket_attachment_upload = self._real_upload
         self.cg.chat_vision.describe = self._real_describe
         cur = self.db.cursor()
-        for t in ("chat_attachments", "chat_messages", "chat_sessions"):
+        for t in ("chat_attachments", "chat_messages", "chat_events", "chat_sessions"):
             cur.execute("DELETE FROM %s WHERE session_id=%%s" % t, (self.sid,))
 
     def _as_owner(self, sid=None):
