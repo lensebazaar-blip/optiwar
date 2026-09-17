@@ -8,7 +8,7 @@
 .mf-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:16px}
 .mf-title{margin:0;font-size:22px}.mf-sub{margin:4px 0 0;color:#666;font-size:14px}
 .mf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
-.mf-card{position:relative}.mf-card-default{outline:2px solid #1a73e8}
+.mf-card{position:relative}.mf-card-default{outline:2px solid #1a73e8}.mf-card-focus{box-shadow:0 0 0 4px rgba(26,115,232,.25)}
 .mf-name{font-weight:600;font-size:17px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .mf-tag{font-size:11px;padding:2px 8px;border-radius:10px;background:#eee;color:#444;font-weight:500}
 .mf-tag-self{background:#e8f0fe;color:#1a56b8}.mf-tag-default{background:#1a73e8;color:#fff}
@@ -39,12 +39,33 @@
 .mf-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .mf-chip{font-size:12px;padding:3px 10px;border-radius:12px;background:#fff;border:1px solid #d8d8e0;color:#444}
 .mf-chip-done{background:#e6f4ea;border-color:#b7dfc0;color:#1e6b34}
-.mf-people{display:grid;gap:8px;margin:12px 0;max-height:50vh;overflow:auto}
-.mf-person{display:grid;grid-template-columns:auto 1fr;gap:8px 10px;align-items:center;padding:8px 10px;border:1px solid #e3e3ea;border-radius:10px}
-.mf-person .mf-person-dest{grid-column:2;display:flex;gap:8px}
-.mf-person .mf-person-dest select,.mf-person .mf-person-dest input{padding:6px 8px;border:1px solid #ccc;border-radius:8px;font-size:13px}
-.mf-person .mf-person-dest input{flex:1;min-width:0}
-.mf-person[data-off] .mf-person-dest{display:none}
+.mf-people{display:grid;gap:10px;margin:12px 0}
+.mf-person{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;align-items:start;padding:12px;border:1px solid #e3e3ea;border-radius:12px;cursor:pointer;min-width:0}
+.mf-person input[type=checkbox]{width:22px;height:22px;margin:2px 0 0;accent-color:#5b3df5}
+.mf-person-main{display:grid;gap:2px;min-width:0}
+.mf-person-status{font-size:13px;color:#666}.mf-status-done{color:#1e6b34}.mf-status-pending{color:#8a5a00}
+.mf-plan{display:grid;gap:10px;padding:12px;border:1px solid #e3e3ea;border-radius:12px;min-width:0}
+.mf-plan-how{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.mf-how{display:flex;align-items:center;justify-content:center;min-height:44px;padding:8px 10px;border:1px solid #d8d8e0;border-radius:10px;background:#fff;font:inherit;font-size:14px;cursor:pointer;color:#222}
+.mf-how[aria-pressed=true]{border-color:#5b3df5;background:#f3f0ff;color:#3b22c4;font-weight:600}
+.mf-plan-dest{display:grid;gap:8px}
+.mf-plan-dest[hidden]{display:none}
+.mf-plan .mf-seg{margin:0}
+.mf-plan .mf-input{min-height:44px;font-size:16px;box-sizing:border-box}
+.mf-input[aria-invalid=true]{border-color:#b3261e}
+.mf-review{display:grid;gap:8px;margin:12px 0}
+.mf-review-row{display:flex;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid #e3e3ea;border-radius:10px;font-size:14px;flex-wrap:wrap}
+.mf-review-row span:last-child{color:#555}
+.mf-actions-sheet .fc-btn{min-height:44px}
+.mf-modal-sheet .mf-modal-box{width:min(520px,92vw);max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow:auto;-webkit-overflow-scrolling:touch}
+.mf-body-lock{overflow:hidden}
+@media (max-width:640px){
+  .mf-modal-sheet{align-items:flex-end}
+  .mf-modal-sheet .mf-modal-box{width:100%;max-width:none;border-radius:16px 16px 0 0;max-height:calc(100vh - 16px);max-height:calc(100dvh - 16px);padding:18px 16px calc(16px + env(safe-area-inset-bottom,0px))}
+  .mf-actions-sheet{position:sticky;bottom:0;background:#fff;padding-top:10px;margin-top:6px;display:grid;grid-template-columns:1fr;gap:8px}
+  .mf-actions-sheet .fc-btn{width:100%;text-align:center;box-sizing:border-box}
+  .mf-plan-how{grid-template-columns:1fr}
+}
 .mf-links{display:grid;gap:8px;margin:10px 0}
 .mf-links .mf-linkrow{margin:0;flex-wrap:wrap}.mf-links .mf-linkrow strong{flex-basis:100%;font-size:13px}
 .fc-card{
@@ -282,26 +303,26 @@
 
   <!-- Tab Navigation -->
   <div class="ow-profile-tabs">
-    <button class="ow-tab-btn ow-tab-active" onclick="switchTab('account')">
+    <button class="ow-tab-btn{% if active_tab == 'account' %} ow-tab-active{% endif %}" onclick="switchTab('account')">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       <span>Account</span>
     </button>
-    <button class="ow-tab-btn" onclick="switchTab('addresses')">
+    <button class="ow-tab-btn{% if active_tab == 'addresses' %} ow-tab-active{% endif %}" onclick="switchTab('addresses')">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
       <span>Addresses</span>
     </button>
-    <button class="ow-tab-btn" onclick="switchTab('orders')">
+    <button class="ow-tab-btn{% if active_tab == 'orders' %} ow-tab-active{% endif %}" onclick="switchTab('orders')">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
       <span>Orders</span>
     </button>
-    <button class="ow-tab-btn" onclick="switchTab('myface')">
+    <button class="ow-tab-btn{% if active_tab == 'myface' %} ow-tab-active{% endif %}" onclick="switchTab('myface')">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="5"/><path d="M3 21c0-4.97 4.03-9 9-9s9 4.03 9 9"/><circle cx="9" cy="7" r="1" fill="currentColor"/><circle cx="15" cy="7" r="1" fill="currentColor"/></svg>
       <span>{% if face_profiles_enabled %}My Faces{% else %}My Face{% endif %}</span>
     </button>
   </div>
 
   <!-- Account Tab -->
-  <div id="tab-account" class="ow-tab-content ow-tab-visible">
+  <div id="tab-account" class="ow-tab-content{% if active_tab == 'account' %} ow-tab-visible{% endif %}">
     <div class="ow-profile-card">
       <div class="ow-card-header">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ow-primary)" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -344,7 +365,7 @@
   </div>
 
   <!-- Addresses Tab -->
-  <div id="tab-addresses" class="ow-tab-content">
+  <div id="tab-addresses" class="ow-tab-content{% if active_tab == 'addresses' %} ow-tab-visible{% endif %}">
     <!-- Existing Addresses -->
     {% if addresses %}
     <div class="ow-addresses-grid">
@@ -637,7 +658,7 @@
   </div>
 
   <!-- Orders Tab -->
-  <div id="tab-orders" class="ow-tab-content">
+  <div id="tab-orders" class="ow-tab-content{% if active_tab == 'orders' %} ow-tab-visible{% endif %}">
     {% if orders %}
     <style>
     /* ===== Order History Cards v2 ===== */
@@ -907,7 +928,7 @@
   </div>
 
   <!-- My Face Tab -->
-  <div id="tab-myface" class="ow-tab-content">
+  <div id="tab-myface" class="ow-tab-content{% if active_tab == 'myface' %} ow-tab-visible{% endif %}">
     {% if face_profiles_enabled %}
     {# ---- My Faces: one card per person; Self protected; one default ---- #}
     <div class="mf-head">
@@ -916,7 +937,7 @@
         <p class="mf-sub">The people you buy glasses for. Frames are fitted to the person you are shopping for.</p>
       </div>
       <div class="mf-actions">
-        {% if face_remote_scan_enabled and face_profiles|length > 1 %}<button type="button" class="fc-btn" onclick="mfgOpen()">Scan several people</button>{% endif %}
+        {% if face_remote_scan_enabled and face_profiles|length > 1 %}<button type="button" class="fc-btn" onclick="mfgOpen()">Measure several people</button>{% endif %}
         <button type="button" class="fc-btn fc-btn-primary" onclick="mfOpenAdd()">+ Add person</button>
       </div>
     </div>
@@ -1051,34 +1072,65 @@
         <div id="mfScanFooter" class="mf-actions"><button type="button" class="fc-btn" onclick="mfScanClose()">Close</button></div>
       </div>
     </div>
-    <div id="mfgModal" class="mf-modal" hidden>
+    <div id="mfgModal" class="mf-modal mf-modal-sheet" hidden role="dialog" aria-modal="true" aria-labelledby="mfgTitle">
       <div class="mf-modal-box">
-        <h3>Scan several people</h3>
-        <form id="mfgForm" onsubmit="return mfgSend(event)">
-          <p class="mf-sub">Tick the people to measure and where to send each one-time link. Every link expires in 24 hours; you get one email with all the measurements once the last person has scanned.</p>
-          <div class="mf-people">
+        <h3 id="mfgTitle">Measure several people</h3>
+        {# Stage 1: who needs measurements. Rows are status-aware; already
+           measured people (Self included) start unticked. #}
+        <div id="mfgStage1">
+          <p class="mf-sub">Each person can be scanned on this device now, or sent a secure link that works once and expires in 24 hours. You can mix both.</p>
+          <div class="mf-people" id="mfgPeople">
             {% for p in face_profiles %}
-            <div class="mf-person" data-off data-pid="{{ p.id }}">
-              <input type="checkbox" class="mfg-pick" id="mfgPick{{ p.id }}" value="{{ p.id }}" onchange="mfgToggle(this)"{% if p.scan_request and p.scan_request.active %} disabled title="A scan request is already pending for this person"{% endif %}>
-              <label for="mfgPick{{ p.id }}" class="mfg-name">{{ p.display_name }} <span class="mf-tag">{% if p.is_self %}Me{% else %}{{ p.relationship_label }}{% endif %}</span>{% if p.scan_request and p.scan_request.active %} <span class="mf-when">request pending</span>{% endif %}</label>
-              <span class="mf-person-dest">
-                <select class="mfg-ch" onchange="mfgChannel(this)"><option value="whatsapp">WhatsApp</option><option value="email">Email</option></select>
-                <input class="mfg-dest" type="tel" inputmode="tel" placeholder="+91 98765 43210" autocomplete="off" disabled>
+            {% set pending = p.scan_request and p.scan_request.active %}
+            <label class="mf-person" data-pid="{{ p.id }}" data-self="{{ '1' if p.is_self else '' }}" data-measured="{{ '1' if p.has_scan else '' }}" data-pending="{{ '1' if pending else '' }}">
+              <input type="checkbox" class="mfg-pick" value="{{ p.id }}"{% if not p.has_scan and not pending %} checked{% endif %} onchange="mfgTally()">
+              <span class="mf-person-main">
+                <span class="mfg-name">{{ p.display_name }} <span class="mf-tag{% if p.is_self %} mf-tag-self{% endif %}">{% if p.is_self %}Me{% else %}{{ p.relationship_label }}{% endif %}</span></span>
+                <span class="mf-person-status{% if p.has_scan %} mf-status-done{% elif pending %} mf-status-pending{% endif %}">
+                  {%- if pending %}Request pending &middot; {{ 'WhatsApp' if p.scan_request.channel == 'whatsapp' else 'Email' }} {{ p.scan_request.destination }}
+                  {%- elif p.has_scan %}Already measured {{ p.measurements.measured_at[:10] }}
+                  {%- else %}No measurements yet{% endif -%}
+                </span>
               </span>
-            </div>
+            </label>
             {% endfor %}
           </div>
-          <p class="mf-err" id="mfgErr" hidden></p>
-          <div class="mf-actions">
-            <button type="submit" class="fc-btn fc-btn-primary" id="mfgSendBtn">Send requests</button>
+          <p class="mf-err" id="mfgErr1" role="alert" hidden></p>
+          <div class="mf-actions mf-actions-sheet">
+            <button type="button" class="fc-btn fc-btn-primary" id="mfgNext" onclick="mfgToStage2()">Continue</button>
             <button type="button" class="fc-btn" onclick="mfgClose()">Cancel</button>
           </div>
-        </form>
+        </div>
+        {# Stage 2: how each chosen person is measured. Self is local only;
+           the destination field exists only once Send link is chosen, and
+           is the only enabled, validated input in its row. #}
+        <div id="mfgStage2" hidden>
+          <p class="mf-sub">Choose how each person is measured.</p>
+          <div class="mf-people" id="mfgPlan"></div>
+          <p class="mf-sub" id="mfgTallyLine"></p>
+          <p class="mf-err" id="mfgErr2" role="alert" hidden></p>
+          <div class="mf-actions mf-actions-sheet">
+            <button type="button" class="fc-btn fc-btn-primary" id="mfgGo" onclick="mfgReview()">Continue</button>
+            <button type="button" class="fc-btn" onclick="mfgBack(1)">Back</button>
+          </div>
+        </div>
+        {# Review: every destination (masked) before anything is sent. #}
+        <div id="mfgStage3" hidden>
+          <p class="mf-sub">Check before sending. Links work once and expire in 24 hours; nothing is sent to you.</p>
+          <div class="mf-review" id="mfgReviewRows"></div>
+          <p class="mf-err" id="mfgErr3" role="alert" hidden></p>
+          <div class="mf-actions mf-actions-sheet">
+            <button type="button" class="fc-btn fc-btn-primary" id="mfgSendBtn" onclick="mfgSend()">Continue</button>
+            <button type="button" class="fc-btn" onclick="mfgBack(2)">Back</button>
+          </div>
+        </div>
+        {# Results: a link per person sent, a Scan button per person to scan here. #}
         <div id="mfgLinks" hidden>
-          <p class="mf-sub">If a message does not arrive, share that person's link yourself. Each works for 24 hours and once only.</p>
+          <p class="mf-sub" id="mfgLinksSub">If a message does not arrive, share that person's link yourself. Each works for 24 hours and once only.</p>
           <div class="mf-links" id="mfgLinkRows"></div>
-          <div class="mf-actions">
-            <button type="button" class="fc-btn fc-btn-primary" onclick="location.hash='#myface'; location.reload();">Done</button>
+          <div class="mf-actions mf-actions-sheet">
+            <a class="fc-btn fc-btn-primary" id="mfgScanNow" href="#" hidden>Scan here now</a>
+            <button type="button" class="fc-btn" onclick="location.href='/profile/?tab=faces'">Done</button>
           </div>
         </div>
       </div>
@@ -1574,26 +1626,130 @@ async function mfCancelRequest(pid){
   if(!confirm('Cancel this scan request? The link already sent will stop working.')) return;
   try { await mfReq('POST', mfBase+'/'+pid+'/scan-request/cancel'); location.hash='#myface'; location.reload(); } catch(e){ alert(e.message); }
 }
-// Scan several people: one group, one link per ticked person
+// Measure several people: pick who (stage 1), decide Scan here / Send link per
+// person (stage 2), review masked destinations (stage 3), then one group whose
+// local scans and remote links all count towards the same completion.
+var mfgState = {guuid:null, plan:[]};
+function mfgShow(stage){
+  ['mfgStage1','mfgStage2','mfgStage3','mfgLinks'].forEach(function(id){ document.getElementById(id).hidden = (id!==stage); });
+  document.querySelectorAll('#mfgModal .mf-err').forEach(function(e){ e.hidden=true; });
+  var box=document.querySelector('#mfgModal .mf-modal-box'); if(box) box.scrollTop=0;
+}
 function mfgOpen(){
-  document.querySelectorAll('#mfgModal .mf-person').forEach(function(row){
-    var cb=row.querySelector('.mfg-pick'); cb.checked=false; mfgToggle(cb);
-    row.querySelector('.mfg-dest').value='';
+  mfgState={guuid:null, plan:[]};
+  document.querySelectorAll('#mfgPeople .mfg-pick').forEach(function(cb){
+    var r=cb.closest('.mf-person'); cb.checked = !r.dataset.measured && !r.dataset.pending;
   });
-  document.getElementById('mfgErr').hidden=true;
-  document.getElementById('mfgForm').hidden=false;
-  document.getElementById('mfgLinks').hidden=true;
+  mfgTally(); mfgShow('mfgStage1');
+  document.body.classList.add('mf-body-lock');
   document.getElementById('mfgModal').hidden=false;
 }
-function mfgClose(){ document.getElementById('mfgModal').hidden=true; }
-function mfgToggle(cb){
-  var row=cb.closest('.mf-person'), dest=row.querySelector('.mfg-dest');
-  if(cb.checked){ row.removeAttribute('data-off'); dest.disabled=false; dest.required=true; }
-  else { row.setAttribute('data-off',''); dest.disabled=true; dest.required=false; }
+function mfgClose(){ document.getElementById('mfgModal').hidden=true; document.body.classList.remove('mf-body-lock'); }
+function mfgBack(n){ mfgShow('mfgStage'+n); }
+function mfgPicked(){
+  return [...document.querySelectorAll('#mfgPeople .mfg-pick:checked')].map(function(cb){
+    var r=cb.closest('.mf-person');
+    return {pid:parseInt(r.dataset.pid,10), name:r.querySelector('.mfg-name').firstChild.textContent.trim(),
+            self:!!r.dataset.self, measured:!!r.dataset.measured};
+  });
 }
-function mfgChannel(sel){
-  var d=sel.closest('.mf-person').querySelector('.mfg-dest');
-  d.type = sel.value==='email' ? 'email' : 'tel'; d.placeholder = sel.value==='email' ? 'name@example.com' : '+91 98765 43210';
+function mfgTally(){
+  var n=mfgPicked().length, b=document.getElementById('mfgNext');
+  b.disabled = n===0; b.textContent = n ? 'Continue ('+n+')' : 'Continue';
+}
+function mfgToStage2(){
+  var picked=mfgPicked(), err=document.getElementById('mfgErr1');
+  if(!picked.length){ err.textContent='Tick at least one person.'; err.hidden=false; return; }
+  var prev={}; mfgState.plan.forEach(function(x){ prev[x.pid]=x; });
+  mfgState.plan = picked.map(function(p){
+    var o=prev[p.pid]||{}; return {pid:p.pid, name:p.name, self:p.self, how:p.self?'here':(o.how||''), ch:o.ch||'whatsapp', dest:o.dest||'', sent:o.sent||null};
+  });
+  mfgRenderPlan(); mfgShow('mfgStage2');
+}
+function mfgEl(tag, cls, text){ var e=document.createElement(tag); if(cls) e.className=cls; if(text!=null) e.textContent=text; return e; }
+function mfgRenderPlan(){
+  var wrap=document.getElementById('mfgPlan'); wrap.textContent='';
+  mfgState.plan.forEach(function(x, i){
+    var card=mfgEl('div','mf-plan'); card.dataset.pid=x.pid;
+    var head=mfgEl('div','mfg-name', x.name+' '); head.appendChild(mfgEl('span','mf-tag'+(x.self?' mf-tag-self':''), x.self?'Me':''));
+    if(!x.self) head.lastChild.remove();
+    card.appendChild(head);
+    if(x.sent){ card.appendChild(mfgEl('div','mf-person-status mf-status-done', 'Link sent \u2014 '+x.sent)); wrap.appendChild(card); return; }
+    if(x.self){
+      card.appendChild(mfgEl('div','mf-person-status','You scan yourself on this device \u2014 a link is never sent to you.'));
+      var only=mfgEl('button','mf-how','Scan here'); only.type='button'; only.setAttribute('aria-pressed','true'); only.disabled=true;
+      var how1=mfgEl('div','mf-plan-how'); how1.appendChild(only); card.appendChild(how1);
+      wrap.appendChild(card); return;
+    }
+    var how=mfgEl('div','mf-plan-how'); how.setAttribute('role','group'); how.setAttribute('aria-label','How to measure '+x.name);
+    [['here','Scan here'],['link','Send link']].forEach(function(o){
+      var b=mfgEl('button','mf-how',o[1]); b.type='button'; b.setAttribute('aria-pressed', x.how===o[0]?'true':'false');
+      b.onclick=function(){ x.how=o[0]; mfgRenderPlan(); if(o[0]==='link'){ var inp=document.querySelector('#mfgPlan .mf-plan[data-pid="'+x.pid+'"] .mfg-dest'); if(inp) inp.focus(); } };
+      how.appendChild(b);
+    });
+    card.appendChild(how);
+    var dest=mfgEl('div','mf-plan-dest'); dest.hidden = x.how!=='link';
+    var seg=mfgEl('div','mf-seg');
+    [['whatsapp','WhatsApp'],['email','Email']].forEach(function(o){
+      var l=mfgEl('label'); var r=document.createElement('input'); r.type='radio'; r.name='mfgCh'+x.pid; r.value=o[0]; r.checked = x.ch===o[0]; r.disabled = x.how!=='link';
+      r.onchange=function(){ x.ch=o[0]; x.dest=''; mfgRenderPlan(); var inp=document.querySelector('#mfgPlan .mf-plan[data-pid="'+x.pid+'"] .mfg-dest'); if(inp) inp.focus(); };
+      l.appendChild(r); l.appendChild(document.createTextNode(' '+o[1])); seg.appendChild(l);
+    });
+    dest.appendChild(seg);
+    var lab=mfgEl('label','mf-label', x.ch==='email' ? 'Email address' : 'WhatsApp number');
+    var inp=document.createElement('input'); inp.className='mf-input mfg-dest'; inp.autocomplete='off';
+    inp.type = x.ch==='email' ? 'email' : 'tel'; inp.inputMode = x.ch==='email' ? 'email' : 'tel';
+    inp.placeholder = x.ch==='email' ? 'name@example.com' : '+91 98765 43210'; inp.value=x.dest;
+    inp.disabled = x.how!=='link'; inp.id='mfgDest'+x.pid; inp.setAttribute('aria-describedby','mfgDestErr'+x.pid);
+    inp.oninput=function(){ x.dest=inp.value; inp.removeAttribute('aria-invalid'); e.hidden=true; };
+    lab.appendChild(inp); dest.appendChild(lab);
+    var e=mfgEl('p','mf-err'); e.id='mfgDestErr'+x.pid; e.hidden=true; e.setAttribute('role','alert'); dest.appendChild(e);
+    dest.appendChild(mfgEl('p','mf-sub', 'Enter '+x.name+"'s own "+(x.ch==='email'?'email':'WhatsApp number')+', not yours.'));
+    card.appendChild(dest);
+    wrap.appendChild(card);
+  });
+  mfgTallyLine();
+}
+function mfgTallyLine(){
+  var here=0, links=0, undecided=0;
+  mfgState.plan.forEach(function(x){ if(x.sent) return; if(x.how==='here') here++; else if(x.how==='link') links++; else undecided++; });
+  var parts=[]; if(here) parts.push(here+' to scan here'); if(links) parts.push(links+' link'+(links>1?'s':'')+' to send');
+  document.getElementById('mfgTallyLine').textContent = parts.join(' \u00b7 ');
+  var go=document.getElementById('mfgGo');
+  go.textContent = links && !here ? 'Review and send' : 'Continue';
+  go.disabled = undecided>0 || (!here && !links && !mfgState.plan.some(function(x){ return x.sent; }));
+}
+function mfgValidDest(x){
+  var v=(x.dest||'').trim();
+  if(!v) return x.ch==='email' ? 'Enter an email address.' : 'Enter a WhatsApp number with country code.';
+  if(x.ch==='email'){ if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return 'That does not look like an email address.'; }
+  else { var d=v.replace(/\D/g,''); if(d.length<8||d.length>15) return 'Enter a valid WhatsApp number, e.g. +91 98765 43210.'; }
+  return '';
+}
+function mfgRowError(pid, msg){
+  var inp=document.getElementById('mfgDest'+pid), e=document.getElementById('mfgDestErr'+pid);
+  if(e){ e.textContent=msg; e.hidden=false; }
+  if(inp){ inp.setAttribute('aria-invalid','true'); inp.focus(); }
+}
+function mfgMask(x){
+  var v=(x.dest||'').trim();
+  if(x.ch==='email'){ var at=v.indexOf('@'); return at>0 ? v[0]+'\u2022\u2022\u2022'+v.slice(at) : v; }
+  var d=v.replace(/\D/g,''); return d.length>6 ? '+'+d.slice(0,2)+' '+'\u2022'.repeat(d.length-6)+d.slice(-4) : v;
+}
+function mfgReview(){
+  var bad=null;
+  mfgState.plan.forEach(function(x){ if(!bad && !x.sent && x.how==='link'){ var m=mfgValidDest(x); if(m) bad={x:x,m:m}; } });
+  if(bad){ mfgRowError(bad.x.pid, bad.m); return; }
+  var rows=document.getElementById('mfgReviewRows'); rows.textContent='';
+  var links=0;
+  mfgState.plan.forEach(function(x){
+    var r=mfgEl('div','mf-review-row'); r.appendChild(mfgEl('span',null,x.name));
+    var what = x.sent ? 'link already sent' : x.how==='here' ? 'Scan here on this device' : ((x.ch==='email'?'Email to ':'WhatsApp to ')+mfgMask(x));
+    if(!x.sent && x.how==='link') links++;
+    r.appendChild(mfgEl('span',null,what)); rows.appendChild(r);
+  });
+  document.getElementById('mfgSendBtn').textContent = links ? (mfgState.plan.some(function(x){ return x.how==='here'; }) ? 'Send links and continue' : 'Send '+links+' link'+(links>1?'s':'')) : 'Start scanning';
+  mfgShow('mfgStage3');
 }
 function mfgLinkRow(person, link, note, failed){
   var wrap=document.createElement('div'); wrap.className='mf-linkrow';
@@ -1601,34 +1757,47 @@ function mfgLinkRow(person, link, note, failed){
   var inp=document.createElement('input'); inp.className='mf-input'; inp.type='text'; inp.readOnly=true; inp.value=link||''; inp.onclick=function(){ this.select(); };
   var btn=document.createElement('button'); btn.type='button'; btn.className='fc-btn'; btn.textContent='Copy';
   btn.onclick=async function(){ try{ if(navigator.clipboard&&navigator.clipboard.writeText){ await navigator.clipboard.writeText(inp.value); } else { inp.select(); document.execCommand('copy'); } btn.textContent='Copied'; } catch(e){ inp.select(); btn.textContent='Select and copy'; } };
-  wrap.appendChild(head); wrap.appendChild(inp); if(link) wrap.appendChild(btn);
+  wrap.appendChild(head); if(link){ wrap.appendChild(inp); wrap.appendChild(btn); }
   return wrap;
 }
-async function mfgSend(ev){
-  ev.preventDefault();
-  var err=document.getElementById('mfgErr'), btn=document.getElementById('mfgSendBtn');
-  var rows=[...document.querySelectorAll('#mfgModal .mf-person')].filter(function(r){ return r.querySelector('.mfg-pick').checked; });
-  err.hidden=true;
-  if(rows.length<2){ err.textContent='Tick at least two people, or use Scan face on a single card.'; err.hidden=false; return false; }
-  btn.disabled=true; btn.textContent='Sending\u2026';
-  var out=document.getElementById('mfgLinkRows'); out.textContent='';
+async function mfgSend(){
+  var err=document.getElementById('mfgErr3'), btn=document.getElementById('mfgSendBtn');
+  btn.disabled=true; var label=btn.textContent; btn.textContent='Working\u2026';
   try {
-    var g=await mfReq('POST', '/api/face-scan-groups', {profile_ids: rows.map(function(r){ return parseInt(r.dataset.pid,10); })});
-    var guuid=g.group.group_uuid;
-    for (var i=0;i<rows.length;i++){
-      var r=rows[i], pid=r.dataset.pid, person=r.querySelector('.mfg-name').firstChild.textContent.trim();
-      var ch=r.querySelector('.mfg-ch').value, dest=r.querySelector('.mfg-dest').value.trim();
-      try {
-        var d=await mfReq('POST', '/api/face-scan-groups/'+guuid+'/members/'+pid+'/scan', {channel:ch, destination:dest});
-        var sr=d.scan_request||{}, failed=sr.delivery_status==='FAILED';
-        out.appendChild(mfgLinkRow(person, d.link||'', failed ? ('not delivered ('+(sr.delivery_error||'send failed')+')') : ((ch==='email'?'email':'WhatsApp')+' sent to '+(sr.destination||dest)), failed));
-      } catch(e){ out.appendChild(mfgLinkRow(person, '', 'not sent: '+e.message, true)); }
+    if(!mfgState.guuid){
+      var g=await mfReq('POST', '/api/face-scan-groups', {profile_ids: mfgState.plan.map(function(x){ return x.pid; })});
+      mfgState.guuid=g.group.group_uuid;
     }
-    document.getElementById('mfgForm').hidden=true;
-    document.getElementById('mfgLinks').hidden=false;
+    for (var i=0;i<mfgState.plan.length;i++){
+      var x=mfgState.plan[i];
+      if(x.sent || x.how!=='link') continue;
+      try {
+        var d=await mfReq('POST', '/api/face-scan-groups/'+mfgState.guuid+'/members/'+x.pid+'/scan', {channel:x.ch, destination:x.dest.trim()});
+        var sr=d.scan_request||{};
+        x.sent = sr.delivery_status==='FAILED' ? 'not delivered' : ((x.ch==='email'?'email':'WhatsApp')+' to '+(sr.destination||''));
+        x.link = d.link||''; x.failed = sr.delivery_status==='FAILED'; x.failNote = sr.delivery_error||'';
+      } catch(e){
+        // the row keeps the message (own number, bad address, limit reached); rows already sent stay sent
+        btn.disabled=false; btn.textContent=label;
+        mfgRenderPlan(); mfgShow('mfgStage2'); mfgRowError(x.pid, e.message);
+        return;
+      }
+    }
+    var out=document.getElementById('mfgLinkRows'); out.textContent='';
+    var here=[];
+    mfgState.plan.forEach(function(x){
+      if(x.how==='here'){ here.push(x); out.appendChild(mfgLinkRow(x.name, '', 'scan here on this device', false)); }
+      else if(x.link!==undefined) out.appendChild(mfgLinkRow(x.name, x.link, x.failed ? ('not delivered ('+(x.failNote||'send failed')+')') : (x.sent||'sent'), x.failed));
+    });
+    var scan=document.getElementById('mfgScanNow');
+    if(here.length){ scan.hidden=false; scan.href='/tryon?profile='+here[0].pid; scan.textContent='Scan '+here[0].name+' here now'; }
+    else scan.hidden=true;
+    document.getElementById('mfgLinksSub').textContent = here.length
+      ? 'Scan each person marked "scan here" from their card or the button below; any links sent are listed. The group completes when everyone has a measurement.'
+      : 'If a message does not arrive, share that person\u2019s link yourself. Each works for 24 hours and once only.';
+    mfgShow('mfgLinks');
   } catch(e){ err.textContent=e.message; err.hidden=false; }
-  btn.disabled=false; btn.textContent='Send requests';
-  return false;
+  btn.disabled=false; btn.textContent=label;
 }
 async function mfgCancel(guuid){
   if(!confirm('Cancel this group request? Every link still pending will stop working; scans already saved are kept.')) return;
@@ -1651,12 +1820,19 @@ document.addEventListener('click', function(ev){
     case 'group-cancel': mfgCancel(d.guuid); break;
   }
 });
-if (location.hash === '#myface') {
+// Legacy links still arrive with a hash; the ?tab= form is rendered server-side.
+if (location.hash === '#myface' || location.hash === '#my-faces') {
   document.addEventListener('DOMContentLoaded', function(){
     const b=[...document.querySelectorAll('.ow-tab-btn')].find(x=>x.textContent.trim().startsWith('My Face'));
     if(b) b.click();
   });
 }
+{% if focus_face %}
+document.addEventListener('DOMContentLoaded', function(){
+  var card=document.querySelector('.mf-card[data-id="{{ focus_face }}"]');
+  if(card){ card.classList.add('mf-card-focus'); card.scrollIntoView({block:'center'}); }
+});
+{% endif %}
 
 // Tab switching
 function switchTab(tabName) {
@@ -1664,6 +1840,8 @@ function switchTab(tabName) {
   document.querySelectorAll('.ow-tab-btn').forEach(el => el.classList.remove('ow-tab-active'));
   document.getElementById('tab-' + tabName).classList.add('ow-tab-visible');
   event.currentTarget.classList.add('ow-tab-active');
+  var q = tabName === 'account' ? '' : '?tab=' + (tabName === 'myface' ? 'faces' : tabName);
+  if (history.replaceState) history.replaceState(null, '', location.pathname + q);
 }
 
 // Address data for editing

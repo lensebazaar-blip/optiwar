@@ -148,6 +148,25 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(cm.exception.status, 404)
         self.assertIsNone(self.fsi.for_customer(self.db, C2).get(self.wife))
 
+    def test_owner_contacts_are_refused_however_formatted(self):
+        """The account holder's own phone or email is not another person's
+        destination: refused after normalisation, nothing created."""
+        contacts = {"phones": ["9810113801"], "emails": ["LenseBazaar@gmail.com "]}
+        for dest in ("9810113801", "+91 9810113801", "+919810113801", "0091 9810113801",
+                     "91-98101-13801"):
+            with self.assertRaises(self.fsi.InviteError) as cm:
+                self._create(channel="whatsapp", dest=dest, contacts=contacts)
+            self.assertEqual((cm.exception.code, cm.exception.status), ("own_phone", 422), dest)
+        for dest in ("lensebazaar@gmail.com", " Lensebazaar@Gmail.com"):
+            with self.assertRaises(self.fsi.InviteError) as cm:
+                self._create(channel="email", dest=dest, contacts=contacts)
+            self.assertEqual(cm.exception.code, "own_email", dest)
+        self.assertIsNone(self.fsi.for_customer(self.db, C1).get(self.wife))
+        # a different number is still fine, and an account without a phone blocks nothing
+        self._create(channel="whatsapp", dest="9810113802", contacts=contacts)
+        self._create(channel="whatsapp", dest="9810113801",
+                     contacts={"phones": [], "emails": ["lensebazaar@gmail.com"]})
+
     def test_destination_validation(self):
         with self.assertRaises(self.fsi.InviteError):
             self._create(channel="email", dest="not-an-email")
@@ -776,6 +795,30 @@ class RouteTests(unittest.TestCase):
         token = self._token()
         self.assertEqual(self._gget("/f/" + token).status_code, 303)
 
+    def test_route_refuses_the_account_holders_own_phone_and_email(self):
+        """Acceptance C/D: the owner's own contacts as a destination for
+        another person create no request, no event, no message."""
+        _seed_customer(self.db, C1, "Sudhanshu Bhasin", "lensebazaar@gmail.com", "9810113801")
+        for channel, dest, code in (("whatsapp", "9810113801", "own_phone"),
+                                    ("whatsapp", "+91 98101 13801", "own_phone"),
+                                    ("email", "LenseBazaar@gmail.com", "own_email")):
+            r = self._send(channel=channel, dest=dest)
+            self.assertEqual(r.status_code, 422, r.get_data(as_text=True))
+            body = r.get_json()
+            self.assertEqual(body["error"], code)
+            self.assertIn("your Optiwar account", body["message"])
+            self.assertNotIn("link", body)
+        self.assertEqual(self.sent, [])
+        self.assertIsNone(self.fsi.for_customer(self.db, C1).get(self.wife))
+        cur = self.db.cursor()
+        cur.execute("SELECT COUNT(*) AS n FROM face_events WHERE customer_id=%s", (C1,))
+        self.assertEqual(cur.fetchone()["n"], 0)
+        # the session email counts too when the customers row has none
+        cur.execute("UPDATE customers SET customer_email=NULL, customer_phone=NULL "
+                    "WHERE customer_id=%s", (C1,))
+        self.db.commit()
+        self.assertEqual(self._send(channel="email", dest="lensebazaar@gmail.com").status_code, 422)
+        self.assertEqual(self._send(channel="whatsapp", dest="9810113801").status_code, 201)
 
     # -- the completion notice: the owner hears once, with labelled numbers --
 
@@ -817,7 +860,7 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(mail[1], "lensebazaar@gmail.com")
         self.assertIn("PD (distance):          61 mm", mail[2])
         self.assertIn("Wife (Spouse)", mail[2])
-        self.assertIn("https://optiwar.in/profile#my-faces", mail[2])   # the sending site
+        self.assertIn("https://optiwar.in/profile/?tab=faces", mail[2])   # the sending site
         self.assertNotIn("/f/", mail[2])
         self.assertEqual(len(self._events(self.fsd.EV_COMPLETED)), 1)
         self.assertEqual(len(self._events(self.fsd.EV_NOTIFIED)), 2)
@@ -910,6 +953,8 @@ class MyFacesGroupPanelTests(unittest.TestCase):
         start = src.index('<div id="tab-myface"')
         end = src.index("{% elif face_data %}", start)
         block = src[start:end] + "{% endif %}"
+        if ctx.pop("with_script", False):
+            block += src[src.index("<script>", end):src.rindex("</script>") + len("</script>")]
         base = dict(face_profiles_enabled=True, face_remote_scan_enabled=True,
                     face_relationships=[{"code": "parent", "label": "Parent"}],
                     face_scan_groups_open=[], face_profiles=[])
@@ -955,9 +1000,66 @@ class MyFacesGroupPanelTests(unittest.TestCase):
         self.assertIn("Person 3 (Parent) &middot; done", html_)
         self.assertIn('data-mf="group-cancel" data-guuid="g-1"', html_)
         self.assertNotIn("/f/", html_)
-        # a person with a pending request cannot be ticked into a second group
-        self.assertIn('id="mfgPick2" value="2" onchange="mfgToggle(this)" disabled', html_)
-        self.assertNotIn('id="mfgPick3" value="3" onchange="mfgToggle(this)" disabled', html_)
+        # stage-1 rows are status-aware: pending and measured start unticked
+        rows = re.findall(r'<label class="mf-person"[^>]*>\s*<input[^>]*>', html_)
+        self.assertEqual(len(rows), 3)
+        self.assertIn('data-pending="1"', rows[1])
+        self.assertNotIn(" checked", rows[1])
+        self.assertIn("Request pending", html_)
+
+    def _person_row(self, html_, pid):
+        m = re.search(r'<label class="mf-person" data-pid="%d"[^>]*>\s*<input[^>]*>' % pid, html_)
+        self.assertIsNotNone(m, pid)
+        return m.group(0)
+
+    def test_stage1_defaults_measured_people_off_and_self_local_only(self):
+        people = self._people(3)
+        people[0]["has_scan"] = True
+        people[0]["measurements"] = {"measured_at": "2026-09-12T10:00:00", "pd_far": 60.5,
+                                     "pd_near": 58.0, "face_width": 130.5,
+                                     "recommended_size": "48-24-140"}
+        html_ = self._render(face_profiles=people)
+        me, p2 = self._person_row(html_, 1), self._person_row(html_, 2)
+        self.assertIn('data-self="1"', me)
+        self.assertIn('data-measured="1"', me)
+        self.assertNotIn(" checked", me)
+        self.assertIn(" checked", p2)
+        self.assertIn("Already measured 2026-09-12", html_)
+        self.assertIn("No measurements yet", html_)
+        self.assertIn("Measure several people", html_)
+        self.assertNotIn("Scan several people", html_)
+        # no destination input is rendered server-side at all: the field is
+        # created per person only after "Send link" is chosen (never hidden+required)
+        self.assertNotIn('class="mfg-dest"', html_)
+        self.assertNotIn('class="mfg-ch"', html_)
+        self.assertEqual(re.findall(r'<input[^>]*required[^>]*hidden', html_), [])
+        for sid in ("mfgStage1", "mfgStage2", "mfgStage3", "mfgLinks"):
+            self.assertIn('id="%s"' % sid, html_)
+        self.assertIn('role="dialog"', html_)
+
+    def test_rendered_script_is_valid_javascript_and_self_never_gets_a_link(self):
+        """The My Faces script, as the browser receives it, parses; the plan
+        renderer gives Self a fixed 'Scan here' and no Send-link control."""
+        import shutil
+        import subprocess
+        html_ = self._render(face_profiles=self._people(3), with_script=True,
+                             addresses=[], focus_face=2, is_india=True)
+        scripts = re.findall(r"<script>(.*?)</script>", html_, re.S)
+        self.assertTrue(scripts)
+        js = "\n".join(scripts)
+        self.assertIn("how:p.self?'here'", js)
+        self.assertIn("a link is never sent to you", js)
+        self.assertIn("mf-body-lock", js)
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node not installed")
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+            fh.write(js)
+        try:
+            r = subprocess.run([node, "--check", fh.name], capture_output=True, text=True)
+        finally:
+            os.unlink(fh.name)
+        self.assertEqual(r.returncode, 0, r.stderr)
 
 
 class MyFacesButtonsTests(unittest.TestCase):

@@ -778,7 +778,7 @@ class Render(unittest.TestCase):
         with open(os.path.join(REPO, "templates", "base.html")) as fh:
             base = fh.read()
         face = base.split("{% block header_face_scan %}", 1)[1].split("{% endblock %}", 1)[0]
-        self.assertIn('href="/tryon" class="header-btn"', face)
+        self.assertIn('href="/profile/faces" class="header-btn"', face)
         self.assertIn('id="owFaceAlert"', face)
         strip = base.split("{% block lens_types_header %}", 1)[1].split("{% endblock %}", 1)[0]
         self.assertIn('<nav class="header2">', strip)
