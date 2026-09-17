@@ -90,7 +90,8 @@ class ServiceTests(unittest.TestCase):
 
     def test_token_is_never_stored_and_hashes_to_the_row(self):
         row, token = self._create()
-        self.assertGreaterEqual(len(token), 40)
+        self.assertGreaterEqual(len(token), 32)
+        self.assertLessEqual(len(self.fsi.link_for(token, "optiwar.com")), 60)
         cur = self.db.cursor()
         cur.execute("SELECT * FROM face_scan_invites WHERE request_uuid=%s", (row["request_uuid"],))
         stored = cur.fetchone()
@@ -264,7 +265,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(seen["components"]["body_1"]["value"], "Sudhanshu")
         self.assertIn(token, seen["components"]["body_2"]["value"])
         self.assertTrue(seen["components"]["body_2"]["value"].startswith(
-            "https://optiwar.com/face-scan/request/"))
+            "https://optiwar.com/f/"))
         self.assertEqual(row["status"], "PENDING")
         self.assertEqual(row["delivery_status"], "FAILED")
         self.assertEqual(row["delivery_error"], "http_401")
@@ -285,17 +286,32 @@ class ServiceTests(unittest.TestCase):
         row, token = self._create(channel="email", dest=EMAIL_OK)
         sent = {}
 
-        def mail(to, subject, html, text):
-            sent.update(to=to, subject=subject, html=html, text=text)
+        def mail(to, subject, html, text, sender=None):
+            sent.update(to=to, subject=subject, html=html, text=text, sender=sender)
 
-        row = self.fsi.send(self.db, row, token, mailer=mail)
+        row = self.fsi.send(self.db, row, token, mailer=mail, environ={})
         self.assertEqual(sent["to"], EMAIL_OK)
-        self.assertIn("Sudhanshu", sent["subject"])
+        self.assertEqual(sent["sender"], "Optiwar Support <support@optiwar.com>")
+        self.assertEqual(sent["subject"], "Optiwar \u2014 Face measurement request from Sudhanshu")
         self.assertIn(token, sent["html"])
         self.assertIn(token, sent["text"])
+        for body in (sent["html"], sent["text"]):
+            self.assertIn("Sudhanshu has invited you to complete a face measurement", body)
+            self.assertIn("You do not need an Optiwar account or login", body)
+            self.assertIn("Complete Face Scan", body)
+            self.assertIn("valid for 24 hours and can be used only for this face scan request", body)
+            self.assertIn("consent and permission to use your camera", body)
+            self.assertIn("do not recognise the sender, simply ignore this email", body)
+            self.assertIn("Safety notice: No payment is required", body)
+            self.assertIn("Factory Outlet Opticals", body)
         self.assertEqual(row["delivery_status"], "SENT")
 
-        def boom(*a):
+        row3, t3 = self._create(channel="email", dest=EMAIL_OK)
+        self.fsi.send(self.db, row3, t3, mailer=mail,
+                      environ={"FACE_SCAN_REQUEST_MAIL_SENDER": "admin@optiwar.com"})
+        self.assertEqual(sent["sender"], "admin@optiwar.com")
+
+        def boom(*a, **k):
             raise RuntimeError("smtp down")
 
         row2, t2 = self._create(channel="email", dest=EMAIL_OK)
@@ -356,7 +372,8 @@ class RouteTests(unittest.TestCase):
         cls.sent = []
         cls.fsi._default_whatsapp = lambda phone, template, components: (
             cls.sent.append(("wa", phone, components)) or {"ok": True, "request_id": "m1"})
-        cls.fsi._default_mailer = lambda to, subject, html, text: cls.sent.append(("mail", to, text))
+        cls.fsi._default_mailer = lambda to, subject, html, text, sender=None: \
+            cls.sent.append(("mail", to, text))
 
     @classmethod
     def tearDownClass(cls):
@@ -383,20 +400,46 @@ class RouteTests(unittest.TestCase):
     def _token(self):
         kind, _, payload = self.sent[-1]
         link = payload["body_2"]["value"] if kind == "wa" else \
-            [w for w in payload.split() if "/face-scan/request/" in w][0]
+            [w for w in payload.split() if "/f/" in w][0]
         return link.rsplit("/", 1)[1]
 
-    def test_owner_creates_and_message_carries_link_but_response_does_not(self):
+    def test_owner_creates_and_gets_the_link_once_to_share_by_hand(self):
+        """The message carries the link, and so does the create response —
+        the sender can copy it when WhatsApp/email never arrives. Later
+        status reads cannot rebuild it."""
         r = self._send()
         self.assertEqual(r.status_code, 201)
-        body = r.get_json()["scan_request"]
+        j = r.get_json()
+        body = j["scan_request"]
         self.assertEqual((body["status"], body["delivery_status"], body["channel"]),
                          ("PENDING", "SENT", "whatsapp"))
         token = self._token()
-        self.assertNotIn(token, r.get_data(as_text=True))
+        self.assertEqual(j["link"], self.sent[-1][2]["body_2"]["value"])
+        self.assertTrue(j["link"].endswith("/f/" + token))
         self.assertNotIn("token", body)
+        self.assertNotIn("link", body)
         r = self.owner.get("/api/face-profiles/%d/scan-request" % self.wife)
         self.assertEqual(r.get_json()["scan_request"]["request_uuid"], body["request_uuid"])
+        self.assertNotIn(token, r.get_data(as_text=True))
+        self.assertNotIn("link", r.get_json())
+        # the link from the response opens the guest flow like the one in the message
+        self.assertEqual(self.guest.get("/f/" + token).status_code, 303)
+
+    def test_link_is_handed_out_even_when_delivery_failed(self):
+        self.fsi._default_whatsapp = lambda phone, template, components: {"ok": False, "error": "http_401"}
+        try:
+            r = self._send()
+        finally:
+            self.fsi._default_whatsapp = lambda phone, template, components: (
+                self.sent.append(("wa", phone, components)) or {"ok": True, "request_id": "m1"})
+        j = r.get_json()
+        self.assertEqual(j["scan_request"]["delivery_status"], "FAILED")
+        self.assertIn("/f/", j["link"])
+        self.assertEqual(self.guest.get("/f/" + j["link"].rsplit("/", 1)[1]).status_code, 303)
+
+    def test_legacy_long_path_still_opens(self):
+        self._send()
+        self.assertEqual(self.guest.get("/face-scan/request/" + self._token()).status_code, 303)
 
     def test_anonymous_and_ungated_owner_calls(self):
         anon = self.app.test_client()
@@ -419,13 +462,13 @@ class RouteTests(unittest.TestCase):
     def test_guest_flow_end_to_end(self):
         self._send()
         token = self._token()
-        r = self.guest.get("/face-scan/request/" + token)
+        r = self.guest.get("/f/" + token)
         self.assertEqual(r.status_code, 303)
         self.assertEqual(r.headers["Cache-Control"], "no-store")
         self.assertEqual(r.headers["Referrer-Policy"], "no-referrer")
         self.assertTrue(r.headers["Location"].endswith("/face-scan/guest"))
         # refresh of the entry link does not spend it
-        self.assertEqual(self.guest.get("/face-scan/request/" + token).status_code, 303)
+        self.assertEqual(self.guest.get("/f/" + token).status_code, 303)
         r = self.guest.get("/face-scan/guest")
         self.assertEqual(r.status_code, 200)
         page = r.get_data(as_text=True)
@@ -455,7 +498,7 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(self.guest.get("/face-scan/guest/done").status_code, 200)
         # spent: the guest session no longer resolves and the link says completed
         self.assertEqual(self.guest.post("/face-scan/guest/api/save", json=MEAS).status_code, 410)
-        r = self.guest.get("/face-scan/request/" + token)
+        r = self.guest.get("/f/" + token)
         self.assertEqual(r.status_code, 410)
         self.assertIn("already complete", r.get_data(as_text=True))
         # the owner's card sees it
@@ -474,7 +517,7 @@ class RouteTests(unittest.TestCase):
         self._send()
         token = self._token()
         self.owner.post("/api/face-profiles/%d/scan-request/cancel" % self.wife)
-        r = self.guest.get("/face-scan/request/" + token)
+        r = self.guest.get("/f/" + token)
         self.assertEqual(r.status_code, 410)
         self.assertIn("no longer active", r.get_data(as_text=True))
         self._send()
@@ -482,12 +525,12 @@ class RouteTests(unittest.TestCase):
         cur = self.db.cursor()
         cur.execute("UPDATE face_scan_invites SET expires_at=NOW() - INTERVAL 1 MINUTE WHERE active_slot=1")
         self.db.commit()
-        self.assertEqual(self.guest.get("/face-scan/request/" + token).status_code, 410)
+        self.assertEqual(self.guest.get("/f/" + token).status_code, 410)
 
     def test_cancel_after_open_beats_the_open_page(self):
         self._send()
         token = self._token()
-        self.guest.get("/face-scan/request/" + token)
+        self.guest.get("/f/" + token)
         self.guest.post("/face-scan/guest/consent", data={"consent": "1"})
         self.assertEqual(self.guest.get("/face-scan/guest/scan").status_code, 200)
         self.owner.post("/api/face-profiles/%d/scan-request/cancel" % self.wife)
@@ -502,8 +545,8 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(r.status_code, 201)
         t2 = self._token()
         self.assertNotEqual(t1, t2)
-        self.assertEqual(self.guest.get("/face-scan/request/" + t1).status_code, 410)
-        self.assertEqual(self.guest.get("/face-scan/request/" + t2).status_code, 303)
+        self.assertEqual(self.guest.get("/f/" + t1).status_code, 410)
+        self.assertEqual(self.guest.get("/f/" + t2).status_code, 303)
 
     def test_delete_profile_cancels_and_reports(self):
         self._send()
@@ -511,7 +554,7 @@ class RouteTests(unittest.TestCase):
         r = self.owner.delete("/api/face-profiles/%d" % self.wife)
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.get_json()["cancelled_scan_requests"], 1)
-        self.assertEqual(self.guest.get("/face-scan/request/" + token).status_code, 410)
+        self.assertEqual(self.guest.get("/f/" + token).status_code, 410)
 
     def test_self_profile_refused_and_email_channel_works(self):
         me = self.owner.get("/api/face-profiles").get_json()["profiles"][0]["id"]
@@ -520,7 +563,7 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(r.status_code, 201)
         self.assertEqual(self.sent[-1][0], "mail")
         token = self._token()
-        self.assertEqual(self.guest.get("/face-scan/request/" + token).status_code, 303)
+        self.assertEqual(self.guest.get("/f/" + token).status_code, 303)
 
 
 if __name__ == "__main__":

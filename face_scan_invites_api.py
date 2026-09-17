@@ -94,6 +94,9 @@ def attach_state(db, customer_id, profiles):
 
 
 def _create_and_send(db, customer_id, profile_id, channel, destination):
+    """Returns ``(row, link)``. The link is handed to the sender exactly once,
+    in the response to this call, so the request can still be shared when the
+    WhatsApp or email never arrives; no later read can rebuild it."""
     row, token = fsi.create(
         db, customer_id, profile_id, channel, destination,
         sender_name=session.get("user_name") or "",
@@ -107,7 +110,7 @@ def _create_and_send(db, customer_id, profile_id, channel, destination):
         current_app.logger.warning("FACE_SCAN_REQUEST:SEND_ERROR request=%s err=%s",
                                    row["request_uuid"], type(exc).__name__)
         row = fsi.by_uuid(db, row["request_uuid"])
-    return row
+    return row, fsi.link_for(token, row.get("site_host"))
 
 
 def _guest_row(db):
@@ -149,11 +152,11 @@ def register(bp):
             return refused
         data = request.get_json(silent=True) or {}
         try:
-            row = _create_and_send(_db(), session["user_id"], profile_id,
-                                   data.get("channel"), data.get("destination"))
+            row, link = _create_and_send(_db(), session["user_id"], profile_id,
+                                         data.get("channel"), data.get("destination"))
         except fp.ProfileError as exc:
             return _error(exc)
-        return jsonify({"ok": True, "scan_request": fsi.public_view(row)}), 201
+        return jsonify({"ok": True, "scan_request": fsi.public_view(row), "link": link}), 201
 
     @bp.route("/api/face-profiles/<int:profile_id>/scan-request/resend", methods=["POST"])
     def face_scan_request_resend(profile_id):
@@ -171,10 +174,10 @@ def register(bp):
                 (cur.get("recipient_email") or cur.get("recipient_phone")) if cur else None)
             if not channel or not dest:
                 raise fsi.InviteError("nothing_to_resend", "Choose how to send the request")
-            row = _create_and_send(db, session["user_id"], profile_id, channel, dest)
+            row, link = _create_and_send(db, session["user_id"], profile_id, channel, dest)
         except fp.ProfileError as exc:
             return _error(exc)
-        return jsonify({"ok": True, "scan_request": fsi.public_view(row)}), 201
+        return jsonify({"ok": True, "scan_request": fsi.public_view(row), "link": link}), 201
 
     @bp.route("/api/face-profiles/<int:profile_id>/scan-request/cancel", methods=["POST"])
     def face_scan_request_cancel(profile_id):
@@ -192,9 +195,11 @@ def register(bp):
 
     # ---------------------------------------------------------------- guest
 
+    @bp.route("/f/<token>", methods=["GET"])
     @bp.route("/face-scan/request/<token>", methods=["GET"])
     def face_scan_guest_entry(token):
-        """The link from the message. Verified here, then never seen again."""
+        """The link from the message (``/f/`` is the one sent; the long path
+        is kept for links already out). Verified here, then never seen again."""
         if not _guest_limiter.allow(_client_ip()):
             return _guest_page("face_scan_guest.html", 429, state="busy")
         db = _db()

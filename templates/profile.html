@@ -27,6 +27,8 @@
 .mf-req{background:#f3f0ff;border-radius:10px;padding:8px 10px;margin-top:10px;font-size:13px}
 .mf-req-expired,.mf-req-cancelled{background:#f7f7f7;color:#666}
 .mf-req-fail{color:#b3261e}
+.mf-linkrow{display:flex;gap:8px;align-items:center;margin:8px 0}
+.mf-linkrow .mf-input{flex:1;min-width:0;font-size:13px}
 .mf-choice{display:grid;gap:10px;margin:14px 0}
 .mf-choice-btn{display:flex;flex-direction:column;gap:3px;text-align:left;padding:12px 14px;border:1px solid #d8d8e0;border-radius:10px;background:#fff;cursor:pointer;color:#222;text-decoration:none;font:inherit}
 .mf-choice-btn:hover{border-color:#5b3df5;background:#faf9ff}
@@ -943,7 +945,7 @@
           {% if p.has_scan %}<a class="fc-btn fc-btn-primary" href="/tryon?profile={{ p.id }}">Rescan</a>
           {% if p.is_default %}<a class="fc-btn" href="/eyeglasses/all-spectacle-frames.html?filter=facematch">Matching frames</a>{% endif %}
           {% elif sr and sr.active %}
-            <button type="button" class="fc-btn" onclick="mfOpenScan({{ p.id }}, {{ p.display_name|tojson }}, {{ sr|tojson }})">Resend</button>
+            <button type="button" class="fc-btn" onclick="mfOpenScan({{ p.id }}, {{ p.display_name|tojson }}, {{ sr|tojson }})">Resend / new link</button>
             <button type="button" class="fc-btn" onclick="mfCancelRequest({{ p.id }})">Cancel request</button>
             <a class="fc-btn" href="/tryon?profile={{ p.id }}">Scan here instead</a>
           {% elif face_remote_scan_enabled and not p.is_self %}
@@ -1006,6 +1008,18 @@
             <button type="button" class="fc-btn" onclick="mfScanClose()">Cancel</button>
           </div>
         </form>
+        <div id="mfScanLink" hidden>
+          <p class="mf-sub" id="mfScanLinkMsg"></p>
+          <p class="mf-sub">If the message does not arrive, share this link yourself. It works for 24 hours and once only; sending a new request replaces it.</p>
+          <div class="mf-linkrow">
+            <input id="mfScanLinkUrl" class="mf-input" type="text" readonly onclick="this.select()">
+            <button type="button" class="fc-btn fc-btn-primary" id="mfScanCopy" onclick="mfCopyLink()">Copy link</button>
+          </div>
+          <div class="mf-actions">
+            <a id="mfScanShareWa" class="fc-btn" target="_blank" rel="noopener noreferrer">Share on WhatsApp</a>
+            <button type="button" class="fc-btn" onclick="location.hash='#myface'; location.reload();">Done</button>
+          </div>
+        </div>
         <div id="mfScanFooter" class="mf-actions"><button type="button" class="fc-btn" onclick="mfScanClose()">Close</button></div>
       </div>
     </div>
@@ -1434,6 +1448,7 @@ function mfOpenScan(pid,name,current){
   document.getElementById('mfScanTitle').textContent='Scan face \u2014 '+name;
   document.getElementById('mfScanHere').href='/tryon?profile='+pid;
   document.getElementById('mfScanErr').hidden=true;
+  document.getElementById('mfScanLink').hidden=true;
   var f=document.getElementById('mfScanForm'), c=document.getElementById('mfScanChoice');
   if(current && current.active){
     document.getElementById('mfScanSub').textContent='Resend a new link to '+name+'. The link already sent will stop working.';
@@ -1463,16 +1478,37 @@ async function mfSendRequest(ev){
   var pid=document.getElementById('mfScanPid').value, btn=document.getElementById('mfScanSend'), err=document.getElementById('mfScanErr');
   err.hidden=true; btn.disabled=true; btn.textContent='Sending\u2026';
   try {
-    var d=await mfReq('POST', mfBase+'/'+pid+'/scan-request', {channel:document.querySelector('input[name=mfCh]:checked').value, destination:document.getElementById('mfDest').value.trim()});
-    if(d.scan_request && d.scan_request.delivery_status==='FAILED'){
-      err.textContent='The request was created but the message could not be delivered ('+(d.scan_request.delivery_error||'send failed')+'). Try the other channel or Resend.'; err.hidden=false;
-      btn.disabled=false; btn.textContent='Send request';
-      setTimeout(function(){ location.hash='#myface'; location.reload(); }, 2500);
-      return false;
+    var ch=document.querySelector('input[name=mfCh]:checked').value;
+    var d=await mfReq('POST', mfBase+'/'+pid+'/scan-request', {channel:ch, destination:document.getElementById('mfDest').value.trim()});
+    var sr=d.scan_request||{}, msg=document.getElementById('mfScanLinkMsg');
+    if(sr.delivery_status==='FAILED'){
+      msg.textContent='The request was created but the '+(ch==='email'?'email':'WhatsApp message')+' could not be delivered ('+(sr.delivery_error||'send failed')+').';
+      msg.className='mf-err';
+    } else {
+      msg.textContent=(ch==='email'?'Email':'WhatsApp message')+' sent to '+(sr.destination||'')+'.';
+      msg.className='mf-sub';
     }
-    location.hash='#myface'; location.reload();
-  } catch(e){ err.textContent=e.message; err.hidden=false; btn.disabled=false; btn.textContent='Send request'; }
+    mfShowLink(d.link||'');
+  } catch(e){ err.textContent=e.message; err.hidden=false; }
+  btn.disabled=false; btn.textContent='Send request';
   return false;
+}
+function mfShowLink(link){
+  document.getElementById('mfScanForm').hidden=true;
+  document.getElementById('mfScanChoice').hidden=true;
+  document.getElementById('mfScanFooter').hidden=true;
+  document.getElementById('mfScanLinkUrl').value=link;
+  document.getElementById('mfScanShareWa').href='https://wa.me/?text='+encodeURIComponent(link);
+  document.getElementById('mfScanCopy').textContent='Copy link';
+  document.getElementById('mfScanLink').hidden=false;
+}
+async function mfCopyLink(){
+  var inp=document.getElementById('mfScanLinkUrl'), btn=document.getElementById('mfScanCopy');
+  try {
+    if(navigator.clipboard && navigator.clipboard.writeText){ await navigator.clipboard.writeText(inp.value); }
+    else { inp.select(); document.execCommand('copy'); }
+    btn.textContent='Copied';
+  } catch(e){ inp.select(); btn.textContent='Select and copy'; }
 }
 async function mfCancelRequest(pid){
   if(!confirm('Cancel this scan request? The link already sent will stop working.')) return;

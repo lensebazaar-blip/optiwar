@@ -41,12 +41,15 @@ LIMIT_PROFILE_ENV = "FACE_SCAN_REQUEST_MAX_PER_PROFILE_PER_DAY"
 LIMIT_CUSTOMER_ENV = "FACE_SCAN_REQUEST_MAX_PER_CUSTOMER_PER_DAY"
 LIMIT_DESTINATION_ENV = "FACE_SCAN_REQUEST_MAX_PER_DESTINATION_PER_DAY"
 WA_TEMPLATE_ENV = "FACE_SCAN_REQUEST_WA_TEMPLATE"
+MAIL_SENDER_ENV = "FACE_SCAN_REQUEST_MAIL_SENDER"
 
 DEFAULT_TTL_HOURS = 24
 DEFAULT_LIMIT_PROFILE = 3
 DEFAULT_LIMIT_CUSTOMER = 10
 DEFAULT_LIMIT_DESTINATION = 3
 DEFAULT_WA_TEMPLATE = "face_scan_request"
+DEFAULT_MAIL_SENDER = "Optiwar Support <support@optiwar.com>"
+LINK_PATH = "/f/"
 CONSENT_VERSION = "remote-scan-v1"
 
 CH_WHATSAPP = "whatsapp"
@@ -260,7 +263,9 @@ def mask_destination(row):
 # --------------------------------------------------------------------------
 
 def new_token():
-    return secrets.token_urlsafe(32)
+    """192 random bits, 32 URL-safe characters: short enough to read out
+    over the phone, far too long to guess."""
+    return secrets.token_urlsafe(24)
 
 
 def hash_token(token):
@@ -273,7 +278,7 @@ def link_for(token, site_host):
         base = host.rstrip("/")
     else:
         base = "https://" + host.rstrip("/")
-    return "%s/face-scan/request/%s" % (base, token)
+    return "%s%s%s" % (base, LINK_PATH, token)
 
 
 # --------------------------------------------------------------------------
@@ -674,31 +679,69 @@ def record_delivery(db, row, ok, ref=None, error=None, now=None):
     return by_uuid(db, row["request_uuid"])
 
 
+# The text submitted to MSG91/Meta as template ``face_scan_request`` (Utility,
+# en). The send passes {{1}} = sender name and {{2}} = the link; the body
+# itself lives with the provider, this copy is the record of what was approved.
+WA_TEMPLATE_HEADER = "Optiwar Face Scan Request"
+WA_TEMPLATE_BODY = (
+    "{{1}} has invited you to complete a quick face measurement for eyewear "
+    "fitting on Optiwar.\n\n"
+    "No Optiwar login is required.\n\n"
+    "Open the secure link below to complete your face scan:\n\n"
+    "{{2}}\n\n"
+    "This link expires in 24 hours and can be used only for this face scan request.\n\n"
+    "Please open the link only if you recognise the sender and were expecting this request.\n\n"
+    "Safety notice: No payment is required to complete this face scan. Optiwar will "
+    "never ask you to make a payment, share card details, OTPs, passwords, or banking "
+    "credentials as part of a face scan request."
+)
+
 EMAIL_SUBJECT = "Optiwar \u2014 Face measurement request from {sender}"
 
-EMAIL_TEXT = """{sender} has invited you to complete a face measurement
-for eyewear fitting on Optiwar.
+SAFETY_NOTICE = ("Safety notice: No payment is required to complete this face scan. "
+                 "Optiwar will never ask you to make a payment, share card details, "
+                 "OTPs, passwords, or banking credentials as part of a face scan request.")
 
-No Optiwar account or login is required.
+EMAIL_TEXT = """Hello,
 
-The secure scan link is valid for 24 hours.
+{sender} has invited you to complete a face measurement for eyewear fitting on Optiwar.
 
-Complete your face scan: {link}
+You do not need an Optiwar account or login to complete the scan.
 
-This link is intended only for the person who received this message.
+Please use the secure link below:
 
-If you were not expecting this request, you can ignore this email.
+Complete Face Scan: {link}
+
+The link is valid for 24 hours and can be used only for this face scan request.
+
+Before the scan begins, Optiwar will ask for your consent and permission to use your camera. Your measurements will be saved only to the Face Profile for which this request was created.
+
+If you were not expecting this request or do not recognise the sender, simply ignore this email.
+
+""" + SAFETY_NOTICE + """
+
+Regards,
+Optiwar Support
+Factory Outlet Opticals
+support@optiwar.com
 """
 
 EMAIL_HTML = """<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:auto;color:#222">
 <p style="font-size:18px;font-weight:bold;letter-spacing:.5px">OPTIWAR</p>
+<p>Hello,</p>
 <p>{sender} has invited you to complete a face measurement for eyewear fitting on Optiwar.</p>
-<p>No Optiwar account or login is required.</p>
-<p>The secure scan link is valid for 24 hours.</p>
-<p style="margin:24px 0"><a href="{link}" style="background:#5b3df5;color:#fff;\
+<p>You do not need an Optiwar account or login to complete the scan.</p>
+<p>Please use the secure link below:</p>
+<p style="margin:24px 0 8px"><a href="{link}" style="background:#5b3df5;color:#fff;\
 text-decoration:none;padding:12px 22px;border-radius:8px;display:inline-block">Complete Face Scan</a></p>
-<p style="color:#666;font-size:13px">This link is intended only for the person who received this message.<br>
-If you were not expecting this request, you can ignore this email.</p>
+<p style="margin:0 0 24px;font-size:13px"><code>{link}</code></p>
+<p>The link is valid for 24 hours and can be used only for this face scan request.</p>
+<p>Before the scan begins, Optiwar will ask for your consent and permission to use your camera. \
+Your measurements will be saved only to the Face Profile for which this request was created.</p>
+<p>If you were not expecting this request or do not recognise the sender, simply ignore this email.</p>
+<p style="color:#666;font-size:13px">""" + SAFETY_NOTICE + """</p>
+<p>Regards,<br>Optiwar Support<br>Factory Outlet Opticals<br>\
+<a href="mailto:support@optiwar.com">support@optiwar.com</a></p>
 </div>"""
 
 
@@ -725,7 +768,8 @@ def send(db, row, token, mailer=None, whatsapp=None, environ=None):
     try:
         mail(row["recipient_email"], EMAIL_SUBJECT.format(sender=sender),
              EMAIL_HTML.format(sender=_html(sender), link=link),
-             EMAIL_TEXT.format(sender=sender, link=link))
+             EMAIL_TEXT.format(sender=sender, link=link),
+             sender=env.get(MAIL_SENDER_ENV, DEFAULT_MAIL_SENDER))
         return record_delivery(db, row, True)
     except Exception as exc:  # noqa: BLE001 - provider failure is a recorded state
         return record_delivery(db, row, False, error=type(exc).__name__)
@@ -740,14 +784,13 @@ def _default_whatsapp(phone, template, components):
     return send_whatsapp_tracked(phone, template, components)
 
 
-def _default_mailer(to_email, subject, html, text):
+def _default_mailer(to_email, subject, html, text, sender=DEFAULT_MAIL_SENDER):
     """Flask-Mail directly, with no BCC: the standard notification path copies
     the admin mailbox, and a bearer link must reach one inbox only."""
     from flask import current_app
     from flask_mail import Message
     msg = Message(subject=subject, recipients=[to_email], html=html, body=text,
-                  sender=current_app.config.get("MAIL_DEFAULT_SENDER",
-                                                "admin@optiwar.com"))
+                  sender=sender, reply_to="support@optiwar.com")
     current_app.extensions["mail"].send(msg)
 
 
