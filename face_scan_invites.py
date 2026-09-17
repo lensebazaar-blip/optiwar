@@ -681,9 +681,12 @@ def record_delivery(db, row, ok, ref=None, error=None, now=None):
 
 # The text submitted to MSG91/Meta as template ``face_scan_request`` (Utility,
 # en). The send passes {{1}} = sender name and {{2}} = the link; the body
-# itself lives with the provider, this copy is the record of what was approved.
+# itself lives with the provider (MSG91 template_id 3899902573485197), this copy
+# is the record of what was submitted. Meta refuses a body that starts with a
+# variable, hence the "Hello," line.
 WA_TEMPLATE_HEADER = "Optiwar Face Scan Request"
 WA_TEMPLATE_BODY = (
+    "Hello,\n\n"
     "{{1}} has invited you to complete a quick face measurement for eyewear "
     "fitting on Optiwar.\n\n"
     "No Optiwar login is required.\n\n"
