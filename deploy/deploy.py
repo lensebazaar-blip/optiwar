@@ -92,7 +92,8 @@ DEPLOY_SET = ("acr.py", "ai_api.py", "ai_client.py", "catalogue.py", "chat.py",
               "return_assessment.py", "chat_attachments.py",
               "chat_vision.py", "face_profiles.py", "face_profiles_api.py",
               "face_scan_invites.py", "face_scan_invites_api.py",
-              "face_scan_done.py", "templates/face_scan_guest.html",
+              "face_scan_done.py", "face_scan_groups.py", "face_scan_groups_api.py",
+              "templates/face_scan_guest.html",
               "static/tryon/js/tryon.js", "templates/tryon.html",
               "notifications.py", "templates/terms-and-conditions.html",
               "templates/success.html", "templates/profile.html", "templates/checkout.html", "templates/lens_landing.html",
@@ -121,7 +122,8 @@ NEW_IN_RELEASE = ("paid_orders.py", "razorpay_events.py", "rx_powers.py",
                   "return_assessment.py", "chat_attachments.py",
                   "chat_vision.py", "face_profiles.py", "face_profiles_api.py",
                   "face_scan_invites.py", "face_scan_invites_api.py",
-                  "face_scan_done.py", "templates/face_scan_guest.html",
+                  "face_scan_done.py", "face_scan_groups.py", "face_scan_groups_api.py",
+                  "templates/face_scan_guest.html",
                   "templates/lens_landing.html",
                   "templates/lens_select.html",
                   "templates/_lens_eye_cards.html",
@@ -392,6 +394,20 @@ def face_scan_invites_module():
     return mod
 
 
+def face_scan_groups_module():
+    """face_scan_groups.py imports face_profiles, face_scan_invites and
+    face_scan_done from its package; reuse the throwaway package above."""
+    pkg_name = "face_deploy_pkg"
+    sys.modules[pkg_name + ".face_scan_invites"] = face_scan_invites_module()
+    for name in ("face_scan_done", "face_scan_groups"):
+        spec = importlib.util.spec_from_file_location(
+            pkg_name + "." + name, os.path.join(REPO, name + ".py"))
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = mod
+        spec.loader.exec_module(mod)
+    return mod
+
+
 def catalogue_columns():
     """``catalogue.GMC_COLUMNS``, read from the source without importing it.
 
@@ -444,6 +460,8 @@ def migration():
               for name, ddl in face_profiles_module().TABLES]
     items += [("%s (table)" % name, " ".join(ddl.split()))
               for name, ddl in face_scan_invites_module().TABLES]
+    items += [("%s (table)" % name, " ".join(ddl.split()))
+              for name, ddl in face_scan_groups_module().TABLES]
     for table, columns in ca.SESSION_COLUMNS:
         items += [("%s.%s (column)" % (table, name),
                    "ALTER TABLE %s ADD COLUMN %s %s" % (table, name, decl))
