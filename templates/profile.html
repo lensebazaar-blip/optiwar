@@ -34,6 +34,19 @@
 .mf-choice-btn:hover{border-color:#5b3df5;background:#faf9ff}
 .mf-choice-btn span{font-size:12px;color:#666}
 .mf-seg{display:flex;gap:16px;margin:10px 0 0;font-size:14px}.mf-seg label{display:flex;gap:6px;align-items:center}
+.mf-group{background:#f3f0ff;border-radius:10px;padding:12px 14px;margin:0 0 16px}
+.mf-group-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;font-weight:600}
+.mf-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.mf-chip{font-size:12px;padding:3px 10px;border-radius:12px;background:#fff;border:1px solid #d8d8e0;color:#444}
+.mf-chip-done{background:#e6f4ea;border-color:#b7dfc0;color:#1e6b34}
+.mf-people{display:grid;gap:8px;margin:12px 0;max-height:50vh;overflow:auto}
+.mf-person{display:grid;grid-template-columns:auto 1fr;gap:8px 10px;align-items:center;padding:8px 10px;border:1px solid #e3e3ea;border-radius:10px}
+.mf-person .mf-person-dest{grid-column:2;display:flex;gap:8px}
+.mf-person .mf-person-dest select,.mf-person .mf-person-dest input{padding:6px 8px;border:1px solid #ccc;border-radius:8px;font-size:13px}
+.mf-person .mf-person-dest input{flex:1;min-width:0}
+.mf-person[data-off] .mf-person-dest{display:none}
+.mf-links{display:grid;gap:8px;margin:10px 0}
+.mf-links .mf-linkrow{margin:0;flex-wrap:wrap}.mf-links .mf-linkrow strong{flex-basis:100%;font-size:13px}
 .fc-card{
   border-radius:20px; overflow:hidden;
   background:#fff; border:1px solid #e2e8f0;
@@ -902,8 +915,23 @@
         <h2 class="mf-title">My Faces</h2>
         <p class="mf-sub">The people you buy glasses for. Frames are fitted to the person you are shopping for.</p>
       </div>
-      <button type="button" class="fc-btn fc-btn-primary" onclick="mfOpenAdd()">+ Add person</button>
+      <div class="mf-actions">
+        {% if face_remote_scan_enabled and face_profiles|length > 1 %}<button type="button" class="fc-btn" onclick="mfgOpen()">Scan several people</button>{% endif %}
+        <button type="button" class="fc-btn fc-btn-primary" onclick="mfOpenAdd()">+ Add person</button>
+      </div>
     </div>
+    {% for g in face_scan_groups_open %}
+    <div class="mf-group" data-guuid="{{ g.group_uuid }}">
+      <div class="mf-group-head">
+        <span>Group scan request &middot; {{ g.completed }} of {{ g.required }} done</span>
+        <button type="button" class="fc-btn" data-mf="group-cancel" data-guuid="{{ g.group_uuid }}">Cancel group</button>
+      </div>
+      <div class="mf-chips">
+        {% for m in g.members %}<span class="mf-chip{% if m.status == 'COMPLETED' %} mf-chip-done{% endif %}">{{ m.person }} &middot; {% if m.status == 'COMPLETED' %}done{% elif m.scan_request and m.scan_request.active %}{% if m.scan_request.opened %}link opened{% else %}link sent{% endif %}{% elif m.scan_request and m.scan_request.status == 'EXPIRED' %}link expired{% else %}waiting{% endif %}</span>{% endfor %}
+      </div>
+      <p class="mf-sub" style="margin-top:8px">You will get one email with everyone's measurements when the last person has scanned. Resend a link from the person's card.</p>
+    </div>
+    {% endfor %}
     <div id="mfCards" class="mf-grid">
       {% for p in face_profiles %}
       <div class="fc-card mf-card{% if p.is_default %} mf-card-default{% endif %}" data-id="{{ p.id }}">
@@ -1021,6 +1049,38 @@
           </div>
         </div>
         <div id="mfScanFooter" class="mf-actions"><button type="button" class="fc-btn" onclick="mfScanClose()">Close</button></div>
+      </div>
+    </div>
+    <div id="mfgModal" class="mf-modal" hidden>
+      <div class="mf-modal-box">
+        <h3>Scan several people</h3>
+        <form id="mfgForm" onsubmit="return mfgSend(event)">
+          <p class="mf-sub">Tick the people to measure and where to send each one-time link. Every link expires in 24 hours; you get one email with all the measurements once the last person has scanned.</p>
+          <div class="mf-people">
+            {% for p in face_profiles %}
+            <div class="mf-person" data-off data-pid="{{ p.id }}">
+              <input type="checkbox" class="mfg-pick" id="mfgPick{{ p.id }}" value="{{ p.id }}" onchange="mfgToggle(this)"{% if p.scan_request and p.scan_request.active %} disabled title="A scan request is already pending for this person"{% endif %}>
+              <label for="mfgPick{{ p.id }}" class="mfg-name">{{ p.display_name }} <span class="mf-tag">{% if p.is_self %}Me{% else %}{{ p.relationship_label }}{% endif %}</span>{% if p.scan_request and p.scan_request.active %} <span class="mf-when">request pending</span>{% endif %}</label>
+              <span class="mf-person-dest">
+                <select class="mfg-ch" onchange="mfgChannel(this)"><option value="whatsapp">WhatsApp</option><option value="email">Email</option></select>
+                <input class="mfg-dest" type="tel" inputmode="tel" placeholder="+91 98765 43210" autocomplete="off" disabled>
+              </span>
+            </div>
+            {% endfor %}
+          </div>
+          <p class="mf-err" id="mfgErr" hidden></p>
+          <div class="mf-actions">
+            <button type="submit" class="fc-btn fc-btn-primary" id="mfgSendBtn">Send requests</button>
+            <button type="button" class="fc-btn" onclick="mfgClose()">Cancel</button>
+          </div>
+        </form>
+        <div id="mfgLinks" hidden>
+          <p class="mf-sub">If a message does not arrive, share that person's link yourself. Each works for 24 hours and once only.</p>
+          <div class="mf-links" id="mfgLinkRows"></div>
+          <div class="mf-actions">
+            <button type="button" class="fc-btn fc-btn-primary" onclick="location.hash='#myface'; location.reload();">Done</button>
+          </div>
+        </div>
       </div>
     </div>
     {% endif %}
@@ -1514,6 +1574,66 @@ async function mfCancelRequest(pid){
   if(!confirm('Cancel this scan request? The link already sent will stop working.')) return;
   try { await mfReq('POST', mfBase+'/'+pid+'/scan-request/cancel'); location.hash='#myface'; location.reload(); } catch(e){ alert(e.message); }
 }
+// Scan several people: one group, one link per ticked person
+function mfgOpen(){
+  document.querySelectorAll('#mfgModal .mf-person').forEach(function(row){
+    var cb=row.querySelector('.mfg-pick'); cb.checked=false; mfgToggle(cb);
+    row.querySelector('.mfg-dest').value='';
+  });
+  document.getElementById('mfgErr').hidden=true;
+  document.getElementById('mfgForm').hidden=false;
+  document.getElementById('mfgLinks').hidden=true;
+  document.getElementById('mfgModal').hidden=false;
+}
+function mfgClose(){ document.getElementById('mfgModal').hidden=true; }
+function mfgToggle(cb){
+  var row=cb.closest('.mf-person'), dest=row.querySelector('.mfg-dest');
+  if(cb.checked){ row.removeAttribute('data-off'); dest.disabled=false; dest.required=true; }
+  else { row.setAttribute('data-off',''); dest.disabled=true; dest.required=false; }
+}
+function mfgChannel(sel){
+  var d=sel.closest('.mf-person').querySelector('.mfg-dest');
+  d.type = sel.value==='email' ? 'email' : 'tel'; d.placeholder = sel.value==='email' ? 'name@example.com' : '+91 98765 43210';
+}
+function mfgLinkRow(person, link, note, failed){
+  var wrap=document.createElement('div'); wrap.className='mf-linkrow';
+  var head=document.createElement('strong'); head.textContent=person+' \u2014 '+note; if(failed) head.className='mf-err';
+  var inp=document.createElement('input'); inp.className='mf-input'; inp.type='text'; inp.readOnly=true; inp.value=link||''; inp.onclick=function(){ this.select(); };
+  var btn=document.createElement('button'); btn.type='button'; btn.className='fc-btn'; btn.textContent='Copy';
+  btn.onclick=async function(){ try{ if(navigator.clipboard&&navigator.clipboard.writeText){ await navigator.clipboard.writeText(inp.value); } else { inp.select(); document.execCommand('copy'); } btn.textContent='Copied'; } catch(e){ inp.select(); btn.textContent='Select and copy'; } };
+  wrap.appendChild(head); wrap.appendChild(inp); if(link) wrap.appendChild(btn);
+  return wrap;
+}
+async function mfgSend(ev){
+  ev.preventDefault();
+  var err=document.getElementById('mfgErr'), btn=document.getElementById('mfgSendBtn');
+  var rows=[...document.querySelectorAll('#mfgModal .mf-person')].filter(function(r){ return r.querySelector('.mfg-pick').checked; });
+  err.hidden=true;
+  if(rows.length<2){ err.textContent='Tick at least two people, or use Scan face on a single card.'; err.hidden=false; return false; }
+  btn.disabled=true; btn.textContent='Sending\u2026';
+  var out=document.getElementById('mfgLinkRows'); out.textContent='';
+  try {
+    var g=await mfReq('POST', '/api/face-scan-groups', {profile_ids: rows.map(function(r){ return parseInt(r.dataset.pid,10); })});
+    var guuid=g.group.group_uuid;
+    for (var i=0;i<rows.length;i++){
+      var r=rows[i], pid=r.dataset.pid, person=r.querySelector('.mfg-name').firstChild.textContent.trim();
+      var ch=r.querySelector('.mfg-ch').value, dest=r.querySelector('.mfg-dest').value.trim();
+      try {
+        var d=await mfReq('POST', '/api/face-scan-groups/'+guuid+'/members/'+pid+'/scan', {channel:ch, destination:dest});
+        var sr=d.scan_request||{}, failed=sr.delivery_status==='FAILED';
+        out.appendChild(mfgLinkRow(person, d.link||'', failed ? ('not delivered ('+(sr.delivery_error||'send failed')+')') : ((ch==='email'?'email':'WhatsApp')+' sent to '+(sr.destination||dest)), failed));
+      } catch(e){ out.appendChild(mfgLinkRow(person, '', 'not sent: '+e.message, true)); }
+    }
+    document.getElementById('mfgForm').hidden=true;
+    document.getElementById('mfgLinks').hidden=false;
+  } catch(e){ err.textContent=e.message; err.hidden=false; }
+  btn.disabled=false; btn.textContent='Send requests';
+  return false;
+}
+async function mfgCancel(guuid){
+  if(!confirm('Cancel this group request? Every link still pending will stop working; scans already saved are kept.')) return;
+  try { await mfReq('POST', '/api/face-scan-groups/'+guuid+'/cancel'); location.hash='#myface'; location.reload(); } catch(e){ alert(e.message); }
+}
 // Card buttons carry their arguments as data attributes; a person's name is
 // never interpolated into JavaScript.
 document.addEventListener('click', function(ev){
@@ -1528,6 +1648,7 @@ document.addEventListener('click', function(ev){
     case 'default': mfSetDefault(pid); break;
     case 'edit':    mfOpenEdit(pid, name, d.rel || '', !!d.self); break;
     case 'delete':  mfDelete(pid, name, !!d.hasRequest); break;
+    case 'group-cancel': mfgCancel(d.guuid); break;
   }
 });
 if (location.hash === '#myface') {

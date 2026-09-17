@@ -897,6 +897,69 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class MyFacesGroupPanelTests(unittest.TestCase):
+    """The My Faces tab offers 'Scan several people' only when there is more
+    than one person and remote scans are on, and shows each open group's
+    distinct-member tally with no link or token in the page."""
+
+    def _render(self, **ctx):
+        from flask import Flask
+        app = Flask(__name__, template_folder=os.path.join(REPO, "templates"))
+        with open(os.path.join(REPO, "templates", "profile.html")) as fh:
+            src = fh.read()
+        start = src.index('<div id="tab-myface"')
+        end = src.index("{% elif face_data %}", start)
+        block = src[start:end] + "{% endif %}"
+        base = dict(face_profiles_enabled=True, face_remote_scan_enabled=True,
+                    face_relationships=[{"code": "parent", "label": "Parent"}],
+                    face_scan_groups_open=[], face_profiles=[])
+        base.update(ctx)
+        with app.app_context():
+            return app.jinja_env.from_string(block).render(**base)
+
+    def _people(self, n):
+        out = [{"id": 1, "display_name": "Sudhanshu", "is_self": True, "is_default": True,
+                "has_scan": False, "relationship_label": "Me", "relationship_type": "self",
+                "scan_request": None, "measurements": None}]
+        for i in range(2, n + 1):
+            out.append({"id": i, "display_name": "Person %d" % i, "is_self": False,
+                        "is_default": False, "has_scan": False, "relationship_label": "Parent",
+                        "relationship_type": "parent", "scan_request": None,
+                        "measurements": None})
+        return out
+
+    def test_button_needs_two_people_and_remote_scans(self):
+        btn = 'onclick="mfgOpen()"'
+        self.assertNotIn(btn, self._render(face_profiles=self._people(1)))
+        self.assertNotIn(btn, self._render(face_profiles=self._people(3),
+                                           face_remote_scan_enabled=False))
+        html_ = self._render(face_profiles=self._people(3))
+        self.assertIn(btn, html_)
+        self.assertEqual(html_.count('class="mfg-pick"'), 3)
+
+    def test_open_group_shows_distinct_tally_and_no_link(self):
+        people = self._people(3)
+        people[1]["scan_request"] = {"active": True, "status": "OPENED", "opened": True,
+                                     "consented": False, "channel": "whatsapp",
+                                     "destination": "+91 98…801", "delivery_status": "SENT",
+                                     "expires_in_seconds": 3600, "request_uuid": "u"}
+        group = {"group_uuid": "g-1", "status": "OPEN", "required": 2, "completed": 1,
+                 "members": [
+                     {"face_profile_id": 2, "person": "Person 2 (Parent)", "status": "PENDING",
+                      "scan_request": people[1]["scan_request"]},
+                     {"face_profile_id": 3, "person": "Person 3 (Parent)", "status": "COMPLETED",
+                      "scan_request": None}]}
+        html_ = self._render(face_profiles=people, face_scan_groups_open=[group])
+        self.assertIn("1 of 2 done", html_)
+        self.assertIn("Person 2 (Parent) &middot; link opened", html_)
+        self.assertIn("Person 3 (Parent) &middot; done", html_)
+        self.assertIn('data-mf="group-cancel" data-guuid="g-1"', html_)
+        self.assertNotIn("/f/", html_)
+        # a person with a pending request cannot be ticked into a second group
+        self.assertIn('id="mfgPick2" value="2" onchange="mfgToggle(this)" disabled', html_)
+        self.assertNotIn('id="mfgPick3" value="3" onchange="mfgToggle(this)" disabled', html_)
+
+
 class MyFacesButtonsTests(unittest.TestCase):
     """A person's name is never interpolated into JavaScript: the card
     buttons carry their arguments as data attributes and one delegated
@@ -909,9 +972,10 @@ class MyFacesButtonsTests(unittest.TestCase):
         self.assertEqual(re.findall(r'onclick=.{0,40}\|tojson', src), [])
         for fn in ("mfOpenScan(", "mfOpenEdit(", "mfDelete(", "mfSetDefault(", "mfCancelRequest("):
             self.assertEqual(re.findall(r'onclick=[\'"]' + re.escape(fn), src), [], fn)
-        for kind in ("scan", "cancel", "default", "edit", "delete"):
+        for kind in ("scan", "cancel", "default", "edit", "delete", "group-cancel"):
             self.assertIn('data-mf="%s"' % kind, src)
         self.assertIn("closest('[data-mf]')", src)
+        self.assertEqual(re.findall(r'mfgCancel\([^)]*\{\{', src), [])
 
     def test_awkward_names_render_into_attributes_that_parse_back(self):
         from flask import Flask
