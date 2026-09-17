@@ -321,6 +321,7 @@ def register(bp):
         current_app.logger.info("FACE_SCAN_REQUEST:COMPLETED request=%s scan=%s",
                                 row["request_uuid"], sid)
         session.pop(SESSION_KEY, None)
+        fpa.notify_done(db, sid, row.get("site_host") or request.host, fp.SRC_REMOTE)
         return _guest_headers(jsonify({"ok": True, "scan_id": sid,
                                        "redirect": url_for("main.face_scan_guest_done")}))
 

@@ -42,8 +42,8 @@ def _load_pkg(fp_mod, get_db):
     db_mod.get_db = get_db
     sys.modules[pkg_name + ".db"] = db_mod
     out = {}
-    for name in ("face_scan_invites", "face_profiles_api", "face_scan_invites_api",
-                 "csrf_guard"):
+    for name in ("face_scan_invites", "face_scan_done", "face_profiles_api",
+                 "face_scan_invites_api", "csrf_guard"):
         spec = importlib.util.spec_from_file_location(
             pkg_name + "." + name, os.path.join(REPO, name + ".py"))
         mod = importlib.util.module_from_spec(spec)
@@ -53,9 +53,31 @@ def _load_pkg(fp_mod, get_db):
     return out
 
 
+# Production's customers, reduced to what the completion notice reads.
+CUSTOMERS_DDL = """
+CREATE TABLE IF NOT EXISTS customers (
+    customer_id INT NOT NULL,
+    customer_name VARCHAR(120) NULL,
+    customer_email VARCHAR(191) NULL,
+    customer_phone VARCHAR(32) NULL,
+    PRIMARY KEY (customer_id)
+) ENGINE=InnoDB
+"""
+
+
+def _seed_customer(db, cid, name, email, phone):
+    cur = db.cursor()
+    cur.execute(CUSTOMERS_DDL)
+    cur.execute("REPLACE INTO customers (customer_id, customer_name, customer_email, "
+                "customer_phone) VALUES (%s,%s,%s,%s)", (cid, name, email, phone))
+    db.commit()
+
+
 def _wipe_invites(db, *cids):
     cur = db.cursor()
+    cur.execute(CUSTOMERS_DDL)
     for cid in cids:
+        cur.execute("DELETE FROM customers WHERE customer_id=%s", (cid,))
         cur.execute("DELETE FROM face_events WHERE customer_id=%s", (cid,))
         cur.execute("DELETE FROM face_scan_invites WHERE customer_id=%s", (cid,))
     db.commit()
@@ -753,6 +775,122 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(self.sent[-1][0], "mail")
         token = self._token()
         self.assertEqual(self._gget("/f/" + token).status_code, 303)
+
+
+    # -- the completion notice: the owner hears once, with labelled numbers --
+
+    @property
+    def fsd(self):
+        return sys.modules["fsi_pkg.face_scan_done"]
+
+    def _seed_owner(self, name="Sudhanshu Bhasin", email="lensebazaar@gmail.com"):
+        _seed_customer(self.db, C1, name, email, "9810113801")
+
+    def _events(self, etype):
+        cur = self.db.cursor()
+        cur.execute("SELECT * FROM face_events WHERE customer_id=%s AND event_type=%s",
+                    (C1, etype))
+        return cur.fetchall()
+
+    def _remote_complete(self, before_save=None):
+        self._send()
+        token = self._token()
+        self._gget("/f/" + token)
+        self._consent()
+        self.sent[:] = []
+        if before_save:
+            before_save()
+        r = self._save()
+        self.assertEqual(r.status_code, 200)
+        return r.get_json()["scan_id"]
+
+    def test_remote_completion_notifies_the_owner_not_the_guest(self):
+        self._seed_owner()
+        sid = self._remote_complete()
+        kinds = sorted(k for k, _, _ in self.sent)
+        self.assertEqual(kinds, ["mail", "wa"])
+        wa = [s for s in self.sent if s[0] == "wa"][0]
+        self.assertEqual(wa[1], "919810113801")          # the account, not WA_OK
+        vals = [wa[2]["body_%d" % i]["value"] for i in range(1, 7)]
+        self.assertEqual(vals, ["Sudhanshu Bhasin", "Wife (Spouse)", "61", "58.5", "131", "49-23-140"])
+        mail = [s for s in self.sent if s[0] == "mail"][0]
+        self.assertEqual(mail[1], "lensebazaar@gmail.com")
+        self.assertIn("PD (distance):          61 mm", mail[2])
+        self.assertIn("Wife (Spouse)", mail[2])
+        self.assertIn("https://optiwar.in/profile#my-faces", mail[2])   # the sending site
+        self.assertNotIn("/f/", mail[2])
+        self.assertEqual(len(self._events(self.fsd.EV_COMPLETED)), 1)
+        self.assertEqual(len(self._events(self.fsd.EV_NOTIFIED)), 2)
+        self.assertEqual(self._events(self.fsd.EV_COMPLETED)[0]["scan_id"], sid)
+
+    def test_a_second_call_for_the_same_scan_sends_nothing(self):
+        self._seed_owner()
+        sid = self._remote_complete()
+        self.sent[:] = []
+        with self.app.test_request_context():
+            out = self.fsd.notify(self.db, sid, "optiwar.com", environ={
+                "FACE_PROFILES_ENABLED": "1", "FACE_REMOTE_SCAN_ENABLED": "1",
+                "FACE_PROFILES_ALLOW_EMAILS": "lensebazaar@gmail.com"})
+        self.assertEqual(out, {"sent": False, "reason": "duplicate"})
+        self.assertEqual(self.sent, [])
+        self.assertEqual(len(self._events(self.fsd.EV_NOTIFIED)), 2)
+
+    def test_owners_own_tryon_scan_is_labelled_you(self):
+        self._seed_owner()
+        # the try-on route lives in models.py; exercise the helper it calls
+        with self.app.test_request_context(base_url=PROD):
+            from flask import session
+            session["user_id"] = C1
+            session["user_email"] = "lensebazaar@gmail.com"
+            session["user_name"] = "Sudhanshu"
+            sid, row = self.fpa.save_scan_from_tryon(self.db, dict(MEAS), None)
+        self.assertTrue(row["is_self"])
+        wa = [s for s in self.sent if s[0] == "wa"][0]
+        self.assertEqual(wa[2]["body_2"]["value"], "Sudhanshu (you)")
+        self.assertEqual(len(self._events(self.fsd.EV_COMPLETED)), 1)
+
+    def test_account_outside_the_gate_hears_nothing(self):
+        self._seed_owner("Someone", "other@example.com")
+        self._remote_complete()
+        self.assertEqual(self.sent, [])
+        self.assertEqual(len(self._events(self.fsd.EV_COMPLETED)), 0)
+
+    def test_kill_switch_stops_the_notice_but_not_the_scan(self):
+        self._seed_owner()
+        self.app.config["FACE_SCAN_DONE_NOTIFY_ENABLED"] = "0"
+        try:
+            sid = self._remote_complete()
+        finally:
+            self.app.config.pop("FACE_SCAN_DONE_NOTIFY_ENABLED")
+        self.assertTrue(sid)
+        self.assertEqual(self.sent, [])
+
+    def test_a_failed_provider_is_a_record_not_a_failed_save(self):
+        self._seed_owner()
+        old = self.fsi._default_whatsapp
+
+        def down(*a):
+            raise RuntimeError("msg91 down")
+
+        def break_provider():
+            self.fsi._default_whatsapp = down
+        try:
+            sid = self._remote_complete(before_save=break_provider)
+        finally:
+            self.fsi._default_whatsapp = old
+        self.assertTrue(sid)
+        failed = self._events(self.fsd.EV_NOTIFY_FAILED)
+        self.assertEqual(len(failed), 1)
+        self.assertIn("msg91 down", failed[0]["payload"])
+        self.assertEqual([k for k, _, _ in self.sent], ["mail"])
+
+    def test_whatsapp_template_record_has_no_variable_at_either_end(self):
+        body = self.fsd.WA_TEMPLATE_BODY
+        self.assertFalse(body.startswith("{{"))
+        self.assertFalse(body.rstrip().endswith("}}"))
+        for i in range(1, 7):
+            self.assertIn("{{%d}}" % i, body)
+        self.assertNotIn("{{7}}", body)
 
 
 if __name__ == "__main__":

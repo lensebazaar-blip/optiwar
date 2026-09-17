@@ -11,6 +11,7 @@ import os
 from flask import current_app, jsonify, request, send_file, session
 
 from . import face_profiles as fp
+from . import face_scan_done as fsd
 from . import face_scan_invites as fsi
 from .db import get_db
 
@@ -197,6 +198,23 @@ def register(bp):
         return resp
 
 
+def notify_done(db, scan_id, site_host, source):
+    """After the scan's own commit: tell the owner, once; never fail the save."""
+    env = dict(os.environ)
+    for key in (ENABLED_ENV, ALLOW_ENV, fsi.ENABLED_ENV, fsi.ALLOW_ENV,
+                fsd.ENABLED_ENV, fsd.WA_TEMPLATE_ENV):
+        if key in current_app.config:
+            env[key] = current_app.config[key]
+    try:
+        out = fsd.notify(db, scan_id, site_host, source=source, environ=env)
+    except Exception as exc:  # noqa: BLE001 - a notification must not undo a saved scan
+        current_app.logger.warning("FACE_SCAN_DONE:ERROR scan=%s err=%s", scan_id,
+                                   str(exc)[:160])
+        return None
+    current_app.logger.info("FACE_SCAN_DONE scan=%s %s", scan_id, out)
+    return out
+
+
 def save_scan_from_tryon(db, data, capture_bytes):
     """What ``/api/tryon/save`` does for a gated-on customer.
 
@@ -218,4 +236,5 @@ def save_scan_from_tryon(db, data, capture_bytes):
                          algorithm_version=str(data.get("algorithm_version")
                                                or "tryon-7.2"))
     row = fp.get_profile(db, cid, pid)
+    notify_done(db, sid, request.host, fp.SRC_TRYON)
     return sid, row
