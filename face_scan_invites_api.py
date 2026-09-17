@@ -106,14 +106,14 @@ def attach_state(db, customer_id, profiles):
     return profiles
 
 
-def _create_and_send(db, customer_id, profile_id, channel, destination):
+def _create_and_send(db, customer_id, profile_id, channel, destination, scan_group_id=None):
     """Returns ``(row, link)``. The link is handed to the sender exactly once,
     in the response to this call, so the request can still be shared when the
     WhatsApp or email never arrives; no later read can rebuild it."""
     row, token = fsi.create(
         db, customer_id, profile_id, channel, destination,
         sender_name=session.get("user_name") or "",
-        site_host=_site_host(), created_ip=_client_ip())
+        site_host=_site_host(), created_ip=_client_ip(), scan_group_id=scan_group_id)
     current_app.logger.info("FACE_SCAN_REQUEST:CREATED customer=%s profile=%s "
                             "request=%s channel=%s", customer_id, profile_id,
                             row["request_uuid"], row["channel"])
@@ -195,7 +195,8 @@ def register(bp):
                 (cur.get("recipient_email") or cur.get("recipient_phone")) if cur else None)
             if not channel or not dest:
                 raise fsi.InviteError("nothing_to_resend", "Choose how to send the request")
-            row, link = _create_and_send(db, session["user_id"], profile_id, channel, dest)
+            row, link = _create_and_send(db, session["user_id"], profile_id, channel, dest,
+                                         scan_group_id=cur.get("scan_group_id") if cur else None)
         except fp.ProfileError as exc:
             return _error(exc)
         return jsonify({"ok": True, "scan_request": fsi.public_view(row), "link": link}), 201
@@ -322,6 +323,9 @@ def register(bp):
                                 row["request_uuid"], sid)
         session.pop(SESSION_KEY, None)
         fpa.notify_done(db, sid, row.get("site_host") or request.host, fp.SRC_REMOTE)
+        if row.get("scan_group_id"):
+            fpa.group_scan_landed(db, row["customer_id"], row["face_profile_id"], sid,
+                                  row["scan_group_id"])
         return _guest_headers(jsonify({"ok": True, "scan_id": sid,
                                        "redirect": url_for("main.face_scan_guest_done")}))
 

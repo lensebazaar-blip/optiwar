@@ -41,6 +41,7 @@ class DeployMigrationTest(unittest.TestCase):
         self.fp = _load("fp_for_deploy_test",
                         os.path.join(REPO, "face_profiles.py"))
         self.fsi = self.deploy.face_scan_invites_module()
+        self.fsg = self.deploy.face_scan_groups_module()
 
     def test_covers_every_column_and_index_ensure_schema_adds(self):
         labels = [label for label, _sql in self.deploy.migration()]
@@ -57,6 +58,7 @@ class DeployMigrationTest(unittest.TestCase):
         expected += ["%s (table)" % n for n, _d in self.ca.TABLES]
         expected += ["%s (table)" % n for n, _d in self.fp.TABLES]
         expected += ["%s (table)" % n for n, _d in self.fsi.TABLES]
+        expected += ["%s (table)" % n for n, _d in self.fsg.TABLES]
         for table, columns in self.ca.SESSION_COLUMNS:
             expected += ["%s.%s (column)" % (table, n) for n, _d in columns]
         expected += ["products.%s (column)" % n

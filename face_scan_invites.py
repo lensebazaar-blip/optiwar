@@ -305,7 +305,7 @@ def emit(db, event_type, row=None, payload=None, event_id=None, scan_id=None,
         "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
         (eid, event_type,
          int(row["customer_id"]) if row else None,
-         int(row["face_profile_id"]) if row else None,
+         int(row["face_profile_id"]) if row and row.get("face_profile_id") is not None else None,
          request_uuid, scan_id,
          row.get("scan_group_id") if row else None,
          json.dumps(payload or {}, default=str)))

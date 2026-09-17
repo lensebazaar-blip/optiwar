@@ -12,6 +12,7 @@ from flask import current_app, jsonify, request, send_file, session
 
 from . import face_profiles as fp
 from . import face_scan_done as fsd
+from . import face_scan_groups as fsg
 from . import face_scan_invites as fsi
 from .db import get_db
 
@@ -166,8 +167,11 @@ def register(bp):
             fp.require_profile(db, _customer(), profile_id)
             fsi.ensure_schema(db)
             cancelled = fsi.cancel_for_profile(db, _customer(), profile_id)
+            fsg.ensure_schema(db)
+            left = fsg.drop_profile(db, _customer(), profile_id, notifier=group_notifier())
             result = fp.delete_profile(db, _customer(), profile_id)
             result["cancelled_scan_requests"] = cancelled
+            result["left_scan_groups"] = left
         except fp.ProfileError as exc:
             return _error(exc)
         current_app.logger.info("FACE_PROFILE:DELETED customer=%s profile=%s",
@@ -198,13 +202,18 @@ def register(bp):
         return resp
 
 
-def notify_done(db, scan_id, site_host, source):
-    """After the scan's own commit: tell the owner, once; never fail the save."""
+def _notify_env():
     env = dict(os.environ)
     for key in (ENABLED_ENV, ALLOW_ENV, fsi.ENABLED_ENV, fsi.ALLOW_ENV,
                 fsd.ENABLED_ENV, fsd.WA_TEMPLATE_ENV):
         if key in current_app.config:
             env[key] = current_app.config[key]
+    return env
+
+
+def notify_done(db, scan_id, site_host, source):
+    """After the scan's own commit: tell the owner, once; never fail the save."""
+    env = _notify_env()
     try:
         out = fsd.notify(db, scan_id, site_host, source=source, environ=env)
     except Exception as exc:  # noqa: BLE001 - a notification must not undo a saved scan
@@ -212,6 +221,28 @@ def notify_done(db, scan_id, site_host, source):
                                    str(exc)[:160])
         return None
     current_app.logger.info("FACE_SCAN_DONE scan=%s %s", scan_id, out)
+    return out
+
+
+def group_notifier():
+    """The group completion notice with this app's gate settings applied."""
+    env = _notify_env()
+    return lambda db, row: fsg.notify(db, row, environ=env)
+
+
+def group_scan_landed(db, customer_id, profile_id, scan_id, scan_group_id):
+    """After a group-bound scan's own commit: advance its group; never fail the save."""
+    try:
+        fsg.ensure_schema(db)
+        out = fsg.on_scan_completed(db, customer_id, profile_id, scan_id, scan_group_id,
+                                    notifier=group_notifier())
+    except Exception as exc:  # noqa: BLE001 - the scan is saved; the group is bookkeeping
+        current_app.logger.warning("FACE_SCAN_GROUP:ERROR group=%s scan=%s err=%s",
+                                   scan_group_id, scan_id, str(exc)[:160])
+        return None
+    if out:
+        current_app.logger.info("FACE_SCAN_GROUP:PROGRESS group=%s %s/%s status=%s",
+                                scan_group_id, out["completed"], out["required"], out["status"])
     return out
 
 
