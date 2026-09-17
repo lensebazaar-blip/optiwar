@@ -113,7 +113,8 @@ def _create_and_send(db, customer_id, profile_id, channel, destination, scan_gro
     row, token = fsi.create(
         db, customer_id, profile_id, channel, destination,
         sender_name=session.get("user_name") or "",
-        site_host=_site_host(), created_ip=_client_ip(), scan_group_id=scan_group_id)
+        site_host=_site_host(), created_ip=_client_ip(), scan_group_id=scan_group_id,
+        contacts=fsi.owner_contacts(db, customer_id, session.get("user_email")))
     current_app.logger.info("FACE_SCAN_REQUEST:CREATED customer=%s profile=%s "
                             "request=%s channel=%s", customer_id, profile_id,
                             row["request_uuid"], row["channel"])
@@ -323,9 +324,8 @@ def register(bp):
                                 row["request_uuid"], sid)
         session.pop(SESSION_KEY, None)
         fpa.notify_done(db, sid, row.get("site_host") or request.host, fp.SRC_REMOTE)
-        if row.get("scan_group_id"):
-            fpa.group_scan_landed(db, row["customer_id"], row["face_profile_id"], sid,
-                                  row["scan_group_id"])
+        fpa.group_scan_landed(db, row["customer_id"], row["face_profile_id"], sid,
+                              row.get("scan_group_id"))
         return _guest_headers(jsonify({"ok": True, "scan_id": sid,
                                        "redirect": url_for("main.face_scan_guest_done")}))
 

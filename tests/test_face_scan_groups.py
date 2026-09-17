@@ -192,14 +192,9 @@ class GroupTests(RouteTests):
         self.assertEqual(len(self._events(self.fsg.EV_COMPLETED, g["group_uuid"])), 0)
         self.assertEqual(self._group_mails(), [])
 
-    def test_an_ordinary_scan_never_touches_a_group(self):
+    def test_a_non_members_scan_never_touches_a_group(self):
         g = self._group(self.wife)
-        # the plain card link (no group) and the owner's own try-on save
-        self._send()
-        token = self._token()
-        self._gget("/f/" + token)
-        self._consent()
-        self.assertEqual(self._save().status_code, 200)
+        # the owner's own try-on save: Self is not a member
         with self.app.test_request_context(base_url="https://optiwar.in/"):
             from flask import session
             session.update(user_id=C1, user_email="lensebazaar@gmail.com", user_name="Sudhanshu")
@@ -208,6 +203,29 @@ class GroupTests(RouteTests):
         self.assertEqual((g2["status"], g2["completed"]), ("OPEN", 0))
         self.assertEqual(len(self._events(self.fsg.EV_MEMBER_COMPLETED, g["group_uuid"])), 0)
         self.assertEqual(self._group_mails(), [])
+
+    def test_a_member_completes_however_the_scan_was_taken(self):
+        """Local scan on the owner's device (plain try-on, no group id) and a
+        plain card link both count for the member: a group is complete when
+        each distinct person *has* a measurement."""
+        g = self._group(self.wife, self.mother)
+        # Wife: the owner scans her here, from /tryon?profile=<wife> (no group id)
+        with self.app.test_request_context(base_url="https://optiwar.in/"):
+            from flask import session
+            session.update(user_id=C1, user_email="lensebazaar@gmail.com", user_name="Sudhanshu")
+            self.fpa.save_scan_from_tryon(self.db, dict(MEAS, face_profile_id=self.wife), None)
+        g2 = self._get(g["group_uuid"])
+        self.assertEqual((g2["status"], g2["completed"]), ("OPEN", 1))
+        # Mother: a plain card link, not sent through the group route
+        self._send(pid=self.mother)
+        token = self._token()
+        self._gget("/f/" + token)
+        self._consent()
+        self.assertEqual(self._save().status_code, 200)
+        g3 = self._get(g["group_uuid"])
+        self.assertEqual((g3["status"], g3["completed"]), ("COMPLETED", 2))
+        self.assertEqual(len(self._events(self.fsg.EV_COMPLETED, g["group_uuid"])), 1)
+        self.assertEqual(len(self._group_mails()), 1)
 
     def test_deleting_a_member_profile_leaves_the_group(self):
         g = self._group(self.wife, self.mother)
@@ -291,7 +309,7 @@ class GroupTests(RouteTests):
             if forbidden == "http":
                 # the notice may link to the owner's own profile page, nothing else
                 links = [w for w in blob.split() if w.startswith("http")]
-                self.assertTrue(all(w.endswith("/profile#my-faces") for w in links), links)
+                self.assertTrue(all(w.endswith("/profile/?tab=faces") for w in links), links)
                 continue
             self.assertNotIn(forbidden, blob)
 

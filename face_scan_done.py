@@ -138,7 +138,7 @@ def my_faces_url(site_host):
     host = (site_host or "optiwar.com").strip()
     if not (host.startswith("http://") or host.startswith("https://")):
         host = "https://" + host
-    return host.rstrip("/") + "/profile#my-faces"
+    return host.rstrip("/") + "/profile/?tab=faces"
 
 
 def _clean(fn, value):

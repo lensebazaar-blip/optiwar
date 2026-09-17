@@ -230,19 +230,22 @@ def group_notifier():
     return lambda db, row: fsg.notify(db, row, environ=env)
 
 
-def group_scan_landed(db, customer_id, profile_id, scan_id, scan_group_id):
-    """After a group-bound scan's own commit: advance its group; never fail the save."""
+def group_scan_landed(db, customer_id, profile_id, scan_id, scan_group_id=None):
+    """After a scan's own commit: advance every open group this person is a
+    member of (a local try-on scan counts as much as a link's); never fail
+    the save."""
     try:
         fsg.ensure_schema(db)
-        out = fsg.on_scan_completed(db, customer_id, profile_id, scan_id, scan_group_id,
-                                    notifier=group_notifier())
+        views = fsg.on_profile_scanned(db, customer_id, profile_id, scan_id, scan_group_id,
+                                       notifier=group_notifier())
     except Exception as exc:  # noqa: BLE001 - the scan is saved; the group is bookkeeping
         current_app.logger.warning("FACE_SCAN_GROUP:ERROR group=%s scan=%s err=%s",
                                    scan_group_id, scan_id, str(exc)[:160])
         return None
-    if out:
+    for out in views:
         current_app.logger.info("FACE_SCAN_GROUP:PROGRESS group=%s %s/%s status=%s",
-                                scan_group_id, out["completed"], out["required"], out["status"])
+                                out["group_uuid"], out["completed"], out["required"], out["status"])
+    return views[0] if views else None
     return out
 
 
@@ -268,4 +271,5 @@ def save_scan_from_tryon(db, data, capture_bytes):
                                                or "tryon-7.2"))
     row = fp.get_profile(db, cid, pid)
     notify_done(db, sid, request.host, fp.SRC_TRYON)
+    group_scan_landed(db, cid, int(pid), sid)
     return sid, row

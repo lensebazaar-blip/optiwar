@@ -7,6 +7,30 @@ from . import face_profiles, face_profiles_api, face_scan_groups, face_scan_invi
 
 bp = Blueprint('profile', __name__, url_prefix='/profile')
 
+# ?tab= values the page renders active on first paint; "faces" is the Faces
+# destination, a bare /profile/ is Account.
+TABS = {'account': 'account', 'addresses': 'addresses', 'orders': 'orders',
+        'faces': 'myface', 'myface': 'myface'}
+
+
+def active_tab(args):
+    return TABS.get((args.get('tab') or '').strip().lower(), 'account')
+
+
+def focus_face(args):
+    try:
+        return int(args.get('face') or 0) or None
+    except (TypeError, ValueError):
+        return None
+
+
+@bp.route('/faces')
+@login_required
+def faces_page():
+    """The header's Faces destination: manage people and measurements, not
+    the scanner."""
+    return redirect(url_for('profile.profile_page', tab='faces'))
+
 
 @bp.route('/')
 @login_required
@@ -113,6 +137,8 @@ def profile_page():
                            face_profiles=face_profile_list,
                            face_remote_scan_enabled=face_remote_scan_enabled,
                            face_scan_groups_open=face_scan_groups_open,
+                           active_tab=active_tab(request.args),
+                           focus_face=focus_face(request.args),
                            face_relationships=[
                                {'code': c, 'label': face_profiles.RELATIONSHIP_LABELS[c]}
                                for c in face_profiles.RELATIONSHIPS

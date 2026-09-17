@@ -247,6 +247,38 @@ def clean_destination(channel, destination):
     return None, clean_phone(destination)
 
 
+def _same_contact(cleaner, candidate, owner_value):
+    try:
+        return bool(owner_value) and cleaner(owner_value) == candidate
+    except InviteError:
+        return False
+
+
+def owner_contacts(db, customer_id, session_email=None):
+    """The account holder's own reachable contacts: the customers row plus
+    the authenticated email (they can differ on legacy accounts)."""
+    cur = db.cursor()
+    cur.execute("SELECT customer_email, customer_phone FROM customers WHERE customer_id=%s "
+                "LIMIT 1", (int(customer_id),))
+    row = cur.fetchone() or {}
+    emails = [e for e in (row.get("customer_email"), session_email) if e]
+    phones = [p for p in (row.get("customer_phone"),) if p]
+    return {"emails": emails, "phones": phones}
+
+
+def check_not_owner(email, phone, contacts):
+    """A remote link is for another person's own destination: the account
+    holder's phone or email, however formatted, is refused before anything is
+    created or sent."""
+    contacts = contacts or {}
+    if phone and any(_same_contact(clean_phone, phone, p) for p in contacts.get("phones", ())):
+        raise InviteError("own_phone", "This is your Optiwar account mobile number. Choose "
+                          "Scan here or enter the other person's number.", 422)
+    if email and any(_same_contact(clean_email, email, e) for e in contacts.get("emails", ())):
+        raise InviteError("own_email", "This is your Optiwar account email. Choose Scan here "
+                          "or enter the other person's email.", 422)
+
+
 def mask_destination(row):
     if row.get("recipient_phone"):
         p = row["recipient_phone"]
@@ -470,7 +502,7 @@ class IpLimiter:
 
 def create(db, customer_id, profile_id, channel, destination, sender_name=None,
            site_host=None, created_ip=None, scan_group_id=None, environ=None,
-           now=None):
+           now=None, contacts=None):
     """A new request for the customer's own, unscanned-or-not, non-Self
     profile; any active request for that profile is cancelled in the same
     transaction. Returns ``(row, token)`` — the only moment the token exists
@@ -480,6 +512,7 @@ def create(db, customer_id, profile_id, channel, destination, sender_name=None,
         raise InviteError("self_scan_here", "Scan your own face on this device", 409)
     ch = clean_channel(channel)
     email, phone = clean_destination(ch, destination)
+    check_not_owner(email, phone, contacts)
     check_limits(db, customer_id, profile["id"], email, phone, environ)
     now = now or datetime.now()
     token = new_token()

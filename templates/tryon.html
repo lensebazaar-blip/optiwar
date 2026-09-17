@@ -37,7 +37,7 @@
     {% if scan_for %}
     <!-- Who this scan is for: chosen before measuring, never guessed after -->
     <div class="existing-chip" id="scanForChip" style="display:flex" data-profile-id="{{ scan_for.id }}">
-        <span>Scanning for: <strong>{{ scan_for.display_name }}</strong>{% if scan_for.is_self %} (Me){% else %} ({{ scan_for.relationship_label }}){% endif %} &middot; <a href="/profile#myface" style="color:inherit">change</a></span>
+        <span>Scanning for: <strong>{{ scan_for.display_name }}</strong>{% if scan_for.is_self %} (Me){% else %} ({{ scan_for.relationship_label }}){% endif %} &middot; <a href="/profile/?tab=faces" style="color:inherit">change</a></span>
     </div>
     {% endif %}
     <!-- Existing measurement chip -->
@@ -114,7 +114,7 @@
             </div>
             <h2 class="returning-title">You have already measured your face</h2>
             <p class="returning-sub" id="returningVals"></p>
-            <a href="/profile" class="returning-btn returning-btn--view" id="viewMeasBtn">
+            <a href="/profile/?tab=faces{% if scan_for %}&amp;face={{ scan_for.id }}{% endif %}" class="returning-btn returning-btn--view" id="viewMeasBtn">
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                 Click to see your Face Measurements
             </a>

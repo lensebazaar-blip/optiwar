@@ -414,6 +414,33 @@ def on_scan_completed(db, customer_id, profile_id, scan_id, scan_group_id, notif
     return _try_complete(db, customer_id, row["group_uuid"], notifier=notifier)
 
 
+def open_groups_for_profile(db, customer_id, profile_id):
+    """UUIDs of this customer's OPEN groups the profile is a member of."""
+    cur = db.cursor()
+    cur.execute("SELECT g.group_uuid FROM face_scan_groups g JOIN face_scan_group_members m "
+                "ON m.group_id=g.id WHERE g.customer_id=%s AND g.status=%s "
+                "AND m.face_profile_id=%s ORDER BY g.id",
+                (int(customer_id), ST_OPEN, int(profile_id)))
+    return [r["group_uuid"] for r in cur.fetchall()]
+
+
+def on_profile_scanned(db, customer_id, profile_id, scan_id, scan_group_id=None,
+                       notifier=None):
+    """A completed scan for a person advances every open group they belong
+    to — the one the scan was made for, and any other — because a group is
+    complete when each distinct member *has* a scan, however it was taken
+    (here, over WhatsApp, or over email). Returns the views advanced."""
+    uuids = open_groups_for_profile(db, customer_id, profile_id)
+    if scan_group_id and scan_group_id not in uuids:
+        uuids.insert(0, scan_group_id)
+    out = []
+    for guuid in uuids:
+        v = on_scan_completed(db, customer_id, profile_id, scan_id, guuid, notifier=notifier)
+        if v:
+            out.append(v)
+    return out
+
+
 def _try_complete(db, customer_id, group_uuid, notifier=None):
     """Complete the group iff no member is pending — under the row lock, with
     a guarded UPDATE, so two racing scans produce one transition."""
