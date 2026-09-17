@@ -36,6 +36,7 @@
       <li>You can stop at any time before saving; nothing is stored until you press Save.</li>
     </ul>
     <form method="post" action="/face-scan/guest/consent">
+      <input type="hidden" name="_guest_csrf" value="{{ csrf }}">
       <label class="consent"><input type="checkbox" name="consent" value="1" required>
         I recognise {{ guest.sender_name }}, I am the person to be measured (or their parent/guardian), and I agree to this face measurement.</label>
       {% if error %}<p class="err">Please tick the box to continue.</p>{% endif %}

@@ -945,15 +945,15 @@
           {% if p.has_scan %}<a class="fc-btn fc-btn-primary" href="/tryon?profile={{ p.id }}">Rescan</a>
           {% if p.is_default %}<a class="fc-btn" href="/eyeglasses/all-spectacle-frames.html?filter=facematch">Matching frames</a>{% endif %}
           {% elif sr and sr.active %}
-            <button type="button" class="fc-btn" onclick='mfOpenScan({{ p.id }}, {{ p.display_name|tojson }}, {{ sr|tojson }})'>Resend / new link</button>
-            <button type="button" class="fc-btn" onclick="mfCancelRequest({{ p.id }})">Cancel request</button>
+            <button type="button" class="fc-btn" data-mf="scan" data-pid="{{ p.id }}" data-name="{{ p.display_name }}" data-request='{{ sr|tojson|forceescape }}'>Resend / new link</button>
+            <button type="button" class="fc-btn" data-mf="cancel" data-pid="{{ p.id }}">Cancel request</button>
             <a class="fc-btn" href="/tryon?profile={{ p.id }}">Scan here instead</a>
           {% elif face_remote_scan_enabled and not p.is_self %}
-            <button type="button" class="fc-btn fc-btn-primary" onclick='mfOpenScan({{ p.id }}, {{ p.display_name|tojson }}, {{ (sr or none)|tojson }})'>Scan face</button>
+            <button type="button" class="fc-btn fc-btn-primary" data-mf="scan" data-pid="{{ p.id }}" data-name="{{ p.display_name }}">Scan face</button>
           {% else %}<a class="fc-btn fc-btn-primary" href="/tryon?profile={{ p.id }}">Scan face</a>{% endif %}
-          {% if not p.is_default %}<button type="button" class="fc-btn" onclick="mfSetDefault({{ p.id }})">Shop for {{ p.display_name.split(' ')[0] }}</button>{% endif %}
-          <button type="button" class="fc-btn" onclick='mfOpenEdit({{ p.id }}, {{ p.display_name|tojson }}, {{ p.relationship_type|tojson }}, {{ 'true' if p.is_self else 'false' }})'>Rename</button>
-          {% if not p.is_self %}<button type="button" class="fc-btn mf-danger" onclick='mfDelete({{ p.id }}, {{ p.display_name|tojson }}, {{ 'true' if sr and sr.active else 'false' }})'>Remove</button>{% endif %}
+          {% if not p.is_default %}<button type="button" class="fc-btn" data-mf="default" data-pid="{{ p.id }}">Shop for {{ p.display_name.split(' ')[0] }}</button>{% endif %}
+          <button type="button" class="fc-btn" data-mf="edit" data-pid="{{ p.id }}" data-name="{{ p.display_name }}" data-rel="{{ p.relationship_type or '' }}" data-self="{{ '1' if p.is_self else '' }}">Rename</button>
+          {% if not p.is_self %}<button type="button" class="fc-btn mf-danger" data-mf="delete" data-pid="{{ p.id }}" data-name="{{ p.display_name }}" data-has-request="{{ '1' if sr and sr.active else '' }}">Remove</button>{% endif %}
         </div>
       </div>
       {% endfor %}
@@ -1514,6 +1514,22 @@ async function mfCancelRequest(pid){
   if(!confirm('Cancel this scan request? The link already sent will stop working.')) return;
   try { await mfReq('POST', mfBase+'/'+pid+'/scan-request/cancel'); location.hash='#myface'; location.reload(); } catch(e){ alert(e.message); }
 }
+// Card buttons carry their arguments as data attributes; a person's name is
+// never interpolated into JavaScript.
+document.addEventListener('click', function(ev){
+  var b = ev.target.closest('[data-mf]');
+  if(!b) return;
+  var d = b.dataset, pid = parseInt(d.pid, 10), name = d.name || '';
+  var req = null;
+  if(d.request){ try { req = JSON.parse(d.request); } catch(e){ req = null; } }
+  switch(d.mf){
+    case 'scan':    mfOpenScan(pid, name, req); break;
+    case 'cancel':  mfCancelRequest(pid); break;
+    case 'default': mfSetDefault(pid); break;
+    case 'edit':    mfOpenEdit(pid, name, d.rel || '', !!d.self); break;
+    case 'delete':  mfDelete(pid, name, !!d.hasRequest); break;
+  }
+});
 if (location.hash === '#myface') {
   document.addEventListener('DOMContentLoaded', function(){
     const b=[...document.querySelectorAll('.ow-tab-btn')].find(x=>x.textContent.trim().startsWith('My Face'));

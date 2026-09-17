@@ -42,7 +42,8 @@ def _load_pkg(fp_mod, get_db):
     db_mod.get_db = get_db
     sys.modules[pkg_name + ".db"] = db_mod
     out = {}
-    for name in ("face_scan_invites", "face_profiles_api", "face_scan_invites_api"):
+    for name in ("face_scan_invites", "face_profiles_api", "face_scan_invites_api",
+                 "csrf_guard"):
         spec = importlib.util.spec_from_file_location(
             pkg_name + "." + name, os.path.join(REPO, name + ".py"))
         mod = importlib.util.module_from_spec(spec)
@@ -340,10 +341,37 @@ class ServiceTests(unittest.TestCase):
                                               {"FACE_REMOTE_SCAN_ENABLED": "1"}))
 
 
+# What a phone's browser sends when it opens a page served with
+# ``Referrer-Policy: no-referrer`` and posts a form from it: no Referer at all,
+# and ``Origin: null``. The site-wide guard read this as "missing" and 403'd
+# the consent POST in production. Same shape for a fetch() from that page.
+MOBILE_POST = {"Origin": "null"}
+PROD = "https://optiwar.in/"
+
+
+def _prod_client_class():
+    from flask.testing import FlaskClient
+
+    class ProdClient(FlaskClient):
+        """Every request and cookie lives on the canonical production host."""
+
+        def open(self, *a, **kw):
+            kw.setdefault("base_url", PROD)
+            return super().open(*a, **kw)
+
+        def session_transaction(self, *a, **kw):
+            kw.setdefault("base_url", PROD)
+            return super().session_transaction(*a, **kw)
+
+    return ProdClient
+
+
 @unittest.skipUnless(AVAILABLE, "MariaDB test database not reachable")
 class RouteTests(unittest.TestCase):
     """Owner API + guest pages through a Flask test client, with the
-    scanner template rendered for real and delivery stubbed."""
+    scanner template rendered for real, delivery stubbed, and the production
+    Origin/Referer guard installed and *enforcing* against the canonical host
+    — a bare test app never saw the 403 the phone did."""
 
     @classmethod
     def setUpClass(cls):
@@ -358,6 +386,7 @@ class RouteTests(unittest.TestCase):
         cls.fsi.ensure_schema(cls.db)
         cls.fpa = mods["face_profiles_api"]
         cls.api = mods["face_scan_invites_api"]
+        cls.guard = mods["csrf_guard"]
         cls.root = os.path.join(tempfile.mkdtemp(), "flaskr")
         os.makedirs(cls.root)
         cls.app = Flask(__name__, root_path=cls.root,
@@ -365,11 +394,17 @@ class RouteTests(unittest.TestCase):
         cls.app.config.update(TESTING=True, SECRET_KEY="test",
                               FACE_PROFILES_ENABLED="1",
                               FACE_REMOTE_SCAN_ENABLED="1",
-                              FACE_PROFILES_ALLOW_EMAILS="lensebazaar@gmail.com")
+                              FACE_PROFILES_ALLOW_EMAILS="lensebazaar@gmail.com",
+                              CSRF_ENFORCE=True,
+                              TRUSTED_HOSTS=["optiwar.com", "www.optiwar.com",
+                                             "optiwar.in", "www.optiwar.in", "localhost"])
+        cls.guard.init_csrf_guard(cls.app)
+        cls.app.test_client_class = _prod_client_class()
         bp = Blueprint("main", __name__)
         cls.fpa.register(bp)
         cls.api.register(bp)
         cls.app.register_blueprint(bp)
+        cls.app.static_folder = os.path.join(REPO, "static")
         cls.sent = []
         cls.fsi._default_whatsapp = lambda phone, template, components: (
             cls.sent.append(("wa", phone, components)) or {"ok": True, "request_id": "m1"})
@@ -386,17 +421,54 @@ class RouteTests(unittest.TestCase):
         _wipe_invites(self.db, C1, C2)
         _wipe(self.db, C1, C2)
         self.sent[:] = []
-        self.owner = self.app.test_client()
+        # the owner is a real browser on the canonical host: same-origin POSTs
+        self.owner = self._browser(user_id=C1, user_email="lensebazaar@gmail.com", user_name="Sudhanshu")
+        # the guest is the phone: cookies on production, headers per MOBILE_POST
         self.guest = self.app.test_client()
-        with self.owner.session_transaction() as s:
-            s.update(user_id=C1, user_email="lensebazaar@gmail.com", user_name="Sudhanshu")
         r = self.owner.post("/api/face-profiles", json={"display_name": "Wife", "relationship_type": "spouse", "consent": True})
         self.wife = r.get_json()["profile"]["id"]
+
+    def _browser(self, **sess):
+        """A normal browser on the site: sends its Origin, may be signed in."""
+        c = self.app.test_client()
+        c.environ_base["HTTP_ORIGIN"] = "https://optiwar.in"
+        if sess:
+            with c.session_transaction() as s:
+                s.update(**sess)
+        return c
 
     def _send(self, channel="whatsapp", dest=WA_OK, pid=None):
         r = self.owner.post("/api/face-profiles/%d/scan-request" % (pid or self.wife),
                             json={"channel": channel, "destination": dest})
         return r
+
+    def _gget(self, path, client=None):
+        return (client or self.guest).get(path, base_url=PROD)
+
+    def _csrf(self, client=None):
+        with (client or self.guest).session_transaction() as s:
+            return (s.get("face_scan_guest") or {}).get("csrf")
+
+    def _consent(self, client=None, csrf="auto", **form):
+        c = client or self.guest
+        data = {"consent": "1"}
+        data.update(form)
+        if csrf == "auto":
+            csrf = self._csrf(c)
+        if csrf is not None:
+            data["_guest_csrf"] = csrf
+        return c.post("/face-scan/guest/consent", data=data, base_url=PROD,
+                      headers=MOBILE_POST)
+
+    def _save(self, body=None, client=None, csrf="auto"):
+        c = client or self.guest
+        headers = dict(MOBILE_POST)
+        if csrf == "auto":
+            csrf = self._csrf(c)
+        if csrf is not None:
+            headers["X-Face-Scan-Csrf"] = csrf
+        return c.post("/face-scan/guest/api/save", json=body or MEAS,
+                      base_url=PROD, headers=headers)
 
     def _token(self):
         kind, _, payload = self.sent[-1]
@@ -424,7 +496,7 @@ class RouteTests(unittest.TestCase):
         self.assertNotIn(token, r.get_data(as_text=True))
         self.assertNotIn("link", r.get_json())
         # the link from the response opens the guest flow like the one in the message
-        self.assertEqual(self.guest.get("/f/" + token).status_code, 303)
+        self.assertEqual(self._gget("/f/" + token).status_code, 303)
 
     def test_link_is_handed_out_even_when_delivery_failed(self):
         self.fsi._default_whatsapp = lambda phone, template, components: {"ok": False, "error": "http_401"}
@@ -436,14 +508,14 @@ class RouteTests(unittest.TestCase):
         j = r.get_json()
         self.assertEqual(j["scan_request"]["delivery_status"], "FAILED")
         self.assertIn("/f/", j["link"])
-        self.assertEqual(self.guest.get("/f/" + j["link"].rsplit("/", 1)[1]).status_code, 303)
+        self.assertEqual(self._gget("/f/" + j["link"].rsplit("/", 1)[1]).status_code, 303)
 
     def test_legacy_long_path_still_opens(self):
         self._send()
-        self.assertEqual(self.guest.get("/face-scan/request/" + self._token()).status_code, 303)
+        self.assertEqual(self._gget("/face-scan/request/" + self._token()).status_code, 303)
 
     def test_anonymous_and_ungated_owner_calls(self):
-        anon = self.app.test_client()
+        anon = self._browser()
         self.assertEqual(anon.post("/api/face-profiles/%d/scan-request" % self.wife, json={}).status_code, 401)
         with anon.session_transaction() as s:
             s.update(user_id=C2, user_email="x@example.com", user_name="X")
@@ -452,54 +524,62 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(anon.post("/api/face-profiles/%d/scan-request/cancel" % self.wife).status_code, 404)
 
     def test_foreign_profile_is_404_even_inside_the_gate(self):
-        other = self.app.test_client()
-        with other.session_transaction() as s:
-            s.update(user_id=C2, user_email="lensebazaar@gmail.com", user_name="Twin")
+        other = self._browser(user_id=C2, user_email="lensebazaar@gmail.com", user_name="Twin")
         r = other.post("/api/face-profiles/%d/scan-request" % self.wife,
                        json={"channel": "whatsapp", "destination": WA_OK})
         self.assertEqual(r.status_code, 404)
         self.assertEqual(self.sent, [])
 
     def test_guest_flow_end_to_end(self):
+        """The journey the phone takes, against the enforcing guard on the
+        canonical host: open, consent, scan, save — none of it 403s."""
         self._send()
         token = self._token()
-        r = self.guest.get("/f/" + token)
+        r = self._gget("/f/" + token)
         self.assertEqual(r.status_code, 303)
         self.assertEqual(r.headers["Cache-Control"], "no-store")
         self.assertEqual(r.headers["Referrer-Policy"], "no-referrer")
         self.assertTrue(r.headers["Location"].endswith("/face-scan/guest"))
         # refresh of the entry link does not spend it
-        self.assertEqual(self.guest.get("/f/" + token).status_code, 303)
-        r = self.guest.get("/face-scan/guest")
+        self.assertEqual(self._gget("/f/" + token).status_code, 303)
+        r = self._gget("/face-scan/guest")
         self.assertEqual(r.status_code, 200)
         page = r.get_data(as_text=True)
         self.assertIn("Sudhanshu", page)
         self.assertIn("Wife", page)
         self.assertNotIn("lensebazaar@gmail.com", page)
         self.assertNotIn(token, page)
+        csrf = self._csrf()
+        self.assertTrue(csrf and len(csrf) >= 32)
+        self.assertIn('name="_guest_csrf" value="%s"' % csrf, page)
+        # the form posts to the same origin it was served from
+        self.assertIn('action="/face-scan/guest/consent"', page)
         # scanner before consent redirects back
-        self.assertEqual(self.guest.get("/face-scan/guest/scan").status_code, 303)
-        self.assertEqual(self.guest.post("/face-scan/guest/consent", data={}).status_code, 200)
-        r = self.guest.post("/face-scan/guest/consent", data={"consent": "1"})
-        self.assertEqual(r.status_code, 303)
-        r = self.guest.get("/face-scan/guest/scan")
+        self.assertEqual(self._gget("/face-scan/guest/scan").status_code, 303)
+        r = self._consent(consent="")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("Please tick", r.get_data(as_text=True))
+        r = self._consent()
+        self.assertEqual(r.status_code, 303, r.get_data(as_text=True))
+        r = self._gget("/face-scan/guest/scan")
         self.assertEqual(r.status_code, 200)
         page = r.get_data(as_text=True)
         self.assertIn("window.OW_GUEST", page)
         self.assertIn("/face-scan/guest/api", page)
+        self.assertIn('"csrf": "%s"' % csrf, page)
         self.assertNotIn("/api/tryon/save", page.split("<script")[0])
         self.assertNotIn(token, page)
-        self.assertEqual(self.guest.get("/face-scan/guest/api/my-measurements").get_json(),
+        self.assertNotIn("https://", page.split("window.OW_GUEST")[1].split("</script>")[0])
+        self.assertEqual(self._gget("/face-scan/guest/api/my-measurements").get_json(),
                          {"has_measurements": False})
-        self.assertEqual(self.guest.get("/face-scan/guest/api/matching-frames").status_code, 404)
-        r = self.guest.post("/face-scan/guest/api/save",
-                            json=dict(MEAS, screenshot="data:image/jpeg;base64,/9j/4AAA"))
+        self.assertEqual(self._gget("/face-scan/guest/api/matching-frames").status_code, 404)
+        r = self._save(dict(MEAS, screenshot="data:image/jpeg;base64,/9j/4AAA"))
         self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
         self.assertTrue(r.get_json()["ok"])
-        self.assertEqual(self.guest.get("/face-scan/guest/done").status_code, 200)
+        self.assertEqual(self._gget("/face-scan/guest/done").status_code, 200)
         # spent: the guest session no longer resolves and the link says completed
-        self.assertEqual(self.guest.post("/face-scan/guest/api/save", json=MEAS).status_code, 410)
-        r = self.guest.get("/f/" + token)
+        self.assertEqual(self._save().status_code, 410)
+        r = self._gget("/f/" + token)
         self.assertEqual(r.status_code, 410)
         self.assertIn("already complete", r.get_data(as_text=True))
         # the owner's card sees it
@@ -508,7 +588,115 @@ class RouteTests(unittest.TestCase):
         r = self.owner.get("/api/face-profiles/%d/scan-request" % self.wife)
         self.assertEqual(r.get_json()["scan_request"]["status"], "COMPLETED")
         # the guest never gained an owner session
-        self.assertEqual(self.guest.get("/api/face-profiles").status_code, 401)
+        self.assertEqual(self._gget("/api/face-profiles").status_code, 401)
+
+    def test_guest_posts_need_the_guest_secret_not_the_origin(self):
+        """The guest POST is authorised by the binding + secret. Without the
+        secret it is refused even with a perfect Origin; with it, Origin is
+        irrelevant (``null``, absent, or foreign — the page cannot send one)."""
+        self._send()
+        self._gget("/f/" + self._token())
+        good = self._csrf()
+        for hdrs in ({"Origin": "https://optiwar.in"}, {}, {"Origin": "https://evil.example"}):
+            r = self.guest.post("/face-scan/guest/consent", data={"consent": "1"},
+                                base_url=PROD, headers=hdrs)
+            self.assertEqual(r.status_code, 403, hdrs)
+            self.assertIn("not valid", r.get_data(as_text=True))
+        r = self.guest.post("/face-scan/guest/consent",
+                            data={"consent": "1", "_guest_csrf": "x" * len(good)},
+                            base_url=PROD, headers=MOBILE_POST)
+        self.assertEqual(r.status_code, 403)
+        # consent never recorded by any of those
+        self.assertEqual(self._gget("/face-scan/guest/scan").status_code, 303)
+        for hdrs in ({}, {"Origin": "null"}, {"Origin": "https://optiwar.in"}):
+            self.guest.post("/face-scan/guest/consent", data={"consent": "1", "_guest_csrf": good},
+                            base_url=PROD, headers=hdrs)
+            self.assertEqual(self._gget("/face-scan/guest/scan").status_code, 200, hdrs)
+        # save: header missing / wrong -> 403 and nothing written; right -> 200
+        self.assertEqual(self._save(csrf=None).status_code, 403)
+        self.assertEqual(self._save(csrf="y" * len(good)).status_code, 403)
+        self.assertFalse(self.owner.get("/api/face-profiles/%d" % self.wife).get_json()["profile"]["has_scan"])
+        r = self.guest.post("/face-scan/guest/api/save", json=MEAS, base_url=PROD,
+                            headers={"X-Face-Scan-Csrf": good})  # no Origin at all
+        self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
+
+    def test_guest_secret_is_bound_to_its_own_session(self):
+        """A secret lifted from one guest's page does nothing in another
+        browser: the binding it belongs to is not there."""
+        self._send()
+        self._gget("/f/" + self._token())
+        good = self._csrf()
+        stranger = self.app.test_client()
+        r = stranger.post("/face-scan/guest/consent", data={"consent": "1", "_guest_csrf": good},
+                          base_url=PROD, headers=MOBILE_POST)
+        self.assertEqual(r.status_code, 410)
+        r = stranger.post("/face-scan/guest/api/save", json=MEAS, base_url=PROD,
+                          headers=dict(MOBILE_POST, **{"X-Face-Scan-Csrf": good}))
+        self.assertEqual(r.status_code, 410)
+
+    def test_guest_binding_from_before_the_secret_is_reopened_not_trusted(self):
+        """A guest session minted by the previous release has no secret; it
+        is treated as no binding, and re-opening the link re-mints it."""
+        self._send()
+        token = self._token()
+        self._gget("/f/" + token)
+        with self.guest.session_transaction() as s:
+            s["face_scan_guest"] = {k: v for k, v in s["face_scan_guest"].items() if k != "csrf"}
+        self.assertEqual(self._gget("/face-scan/guest").status_code, 404)
+        self.assertEqual(self._gget("/f/" + token).status_code, 303)
+        self.assertEqual(self._consent().status_code, 303)
+
+    def test_owner_api_keeps_the_normal_csrf_protection(self):
+        """The exemption is two exact guest endpoints. The signed-in owner's
+        own mutations still need a trusted Origin/Referer."""
+        evil = self.app.test_client()
+        with evil.session_transaction() as s:
+            s.update(user_id=C1, user_email="lensebazaar@gmail.com", user_name="Sudhanshu")
+        for hdrs in ({"Origin": "https://evil.example"}, {}, {"Origin": "null"}):
+            r = evil.post("/api/face-profiles/%d/scan-request" % self.wife,
+                          json={"channel": "whatsapp", "destination": WA_OK},
+                          base_url=PROD, headers=hdrs)
+            self.assertEqual(r.status_code, 403, hdrs)
+            self.assertEqual(evil.post("/api/face-profiles/%d/scan-request/cancel" % self.wife,
+                                       base_url=PROD, headers=hdrs).status_code, 403)
+            self.assertEqual(evil.delete("/api/face-profiles/%d" % self.wife,
+                                         base_url=PROD, headers=hdrs).status_code, 403)
+        self.assertEqual(self.sent, [])
+        r = evil.post("/api/face-profiles/%d/scan-request" % self.wife,
+                      json={"channel": "whatsapp", "destination": WA_OK},
+                      base_url=PROD, headers={"Referer": "https://www.optiwar.in/profile"})
+        self.assertEqual(r.status_code, 201)
+        exempt = self.guard.CSRF_EXEMPT_ENDPOINTS
+        self.assertEqual({e for e in exempt if "face" in e},
+                         {"main.face_scan_guest_consent_post", "main.face_scan_guest_save"})
+        self.assertNotIn("*", "".join(self.app.config["TRUSTED_HOSTS"]))
+
+    def test_scan_lands_in_the_invited_profile_whatever_the_browser_is_logged_into(self):
+        """A: logged out. B: same customer's browser. C: another customer's
+        browser. The scan reaches the invited profile and only that one."""
+        other = self._browser(user_id=C2, user_email="lensebazaar@gmail.com", user_name="Twin")
+        other_self = other.get("/api/face-profiles").get_json()["profiles"][0]["id"]
+        me = self.owner.get("/api/face-profiles").get_json()["profiles"][0]["id"]
+        for label, browser in (("A", self.app.test_client()), ("B", self.owner), ("C", other)):
+            _wipe_invites(self.db, C1)
+            self._send()
+            token = self._token()
+            self.assertEqual(self._gget("/f/" + token, browser).status_code, 303, label)
+            self.assertEqual(self._consent(browser).status_code, 303, label)
+            r = self._save(dict(MEAS, pd_far=60.0 + len(label)), browser)
+            self.assertEqual(r.status_code, 200, (label, r.get_data(as_text=True)))
+            wife = self.owner.get("/api/face-profiles/%d" % self.wife).get_json()["profile"]
+            self.assertTrue(wife["has_scan"], label)
+            self.assertFalse(self.owner.get("/api/face-profiles/%d" % me).get_json()["profile"]["has_scan"], label)
+            self.assertFalse(other.get("/api/face-profiles/%d" % other_self).get_json()["profile"]["has_scan"], label)
+            cur = self.db.cursor()
+            cur.execute("DELETE FROM face_scans WHERE face_profile_id=%s", (self.wife,))
+            cur.execute("UPDATE face_profiles SET latest_scan_id=NULL WHERE id=%s", (self.wife,))
+            self.db.commit()
+        # B and C still hold their own sessions, untouched
+        self.assertEqual(self.owner.get("/api/face-profiles").status_code, 200)
+        self.assertEqual(other.get("/api/face-profiles").get_json()["profiles"][0]["id"], other_self)
+        self.assertEqual(self.app.test_client().get("/api/face-profiles").status_code, 401)
 
     def test_invalid_expired_cancelled_tokens_are_generic(self):
         r = self.guest.get("/face-scan/request/notatoken")
@@ -518,7 +706,7 @@ class RouteTests(unittest.TestCase):
         self._send()
         token = self._token()
         self.owner.post("/api/face-profiles/%d/scan-request/cancel" % self.wife)
-        r = self.guest.get("/f/" + token)
+        r = self._gget("/f/" + token)
         self.assertEqual(r.status_code, 410)
         self.assertIn("no longer active", r.get_data(as_text=True))
         self._send()
@@ -526,16 +714,16 @@ class RouteTests(unittest.TestCase):
         cur = self.db.cursor()
         cur.execute("UPDATE face_scan_invites SET expires_at=NOW() - INTERVAL 1 MINUTE WHERE active_slot=1")
         self.db.commit()
-        self.assertEqual(self.guest.get("/f/" + token).status_code, 410)
+        self.assertEqual(self._gget("/f/" + token).status_code, 410)
 
     def test_cancel_after_open_beats_the_open_page(self):
         self._send()
         token = self._token()
-        self.guest.get("/f/" + token)
-        self.guest.post("/face-scan/guest/consent", data={"consent": "1"})
-        self.assertEqual(self.guest.get("/face-scan/guest/scan").status_code, 200)
+        self._gget("/f/" + token)
+        self._consent()
+        self.assertEqual(self._gget("/face-scan/guest/scan").status_code, 200)
         self.owner.post("/api/face-profiles/%d/scan-request/cancel" % self.wife)
-        r = self.guest.post("/face-scan/guest/api/save", json=MEAS)
+        r = self._save()
         self.assertEqual(r.status_code, 410)
         self.assertFalse(self.owner.get("/api/face-profiles/%d" % self.wife).get_json()["profile"]["has_scan"])
 
@@ -546,8 +734,8 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(r.status_code, 201)
         t2 = self._token()
         self.assertNotEqual(t1, t2)
-        self.assertEqual(self.guest.get("/f/" + t1).status_code, 410)
-        self.assertEqual(self.guest.get("/f/" + t2).status_code, 303)
+        self.assertEqual(self._gget("/f/" + t1).status_code, 410)
+        self.assertEqual(self._gget("/f/" + t2).status_code, 303)
 
     def test_delete_profile_cancels_and_reports(self):
         self._send()
@@ -555,7 +743,7 @@ class RouteTests(unittest.TestCase):
         r = self.owner.delete("/api/face-profiles/%d" % self.wife)
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.get_json()["cancelled_scan_requests"], 1)
-        self.assertEqual(self.guest.get("/f/" + token).status_code, 410)
+        self.assertEqual(self._gget("/f/" + token).status_code, 410)
 
     def test_self_profile_refused_and_email_channel_works(self):
         me = self.owner.get("/api/face-profiles").get_json()["profiles"][0]["id"]
@@ -564,7 +752,7 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(r.status_code, 201)
         self.assertEqual(self.sent[-1][0], "mail")
         token = self._token()
-        self.assertEqual(self.guest.get("/f/" + token).status_code, 303)
+        self.assertEqual(self._gget("/f/" + token).status_code, 303)
 
 
 if __name__ == "__main__":
@@ -572,14 +760,39 @@ if __name__ == "__main__":
 
 
 class MyFacesButtonsTests(unittest.TestCase):
-    """Flask's ``tojson`` escapes ``'`` but not ``"``, so a JSON string in a
-    double-quoted ``onclick`` ends the attribute and kills the button."""
+    """A person's name is never interpolated into JavaScript: the card
+    buttons carry their arguments as data attributes and one delegated
+    listener reads them. (Flask's ``tojson`` in a double-quoted ``onclick``
+    ended the attribute and killed every button that took a name.)"""
 
-    def test_no_tojson_inside_a_double_quoted_onclick(self):
+    def test_card_buttons_carry_data_attributes_not_inline_handlers(self):
         with open(os.path.join(REPO, "templates", "profile.html")) as fh:
             src = fh.read()
-        bad = re.findall(r'onclick="[^"]*\|tojson', src)
-        self.assertEqual(bad, [])
-        self.assertIn("onclick='mfOpenScan(", src)
-        self.assertIn("onclick='mfOpenEdit(", src)
-        self.assertIn("onclick='mfDelete(", src)
+        self.assertEqual(re.findall(r'onclick=.{0,40}\|tojson', src), [])
+        for fn in ("mfOpenScan(", "mfOpenEdit(", "mfDelete(", "mfSetDefault(", "mfCancelRequest("):
+            self.assertEqual(re.findall(r'onclick=[\'"]' + re.escape(fn), src), [], fn)
+        for kind in ("scan", "cancel", "default", "edit", "delete"):
+            self.assertIn('data-mf="%s"' % kind, src)
+        self.assertIn("closest('[data-mf]')", src)
+
+    def test_awkward_names_render_into_attributes_that_parse_back(self):
+        from flask import Flask
+        from markupsafe import escape
+        import html
+        app = Flask(__name__, template_folder=os.path.join(REPO, "templates"))
+        names = ['Mother "Home"', "O'Connor", "<b>x</b>", "Am\u00e9lie \u4e2d"]
+        with app.app_context():
+            src = app.jinja_env.from_string(
+                '{% for n in names %}<button data-mf="edit" data-pid="1" data-name="{{ n }}" '
+                "data-request='{{ {\"destination\": n}|tojson|forceescape }}'></button>{% endfor %}"
+            ).render(names=names)
+        for n in names:
+            attr = str(escape(n))
+            self.assertIn('data-name="%s"' % attr, src)
+            self.assertEqual(html.unescape(attr), n)
+        # no raw quote or angle bracket survives inside an attribute value
+        self.assertNotIn('data-name="Mother "', src)
+        self.assertNotIn("<b>", src)
+        import json
+        for m in re.finditer(r"data-request='([^']*)'", src):
+            self.assertIn(json.loads(html.unescape(m.group(1)))["destination"], names)

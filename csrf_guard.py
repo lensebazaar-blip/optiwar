@@ -23,6 +23,12 @@ exempt endpoint must carry its own non-cookie authentication:
 - ``main.razorpay_webhook`` (Razorpay server-to-server delivery, no browser and
   so never any Origin/Referer): HMAC signature over the raw body + idempotent
   processing.
+- ``main.face_scan_guest_consent_post`` / ``main.face_scan_guest_save`` (the
+  remote face-scan guest, served under ``Referrer-Policy: no-referrer`` so the
+  browser sends no Referer and ``Origin: null``): a server-side binding to one
+  scan request (uuid + token hash, minted only by the bearer link) plus a
+  per-binding CSRF secret echoed back in the form/header. No customer session
+  is read or granted on that path.
 NOTE: ``main.razorpay_verify`` is intentionally NOT exempt -- it is a browser
 POST that carries the customer session cookie, so it must pass the Origin/
 Referer check (and later a CSRF token) in addition to the Razorpay signature.
@@ -47,6 +53,8 @@ CSRF_EXEMPT_ENDPOINTS = {
     "crm.msg91_delivery_event",        # MSG91 delivery-status callback  (optional token)
     "crm.support_preferences",         # customer notification-pref API (no cookie auth; keyed by email/phone)
     "main.ops_refund_execute",         # EU Ops refund API  (scoped Bearer credential + server-side idempotency)
+    "main.face_scan_guest_consent_post",  # remote face-scan guest (no-referrer page; request binding + guest CSRF secret)
+    "main.face_scan_guest_save",          # remote face-scan guest (same binding + secret, X-Face-Scan-Csrf header)
 }
 
 

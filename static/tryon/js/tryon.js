@@ -576,9 +576,12 @@ async function captureAndSave() {
         const scanFor = document.getElementById('scanForChip');
         if (scanFor && scanFor.dataset.profileId) body.face_profile_id = scanFor.dataset.profileId;
         
+        const saveHeaders = { 'Content-Type': 'application/json' };
+        if (GUEST && GUEST.csrf) saveHeaders['X-Face-Scan-Csrf'] = GUEST.csrf;
         const r = await fetch(API + '/save', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: saveHeaders,
+            credentials: 'same-origin',
             body: JSON.stringify(body)
         });
         const d = await r.json();

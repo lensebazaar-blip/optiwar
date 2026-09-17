@@ -24,10 +24,21 @@ line. Every guest response is ``Cache-Control: no-store`` and
 ``Referrer-Policy: no-referrer``. Each guest route re-reads the request row
 and re-checks status and expiry; a cancellation wins over an open page at
 the moment of submission.
+
+The two guest POSTs do not rely on the site-wide Origin/Referer guard: a
+page served with ``no-referrer`` sends neither header (Origin arrives as the
+literal ``null``), so that guard can only ever refuse them. They are exempt
+from it by exact endpoint and carry their own proof instead — a per-guest
+``csrf`` secret minted at the first hop, kept in the same server-side
+binding, and required back as a hidden form field or ``X-Face-Scan-Csrf``
+header. The binding never grants an account session: the rows it reaches
+are selected by ``request_uuid`` and token hash, never by ``user_id``.
 """
 import base64
+import hmac
 import json
 import os
+import secrets
 
 from flask import (abort, current_app, jsonify, redirect, render_template,
                    request, session, url_for)
@@ -38,6 +49,8 @@ from . import face_scan_invites as fsi
 from .db import get_db
 
 SESSION_KEY = "face_scan_guest"
+CSRF_FIELD = "_guest_csrf"
+CSRF_HEADER = "X-Face-Scan-Csrf"
 _guest_limiter = fsi.IpLimiter(max_hits=30, window_seconds=600)
 
 
@@ -116,12 +129,20 @@ def _create_and_send(db, customer_id, profile_id, channel, destination):
 def _guest_row(db):
     """The request the guest session is bound to, if still usable."""
     bound = session.get(SESSION_KEY) or {}
-    if not bound.get("uuid") or not bound.get("hash"):
+    if not bound.get("uuid") or not bound.get("hash") or not bound.get("csrf"):
         return None
     row = fsi.by_uuid(db, bound["uuid"])
     if not row or row["token_hash"] != bound["hash"]:
         return None
     return fsi.refresh(db, row)
+
+
+def _guest_csrf_ok():
+    """The secret minted with this guest binding must come back on every
+    guest POST — from the form, or from the scanner's fetch header."""
+    want = (session.get(SESSION_KEY) or {}).get("csrf") or ""
+    got = request.form.get(CSRF_FIELD) or request.headers.get(CSRF_HEADER) or ""
+    return bool(want) and hmac.compare_digest(want, got)
 
 
 def _guest_page(template, status=200, **ctx):
@@ -213,7 +234,8 @@ def register(bp):
         if not fsi.is_usable(row):
             return _guest_page("face_scan_guest.html", 410, state="inactive")
         row = fsi.mark_opened(db, row)
-        session[SESSION_KEY] = {"uuid": row["request_uuid"], "hash": row["token_hash"]}
+        session[SESSION_KEY] = {"uuid": row["request_uuid"], "hash": row["token_hash"],
+                                "csrf": secrets.token_urlsafe(32)}
         return _guest_headers(redirect(url_for("main.face_scan_guest_consent"), 303))
 
     @bp.route("/face-scan/guest", methods=["GET"])
@@ -228,7 +250,7 @@ def register(bp):
         if not fsi.is_usable(row):
             return _guest_page("face_scan_guest.html", 410, state="inactive")
         return _guest_page("face_scan_guest.html", 200, state="consent",
-                           guest=fsi.guest_view(db, row))
+                           guest=fsi.guest_view(db, row), csrf=session[SESSION_KEY]["csrf"])
 
     @bp.route("/face-scan/guest/consent", methods=["POST"])
     def face_scan_guest_consent_post():
@@ -236,9 +258,14 @@ def register(bp):
         row = _guest_row(db)
         if not row or not fsi.is_usable(row):
             return _guest_page("face_scan_guest.html", 410, state="inactive")
+        if not _guest_csrf_ok():
+            current_app.logger.warning("FACE_SCAN_REQUEST:GUEST_CSRF_REJECTED request=%s route=consent",
+                                       row["request_uuid"])
+            return _guest_page("face_scan_guest.html", 403, state="invalid")
         if not request.form.get("consent"):
             return _guest_page("face_scan_guest.html", 200, state="consent",
-                               guest=fsi.guest_view(db, row), error="consent_required")
+                               guest=fsi.guest_view(db, row), error="consent_required",
+                               csrf=session[SESSION_KEY]["csrf"])
         fsi.record_consent(db, row)
         return _guest_headers(redirect(url_for("main.face_scan_guest_scan"), 303))
 
@@ -257,6 +284,7 @@ def register(bp):
             "profile_name": g["profile_name"],
             "sender_name": g["sender_name"],
             "done_url": url_for("main.face_scan_guest_done"),
+            "csrf": session[SESSION_KEY]["csrf"],
         })
 
     @bp.route("/face-scan/guest/api/save", methods=["POST"])
@@ -266,6 +294,10 @@ def register(bp):
         if not row or not fsi.is_usable(row):
             return _guest_headers(jsonify({"ok": False, "error": "inactive",
                                            "message": "This scan request is no longer active"})), 410
+        if not _guest_csrf_ok():
+            current_app.logger.warning("FACE_SCAN_REQUEST:GUEST_CSRF_REJECTED request=%s route=save",
+                                       row["request_uuid"])
+            return _guest_headers(jsonify({"ok": False, "error": "forbidden"})), 403
         data = request.get_json(silent=True)
         if not data:
             return _guest_headers(jsonify({"ok": False, "error": "no_data"})), 400

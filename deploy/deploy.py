@@ -211,6 +211,22 @@ SMOKE = (
     # face_profiles_api would 404) and refuses an anonymous caller.
     ("face profiles reject anonymous",
      "https://optiwar.com/api/face-profiles", 401),
+    # The remote face-scan guest posts from a no-referrer page — no Referer,
+    # Origin: null — exactly the shape of this curl. Before the exemption the
+    # origin guard answered 403 to a real invitee on optiwar.in. 410 is the
+    # view itself refusing a browser that holds no guest binding, which proves
+    # the request reached the view through the production CSRF stack. Both
+    # hosts an invitation can be minted on.
+    ("face-scan guest consent not origin-blocked (.in)",
+     "https://optiwar.in/face-scan/guest/consent", 410, "POST"),
+    ("face-scan guest consent not origin-blocked (.com)",
+     "https://optiwar.com/face-scan/guest/consent", 410, "POST"),
+    ("face-scan guest save not origin-blocked (.in)",
+     "https://optiwar.in/face-scan/guest/api/save", 410, "POST"),
+    # And the guard still stands where it must: the owner's own mutation,
+    # cookie-less and origin-less, is stopped at 403 before any view.
+    ("face-scan owner api still origin-guarded",
+     "https://optiwar.in/api/face-profiles/0/scan-request/cancel", 403, "POST"),
 )
 
 # Canonical events a single canary conversation must produce. Their absence
