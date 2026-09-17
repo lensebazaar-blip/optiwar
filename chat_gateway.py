@@ -690,8 +690,62 @@ RULES:
     return prompt
 
 
+# DeepSeek's internal function-call syntax (``<｜DSML｜invoke ...>``, ASCII
+# or full-width bars, one or two of them). When it surfaces in ``content``
+# instead of ``tool_calls`` the model wanted a tool and did not get one;
+# the text is unexecuted internal markup, never a reply for a customer.
+_TOOL_MARKUP_RE = re.compile(r"<\s*/?\s*[|\uff5c]{1,2}\s*DSML\s*[|\uff5c]{1,2}", re.I)
+
+
+def _has_tool_markup(text):
+    return bool(text and _TOOL_MARKUP_RE.search(text))
+
+
+_TICKET_ASK_RE = re.compile(r"support ticket", re.I)
+_HANDOVER_ASK_RE = re.compile(r"\bsupervisor\b", re.I)
+
+
+def _pending_ask(history):
+    """Which Yes/No the assistant's latest turn asked: ``'create_ticket'``,
+    ``'human_handover'`` or None. A later question wins when both appear."""
+    for msg in reversed(history or []):
+        if msg['role'] != 'assistant':
+            continue
+        text = msg['content'] or ''
+        if '?' not in text:
+            return None
+        t = _TICKET_ASK_RE.search(text)
+        h = _HANDOVER_ASK_RE.search(text)
+        if t and h:
+            return 'create_ticket' if t.start() > h.start() else 'human_handover'
+        if t:
+            return 'create_ticket'
+        if h:
+            return 'human_handover'
+        return None
+    return None
+
+
+def _confirmed_ask_reply(history, user_message, contact_name):
+    """A bare "yes" to the ticket/supervisor question is answered by the
+    server, not re-inferred by the model: returns the reply carrying the
+    action tag the question promised, or None when this turn is not that."""
+    if not acr.is_confirmation(user_message):
+        return None
+    ask = _pending_ask(history)
+    name = contact_name if contact_name and contact_name != 'Visitor' else ''
+    lead = f"{name}, " if name else ''
+    if ask == 'create_ticket':
+        return (f"{lead}I'm creating a support ticket for this now. "
+                "Our team will get back to you within 24 hours. [ACTION:CREATE_TICKET]")
+    if ask == 'human_handover':
+        return f"{lead}connecting you with my supervisor now. [ACTION:HUMAN_HANDOVER]"
+    return None
+
+
 def _get_conversation_history(db, session_id, limit=20):
-    """Get recent messages for context."""
+    """Get recent messages for context. A stored reply that is leaked tool
+    markup is not context: feeding it back teaches the model to do it again."""
     cur = db.cursor()
     cur.execute(
         """SELECT role, content FROM chat_messages
@@ -702,7 +756,8 @@ def _get_conversation_history(db, session_id, limit=20):
     )
     rows = list(cur.fetchall())
     rows.reverse()
-    return [{'role': r['role'], 'content': r['content']} for r in rows]
+    return [{'role': r['role'], 'content': r['content']} for r in rows
+            if not (r['role'] == 'assistant' and _has_tool_markup(r['content']))]
 
 
 def _sanitize_tool_call_message(message):
@@ -2005,8 +2060,20 @@ def chat_message():
         contact_name, is_india, content, customer_id=customer_id,
         extra_sections=tuple(s for s in (lens_section, photo_section) if s))
     history = _get_conversation_history(db, session_id)
-    ai_reply, error = _call_deepseek(system_prompt, history, content, is_india=is_india,
-                                     endpoint="chat_gateway.message", gate_key=session_id)
+    ai_reply = _confirmed_ask_reply(history, content, contact_name)
+    error = None
+    if ai_reply is None:
+        # Backstop: unexecuted tool markup is a failed turn, never a reply.
+        # One retry; if the model leaks again the turn fails like any other
+        # provider error and the customer sees the generic apology.
+        for attempt in (1, 2):
+            ai_reply, error = _call_deepseek(
+                system_prompt, history, content, is_india=is_india,
+                endpoint="chat_gateway.message", gate_key=session_id)
+            if error or not _has_tool_markup(ai_reply):
+                break
+            _log_event(db, session_id, 'ai_tool_markup_leak', {'attempt': attempt})
+            ai_reply, error = None, 'tool_markup_leak'
 
     # Canonical MODEL_* events: one terminal event per provider round-trip,
     # drained from the wrapper telemetry regardless of success/shed/failure.
