@@ -3,7 +3,7 @@ from .db import get_db
 from .auth import login_required
 from .rx_powers import normalize_rows
 from .customer_orders import ORDER_LINES_SQL, customer_orders
-from . import face_profiles, face_profiles_api
+from . import face_profiles, face_profiles_api, face_scan_invites_api
 
 bp = Blueprint('profile', __name__, url_prefix='/profile')
 
@@ -86,6 +86,7 @@ def profile_page():
     # Multi-person accounts (Stage-1 gate): the tab becomes My Faces and lists
     # every profile; everybody else keeps the single-face card above.
     face_profiles_enabled = False
+    face_remote_scan_enabled = False
     face_profile_list = []
     if cust_id and face_profiles_api.gate_enabled():
         face_profiles_enabled = True
@@ -96,6 +97,9 @@ def profile_page():
             face_profiles.public_view(
                 r, "/api/face-profiles/%d/capture" % int(r['id']))
             for r in face_profiles.list_profiles(db, cust_id)]
+        face_remote_scan_enabled = face_scan_invites_api.gate_enabled()
+        if face_remote_scan_enabled:
+            face_scan_invites_api.attach_state(db, cust_id, face_profile_list)
 
     # Always use session email (authenticated email) for display, not DB record
     auth_email = session.get('user_email', '')
@@ -104,6 +108,7 @@ def profile_page():
                            face_data=face_data,
                            face_profiles_enabled=face_profiles_enabled,
                            face_profiles=face_profile_list,
+                           face_remote_scan_enabled=face_remote_scan_enabled,
                            face_relationships=[
                                {'code': c, 'label': face_profiles.RELATIONSHIP_LABELS[c]}
                                for c in face_profiles.RELATIONSHIPS

@@ -110,6 +110,10 @@ let scanStartTime = 0;
 const SCAN_TIMEOUT_MS = 30000;
 
 const $ = id => document.getElementById(id);
+// Remote one-time request: the page is rendered with window.OW_GUEST and
+// every API call goes to the token-authorised guest base instead.
+const GUEST = window.OW_GUEST || null;
+const API = GUEST ? GUEST.api_base : '/api/tryon';
 
 document.addEventListener('DOMContentLoaded', () => {
     video = $('video');
@@ -122,6 +126,10 @@ document.addEventListener('DOMContentLoaded', () => {
     $('browseBtn').onclick = () => { window.location.href = '/categories/Spectacles%20Frame'; };
     $('closeFrames').onclick = () => { $('framesOverlay').classList.remove('show'); };
     $('rescanAgainBtn').onclick = () => { $('returningOverlay').classList.remove('show'); };
+    if (GUEST) {
+        $('choiceBar').hidden = true;
+        $('backLink').hidden = true;
+    }
     checkExisting();
     initModel();
 });
@@ -568,13 +576,20 @@ async function captureAndSave() {
         const scanFor = document.getElementById('scanForChip');
         if (scanFor && scanFor.dataset.profileId) body.face_profile_id = scanFor.dataset.profileId;
         
-        const r = await fetch('/api/tryon/save', {
+        const r = await fetch(API + '/save', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
         });
         const d = await r.json();
-        if (d.success) {
+        if (GUEST && d.ok) {
+            btn.innerHTML = '&#10003; Saved';
+            btn.classList.add('saved');
+            window.location.href = d.redirect || GUEST.done_url;
+        } else if (GUEST && d.error === 'inactive') {
+            btn.innerHTML = 'Request no longer active';
+            setStatus(d.message || 'This scan request is no longer active');
+        } else if (d.success) {
             btn.innerHTML = d.profile ? ('&#10003; Saved for ' + d.profile.display_name) : '&#10003; Saved!';
             btn.classList.add('saved');
             localStorage.setItem('ow_face_measured', '1');
@@ -620,7 +635,7 @@ function hideResults() {
 async function showMatchingFrames() {
     $('matchBtn').disabled = true; $('matchBtn').textContent = 'Loading...';
     try {
-        const r = await fetch('/api/tryon/matching-frames');
+        const r = await fetch(API + '/matching-frames');
         const d = await r.json();
         if (d.error) { alert(d.error); $('matchBtn').disabled=false; $('matchBtn').textContent='Show Frames matching my face'; return; }
         renderFrames(d);
@@ -670,7 +685,7 @@ async function checkExisting() {
     try {
         const chip = document.getElementById('scanForChip');
         const q = (chip && chip.dataset.profileId) ? ('?profile=' + encodeURIComponent(chip.dataset.profileId)) : '';
-        const r = await fetch('/api/tryon/my-measurements' + q);
+        const r = await fetch(API + '/my-measurements' + q);
         const d = await r.json();
         if (d.has_measurements) {
             $('existingInfo').style.display = 'flex';

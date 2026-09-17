@@ -11,6 +11,7 @@ import os
 from flask import current_app, jsonify, request, send_file, session
 
 from . import face_profiles as fp
+from . import face_scan_invites as fsi
 from .db import get_db
 
 # Read from the environment, not app.config: __init__.py is outside the
@@ -160,7 +161,12 @@ def register(bp):
         if refused:
             return refused
         try:
-            result = fp.delete_profile(_db(), _customer(), profile_id)
+            db = _db()
+            fp.require_profile(db, _customer(), profile_id)
+            fsi.ensure_schema(db)
+            cancelled = fsi.cancel_for_profile(db, _customer(), profile_id)
+            result = fp.delete_profile(db, _customer(), profile_id)
+            result["cancelled_scan_requests"] = cancelled
         except fp.ProfileError as exc:
             return _error(exc)
         current_app.logger.info("FACE_PROFILE:DELETED customer=%s profile=%s",
