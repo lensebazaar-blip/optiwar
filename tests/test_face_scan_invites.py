@@ -11,6 +11,7 @@ failed WhatsApp send leave the request intact.
 """
 import importlib.util
 import os
+import re
 import sys
 import tempfile
 import types
@@ -568,3 +569,17 @@ class RouteTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MyFacesButtonsTests(unittest.TestCase):
+    """Flask's ``tojson`` escapes ``'`` but not ``"``, so a JSON string in a
+    double-quoted ``onclick`` ends the attribute and kills the button."""
+
+    def test_no_tojson_inside_a_double_quoted_onclick(self):
+        with open(os.path.join(REPO, "templates", "profile.html")) as fh:
+            src = fh.read()
+        bad = re.findall(r'onclick="[^"]*\|tojson', src)
+        self.assertEqual(bad, [])
+        self.assertIn("onclick='mfOpenScan(", src)
+        self.assertIn("onclick='mfOpenEdit(", src)
+        self.assertIn("onclick='mfDelete(", src)

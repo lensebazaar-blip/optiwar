@@ -945,15 +945,15 @@
           {% if p.has_scan %}<a class="fc-btn fc-btn-primary" href="/tryon?profile={{ p.id }}">Rescan</a>
           {% if p.is_default %}<a class="fc-btn" href="/eyeglasses/all-spectacle-frames.html?filter=facematch">Matching frames</a>{% endif %}
           {% elif sr and sr.active %}
-            <button type="button" class="fc-btn" onclick="mfOpenScan({{ p.id }}, {{ p.display_name|tojson }}, {{ sr|tojson }})">Resend / new link</button>
+            <button type="button" class="fc-btn" onclick='mfOpenScan({{ p.id }}, {{ p.display_name|tojson }}, {{ sr|tojson }})'>Resend / new link</button>
             <button type="button" class="fc-btn" onclick="mfCancelRequest({{ p.id }})">Cancel request</button>
             <a class="fc-btn" href="/tryon?profile={{ p.id }}">Scan here instead</a>
           {% elif face_remote_scan_enabled and not p.is_self %}
-            <button type="button" class="fc-btn fc-btn-primary" onclick="mfOpenScan({{ p.id }}, {{ p.display_name|tojson }}, {{ (sr or none)|tojson }})">Scan face</button>
+            <button type="button" class="fc-btn fc-btn-primary" onclick='mfOpenScan({{ p.id }}, {{ p.display_name|tojson }}, {{ (sr or none)|tojson }})'>Scan face</button>
           {% else %}<a class="fc-btn fc-btn-primary" href="/tryon?profile={{ p.id }}">Scan face</a>{% endif %}
           {% if not p.is_default %}<button type="button" class="fc-btn" onclick="mfSetDefault({{ p.id }})">Shop for {{ p.display_name.split(' ')[0] }}</button>{% endif %}
-          <button type="button" class="fc-btn" onclick="mfOpenEdit({{ p.id }}, {{ p.display_name|tojson }}, {{ p.relationship_type|tojson }}, {{ 'true' if p.is_self else 'false' }})">Rename</button>
-          {% if not p.is_self %}<button type="button" class="fc-btn mf-danger" onclick="mfDelete({{ p.id }}, {{ p.display_name|tojson }}, {{ 'true' if sr and sr.active else 'false' }})">Remove</button>{% endif %}
+          <button type="button" class="fc-btn" onclick='mfOpenEdit({{ p.id }}, {{ p.display_name|tojson }}, {{ p.relationship_type|tojson }}, {{ 'true' if p.is_self else 'false' }})'>Rename</button>
+          {% if not p.is_self %}<button type="button" class="fc-btn mf-danger" onclick='mfDelete({{ p.id }}, {{ p.display_name|tojson }}, {{ 'true' if sr and sr.active else 'false' }})'>Remove</button>{% endif %}
         </div>
       </div>
       {% endfor %}
