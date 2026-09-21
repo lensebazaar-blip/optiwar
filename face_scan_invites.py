@@ -205,6 +205,33 @@ def enabled_for(email, environ=None):
     return fp.enabled_for(email, env.get(ENABLED_ENV), allow)
 
 
+ASSISTANT_PROMPT_SECTION = """
+FACE SCAN REQUESTS (this customer has this feature):
+  The customer can have another person's face measured without that person
+  logging in or having an Optiwar account. Path: Profile -> My Faces (Faces
+  in the header, /profile/?tab=faces) -> add or pick the person -> Scan face
+  -> "Send a link". Optiwar sends a secure one-time link by WhatsApp or
+  email; the link works for 24 hours and for that one person only. The
+  customer can also copy the link and share it by hand. Once the person has
+  scanned, the measurements are saved to that person's card and the customer
+  is notified. "Measure several people" sends one link per person at once.
+  The customer's own face is scanned on their own device (Scan here or
+  /tryon), never by link.
+  If asked whether they can send a face-scan request to a friend, family
+  member or anyone else: the answer is yes, describe this path. To take
+  them there use [ACTION:NAVIGATE:/profile/?tab=faces].
+"""
+
+
+def assistant_prompt_section(email, environ=None):
+    """What Optiwar AI may say about remote face-scan requests: the section
+    for an account the gate admits, nothing for any other, so the assistant
+    never describes a button the customer's My Faces does not show."""
+    if not email or not enabled_for(email, environ):
+        return ""
+    return ASSISTANT_PROMPT_SECTION
+
+
 # --------------------------------------------------------------------------
 # destinations
 # --------------------------------------------------------------------------
