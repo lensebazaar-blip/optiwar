@@ -93,6 +93,10 @@ def _load_service():
 def _load_api(fp_mod, get_db):
     """face_profiles_api.py with its two package imports satisfied by stubs."""
     pkg_name = "fp_pkg"
+    # Every fp_pkg module must bind to *this* fp_mod: a sibling left over
+    # from an earlier suite would raise a ProfileError the API cannot catch.
+    for name in [n for n in sys.modules if n.startswith(pkg_name + ".")]:
+        del sys.modules[name]
     pkg = types.ModuleType(pkg_name)
     pkg.__path__ = [REPO]
     sys.modules[pkg_name] = pkg

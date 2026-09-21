@@ -10,11 +10,13 @@ import os
 
 from flask import current_app, jsonify, request, send_file, session
 
+from . import face_cart
 from . import face_fit
 from . import face_profiles as fp
 from . import face_scan_done as fsd
 from . import face_scan_groups as fsg
 from . import face_scan_invites as fsi
+from .cart_persist import save_cart_to_db
 from .catalogue import sellable_here
 from .db import get_db
 
@@ -153,7 +155,10 @@ def register(bp):
         if refused:
             return refused
         try:
-            refs = fp.references(_db(), _customer(), profile_id)
+            db = _db()
+            refs = fp.references(db, _customer(), profile_id)
+            refs["cart_items"] = face_cart.count_references(
+                db, _customer(), profile_id, session.get("cart"))
         except fp.ProfileError as exc:
             return _error(exc)
         return jsonify({"ok": True, "references": refs})
@@ -172,13 +177,49 @@ def register(bp):
             fsg.ensure_schema(db)
             left = fsg.drop_profile(db, _customer(), profile_id, notifier=group_notifier())
             result = fp.delete_profile(db, _customer(), profile_id)
+            # Live cart lines lose their face, not their product; a placed
+            # order keeps its snapshot untouched.
+            reset = face_cart.release_profile(db, _customer(), profile_id,
+                                              session.get("cart"))
+            if reset:
+                session.modified = True
             result["cancelled_scan_requests"] = cancelled
             result["left_scan_groups"] = left
+            result["cart_lines_reset"] = reset
         except fp.ProfileError as exc:
             return _error(exc)
         current_app.logger.info("FACE_PROFILE:DELETED customer=%s profile=%s",
                                 _customer(), profile_id)
         return jsonify({"ok": True, **result})
+
+
+    @bp.route("/api/cart/face-assign", methods=["POST"])
+    def cart_face_assign():
+        """Point one cart line (``index`` + ``product_id``) at one of the
+        customer's people, or at nobody (``face_profile_id`` null / 0). The
+        line's product, price, quantity and prescription are not touched;
+        the answer carries the new fit for that line."""
+        refused = _require()
+        if refused:
+            return refused
+        data = request.get_json(silent=True) or {}
+        cart = session.get("cart") or []
+        try:
+            db = _db()
+            item = face_cart.assign(db, _customer(), cart, data.get("index"),
+                                    data.get("product_id"),
+                                    data.get("face_profile_id"))
+        except fp.ProfileError as exc:
+            return _error(exc)
+        session["cart"] = cart
+        session.modified = True
+        save_cart_to_db()
+        fit = face_cart.line_fit(db, _customer(), item)
+        current_app.logger.info("FACE_CART:ASSIGNED customer=%s line=%s profile=%s",
+                                _customer(), data.get("index"), item[face_cart.LINE_KEY])
+        return jsonify({"ok": True, "index": int(data.get("index")),
+                        "face_profile_id": item[face_cart.LINE_KEY],
+                        "profile": fit["profile"], "fit": fit})
 
 
     @bp.route("/api/face-context", methods=["GET"])

@@ -374,6 +374,13 @@ footer{ display:none !important; }
 .ow-ck-thumb img{ width:100%;height:100%;object-fit:cover; }
 .ow-ck-item h3{ font-size:clamp(.85rem,1.1vw,1rem);font-weight:600;color:#0f172a;margin:0 0 4px; }
 .ow-ck-item .ow-ck-meta{ font-size:12px;color:#64748b;line-height:1.4; }
+.ow-ck-face{ display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:4px 0 6px;font-size:12px;color:#475569; }
+.ow-ck-face label{ font-weight:600; }
+.ow-ck-face select{ font:inherit;font-size:12px;padding:4px 8px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#0f172a;max-width:100%; }
+.ow-ck-face-fit{ font-weight:600;color:#64748b; }
+.ow-ck-face-fit[data-matched="1"]{ color:#047857; }
+.ow-ck-face-fit[data-class="not_matched"]{ color:#b45309; }
+.ow-ck-face-err{ flex-basis:100%;color:#b91c1c;font-size:12px; }
 .ow-ck-price{ font-weight:900;font-size:clamp(.95rem,1.2vw,1.15rem);color:#0f172a;white-space:nowrap; }
 
 /* Quantity controls */
@@ -1036,6 +1043,21 @@ footer{ display:none !important; }
             <p class="ow-ck-meta">{{ item.order_quantity|default(0) }} box{{ 'es' if item.order_quantity|default(0) != 1 }} in total</p>
             {% else %}
             <p class="ow-ck-meta">Qty: {{ item.order_quantity|default(1) }}</p>
+            {% endif %}
+            {% if face_lines and (loop.index0 in face_lines.lines) %}
+            {% set fl = face_lines.lines[loop.index0] %}
+            {# The person this frame is for; changing it changes only the fit shown here. #}
+            <div class="ow-ck-face" data-face-line="{{ loop.index0 }}" data-product-id="{{ item.product_id }}">
+              <label for="owFaceFor{{ loop.index0 }}">For</label>
+              <select id="owFaceFor{{ loop.index0 }}" class="ow-ck-face-select" aria-label="Who this frame is for">
+                {% for p in face_lines.people %}
+                <option value="{{ p.id }}"{% if fl.profile_id == p.id %} selected{% endif %}>{{ p.display_name }} ({% if p.is_self %}Me{% else %}{{ p.relationship_label }}{% endif %})</option>
+                {% endfor %}
+                <option value="0"{% if fl.profile_id == 0 %} selected{% endif %}>{{ face_lines.nobody_label }}</option>
+              </select>
+              <span class="ow-ck-face-fit" data-class="{{ fl.fit.classification }}" data-matched="{{ 1 if fl.fit.matched else 0 }}">{% if fl.fit.classification == 'no_person' %}Face fit not checked{% elif fl.fit.classification == 'no_measurement' %}Not measured yet{% else %}Fit: {{ fl.fit.label }}{% endif %}</span>
+              <span class="ow-ck-face-err" hidden></span>
+            </div>
             {% endif %}
             {% if item.product_color or item.product_size %}
             <p class="ow-ck-variant" style="font-size:12px;color:#94a3b8;margin-bottom:4px;">
@@ -2579,6 +2601,53 @@ function onScriptLoad() {
   setPhoneCode();
 })();
 </script>
+
+{% if face_lines %}
+<script>
+(function(){
+  function fitText(fit){
+    if (fit.classification === 'no_person') return 'Face fit not checked';
+    if (fit.classification === 'no_measurement') return 'Not measured yet';
+    return 'Fit: ' + fit.label;
+  }
+  document.querySelectorAll('.ow-ck-face').forEach(function(box){
+    var sel = box.querySelector('.ow-ck-face-select');
+    var out = box.querySelector('.ow-ck-face-fit');
+    var err = box.querySelector('.ow-ck-face-err');
+    var was = sel.value;
+    sel.addEventListener('change', function(){
+      sel.disabled = true; err.hidden = true;
+      fetch('/api/cart/face-assign', {
+        method: 'POST', credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({index: parseInt(box.dataset.faceLine, 10),
+                              product_id: box.dataset.productId,
+                              face_profile_id: parseInt(sel.value, 10)})
+      }).then(function(r){ return r.json().then(function(j){ return {ok: r.ok, j: j}; }); })
+        .then(function(res){
+          sel.disabled = false;
+          if (!res.ok || !res.j.ok){
+            sel.value = was;
+            err.textContent = (res.j && res.j.message) || 'Could not change the person; reload the page.';
+            err.hidden = false;
+            if (res.j && res.j.error === 'line_mismatch') setTimeout(function(){ location.reload(); }, 1200);
+            return;
+          }
+          was = sel.value;
+          out.textContent = fitText(res.j.fit);
+          out.dataset['class'] = res.j.fit.classification;
+          out.dataset.matched = res.j.fit.matched ? '1' : '0';
+        })
+        .catch(function(){
+          sel.disabled = false; sel.value = was;
+          err.textContent = 'Could not change the person; check your connection.';
+          err.hidden = false;
+        });
+    });
+  });
+})();
+</script>
+{% endif %}
 
 {% else %}
 <!-- Empty cart -->

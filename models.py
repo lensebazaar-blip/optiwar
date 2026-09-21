@@ -28,7 +28,7 @@ from .catalogue import (
     current_site, strip_ineligible_urls, age_group, ensure_gmc_columns,
     live_lenses, lens_matrix_summary, SITE_IN, SITE_COM,
 )
-from . import face_fit, face_profiles, face_profiles_api, face_scan_groups_api, face_scan_invites_api
+from . import face_cart, face_fit, face_profiles, face_profiles_api, face_scan_groups_api, face_scan_invites_api
 from . import (acr, lens_cart, lens_config, lens_documents, lens_feed,
                lens_order, lens_preview, lens_rx, lens_seo, lens_upload,
                lens_view)
@@ -3088,9 +3088,21 @@ def checkout_page():
         saved_addresses = [a for a in saved_addresses if (a.get('country') or '').strip().lower() != 'india']
     print(f"[PREFILL] Saved addresses count: {len(saved_addresses)}")
 
+    # Who each frame line is for, and how it fits them — for the accounts
+    # that have people; the choice sits on the line, the fit is derived.
+    face_lines = None
+    if user_id and face_profiles_api.gate_enabled():
+        _fdb = get_db()
+        face_profiles.ensure_schema(_fdb)
+        face_cart.ensure_schema(_fdb)
+        if face_cart.default_lines(_fdb, user_id, session, cart):
+            session.modified = True    # the line dicts are the session's own
+            save_cart_to_db()
+        face_lines = face_cart.decorate(_fdb, user_id, cart)
+
     import uuid as _uuid
     session['checkout_token'] = str(_uuid.uuid4())
-    return render_template('checkout.html', cart=cart,ship_days=ship_days,product_image_map=product_image_map, grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, right_eye=right_eye, left_eye=left_eye,right_pwr=right_pwr, right_lens_color=right_lens_color, right_cyl=right_cyl, right_qty=right_qty, right_axis=right_axis, right_add=right_add, left_pwr=left_pwr, left_lens_color=left_lens_color, left_cyl=left_cyl, left_qty=left_qty, left_axis=left_axis, left_add=left_add, lens_recommendations=lens_recommendations, prefill=prefill, saved_addresses=saved_addresses, lens_removal_pending=lens_removal_pending, lens_removal_confirm_text=lens_cart.CONFIRM_REMOVAL, **policy_terms.checkout_context(cart, _get_site_from()))
+    return render_template('checkout.html', cart=cart,ship_days=ship_days, face_lines=face_lines,product_image_map=product_image_map, grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, right_eye=right_eye, left_eye=left_eye,right_pwr=right_pwr, right_lens_color=right_lens_color, right_cyl=right_cyl, right_qty=right_qty, right_axis=right_axis, right_add=right_add, left_pwr=left_pwr, left_lens_color=left_lens_color, left_cyl=left_cyl, left_qty=left_qty, left_axis=left_axis, left_add=left_add, lens_recommendations=lens_recommendations, prefill=prefill, saved_addresses=saved_addresses, lens_removal_pending=lens_removal_pending, lens_removal_confirm_text=lens_cart.CONFIRM_REMOVAL, **policy_terms.checkout_context(cart, _get_site_from()))
 
 """
 @bp.route('/initiate-payment', methods=['POST'])
@@ -3438,6 +3450,10 @@ def checkout():
         policy_terms.record(cursor, order_id, _get_site_from(), cart,
                             checkout_token=_checkout_token, customer_id=customer_id,
                             ip_address=client_ip)
+        if user_id and face_profiles_api.gate_enabled():
+            # The person and fit each frame line was bought for, sealed with
+            # the order; the profile may be renamed or deleted later.
+            face_cart.record(db, cursor, order_id, user_id, cart)
         if not _reuse_order_id:
             cursor.execute("UPDATE order_intents SET order_id=%s, status='created' WHERE token=%s", (order_id, _checkout_token))
         db.commit()
