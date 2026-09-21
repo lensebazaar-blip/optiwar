@@ -131,8 +131,31 @@ document.addEventListener('DOMContentLoaded', () => {
         $('backLink').hidden = true;
     }
     checkExisting();
+    openCamera();
     initModel();
 });
+
+// The camera preview opens as soon as the page does, so the person sees
+// themselves before anything asks them to act; the scan itself waits for the
+// button. A refusal is explained in words and the button retries it.
+async function openCamera() {
+    if (video.srcObject) return true;
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }
+        });
+        video.srcObject = stream;
+        await video.play();
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        return true;
+    } catch (e) {
+        setStatus('Camera off');
+        $('introText').textContent = 'Allow camera access when your browser asks, then tap the button below.';
+        $('startHint').textContent = 'If nothing is asked, open the browser site settings and allow Camera for optiwar.';
+        return false;
+    }
+}
 
 async function initModel() {
     setStatus('Loading AI...');
@@ -155,35 +178,29 @@ async function initModel() {
         console.log(`FaceLandmarker (${dlg})`);
         setStatus('Ready');
         $('startBtn').classList.add('ready');
+        $('startBtn').disabled = false;
+        $('startBtnText').textContent = 'Start face scan';
     } catch (e) {
         console.error(e);
         setStatus('Model failed');
+        $('startBtnText').textContent = 'Could not load \u2014 reload the page';
     }
 }
 
 async function startScan() {
     if (!faceLandmarker) return;
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }
-        });
-        video.srcObject = stream;
-        await video.play();
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        $('startBtn').style.display = 'none';
-        $('guideOval').style.display = 'none';
-        $('introText').style.display = 'none';
-        running = true; measurementDone = false;
-        stableCount = 0; measureBuffer = []; finalMeasurements = null;
-        phaseResults = []; currentPhase = 0; lockedIrisPx = 0;
-        scanStartTime = performance.now();
-        hideResults();
-        setStatus('Scanning...');
-        detectLoop();
-    } catch (e) {
-        setStatus('Camera denied');
-    }
+    if (!(await openCamera())) return;
+    $('startBtn').style.display = 'none';
+    $('startHint').style.display = 'none';
+    $('guideOval').style.display = 'none';
+    $('introText').style.display = 'none';
+    running = true; measurementDone = false;
+    stableCount = 0; measureBuffer = []; finalMeasurements = null;
+    phaseResults = []; currentPhase = 0; lockedIrisPx = 0;
+    scanStartTime = performance.now();
+    hideResults();
+    setStatus('Scanning...');
+    detectLoop();
 }
 
 function detectLoop() {

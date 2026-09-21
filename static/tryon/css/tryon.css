@@ -1,4 +1,4 @@
-/* Face Measurement v6.5 — Distance-locked, full-screen immersive */
+/* Face Measurement v6.8 — Distance-locked, full-screen immersive */
 *{margin:0;padding:0;box-sizing:border-box}
 
 /* Fill entire viewport */
@@ -76,21 +76,27 @@
     font-size:14px; font-weight:500;
 }
 
-/* ---- START button ---- */
+/* ---- START button: a labelled pill the guest cannot miss ---- */
 .start-btn{
-    position:absolute; bottom:80px; left:50%; z-index:10;
+    position:absolute; bottom:72px; left:50%; z-index:10;
     transform:translateX(-50%);
-    width:70px; height:70px; border-radius:50%;
-    background:rgba(255,255,255,0.15); backdrop-filter:blur(12px);
-    border:3px solid rgba(255,255,255,0.3);
-    display:flex; align-items:center; justify-content:center;
+    min-width:min(280px, 84vw); height:56px; padding:0 22px; border-radius:28px;
+    background:rgba(0,0,0,0.55); backdrop-filter:blur(12px);
+    border:2px solid rgba(255,255,255,0.3);
+    display:flex; align-items:center; justify-content:center; gap:10px;
+    color:#fff; font:700 16px/1 -apple-system,'SF Pro',system-ui,sans-serif;
     cursor:pointer; transition:all 0.3s;
 }
-.start-btn:hover{ background:rgba(255,255,255,0.25); }
-.start-btn.ready{ border-color:#34d399; }
-.start-btn.ready:hover{ background:rgba(52,211,153,0.2); }
-.start-btn svg{ width:28px; height:28px; fill:#fff; }
-.start-btn.ready svg{ fill:#34d399; }
+.start-btn[disabled]{ opacity:0.75; cursor:default; }
+.start-btn.ready{ border-color:#34d399; background:rgba(16,185,129,0.85); }
+.start-btn.ready:active{ background:rgba(5,150,105,0.95); }
+.start-btn svg{ width:24px; height:24px; fill:#fff; flex:none; }
+.start-hint{
+    position:absolute; bottom:28px; left:50%; z-index:10; width:min(320px, 88vw);
+    transform:translateX(-50%); text-align:center;
+    color:rgba(255,255,255,0.75); font-size:13px; line-height:1.4;
+}
+[hidden]{ display:none !important; }
 
 /* ---- Measurement overlay cards (after DONE) ---- */
 .measure-cards{
