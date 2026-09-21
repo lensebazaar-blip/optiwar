@@ -2,7 +2,15 @@
 {% block title %} Favorites - OPTIWAR {% endblock %}
 {% block content %}
 {% from '_picture.html' import product_picture %}
-<style>.scrolling-track picture{display:contents;}</style>
+<style>
+.scrolling-track picture{display:contents;}
+.ow-fav-face{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:6px 0;font-size:13px}
+.ow-fav-face label{color:#475569}
+.ow-fav-face select{font:inherit;padding:3px 6px;border:1px solid #cbd5e1;border-radius:6px;max-width:100%}
+.ow-fav-face-fit{color:#475569}
+.ow-fav-face-fit[data-matched="1"]{color:#15803d;font-weight:600}
+.ow-fav-face-err{color:#b91c1c;flex-basis:100%}
+</style>
 <h2>  Your selections below  </h2>
 {% if products %}
 		<ul>
@@ -28,7 +36,22 @@
 			{% if product.product_category == "Spectacles Frame" %}
                         <span> <h5>Color: {{ product['product_color'] }} </h5>
                         <span> <h5> Size: {{ product['product_size'] }} mm</h5> </span>
-                        <span> <h6 class="center-text">Face fit: {{ product['product_perception_value'] }} </h6>
+                        {% if not (face_lines and (product['product_id']|int in face_lines.lines)) %}<span> <h6 class="center-text">Face fit: {{ product['product_perception_value'] }} </h6>{% endif %}
+                        {% endif %}
+                        {% if face_lines and (product['product_id']|int in face_lines.lines) %}
+                        {% set fl = face_lines.lines[product['product_id']|int] %}
+                        {# Who this frame was saved for; changing it changes only the fit shown here. #}
+                        <div class="ow-fav-face" data-product-id="{{ product['product_id'] }}">
+                          <label for="owFavFor{{ product['product_id'] }}">Saved for</label>
+                          <select id="owFavFor{{ product['product_id'] }}" class="ow-fav-face-select" aria-label="Who this frame is saved for">
+                            {% for p in face_lines.people %}
+                            <option value="{{ p.id }}"{% if fl.profile_id == p.id %} selected{% endif %}>{{ p.display_name }} ({% if p.is_self %}Me{% else %}{{ p.relationship_label }}{% endif %})</option>
+                            {% endfor %}
+                            <option value="0"{% if fl.profile_id == 0 %} selected{% endif %}>{{ face_lines.nobody_label }}</option>
+                          </select>
+                          <span class="ow-fav-face-fit" data-class="{{ fl.fit.classification }}" data-matched="{{ 1 if fl.fit.matched else 0 }}">{% if fl.fit.classification == 'no_person' %}Face fit not checked{% elif fl.fit.classification == 'no_measurement' %}Not measured yet{% else %}Fit: {{ fl.fit.label }}{% endif %}</span>
+                          <span class="ow-fav-face-err" hidden></span>
+                        </div>
                         {% endif %}
 
 
@@ -72,5 +95,46 @@
 {% else %}
  	<h2>No Item to display - choose some products so we can save it for you </h2>
 {% endif %}
+{% if face_lines %}
+<script>
+(function(){
+  function fitText(fit){
+    if (fit.classification === 'no_person') return 'Face fit not checked';
+    if (fit.classification === 'no_measurement') return 'Not measured yet';
+    return 'Fit: ' + fit.label;
+  }
+  document.querySelectorAll('.ow-fav-face').forEach(function(box){
+    var sel = box.querySelector('.ow-fav-face-select');
+    var out = box.querySelector('.ow-fav-face-fit');
+    var err = box.querySelector('.ow-fav-face-err');
+    var was = sel.value;
+    sel.addEventListener('change', function(){
+      sel.disabled = true; err.hidden = true;
+      fetch('/api/favorites/' + box.dataset.productId + '/person', {
+        method: 'POST', credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({face_profile_id: parseInt(sel.value, 10)})
+      }).then(function(r){ return r.json().then(function(j){ return {ok: r.ok, j: j}; }); })
+        .then(function(res){
+          sel.disabled = false;
+          if (!res.ok || !res.j.ok){
+            sel.value = was;
+            err.textContent = (res.j && res.j.message) || 'Could not change the person; reload the page.';
+            err.hidden = false;
+            return;
+          }
+          was = sel.value;
+          out.textContent = fitText(res.j.fit);
+          out.dataset.class = res.j.fit.classification;
+          out.dataset.matched = res.j.fit.matched ? '1' : '0';
+        }).catch(function(){
+          sel.disabled = false; sel.value = was;
+          err.textContent = 'Could not change the person; check your connection.';
+          err.hidden = false;
+        });
+    });
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}
-

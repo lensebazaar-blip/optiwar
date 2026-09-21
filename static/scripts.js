@@ -117,88 +117,89 @@ window.addEventListener('load', function() {
 });
 
 
+// Favourites: the browser keeps its list in localStorage for a visitor who
+// is not signed in; a signed-in customer's list lives on the server and the
+// browser's is folded into it (added to, never removed) on every page.
 const favorites = JSON.parse(localStorage.getItem('favorites')) || [];
-document.addEventListener('DOMContentLoaded', function () {
-const hearts = document.querySelectorAll('.heart');
-hearts.forEach(function (heart)   {
-const productId = heart.getAttribute('data-product-id');
-if (favorites.includes(productId)) {
-	heart.classList.add('favorited');
+function owSignedIn() {
+	return !!(window.__owUser && window.__owUser.logged_in);
 }
-});
-console.log("Favorites initialized", favorites);
+function owSaveFavorites() {
+	localStorage.setItem('favorites', JSON.stringify(favorites));
+}
+function owPaintHearts() {
+	document.querySelectorAll('.heart').forEach(function (heart) {
+		const productId = heart.getAttribute('data-product-id');
+		heart.classList.toggle('favorited', favorites.includes(productId));
+	});
+}
+function owFavoritesRequest(path, method, body) {
+	return fetch(path, {
+		method: method, credentials: 'same-origin',
+		headers: {'Content-Type': 'application/json'},
+		body: body === undefined ? undefined : JSON.stringify(body)
+	}).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+}
+function owSyncFavorites() {
+	if (!owSignedIn()) return Promise.resolve();
+	return owFavoritesRequest('/api/favorites/sync', 'POST', {product_ids: favorites})
+		.then(function (data) {
+			favorites.length = 0;
+			(data.favorites || []).forEach(function (f) { favorites.push(String(f.product_id)); });
+			owSaveFavorites();
+			owPaintHearts();
+		})
+		.catch(function (e) { console.log('Favorites sync skipped', e); });
+}
+window.initFavorites = owPaintHearts;
+document.addEventListener('DOMContentLoaded', function () {
+	owPaintHearts();
+	owSyncFavorites();
 });
 
 function toggleFavorite(element) {
-const productId = element.getAttribute('data-product-id');
-if (favorites.includes(productId)) {
+	const productId = element.getAttribute('data-product-id');
 	const index = favorites.indexOf(productId);
-	if (index > -1) {
-	favorites.splice(index, 1);
-	console.log(`Remove from favorites product ${productId}`);
+	const adding = index === -1;
+	if (adding) {
+		favorites.push(productId);
+	} else {
+		favorites.splice(index, 1);
 	}
-	element.classList.remove('favorited');
-} else {
-	favorites.push(productId);
-	element.classList.add('favorited');
+	element.classList.toggle('favorited', adding);
+	owSaveFavorites();
+	if (owSignedIn()) {
+		const req = adding
+			? owFavoritesRequest('/api/favorites', 'POST', {product_id: parseInt(productId, 10)})
+			: owFavoritesRequest('/api/favorites/' + encodeURIComponent(productId), 'DELETE');
+		req.catch(function (e) { console.log('Favorite not saved to account', e); });
+	}
 }
-	localStorage.setItem('favorites', JSON.stringify(favorites));
-	console.log("Current Favorites", favorites);
-}
-
-
 
 function viewFavorites(event) {
 	event.preventDefault();
-	console.log('Viewed favorites ');
 }
 
 function postFavorites(event) {
-if (event) { 
-	event.preventDefault();
-	console.log("Default navigation prevented");
-}
-
-const form = document.createElement('form');
-form.method = 'POST';
-form.action = '/favorites';
-favorites.forEach(fav => {
-	const input = document.createElement('input');
-	input.type = 'hidden';
-	input.name = 'favorites';
-	input.value = fav;
-	form.appendChild(input);
+	if (event) {
+		event.preventDefault();
+	}
+	if (owSignedIn()) {
+		window.location.href = '/favorites';
+		return;
+	}
+	const form = document.createElement('form');
+	form.method = 'POST';
+	form.action = '/favorites';
+	favorites.forEach(fav => {
+		const input = document.createElement('input');
+		input.type = 'hidden';
+		input.name = 'favorites';
+		input.value = fav;
+		form.appendChild(input);
 	});
-
 	document.body.appendChild(form);
 	form.submit();
-}
-
-function syncFavtoserver() {
-fetch('/api/favorites', {
-	method: 'POST',
-	headers: {
-		'Content-Type': 'application/json',
-	},
-	body: JSON.stringify({ favorites: favorites }),
-	})
-	.then(response =>  {
-		if (!response.ok) {
-			throw new Error(`HTTP Error status :  ${response.status}`);
-		}
-		return response.json();
-	})
-	.then(data => {
-		if (data.redirect_url) {
-		console.log(`Redirecting  ${data.redirect_url}`);
-		window.location.href = data.redirect_url;
-	} else {
-		console.error("Redirect is not provided in URL");
-	}
-	})
-	.catch(error => {
-		console.log("Error Posting Favorites", error);
-	});
 }
 
 

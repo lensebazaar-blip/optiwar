@@ -93,8 +93,9 @@ DEPLOY_SET = ("acr.py", "ai_api.py", "ai_client.py", "catalogue.py", "chat.py",
               "chat_vision.py", "face_profiles.py", "face_profiles_api.py",
               "face_scan_invites.py", "face_scan_invites_api.py",
               "face_scan_done.py", "face_scan_groups.py", "face_scan_groups_api.py",
-              "face_fit.py", "face_cart.py",
-              "templates/face_scan_guest.html",
+              "face_fit.py", "face_cart.py", "favorites.py", "favorites_api.py",
+              "templates/face_scan_guest.html", "templates/favorites.html",
+              "static/scripts.js",
               "static/tryon/js/tryon.js", "templates/tryon.html",
               "notifications.py", "templates/terms-and-conditions.html",
               "templates/success.html", "templates/profile.html", "templates/checkout.html", "templates/lens_landing.html",
@@ -124,7 +125,7 @@ NEW_IN_RELEASE = ("paid_orders.py", "razorpay_events.py", "rx_powers.py",
                   "chat_vision.py", "face_profiles.py", "face_profiles_api.py",
                   "face_scan_invites.py", "face_scan_invites_api.py",
                   "face_scan_done.py", "face_scan_groups.py", "face_scan_groups_api.py",
-              "face_fit.py", "face_cart.py",
+                  "face_fit.py", "face_cart.py", "favorites.py", "favorites_api.py",
                   "templates/face_scan_guest.html",
                   "templates/lens_landing.html",
                   "templates/lens_select.html",
@@ -429,6 +430,19 @@ def face_cart_module():
     return mod
 
 
+def favorites_module():
+    """favorites.py imports face_cart, face_fit and face_profiles from its
+    package; reuse the throwaway package above."""
+    pkg_name = "face_deploy_pkg"
+    sys.modules[pkg_name + ".face_cart"] = face_cart_module()
+    spec = importlib.util.spec_from_file_location(
+        pkg_name + ".favorites", os.path.join(REPO, "favorites.py"))
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def catalogue_columns():
     """``catalogue.GMC_COLUMNS``, read from the source without importing it.
 
@@ -485,6 +499,8 @@ def migration():
               for name, ddl in face_scan_groups_module().TABLES]
     items += [("%s (table)" % name, " ".join(ddl.split()))
               for name, ddl in face_cart_module().TABLES]
+    items += [("%s (table)" % name, " ".join(ddl.split()))
+              for name, ddl in favorites_module().TABLES]
     for table, columns in ca.SESSION_COLUMNS:
         items += [("%s.%s (column)" % (table, name),
                    "ALTER TABLE %s ADD COLUMN %s %s" % (table, name, decl))
