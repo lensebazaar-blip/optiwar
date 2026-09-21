@@ -381,6 +381,19 @@ class ServiceTests(unittest.TestCase):
         self.assertFalse(self.fsi.enabled_for("lensebazaar@gmail.com",
                                               {"FACE_REMOTE_SCAN_ENABLED": "1"}))
 
+    def test_assistant_is_told_about_requests_only_for_an_admitted_account(self):
+        env = {"FACE_PROFILES_ENABLED": "1", "FACE_REMOTE_SCAN_ENABLED": "1",
+               "FACE_PROFILES_ALLOW_EMAILS": "lensebazaar@gmail.com"}
+        section = self.fsi.assistant_prompt_section("lensebazaar@gmail.com", env)
+        self.assertIn("Send a link", section)
+        self.assertIn("WhatsApp or", section)
+        self.assertIn("[ACTION:NAVIGATE:/profile/?tab=faces]", section)
+        self.assertIn("answer is yes", section)
+        self.assertEqual(self.fsi.assistant_prompt_section("x@example.com", env), "")
+        self.assertEqual(self.fsi.assistant_prompt_section("", env), "")
+        self.assertEqual(self.fsi.assistant_prompt_section(
+            "lensebazaar@gmail.com", dict(env, FACE_REMOTE_SCAN_ENABLED="0")), "")
+
 
 # What a phone's browser sends when it opens a page served with
 # ``Referrer-Policy: no-referrer`` and posts a form from it: no Referer at all,

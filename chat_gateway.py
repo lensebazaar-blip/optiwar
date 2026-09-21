@@ -19,6 +19,7 @@ from . import catalogue
 from . import chat_attachments
 from . import chat_vision
 from . import dev_defects
+from . import face_scan_invites
 from . import lens_config
 from . import lens_prompt
 from . import lens_order
@@ -684,6 +685,7 @@ RULES:
     - /checkout (cart/checkout)
     - /favorites (your saved favorites)
     - /profile (customer profile)
+    - /profile/?tab=faces (My Faces: the customer's saved face measurements)
     If a customer asks for a page that doesn't exist  tell them to contact support or create a ticket.
 23. ACTION INTEGRITY: Never claim you have opened, navigated to, or taken the customer somewhere unless you ALSO include the matching [ACTION:NAVIGATE:...] tag in that same reply. If you are only offering to navigate, ask the yes/no question WITHOUT claiming it is already done. Do not say "Let me take you there" or "I've opened it" on a turn that has no [ACTION:NAVIGATE:...] tag.
 """
@@ -2056,9 +2058,10 @@ def chat_message():
     lens_row, lens_shape, lens_mins, lens_section = _lens_context(
         page_url, is_india, customer_id, data.get('page_state'))
     photo_section = _photo_context(db, session_id)
+    face_section = face_scan_invites.assistant_prompt_section(session.get('contact_email'))
     system_prompt = _build_system_prompt(
         contact_name, is_india, content, customer_id=customer_id,
-        extra_sections=tuple(s for s in (lens_section, photo_section) if s))
+        extra_sections=tuple(s for s in (lens_section, photo_section, face_section) if s))
     history = _get_conversation_history(db, session_id)
     ai_reply = _confirmed_ask_reply(history, content, contact_name)
     error = None
