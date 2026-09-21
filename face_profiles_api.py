@@ -262,19 +262,24 @@ def register(bp):
         return resp
 
 
+FRAME_CATEGORY = "Spectacles Frame"
+
+
 def _fit_for(db, product_id, profile_id):
     """The fit of one frame sold on this storefront, or None for no such
-    frame here; a foreign profile raises ``fp.NotFound``."""
+    frame here (a lens or any other non-frame is not a frame); a foreign
+    profile raises ``fp.NotFound``."""
     cur = db.cursor()
     try:
         if not sellable_here(cur, product_id):
             return None
-        cur.execute("SELECT product_id, product_code, product_name, product_size "
-                    "FROM products WHERE product_id=%s", (int(product_id),))
+        cur.execute("SELECT product_id, product_code, product_name, product_size, "
+                    "product_category FROM products WHERE product_id=%s",
+                    (int(product_id),))
         product = cur.fetchone()
     finally:
         cur.close()
-    if not product:
+    if not product or product.get("product_category") != FRAME_CATEGORY:
         return None
     fit = face_fit.evaluate_frame_fit(db, _customer(), profile_id, product)
     fit["product"] = {"product_id": int(product["product_id"]),

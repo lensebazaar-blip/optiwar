@@ -146,9 +146,9 @@ class EngineTests(unittest.TestCase):
         ff = self.ff
         self.assertEqual(ff.cache_scope(7, None, False), "7")
         self.assertEqual(ff.cache_scope(7, None, True), "7:nobody")
-        a = ff.cache_scope(7, {"id": 3, "measured_at": "2026-01-01"}, True)
-        b = ff.cache_scope(7, {"id": 3, "measured_at": "2026-02-01"}, True)
-        c = ff.cache_scope(7, {"id": 4, "measured_at": "2026-01-01"}, True)
+        a = ff.cache_scope(7, {"id": 3, "latest_scan_id": 10}, True)
+        b = ff.cache_scope(7, {"id": 3, "latest_scan_id": 11}, True)
+        c = ff.cache_scope(7, {"id": 4, "latest_scan_id": 10}, True)
         self.assertEqual(len({a, b, c}), 3)
 
 
@@ -174,7 +174,8 @@ class ContextAndFitRouteTests(unittest.TestCase):
         cur.execute("INSERT INTO products (product_id, product_code, product_name, "
                     "product_size, product_category) VALUES "
                     "(9800101, 'FIT1', 'Fits', '52-18-140', 'Spectacles Frame'),"
-                    "(9800102, 'FIT2', 'Wide', '58-22-160', 'Spectacles Frame')")
+                    "(9800102, 'FIT2', 'Wide', '58-22-160', 'Spectacles Frame'),"
+                    "(9800103, 'LENS1', 'A lens', '', 'Contact Lenses')")
         cls.db.commit()
         cls.fp.ensure_schema(cls.db)
         cls.api = _load_api(cls.fp, lambda: cls.db)
@@ -244,6 +245,14 @@ class ContextAndFitRouteTests(unittest.TestCase):
         self.assertEqual(r.get_json()["fit"]["classification"], "no_person")
         self.assertEqual(r.get_json()["fit"]["label"], "Face fit not checked")
         self.assertIsNone(r.get_json()["fit"]["profile"])
+        # ?face_profile_id=0 is the same request on the query string
+        self.client.post("/api/face-context", json={"face_profile_id": self.me["id"]})
+        r = self.client.get("/api/frames/9800101/fit?face_profile_id=0")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.get_json()["fit"]["classification"], "no_person")
+
+    def test_a_non_frame_is_not_fitted(self):
+        self.assertEqual(self.client.get("/api/frames/9800103/fit").status_code, 404)
 
     def test_a_strangers_profile_is_404_everywhere(self):
         sid = self.stranger["id"]
