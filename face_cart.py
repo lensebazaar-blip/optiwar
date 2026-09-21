@@ -77,15 +77,38 @@ class LineError(fp.ProfileError):
 # cart lines
 # --------------------------------------------------------------------------
 
+FRAME_CATEGORY = "Spectacles Frame"
+
+
 def is_frame_line(item):
-    """A line a face can be fitted to: anything that is not a contact lens."""
-    return not lens_cart.is_lens(item)
+    """A line a face can be fitted to: a spectacle frame, and nothing else
+    (not a contact lens, not a hearing aid, not an uncategorised line)."""
+    if lens_cart.is_lens(item):
+        return False
+    return str(item.get("product_category") or "").strip() == FRAME_CATEGORY
 
 
 def _normalise(value):
+    """A submitted person: an own profile id or nobody; garbage is refused."""
     if value in (None, "", 0, "0", NOBODY):
         return NOBODY
-    return int(value)
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise LineError("bad_profile", "Which person?", 400)
+    try:
+        pid = int(value)
+    except ValueError:
+        raise LineError("bad_profile", "Which person?", 400)
+    if pid < 0:
+        raise LineError("bad_profile", "Which person?", 400)
+    return pid
+
+
+def _stored(item):
+    """The person a cart line holds; anything unreadable is nobody."""
+    try:
+        return _normalise(item.get(LINE_KEY))
+    except LineError:
+        return NOBODY
 
 
 def default_lines(db, customer_id, session, cart):
@@ -104,7 +127,7 @@ def default_lines(db, customer_id, session, cart):
                 active = int(row["id"]) if row else NOBODY
             item[LINE_KEY] = active
             changed = True
-        elif _normalise(item[LINE_KEY]) not in own | {NOBODY}:
+        elif _stored(item) not in own | {NOBODY}:
             item[LINE_KEY] = NOBODY
             changed = True
     return changed
@@ -117,6 +140,8 @@ def assign(db, customer_id, cart, index, product_id, profile_id):
     try:
         index = int(index)
     except (TypeError, ValueError):
+        raise LineError("bad_line", "Which cart line?", 400)
+    if index < 0:
         raise LineError("bad_line", "Which cart line?", 400)
     try:
         item = cart[index]
@@ -136,7 +161,7 @@ def assign(db, customer_id, cart, index, product_id, profile_id):
 def line_fit(db, customer_id, item, product_size=None):
     """The fit of one cart line for its person, with the person alongside;
     a line without a choice yet is 'no person'."""
-    pid = _normalise(item.get(LINE_KEY))
+    pid = _stored(item)
     if product_size is None:
         cur = db.cursor()
         try:
@@ -200,8 +225,6 @@ def record(db, cursor, order_id, customer_id, cart, now=None):
     """Seal each frame line's person and fit against the order, write-once
     per (order, line). Lines with no choice recorded are nobody; a lens line
     is skipped. Nothing here is read back from the live profile later."""
-    if not any(LINE_KEY in i for i in cart if is_frame_line(i)):
-        return 0
     profiles = {int(r["id"]): r for r in fp.list_profiles(db, customer_id)}
     sizes = _sizes(cursor, cart)
     when = now or datetime.utcnow().replace(microsecond=0)
@@ -209,7 +232,7 @@ def record(db, cursor, order_id, customer_id, cart, now=None):
     for line_no, item in enumerate(cart, start=1):
         if not is_frame_line(item):
             continue
-        pid = _normalise(item.get(LINE_KEY))
+        pid = _stored(item)
         row = profiles.get(pid)
         size = sizes.get(str(item.get("product_id")))
         if row:
@@ -286,7 +309,7 @@ def _persisted(cursor, customer_id):
 
 def _pointing_at(cart, profile_id):
     return [i for i in (cart or []) if is_frame_line(i)
-            and _normalise(i.get(LINE_KEY)) == int(profile_id)
+            and _stored(i) == int(profile_id)
             and int(profile_id) != NOBODY]
 
 
