@@ -8,7 +8,7 @@
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
     <meta name="theme-color" content="#000000">
-    <link rel="stylesheet" href="/static/tryon/css/tryon.css?v=6.7">
+    <link rel="stylesheet" href="/static/tryon/css/tryon.css?v=6.8">
 </head>
 <body style="margin:0;padding:0;overflow:hidden;background:#000;">
 
@@ -52,10 +52,12 @@
     <div class="guide-oval" id="guideOval"></div>
     <div class="intro-text" id="introText">Position your face in the oval</div>
 
-    <!-- Start button -->
-    <button class="start-btn" id="startBtn">
-        <svg viewBox="0 0 24 24"><path d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97s-.03-.66-.07-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.3 7.3 0 0 0-1.69-.98l-.38-2.65A.49.49 0 0 0 14 2h-4a.49.49 0 0 0-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.49.49 0 0 0 .12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.65.07.97l-2.11 1.66a.5.5 0 0 0-.12.63l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.05.24.26.42.49.42h4c.24 0 .44-.18.49-.42l.38-2.65a7.2 7.2 0 0 0 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65Z"/></svg>
+    <!-- Start button: a labelled pill, disabled until the model is ready -->
+    <button class="start-btn" id="startBtn" disabled>
+        <svg viewBox="0 0 24 24"><path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z"/><path d="M9 3 7.17 5H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3.17L15 3H9zm3 15a5 5 0 1 1 0-10 5 5 0 0 1 0 10z"/></svg>
+        <span id="startBtnText">Loading&hellip; please wait</span>
     </button>
+    <p class="start-hint" id="startHint">Hold the phone at arm's length, face the camera, then tap the button.</p>
 
     <!-- Measurement overlay cards (after DONE) -->
     <div class="measure-cards" id="measureCards">
@@ -136,6 +138,6 @@
 
 {% if guest_scan %}<script>window.OW_GUEST = {{ guest_scan|tojson }};</script>{% endif %}
 <script src="/static/ow_picture.js?v=2"></script>
-<script type="module" src="/static/tryon/js/tryon.js?v=7.5"></script>
+<script type="module" src="/static/tryon/js/tryon.js?v=7.6"></script>
 </body>
 </html>

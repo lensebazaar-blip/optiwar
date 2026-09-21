@@ -623,6 +623,10 @@ class RouteTests(unittest.TestCase):
         self.assertIn('"csrf": "%s"' % csrf, page)
         self.assertNotIn("/api/tryon/save", page.split("<script")[0])
         self.assertNotIn(token, page)
+        # the only control on the page says in words what it does
+        self.assertIn('id="startBtnText"', page)
+        self.assertIn("Hold the phone at arm's length", page)
+        self.assertIn('id="backLink" hidden', page)
         self.assertNotIn("https://", page.split("window.OW_GUEST")[1].split("</script>")[0])
         self.assertEqual(self._gget("/face-scan/guest/api/my-measurements").get_json(),
                          {"has_measurements": False})
