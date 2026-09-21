@@ -28,7 +28,7 @@ from .catalogue import (
     current_site, strip_ineligible_urls, age_group, ensure_gmc_columns,
     live_lenses, lens_matrix_summary, SITE_IN, SITE_COM,
 )
-from . import face_profiles, face_profiles_api, face_scan_groups_api, face_scan_invites_api
+from . import face_fit, face_profiles, face_profiles_api, face_scan_groups_api, face_scan_invites_api
 from . import (acr, lens_cart, lens_config, lens_documents, lens_feed,
                lens_order, lens_preview, lens_rx, lens_seo, lens_upload,
                lens_view)
@@ -1459,9 +1459,15 @@ def all_spectacle_frames():
     if 'user_id' in session:
         try:
             user_id = session['user_id']
+            # The person being shopped for decides the badges; the cache is
+            # keyed by that person and their scan time so switching, or a
+            # fresh scan, never shows a stale face.
+            shopping_for = face_profiles_api.shopping_for(db)
+            gated = face_profiles_api.gate_enabled()
+            scope = face_fit.cache_scope(user_id, shopping_for, gated)
             rcache = get_redis()
-            cache_key = f"face_match:{user_id}"
-            meas_key = f"face_meas:{user_id}"
+            cache_key = f"face_match:{scope}"
+            meas_key = f"face_meas:{scope}"
 
             # Try cache first
             cached_ids = rcache.get(cache_key) if rcache else None
@@ -1471,15 +1477,22 @@ def all_spectacle_frames():
                 matching_ids = json_mod.loads(cached_ids)
                 face_meas = json_mod.loads(cached_meas)
                 print(f"[ALL-FRAMES] Cache HIT for user {user_id}: {len(matching_ids)} matches")
+            elif gated and not shopping_for:
+                pass  # No person / Gift, or an account with no scan: no badges.
             else:
                 # Cache miss - compute and store
                 cursor2 = db.cursor()
-                cursor2.execute("""
-                    SELECT pd_far, face_width, recommended_length
-                    FROM face_measurements WHERE customer_id = %s
-                    ORDER BY measured_at DESC LIMIT 1
-                """, (user_id,))
-                meas = cursor2.fetchone()
+                if shopping_for:
+                    meas = face_fit.profile_measurement(shopping_for)
+                    if meas and meas['pd_far'] is None:
+                        meas = None
+                else:
+                    cursor2.execute("""
+                        SELECT pd_far, face_width, recommended_length
+                        FROM face_measurements WHERE customer_id = %s
+                        ORDER BY measured_at DESC LIMIT 1
+                    """, (user_id,))
+                    meas = cursor2.fetchone()
                 if meas:
                     pd_far = float(meas['pd_far']) if meas['pd_far'] else 63.0
                     face_w = float(meas['face_width']) if meas['face_width'] else 132.0
@@ -1494,25 +1507,10 @@ def all_spectacle_frames():
                         AND product_size IS NOT NULL AND product_size != ''
                         AND product_size REGEXP '^[0-9]+-[0-9]+-[0-9]+$'
                     """)
-                    for row in cursor2.fetchall():
-                        parts = str(row['product_size']).split('-')
-                        if len(parts) < 3:
-                            continue
-                        try:
-                            d = int(parts[0])
-                            b = int(parts[1])
-                            l = int(parts[2])
-                        except ValueError:
-                            continue
-                        frame_total = (d * 2) + b + 10
-                        if abs(frame_total - face_w) > 8:
-                            continue
-                        frame_pcd = d + b
-                        if abs(frame_pcd - pd_far) / 2.0 > 6:
-                            continue
-                        if abs(l - rec_l) > 10:
-                            continue
-                        matching_ids.append(str(row['product_id']))
+                    matching_ids = face_fit.matching_product_ids(
+                        cursor2.fetchall(),
+                        {"pd_far": pd_far, "face_width": face_w,
+                         "recommended_length": rec_l})
                 cursor2.close()
 
                 # Store in Redis cache (30 min TTL)
@@ -1856,7 +1854,30 @@ def product_page(category, product_slug):
     face_fit_label = ''
     face_decentration = 0.0
     face_meas_data = {}
-    if 'user_id' in session:
+    # Multi-person accounts: the fit is the engine's verdict for the person
+    # being shopped for (or nobody), never the legacy single row.
+    shopping_for = None
+    face_context = None
+    face_fit_result = None
+    if not lens and 'user_id' in session and face_profiles_api.gate_enabled():
+        face_profiles.ensure_schema(db)
+        face_profiles.migrate_customer(db, session['user_id'],
+                                       session.get('user_name'))
+        face_context = face_fit.context(db, session['user_id'], session)
+        shopping_for = face_fit.active_profile(db, session['user_id'], session)
+        face_fit_result = face_fit.evaluate(
+            face_fit.profile_measurement(shopping_for), product.get('product_size'))
+        if face_fit_result['matched']:
+            face_match_status = 'matched'
+            face_fit_label = face_fit_result['label']
+            face_decentration = face_fit_result['measurement_delta']['decentration_mm']
+        elif face_fit_result['classification'] in (face_fit.NOT_MATCHED, face_fit.NO_SIZE):
+            face_match_status = 'not_matched'
+        elif face_fit_result['classification'] == face_fit.NO_PERSON:
+            face_match_status = 'no_person'
+        if face_fit_result.get('measurements'):
+            face_meas_data = dict(face_fit_result['measurements'])
+    elif 'user_id' in session:
         try:
             _uid = session['user_id']
             cursor2 = db.cursor()
@@ -1869,40 +1890,13 @@ def product_page(category, product_slug):
             _meas = cursor2.fetchone()
             cursor2.close()
             if _meas and _meas['pd_far'] and _meas['face_width']:
-                _pd = float(_meas['pd_far'])
-                _fw = float(_meas['face_width'])
-                _rl = int(_meas['recommended_length'] or 140)
-                _rd = int(_meas.get('recommended_diameter') or 50)
-                _rb = int(_meas.get('recommended_bridge') or 20)
-                face_meas_data = {
-                    'pd_far': _pd,
-                    'face_width': _fw,
-                    'recommended_size': '{}-{}-{}'.format(_rd, _rb, _rl),
-                }
+                face_fit_result = face_fit.evaluate(_meas, product.get('product_size'))
+                face_meas_data = dict(face_fit_result['measurements'])
                 face_match_status = 'not_matched'
-                _size = product.get('product_size') or ''
-                _parts = str(_size).split('-')
-                if len(_parts) >= 3:
-                    try:
-                        _d = int(_parts[0])
-                        _b = int(_parts[1])
-                        _l = int(_parts[2])
-                        _frame_total = (_d * 2) + _b + 10
-                        _width_diff = abs(_frame_total - _fw)
-                        _frame_pcd = _d + _b
-                        _dec = abs(_frame_pcd - _pd) / 2.0
-                        _l_diff = abs(_l - _rl)
-                        if _width_diff <= 8 and _dec <= 6 and _l_diff <= 10:
-                            face_match_status = 'matched'
-                            face_decentration = round(_dec, 1)
-                            if _width_diff <= 3 and _dec <= 4:
-                                face_fit_label = 'EXCELLENT'
-                            elif _width_diff <= 5 and _dec <= 5:
-                                face_fit_label = 'VERY GOOD'
-                            else:
-                                face_fit_label = 'GOOD'
-                    except (ValueError, TypeError):
-                        pass
+                if face_fit_result['matched']:
+                    face_match_status = 'matched'
+                    face_fit_label = face_fit_result['label']
+                    face_decentration = face_fit_result['measurement_delta']['decentration_mm']
         except Exception:
             pass
 
@@ -1934,6 +1928,7 @@ def product_page(category, product_slug):
                            inr_disc_pct=_inr_disc_pct, eur_disc_pct=_eur_disc_pct,
                            face_match_status=face_match_status, face_fit_label=face_fit_label,
                            face_decentration=face_decentration, face_meas_data=face_meas_data,
+                           face_context=face_context, face_fit_result=face_fit_result,
                            lens_jsonld=lens_jsonld, lens=lens,
                            lens_passport=lens_passport,
                            lens_previewing=lens_previewing,
@@ -6292,7 +6287,8 @@ def spectacle_tryon():
         return redirect(url_for('auth.login', next=request.full_path.rstrip('?')))
     # Multi-person accounts scan *for* somebody: the profile chosen before the
     # scan travels as ?profile=<id> and is resolved as the customer's own or
-    # not at all. Without one, the default profile is scanned.
+    # not at all. Without one, the person being shopped for is scanned, and
+    # failing that the default profile.
     scan_for = None
     if face_profiles_api.gate_enabled():
         db = get_db()
@@ -6301,8 +6297,11 @@ def spectacle_tryon():
                                        session.get('user_name'))
         pid = request.args.get('profile')
         try:
-            row = (face_profiles.require_profile(db, session['user_id'], pid)
-                   if pid else face_profiles.default_profile(db, session['user_id']))
+            if pid:
+                row = face_profiles.require_profile(db, session['user_id'], pid)
+            else:
+                row = (face_fit.active_profile(db, session['user_id'], session)
+                       or face_profiles.default_profile(db, session['user_id']))
         except face_profiles.ProfileError:
             abort(404)
         if row:
@@ -6456,14 +6455,12 @@ def api_tryon_save():
 
 @bp.route('/api/tryon/matching-frames')
 def api_tryon_matching_frames():
-    """Get frames matching customer face using proper optical formulas.
-    
-    Logic:
-    1. frame_width = (lens×2) + bridge + 10
-    2. Good frame width range = face_width ±5mm, Excellent = ±3mm
-    3. Decentration per eye = (lens+bridge - PD) / 2
-       ≤4mm = good, 4-6mm = acceptable, >6mm = avoid
-    4. Temple from face width lookup table
+    """Frames that fit the person being shopped for.
+
+    The verdict per frame comes from ``face_fit.evaluate`` — the same rule
+    the product page and the listings use. Multi-person accounts pass
+    ``?face_profile_id=<own id>`` or get the active person; a stranger's
+    id is 404.
     """
     if 'user_id' not in session:
         return jsonify({"error": "Login required"}), 401
@@ -6472,12 +6469,31 @@ def api_tryon_matching_frames():
     db = get_db()
     cursor = db.cursor()
     
-    cursor.execute("""
-        SELECT pd_far, pd_near, face_width, recommended_diameter, recommended_bridge, recommended_length
-        FROM face_measurements WHERE customer_id = %s
-        ORDER BY measured_at DESC LIMIT 1
-    """, (customer_id,))
-    meas = cursor.fetchone()
+    profile = None
+    if face_profiles_api.gate_enabled():
+        # A multi-person account asks for one person: ?face_profile_id=<own id>
+        # (somebody else's is 404), or whoever is being shopped for.
+        face_profiles.ensure_schema(db)
+        face_profiles.migrate_customer(db, customer_id, session.get('user_name'))
+        pid = request.args.get('face_profile_id')
+        try:
+            profile = (face_profiles.get_profile(db, customer_id, pid) if pid
+                       else face_fit.active_profile(db, customer_id, session))
+        except face_profiles.ProfileError:
+            abort(404)
+        meas = face_fit.profile_measurement(profile)
+        if meas and meas['pd_far'] is None:
+            meas = None
+        if profile is None:
+            return jsonify({"error": "No person selected.", "frames": [],
+                            "total": 0, "profile": None}), 404
+    else:
+        cursor.execute("""
+            SELECT pd_far, pd_near, face_width, recommended_diameter, recommended_bridge, recommended_length
+            FROM face_measurements WHERE customer_id = %s
+            ORDER BY measured_at DESC LIMIT 1
+        """, (customer_id,))
+        meas = cursor.fetchone()
     
     if not meas:
         return jsonify({"error": "No measurements found. Please scan your face first."}), 404
@@ -6487,6 +6503,9 @@ def api_tryon_matching_frames():
     rec_d = meas['recommended_diameter'] or 52
     rec_b = meas['recommended_bridge'] or 18
     rec_l = meas['recommended_length'] or 140
+    engine_meas = {"pd_far": pd_far, "face_width": face_w,
+                   "recommended_diameter": rec_d, "recommended_bridge": rec_b,
+                   "recommended_length": rec_l}
     
     cursor.execute("""
         SELECT product_id, product_name, product_code, product_image, product_size, 
@@ -6502,47 +6521,18 @@ def api_tryon_matching_frames():
     
     matching = []
     for row in rows:
-        parts = str(row['product_size']).split('-')
-        if len(parts) < 3:
-            continue
-        try:
-            d = int(parts[0])
-            b = int(parts[1])
-            l = int(parts[2])
-        except ValueError:
-            continue
-        
-        # 1. Frame width check
-        frame_total = (d * 2) + b + 10
-        width_diff = abs(frame_total - face_w)
-        if width_diff > 8:
-            continue
-        
-        # 2. Decentration check
-        frame_pcd = d + b
-        decentration = abs(frame_pcd - pd_far) / 2.0
-        if decentration > 6:
-            continue
-        
-        # 3. Temple tolerance
-        l_diff = abs(l - rec_l)
-        if l_diff > 10:
+        verdict = face_fit.evaluate(engine_meas, row['product_size'])
+        if not verdict['matched']:
             continue
         
         img = row['product_image'].split(',')[0].strip() if row['product_image'] else None
         if not img:
             continue
         
-        # Score: lower is better
-        score = width_diff * 1.5 + decentration * 2 + l_diff * 0.3
-        
-        # Fit classification
-        if width_diff <= 3 and decentration <= 4:
-            fit = "Perfect"
-        elif width_diff <= 5 and decentration <= 5:
-            fit = "Good"
-        else:
-            fit = "Fair"
+        score = face_fit.score(verdict)
+        fit = face_fit.LEGACY_API_LABELS[verdict['classification']]
+        frame_total = verdict['actual_dimensions']['frame_width']
+        decentration = verdict['measurement_delta']['decentration_mm']
         
         matching.append({
             "id": row['product_id'],
@@ -6570,6 +6560,7 @@ def api_tryon_matching_frames():
         },
         "frames": matching[:24],
         "total": len(matching),
+        "profile": face_profiles.public_view(profile) if profile else None,
         "media_schema": MEDIA_SCHEMA_VERSION
     })
 

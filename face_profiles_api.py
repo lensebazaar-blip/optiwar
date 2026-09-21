@@ -10,10 +10,12 @@ import os
 
 from flask import current_app, jsonify, request, send_file, session
 
+from . import face_fit
 from . import face_profiles as fp
 from . import face_scan_done as fsd
 from . import face_scan_groups as fsg
 from . import face_scan_invites as fsi
+from .catalogue import sellable_here
 from .db import get_db
 
 # Read from the environment, not app.config: __init__.py is outside the
@@ -179,6 +181,64 @@ def register(bp):
         return jsonify({"ok": True, **result})
 
 
+    @bp.route("/api/face-context", methods=["GET"])
+    def face_context_get():
+        """Who the customer is shopping for, and who else they could pick."""
+        refused = _require()
+        if refused:
+            return refused
+        db = _db()
+        fp.migrate_customer(db, _customer(), _account_name())
+        return jsonify({"ok": True, **face_fit.context(db, _customer(), session)})
+
+
+    @bp.route("/api/face-context", methods=["POST"])
+    def face_context_set():
+        """Choose who to shop for on this device: one of the customer's own
+        profiles, or nobody (``face_profile_id`` null / 0 = No person / Gift).
+        Somebody else's id is 404. Optionally also returns the fit of one
+        product (``product_id``) for the new choice, so a page can update
+        without a second request."""
+        refused = _require()
+        if refused:
+            return refused
+        data = request.get_json(silent=True) or {}
+        db = _db()
+        try:
+            face_fit.set_active(db, _customer(), session, data.get("face_profile_id"))
+        except fp.ProfileError as exc:
+            return _error(exc)
+        session.modified = True
+        out = face_fit.context(db, _customer(), session)
+        if isinstance(data.get("product_id"), int) and data["product_id"] > 0:
+            out["fit"] = _fit_for(db, data["product_id"], out["active_profile_id"])
+        current_app.logger.info("FACE_CONTEXT:SET customer=%s profile=%s",
+                                _customer(), out["active_profile_id"])
+        return jsonify({"ok": True, **out})
+
+
+    @bp.route("/api/frames/<int:product_id>/fit", methods=["GET"])
+    def face_frame_fit(product_id):
+        """The engine's verdict on one frame for one of the customer's
+        profiles (``?face_profile_id=``; absent = the active one; 0 = nobody).
+        Somebody else's profile, or a product not sold here, is 404."""
+        refused = _require()
+        if refused:
+            return refused
+        db = _db()
+        pid = request.args.get("face_profile_id")
+        if pid is None:
+            active = face_fit.active_profile(db, _customer(), session)
+            pid = int(active["id"]) if active else 0
+        try:
+            fit = _fit_for(db, product_id, pid)
+        except fp.ProfileError as exc:
+            return _error(exc)
+        if fit is None:
+            return jsonify({"ok": False, "error": "not_found"}), 404
+        return jsonify({"ok": True, "fit": fit})
+
+
     @bp.route("/api/face-profiles/<int:profile_id>/capture", methods=["GET"])
     def face_profile_capture(profile_id):
         """The owner's own capture, from the secure directory. Anyone else: 404."""
@@ -200,6 +260,37 @@ def register(bp):
         resp = send_file(path, mimetype="image/jpeg", max_age=0)
         resp.headers["Cache-Control"] = "private, no-store"
         return resp
+
+
+def _fit_for(db, product_id, profile_id):
+    """The fit of one frame sold on this storefront, or None for no such
+    frame here; a foreign profile raises ``fp.NotFound``."""
+    cur = db.cursor()
+    try:
+        if not sellable_here(cur, product_id):
+            return None
+        cur.execute("SELECT product_id, product_code, product_name, product_size "
+                    "FROM products WHERE product_id=%s", (int(product_id),))
+        product = cur.fetchone()
+    finally:
+        cur.close()
+    if not product:
+        return None
+    fit = face_fit.evaluate_frame_fit(db, _customer(), profile_id, product)
+    fit["product"] = {"product_id": int(product["product_id"]),
+                      "product_code": product["product_code"],
+                      "product_size": product["product_size"]}
+    return fit
+
+
+def shopping_for(db):
+    """For page renders: the active profile row of a gated-on customer, or
+    None (no customer, gate off, or No person)."""
+    if not _customer() or not gate_enabled():
+        return None
+    fp.ensure_schema(db)
+    fp.migrate_customer(db, _customer(), _account_name())
+    return face_fit.active_profile(db, _customer(), session)
 
 
 def _notify_env():
