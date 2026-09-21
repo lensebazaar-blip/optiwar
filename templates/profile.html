@@ -1549,6 +1549,13 @@ async function mfSubmit(ev){
 async function mfSetDefault(id){ try { await mfReq('POST', mfBase+'/'+id+'/default'); location.hash='#myface'; location.reload(); } catch(e){ alert(e.message); } }
 async function mfDelete(id,name,hasRequest){
   var msg='Remove '+name+' from your account? Their measurements are kept on past orders but no longer used for fitting.';
+  try {
+    var refs=(await mfReq('GET', mfBase+'/'+id+'/references')).references||{};
+    var parts=[];
+    if(refs.cart_items) parts.push(refs.cart_items+(refs.cart_items===1?' cart item':' cart items'));
+    if(refs.favorites) parts.push(refs.favorites+(refs.favorites===1?' saved frame':' saved frames'));
+    if(parts.length) msg+='\n\n'+name+' is assigned to '+parts.join(' and ')+'. Removing this person will set those to "No person / Gift"; the items stay.';
+  } catch(e){}
   if(hasRequest) msg+='\n\nThe scan request you sent to '+name+' will be cancelled and their link will stop working.';
   if(!confirm(msg)) return;
   try { await mfReq('DELETE', mfBase+'/'+id); location.hash='#myface'; location.reload(); } catch(e){ alert(e.message); }

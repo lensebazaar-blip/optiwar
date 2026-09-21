@@ -16,6 +16,7 @@ from . import face_profiles as fp
 from . import face_scan_done as fsd
 from . import face_scan_groups as fsg
 from . import face_scan_invites as fsi
+from . import favorites as fav
 from .cart_persist import save_cart_to_db
 from .catalogue import sellable_here
 from .db import get_db
@@ -159,6 +160,8 @@ def register(bp):
             refs = fp.references(db, _customer(), profile_id)
             refs["cart_items"] = face_cart.count_references(
                 db, _customer(), profile_id, session.get("cart"))
+            fav.ensure_schema(db)
+            refs["favorites"] = fav.count_references(db, _customer(), profile_id)
         except fp.ProfileError as exc:
             return _error(exc)
         return jsonify({"ok": True, "references": refs})
@@ -183,6 +186,8 @@ def register(bp):
                                               session.get("cart"))
             if reset:
                 session.modified = True
+            fav.ensure_schema(db)
+            result["favorites_reset"] = fav.release_profile(db, _customer(), profile_id)
             result["cancelled_scan_requests"] = cancelled
             result["left_scan_groups"] = left
             result["cart_lines_reset"] = reset

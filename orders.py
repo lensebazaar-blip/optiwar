@@ -5,6 +5,10 @@ from .db import get_db
 from .mail import send_otp_email  # Assuming mail.py has send_otp_email function
 from datetime import datetime
 from .captcha import CaptchaGenerator
+from .catalogue import catalogue_site_filter
+from . import face_profiles as fp
+from . import face_profiles_api
+from . import favorites as fav
 
 
 bp = Blueprint('orders', __name__)
@@ -139,29 +143,37 @@ def my_order():
 
 @bp.route('/favorites', methods=['GET', 'POST'])
 def favorites():
+    """The customer's saved products. Signed in, the list is the customer's
+    own rows (any ids the browser still posts are folded in, never removed);
+    signed out, it is whatever the browser posted."""
     if request.method == 'POST':
-       favorites = request.form.getlist('favorites')
+       posted = request.form.getlist('favorites')
     else:
-       favorites = request.args.getlist('favorites')
-    print(f"Incoming data {request.url}")
-    print(f'Favorites parameter {favorites}')
+       posted = request.args.getlist('favorites')
+    customer_id = session.get('user_id')
+    db = get_db()
+    face_lines = None
+    if customer_id:
+       fp.ensure_schema(db)
+       fav.ensure_schema(db)
+       ids = [f['product_id'] for f in fav.sync(db, customer_id, posted)]
+    else:
+       ids = fav._product_ids(posted)
     products = []
-    if favorites:
-       favorites_list = tuple(favorites)
-       print(f" Favorites List: {favorites_list}")
-       query = (""" select * from products where product_id IN %s AND product_quantity > 0"""
+    if ids:
+       query = ("select * from products where product_id IN %s AND product_quantity > 0"
                 + catalogue_site_filter())
        try:
-          db = get_db()
           cursor = db.cursor()
-          cursor.execute(query, (favorites_list,))
+          cursor.execute(query, (tuple(ids),))
           products = cursor.fetchall()
-          print(f"Fetched from query products {products}")
           cursor.close()
-
        except Exception as e:
-          print(f"Error fetching favorites: {e}")
-    return render_template('favorites.html', products=products)
+          logging.error("favorites: %s", e)
+    if customer_id and products:
+       face_lines = fav.decorate(db, customer_id, products, face_profiles_api.gate_enabled())
+    return render_template('favorites.html', products=products, face_lines=face_lines,
+                           favorite_ids=ids)
 
 
 
