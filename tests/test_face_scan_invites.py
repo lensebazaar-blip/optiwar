@@ -627,6 +627,10 @@ class RouteTests(unittest.TestCase):
         self.assertIn('id="startBtnText"', page)
         self.assertIn("Hold the phone at arm's length", page)
         self.assertIn('id="backLink" hidden', page)
+        # results scroll in one sheet and the buttons live in one bottom stack
+        self.assertIn('id="resultsSheet"', page)
+        self.assertLess(page.index('id="measureCards"'), page.index('id="frameCandidates"'))
+        self.assertIn('id="bottomStack"', page)
         self.assertNotIn("https://", page.split("window.OW_GUEST")[1].split("</script>")[0])
         self.assertEqual(self._gget("/face-scan/guest/api/my-measurements").get_json(),
                          {"has_measurements": False})

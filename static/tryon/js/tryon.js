@@ -131,9 +131,25 @@ document.addEventListener('DOMContentLoaded', () => {
         $('backLink').hidden = true;
     }
     checkExisting();
+    fitViewport();
     openCamera();
     initModel();
 });
+
+// Mobile browsers put their own bar over the bottom of 100vh, so the page is
+// sized from the visible viewport and the results sheet ends where the
+// buttons begin — whatever the OS, browser or screen.
+function fitViewport() {
+    const page = document.querySelector('.scan-page');
+    const vv = window.visualViewport;
+    const setH = () => { page.style.setProperty('--vvh', (vv ? vv.height : window.innerHeight) + 'px'); };
+    setH();
+    if (vv) vv.addEventListener('resize', setH); else window.addEventListener('resize', setH);
+    const stack = $('bottomStack');
+    const setB = () => { page.style.setProperty('--bottom-h', stack.offsetHeight + 'px'); };
+    setB();
+    if (window.ResizeObserver) new ResizeObserver(setB).observe(stack);
+}
 
 // The camera preview opens as soon as the page does, so the person sees
 // themselves before anything asks them to act; the scan itself waits for the
@@ -551,6 +567,7 @@ function done(m) {
         candEl.classList.add('show');
     }
 
+    $('resultsSheet').classList.add('show');
     $('measureCards').classList.add('show');
     $('bottomBar').classList.add('show');
 }
@@ -639,6 +656,7 @@ function rescan() {
 }
 
 function hideResults() {
+    $('resultsSheet').classList.remove('show');
     $('measureCards').classList.remove('show');
     $('bottomBar').classList.remove('show');
     $('choiceBar').classList.remove('show');

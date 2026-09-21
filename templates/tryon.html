@@ -8,7 +8,7 @@
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
     <meta name="theme-color" content="#000000">
-    <link rel="stylesheet" href="/static/tryon/css/tryon.css?v=6.8">
+    <link rel="stylesheet" href="/static/tryon/css/tryon.css?v=6.9">
 </head>
 <body style="margin:0;padding:0;overflow:hidden;background:#000;">
 
@@ -28,6 +28,7 @@
         </div>
     </div>
 
+    <div class="chip-row">
     {% if guest_scan %}
     <!-- One-time remote request: the guest sees whose scan this is and nothing of the owner's account -->
     <div class="existing-chip" id="scanForChip" style="display:flex">
@@ -44,6 +45,7 @@
     <div class="existing-chip" id="existingInfo">
         <span id="exVals"></span>
     </div>
+    </div>
 
     <!-- Distance guide -->
     <div class="dist-guide" id="distGuide" style="display:none"></div>
@@ -59,7 +61,8 @@
     </button>
     <p class="start-hint" id="startHint">Hold the phone at arm's length, face the camera, then tap the button.</p>
 
-    <!-- Measurement overlay cards (after DONE) -->
+    <!-- Results: one scrollable column between the top bar and the buttons -->
+    <div class="results-sheet" id="resultsSheet">
     <div class="measure-cards" id="measureCards">
         <div class="mc">
             <span class="mc-label">Far PD</span>
@@ -85,19 +88,19 @@
         </div>
     </div>
 
-    <!-- Frame candidates table -->
     <div class="frame-candidates" id="frameCandidates"></div>
-
-    <!-- Bottom action bar -->
-    <div class="bottom-bar" id="bottomBar">
-        <button class="bb-btn btn-rescan" id="rescanBtn">↻ Rescan</button>
-        <button class="bb-btn btn-save" id="saveBtn">Save</button>
     </div>
 
-    <!-- Choice bar (after save) -->
-    <div class="choice-bar" id="choiceBar">
-        <button class="cb-btn btn-match" id="matchBtn">Show Frames matching my face</button>
-        <button class="cb-btn btn-browse" id="browseBtn">Browse all</button>
+    <!-- Buttons: always inside the visible viewport, above the browser's own bar -->
+    <div class="bottom-stack" id="bottomStack">
+        <div class="choice-bar" id="choiceBar">
+            <button class="cb-btn btn-match" id="matchBtn">Show Frames matching my face</button>
+            <button class="cb-btn btn-browse" id="browseBtn">Browse all</button>
+        </div>
+        <div class="bottom-bar" id="bottomBar">
+            <button class="bb-btn btn-rescan" id="rescanBtn">↻ Rescan</button>
+            <button class="bb-btn btn-save" id="saveBtn">Save</button>
+        </div>
     </div>
 
     <!-- Back to site link -->
@@ -138,6 +141,6 @@
 
 {% if guest_scan %}<script>window.OW_GUEST = {{ guest_scan|tojson }};</script>{% endif %}
 <script src="/static/ow_picture.js?v=2"></script>
-<script type="module" src="/static/tryon/js/tryon.js?v=7.6"></script>
+<script type="module" src="/static/tryon/js/tryon.js?v=7.7"></script>
 </body>
 </html>
