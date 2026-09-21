@@ -257,6 +257,11 @@ EV_LENS_ORDER_REFUSED = "LENS_ORDER_REFUSED"
 # proposal for the customer to confirm. Product and eyes only, never values.
 EV_LENS_RX_PROPOSED = "LENS_RX_PROPOSED"
 
+# The assistant offered to change who the customer shops for, their default
+# person or the person on a cart frame line (FACE_* action types); the change
+# itself follows ACTION_CONFIRMED -> ACTION_EXECUTED/FAILED like any other.
+EV_FACE_ACTION_OFFERED = "FACE_ACTION_OFFERED"
+
 # Journey stages (coarse, safe to store).
 STAGE_LANDING = "LANDING"
 STAGE_RECOMMENDATION = "RECOMMENDATION"
@@ -563,7 +568,9 @@ def log_event(db, event_type, session_id=None, action_id=None, journey_stage=Non
 # ─── Structured actions (A1) ───
 
 def create_pending_action(db, session_id, action_type, target, source_message_id=None,
-                          ttl_seconds=PENDING_TTL_SECONDS):
+                          ttl_seconds=PENDING_TTL_SECONDS,
+                          offer_event=EV_NAVIGATION_OFFERED,
+                          journey_stage=STAGE_NAVIGATION):
     """Persist a pending action, replacing any earlier live one of the same type
     for the session so a later confirmation resolves the latest offer.
 
@@ -633,8 +640,8 @@ def create_pending_action(db, session_id, action_type, target, source_message_id
         )
     except Exception:
         return None
-    log_event(db, EV_NAVIGATION_OFFERED, session_id=session_id, action_id=action_id,
-              action_type=action_type, journey_stage=STAGE_NAVIGATION,
+    log_event(db, offer_event, session_id=session_id, action_id=action_id,
+              action_type=action_type, journey_stage=journey_stage,
               payload={'target_path': sanitize_url_for_event(target)})
     return action_id
 

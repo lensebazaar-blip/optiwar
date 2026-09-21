@@ -70,7 +70,7 @@ class SavedRxReload(unittest.TestCase):
         self.assertIn("togglePanel(true)", entry)
         self.assertIn("choiceMenu.classList.remove('open')", entry)
         base = _read("templates/base.html")
-        self.assertIn("chat-widget.js') + '?v=22'", base)
+        self.assertIn("chat-widget.js') + '?v=23'", base)
 
 
 class DefectChannel(unittest.TestCase):
