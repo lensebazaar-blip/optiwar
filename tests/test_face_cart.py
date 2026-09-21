@@ -72,6 +72,23 @@ class LineRuleTests(unittest.TestCase):
         legacy = {"product_id": 5, "product_category": "Contact Lenses", "right_qty": 2}
         self.assertFalse(self.fc.is_frame_line(legacy))
 
+    def test_only_a_spectacle_frame_is_a_frame_line(self):
+        for cat in ("Hearing Aids", "category_not_defined", None, ""):
+            item = _frame_line(2, "B")
+            item["product_category"] = cat
+            self.assertFalse(self.fc.is_frame_line(item), cat)
+        item = _frame_line(3, "C")
+        item["product_category"] = " Spectacles Frame "
+        self.assertTrue(self.fc.is_frame_line(item))
+
+    def test_a_garbage_person_is_refused_and_a_stored_one_reads_as_nobody(self):
+        for bad in ("abc", -1, "-4", 1.5, [1]):
+            with self.assertRaises(self.fc.LineError):
+                self.fc._normalise(bad)
+        self.assertEqual(self.fc._stored({self.fc.LINE_KEY: "abc"}), 0)
+        self.assertEqual(self.fc._stored({self.fc.LINE_KEY: "12"}), 12)
+        self.assertEqual(self.fc._stored({}), 0)
+
     def test_nobody_is_zero_and_is_labelled(self):
         self.assertEqual(self.fc.NOBODY, 0)
         self.assertEqual(self.fc.NO_PERSON_LABEL, "No person / Gift")
@@ -231,6 +248,18 @@ class CartAssignmentTests(unittest.TestCase):
         self.assertEqual(r.status_code, 400)
         self.assertNotIn(self.fc.LINE_KEY, self._session_cart()[0])
 
+    def test_a_negative_index_never_reaches_a_line_from_the_end(self):
+        r = self._assign(-1, 9800102, self.mother["id"])   # -1 is line 2's product
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.get_json()["error"], "bad_line")
+        self.assertTrue(all(self.fc.LINE_KEY not in i for i in self._session_cart()))
+
+    def test_a_nonnumeric_person_is_a_400_not_a_500(self):
+        r = self._assign(0, 9800101, "mother")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.get_json()["error"], "bad_profile")
+        self.assertNotIn(self.fc.LINE_KEY, self._session_cart()[0])
+
     def test_anonymous_and_gated_off_accounts_are_refused(self):
         with self.client.session_transaction() as s:
             s.clear()
@@ -319,6 +348,25 @@ class CartAssignmentTests(unittest.TestCase):
         self.assertEqual(first["person"], "Mother")
         self.assertEqual(gift["fit_classification"], "no_person")
         self.assertEqual(gift["product_id"], 9800102)
+
+    def test_a_cart_with_no_choice_yet_still_seals_nobody_per_frame_line(self):
+        cart = copy.deepcopy(self.cart)
+        for item in cart:
+            item.pop(self.fc.LINE_KEY, None)
+        self.assertEqual(self._place("OW-TEST-0", cart), 2)
+        cur = self.db.cursor()
+        rows = self.fc.for_order(cur, "OW-TEST-0")
+        self.assertEqual([r["line_no"] for r in rows], [1, 3])
+        self.assertTrue(all(r["person"] == "No person / Gift" for r in rows))
+        self.assertTrue(all(r["fit_classification"] == "no_person" for r in rows))
+
+    def test_a_hearing_aid_line_gets_no_selector_and_no_snapshot(self):
+        cart = copy.deepcopy(self.cart)
+        cart[0]["product_category"] = "Hearing Aids"
+        self.assertNotIn(0, self.fc.decorate(self.db, C1, cart)["lines"])
+        self.assertEqual(self._place("OW-TEST-HA", cart), 1)
+        cur = self.db.cursor()
+        self.assertEqual([r["line_no"] for r in self.fc.for_order(cur, "OW-TEST-HA")], [3])
 
     def test_a_snapshot_is_written_once(self):
         cart = copy.deepcopy(self.cart)
