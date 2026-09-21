@@ -190,7 +190,7 @@ def evaluate_frame_fit(db, customer_id, profile_id, product):
     Somebody else's profile id is a 404 (``fp.NotFound``), exactly like a
     missing one; ``profile_id`` None or 0 is "No person / Gift".
     """
-    if not profile_id:
+    if profile_id in (None, "", 0, "0"):
         result = _result(NO_PERSON)
         result["profile"] = None
         return result
@@ -212,11 +212,11 @@ def _profile_ref(row):
 
 def cache_scope(customer_id, profile_row, gated):
     """The key suffix under which a listing may cache this customer's
-    matches: per person and per scan time for a multi-person account (so a
+    matches: per person and per scan for a multi-person account (so a
     switch or a rescan misses the cache), the bare customer id otherwise."""
     if profile_row:
-        return "%s:p%d:%s" % (customer_id, int(profile_row["id"]),
-                              profile_row.get("measured_at") or "none")
+        return "%s:p%d:s%s" % (customer_id, int(profile_row["id"]),
+                               profile_row.get("latest_scan_id") or "none")
     return "%s:nobody" % customer_id if gated else str(customer_id)
 
 

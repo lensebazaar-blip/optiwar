@@ -6299,6 +6299,11 @@ def spectacle_tryon():
         try:
             if pid:
                 row = face_profiles.require_profile(db, session['user_id'], pid)
+            elif session.get(face_fit.SESSION_KEY) == face_fit.NOBODY:
+                # "No person / Gift" is a shopping choice; a scan still needs
+                # a person, so the customer picks one rather than the default
+                # being written to silently.
+                return redirect('/profile/?tab=faces')
             else:
                 row = (face_fit.active_profile(db, session['user_id'], session)
                        or face_profiles.default_profile(db, session['user_id']))
