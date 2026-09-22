@@ -210,6 +210,7 @@ class SupersedingAConfirmationKeepsTheEvidenceTests(unittest.TestCase):
         def execute(self, sql, params=None):
             self.sql.append(" ".join(sql.split()))
             self.params.append(params)
+            self._lock = "GET_LOCK(" in sql or "RELEASE_LOCK(" in sql
             self._rows = ([{"action_id": a} for a in self.stranded]
                           if sql.strip().upper().startswith("SELECT") else [])
 
@@ -217,7 +218,7 @@ class SupersedingAConfirmationKeepsTheEvidenceTests(unittest.TestCase):
             return getattr(self, "_rows", [])
 
         def fetchone(self):
-            return None
+            return {"got": 1} if getattr(self, "_lock", False) else None
 
     class _DB(object):
         def __init__(self, cur):

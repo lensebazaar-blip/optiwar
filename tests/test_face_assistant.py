@@ -617,6 +617,46 @@ class GatewayFunctionalTests(unittest.TestCase):
         self.assertEqual(types.count("ACTION_CONFIRMED"), 1)
         self.assertEqual(types.count("ACTION_EXECUTED"), 1)
 
+    def test_two_overlapping_offers_leave_one_question(self):
+        """Offers for one session are serialised on a server-side lock: while
+        another connection holds it the offer is not stored (so nothing is
+        asked); once released, the offer stores and supersedes the earlier one."""
+        from unittest import mock
+        lock = self.acr._session_lock_name(SID)
+        other = _connect()
+        try:
+            cur = other.cursor()
+            cur.execute("SELECT GET_LOCK(%s, 1) AS got", (lock,))
+            self.assertEqual(cur.fetchone()["got"], 1)
+            with mock.patch.dict(os.environ, self.env, clear=False), \
+                    mock.patch.object(self.acr, "OFFER_LOCK_WAIT_SECONDS", 0):
+                ctx = self._ctx()
+                try:
+                    face_ctx = self.cg._face_context(self.db, self.chat, "/cart")
+                    with mock.patch.object(self.cg.dev_defects, "record"):
+                        reply = self.cg._face_offer(
+                            self.db, SID, face_ctx,
+                            "A. [ACTION:FACE_SHOP_FOR:%d]" % self.mother["id"], "/cart")
+                    self.assertNotIn("(yes/no)", reply)
+                    self.assertEqual(self.fa.live_pending(self.db, SID), (None, None))
+                    cur.execute("SELECT RELEASE_LOCK(%s)", (lock,))
+                    cur.fetchone()
+                    reply = self.cg._face_offer(
+                        self.db, SID, face_ctx,
+                        "B. [ACTION:FACE_DEFAULT:%d]" % self.mother["id"], "/cart")
+                    self.assertIn("(yes/no)", reply)
+                    self.assertEqual(self.fa.live_pending(self.db, SID)[0], "FACE_DEFAULT")
+                finally:
+                    ctx.pop()
+        finally:
+            other.close()
+        cur = self.db.cursor()
+        cur.execute("SELECT status FROM ai_actions WHERE session_id=%s", (SID,))
+        self.assertEqual([r["status"] for r in cur.fetchall()], ["PENDING"])
+        # the lock is released after every offer, stored or not
+        cur.execute("SELECT IS_FREE_LOCK(%s) AS free", (lock,))
+        self.assertEqual(cur.fetchone()["free"], 1)
+
     def test_an_offer_that_was_not_stored_is_not_asked(self):
         from unittest import mock
         with mock.patch.dict(os.environ, self.env, clear=False):

@@ -115,7 +115,9 @@ class _FakeCursor:
         s = " ".join(sql.split())
         self.rowcount = 0
         self._result = []
-        if s.startswith("SELECT action_id, session_id, action_type, status FROM ai_actions"):
+        if s.startswith("SELECT GET_LOCK(") or s.startswith("SELECT RELEASE_LOCK("):
+            self._result = [{"got": 1}]
+        elif s.startswith("SELECT action_id, session_id, action_type, status FROM ai_actions"):
             self._result = [dict(r) for r in self.db.pending_actions
                             if r.get("status", "PENDING") in acr.UNRESOLVED_STATUSES]
             if self.db.mutate_after_select:

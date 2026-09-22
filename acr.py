@@ -14,6 +14,7 @@ Scope implemented here is ONLY the approved near-term items:
 
 No existing table is modified; two additive tables are created if absent.
 """
+import hashlib
 import json
 import os
 import re
@@ -68,6 +69,10 @@ PENDING_TTL_SECONDS = 1800  # 30 min
 # because both the read side (QC) and the write side (superseding a confirmed
 # action) have to answer "is this still in flight?" the same way.
 EXECUTION_TTL_SECONDS = 120
+# How long one reply waits for another reply of the same session to finish
+# storing its offer. Longer than any single supersede+insert, shorter than a
+# customer notices.
+OFFER_LOCK_WAIT_SECONDS = 3
 
 FRAMES_LISTING_FALLBACK = "/eyeglasses/all-spectacle-frames.html"
 
@@ -601,8 +606,42 @@ def create_pending_action(db, session_id, action_type, target, source_message_id
     best-effort at boot) this returns None instead of raising into the chat
     reply path, so action bookkeeping can never break a customer conversation."""
     stranded = []
+    lock = _session_lock_name(session_id)
     try:
         cur = db.cursor()
+        # Supersede-then-insert is two statements on an autocommit connection;
+        # two overlapping replies for one session would each supersede nothing
+        # and both stay PENDING. One server-side lock per session serialises
+        # them. A lock not obtained means the offer is not stored (None), and
+        # the caller then does not ask a question it cannot honour.
+        cur.execute("SELECT GET_LOCK(%s, %s)", (lock, OFFER_LOCK_WAIT_SECONDS))
+        got = cur.fetchone()
+        got = list(got.values())[0] if isinstance(got, dict) else got[0]
+        if got != 1:
+            return None
+    except Exception:
+        return None
+    try:
+        return _create_pending_action_locked(
+            db, cur, session_id, action_type, target, source_message_id,
+            ttl_seconds, offer_event, journey_stage, supersede_types, stranded)
+    finally:
+        try:
+            cur.execute("SELECT RELEASE_LOCK(%s)", (lock,))
+            cur.fetchone()
+        except Exception:
+            pass
+
+
+def _session_lock_name(session_id):
+    # MySQL/MariaDB lock names are capped at 64 characters.
+    return 'ai_actions:' + hashlib.sha1(str(session_id).encode()).hexdigest()
+
+
+def _create_pending_action_locked(db, cur, session_id, action_type, target,
+                                  source_message_id, ttl_seconds, offer_event,
+                                  journey_stage, supersede_types, stranded):
+    try:
         # An offer nobody answered is ordinary conversation: replace it silently.
         # A *confirmed* action is a different fact and is handled below, because
         # SUPERSEDED cannot express "the customer said yes and nothing happened"
