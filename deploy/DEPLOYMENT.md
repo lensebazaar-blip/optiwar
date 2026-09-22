@@ -309,3 +309,24 @@ credentials inline in `/var/www` that exist nowhere in git — `pricing.py`,
 box. A node built from the repository today would come up with an empty
 Delhivery token, pricing secret and admin database password. Until those are
 externalised for real, production cannot be reconstructed from git alone.
+
+## Daily report — box-side steps for the analytics cleanup release
+
+`/root/reports/optiwar_daily_report.py` and `run_daily_report.sh` are not in the
+repo. On the release that carries `reports/face_demand_section.py`,
+`reports/pendency_register_section.py` and the rewritten
+`reports/acr_report_section.py`:
+
+1. Copy the three modules to `/root/reports/reports/` and
+   `docs/PENDENCY_REGISTER.md` to `/root/reports/PENDENCY_REGISTER.md`
+   (set `PENDENCY_REGISTER_PATH` in `/etc/optiwar/acr_report.env`).
+2. In `run_daily_report.sh`, append `reports.face_demand_section` and
+   `reports.pendency_register_section` next to `lens_report_section`.
+3. In `optiwar_daily_report.py`, stop calling `section_face_demand()` (its SQL
+   counts contact lenses as frames) and `section_deepseek()` (log-string counts
+   and a guessed cost; the ACR section now states every AI count with its
+   source). Also remove the hard-coded DeepSeek key from that file.
+4. `GRANT SELECT ON optiwar2.face_measurements, optiwar2.face_demand_log TO
+   'optiwar_ro'@'localhost'` — the frame-only section reads them.
+
+Nothing in `face_demand_log` or `chat_sessions` is deleted by any of this.

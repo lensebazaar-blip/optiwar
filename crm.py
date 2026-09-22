@@ -1386,22 +1386,81 @@ def start_whatsapp_outbox_worker(app):
     threading.Thread(target=_loop, daemon=True, name="wa-outbox").start()
 
 
+# Delivery states in the order a message moves through them. A callback may only
+# move a ledger row forward; MSG91 redelivers and reorders reports, so a late
+# "sent" after "delivered" is recorded in the event log but changes nothing.
+_DELIVERY_RANK = {'queued': 1, 'submitted': 1, 'sent': 2, 'delivered': 3,
+                  'read': 4, 'failed': 5}
+_DELIVERY_TERMINAL = ('delivered', 'read', 'failed')
+# face_scan_invites.delivery_status values for the provider's terminal reports.
+_FACE_SCAN_DELIVERY = {'delivered': 'DELIVERED', 'read': 'READ', 'failed': 'FAILED'}
+
+
+def delivery_transition_allowed(current, new):
+    """Whether a ledger row in ``current`` may take the provider's ``new``
+    status: forward only, and nothing after a read or a failure."""
+    new_rank = _DELIVERY_RANK.get((new or '').lower())
+    if new_rank is None:
+        return False
+    cur_rank = _DELIVERY_RANK.get((current or '').lower(), 0)
+    if (current or '').lower() in ('read', 'failed'):
+        return False
+    return new_rank > cur_rank
+
+
 def _store_delivery_event(msg91_request_id, status, failure_reason, provider_ts):
-    """Persist an MSG91 delivery-status callback + fold it into the outbox row."""
+    """Persist an MSG91 delivery-status callback and fold it into whichever
+    ledger sent that message: the KET WhatsApp outbox or a face-scan invite.
+
+    Idempotent on (request id, status, provider timestamp): a redelivered
+    callback is acknowledged and stored once. Only the notification's delivery
+    columns change — a face-scan request's own lifecycle (status, expiry,
+    completion) is never touched by a delivery report, so a failed WhatsApp is
+    a failed notification and nothing more.
+
+    Returns True when the request id belongs to a message Optiwar sent.
+    """
     from .db import get_db
     db = get_db()
     cur = db.cursor()
     _ensure_ket_schema(cur)
+    status = (status or '').lower()
     cur.execute(
-        """SELECT event_id, ticket_ref, recipient, template_name
+        """SELECT id FROM msg91_delivery_events
+            WHERE msg91_request_id=%s AND status=%s AND COALESCE(provider_ts,'')=%s
+            LIMIT 1""",
+        (msg91_request_id, status, provider_ts or ''),
+    )
+    duplicate = cur.fetchone() is not None
+
+    cur.execute(
+        """SELECT event_id, ticket_ref, recipient, template_name, status
              FROM whatsapp_delivery_log WHERE msg91_request_id=%s""",
         (msg91_request_id,),
     )
     row = cur.fetchone()
+    invite = None
+    if not row:
+        try:
+            cur.execute(
+                """SELECT id, delivery_status FROM face_scan_invites
+                    WHERE delivery_ref=%s ORDER BY id DESC LIMIT 1""",
+                (msg91_request_id,),
+            )
+            invite = cur.fetchone()
+        except Exception:  # noqa: BLE001 - a site without face-scan invites
+            invite = None
+
+    if duplicate:
+        db.commit()
+        cur.close()
+        return bool(row or invite)
+
     event_id = row["event_id"] if row else ''
     ticket_ref = row["ticket_ref"] if row else ''
     recipient = row["recipient"] if row else ''
-    template_name = row["template_name"] if row else ''
+    template_name = row["template_name"] if row else (
+        'face_scan_request' if invite else '')
     cur.execute(
         """INSERT INTO msg91_delivery_events
              (msg91_request_id, event_id, ticket_ref, recipient, template_name,
@@ -1410,7 +1469,8 @@ def _store_delivery_event(msg91_request_id, status, failure_reason, provider_ts)
         (msg91_request_id, event_id, ticket_ref, recipient, template_name,
          status, failure_reason, provider_ts),
     )
-    if row and status in ('delivered', 'read', 'failed'):
+    if row and status in _DELIVERY_TERMINAL \
+            and delivery_transition_allowed(row.get("status"), status):
         cur.execute(
             """UPDATE whatsapp_delivery_log
                  SET status=%s,
@@ -1419,9 +1479,20 @@ def _store_delivery_event(msg91_request_id, status, failure_reason, provider_ts)
                WHERE msg91_request_id=%s""",
             (status, status, status, failure_reason, msg91_request_id),
         )
+    if invite and status in _DELIVERY_TERMINAL \
+            and delivery_transition_allowed(invite.get("delivery_status"), status):
+        cur.execute(
+            """UPDATE face_scan_invites
+                 SET delivery_status=%s,
+                     delivered_at=CASE WHEN %s IN ('delivered','read') THEN NOW() ELSE delivered_at END,
+                     delivery_error=CASE WHEN %s='failed' THEN %s ELSE delivery_error END
+               WHERE id=%s""",
+            (_FACE_SCAN_DELIVERY[status], status, status,
+             (failure_reason or 'provider_failed')[:160], int(invite["id"])),
+        )
     db.commit()
     cur.close()
-    return bool(row)
+    return bool(row or invite)
 
 
 @bp.route('/support/ticket_event', methods=['POST'])

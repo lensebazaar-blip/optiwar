@@ -68,6 +68,9 @@ USABLE = (ST_PENDING, ST_OPENED, ST_SCANNING)
 DL_NOT_SENT = "NOT_SENT"
 DL_SENT = "SENT"
 DL_FAILED = "FAILED"
+# Set only by the provider's delivery callback (crm.msg91_delivery_event).
+DL_DELIVERED = "DELIVERED"
+DL_READ = "READ"
 
 EV_CREATED = "face.scan_request.created"
 EV_SENT = "face.scan_request.sent"

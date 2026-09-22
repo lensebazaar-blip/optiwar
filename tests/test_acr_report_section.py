@@ -101,22 +101,54 @@ class TestInstrumentationCoverage(unittest.TestCase):
         self.assertEqual(acr_report_section._coverage({"a": None, "b": 1}, 0)[0], 1)
 
     def test_active_sessions_with_zero_started_is_a_contradiction(self):
-        """Today's production report: 24 active, 0 sessions, 0 conversations."""
+        """24 open-status rows active inside the window, 0 sessions, 0
+        conversations: the counters disagree."""
         msg = acr_report_section._telemetry_contradiction(
-            {"sessions_active": 24, "sessions_started": (0, 0, 0),
-             "conversations": 0})
+            {"sessions_open_status": {"total": 24, "stale": 0},
+             "sessions_started": (0, 0, 0), "legacy_ai_started": 0})
         self.assertIsNotNone(msg)
-        self.assertIn("24 active session(s)", msg)
+        self.assertIn("24 open-status session(s)", msg)
+
+    def test_stale_open_status_rows_are_not_a_contradiction(self):
+        """Production: 127 status='active' rows, 120 of them last active before
+        the window. Those are a retention question, not a telemetry gap."""
+        self.assertIsNone(acr_report_section._telemetry_contradiction(
+            {"sessions_open_status": {"total": 120, "stale": 120},
+             "sessions_started": (0, 0, 0), "legacy_ai_started": 0}))
 
     def test_genuinely_quiet_day_is_not_a_contradiction(self):
         self.assertIsNone(acr_report_section._telemetry_contradiction(
-            {"sessions_active": 0, "sessions_started": (0, 0, 0),
-             "conversations": 0}))
+            {"sessions_open_status": {"total": 0, "stale": 0},
+             "sessions_started": (0, 0, 0), "legacy_ai_started": 0}))
 
     def test_consistent_activity_is_not_a_contradiction(self):
         self.assertIsNone(acr_report_section._telemetry_contradiction(
-            {"sessions_active": 5, "sessions_started": (2, 1, 3),
-             "conversations": 4}))
+            {"sessions_open_status": {"total": 5, "stale": 0},
+             "sessions_started": (2, 1, 3), "legacy_ai_started": 4}))
+
+    def test_open_status_is_labelled_all_time_not_active_sessions(self):
+        out = acr_report_section.build()
+        self.assertIn("ALL TIME", out)
+        self.assertNotIn("active sessions", out)
+
+    def test_every_ai_count_is_rendered_with_its_source(self):
+        out = acr_report_section.build()
+        self.assertIn("EVERY COUNT WITH ITS SOURCE", out)
+        self.assertIn("ai_events.MODEL_CALL", out)
+        self.assertIn("chat_events.ai_started", out)
+        self.assertIn("ai_metrics.log", out)
+
+    def test_cost_is_never_estimated_from_a_guessed_price(self):
+        out = acr_report_section.build()
+        self.assertIn(acr_report_section.NA_COST, out)
+        self.assertNotIn("$", out)
+
+    def test_never_emitted_event_is_pending_not_zero(self):
+        s = acr_report_section
+        v = s.NotEmitted(s.NA_LEDGER)
+        self.assertFalse(s._is_live(v))
+        self.assertEqual(s._coverage({"a": v, "b": 3}, 0)[0], 1)
+        self.assertEqual(str(v), s.NA_LEDGER)
 
     def test_section_reports_its_coverage(self):
         out = acr_report_section.build()
