@@ -268,6 +268,17 @@ STAGE_RECOMMENDATION = "RECOMMENDATION"
 STAGE_NAVIGATION = "NAVIGATION"
 STAGE_SUPPORT = "SUPPORT"
 
+# Action types whose whole lifecycle (offer, confirmation, outcome, expiry) is
+# a support fact, not a navigation one.
+SUPPORT_ACTION_TYPES = frozenset({"FACE_SHOP_FOR", "FACE_DEFAULT",
+                                  "FACE_CART_LINE"})
+
+
+def action_stage(action_type):
+    """The journey stage every lifecycle event of an action type is recorded in."""
+    return (STAGE_SUPPORT if action_type in SUPPORT_ACTION_TYPES
+            else STAGE_NAVIGATION)
+
 # Purpose-specific consent scopes (never inferred; the caller passes the
 # effective scope for that event). VARCHAR(32) stores a single effective scope;
 # a structured multi-scope representation can be layered on later.
@@ -570,9 +581,11 @@ def log_event(db, event_type, session_id=None, action_id=None, journey_stage=Non
 def create_pending_action(db, session_id, action_type, target, source_message_id=None,
                           ttl_seconds=PENDING_TTL_SECONDS,
                           offer_event=EV_NAVIGATION_OFFERED,
-                          journey_stage=STAGE_NAVIGATION):
+                          journey_stage=STAGE_NAVIGATION,
+                          supersede_types=None):
     """Persist a pending action, replacing any earlier live one of the same type
-    for the session so a later confirmation resolves the latest offer.
+    (or of any type in ``supersede_types``) for the session so a later
+    confirmation resolves the latest offer.
 
     What happens to the earlier action depends on what the customer did with it:
 
@@ -594,10 +607,12 @@ def create_pending_action(db, session_id, action_type, target, source_message_id
         # A *confirmed* action is a different fact and is handled below, because
         # SUPERSEDED cannot express "the customer said yes and nothing happened"
         # and the row is unreachable afterwards.
+        types = tuple(dict.fromkeys((action_type,) + tuple(supersede_types or ())))
         cur.execute(
             """UPDATE ai_actions SET status='SUPERSEDED', resolved_at=NOW()
-               WHERE session_id=%s AND action_type=%s AND status='PENDING'""",
-            (session_id, action_type),
+               WHERE session_id=%%s AND status='PENDING' AND action_type IN (%s)"""
+            % ",".join(["%s"] * len(types)),
+            (session_id,) + types,
         )
         # Read the confirmations past their execution window before touching them.
         cur.execute(
@@ -621,7 +636,8 @@ def create_pending_action(db, session_id, action_type, target, source_message_id
                 (old,),
             )
             log_event(db, EV_ACTION_EXPIRED, session_id=session_id, action_id=old,
-                      action_type=action_type, journey_stage=STAGE_NAVIGATION,
+                      action_type=action_type,
+                      journey_stage=action_stage(action_type),
                       success=False, failure_code='confirmed_never_executed',
                       payload={'from_status': 'CONFIRMED', 'reason': 'superseded',
                                'superseded_by': action_id})
@@ -649,14 +665,24 @@ def create_pending_action(db, session_id, action_type, target, source_message_id
 def get_live_pending_action(db, session_id, action_type='NAVIGATE'):
     """Return the latest non-expired PENDING action of a type, or None.
     Best-effort: returns None if the table is unavailable."""
+    return get_live_pending_action_of(db, session_id, (action_type,))
+
+
+def get_live_pending_action_of(db, session_id, action_types):
+    """The newest non-expired PENDING action among ``action_types`` (with its
+    ``action_type``), or None."""
+    types = tuple(action_types or ())
+    if not types:
+        return None
     try:
         cur = db.cursor()
         cur.execute(
-            """SELECT action_id, target FROM ai_actions
-               WHERE session_id=%s AND action_type=%s AND status='PENDING'
+            """SELECT action_id, action_type, target FROM ai_actions
+               WHERE session_id=%%s AND status='PENDING' AND action_type IN (%s)
                  AND (expires_at IS NULL OR expires_at > NOW())
-               ORDER BY created_at DESC LIMIT 1""",
-            (session_id, action_type),
+               ORDER BY created_at DESC LIMIT 1"""
+            % ",".join(["%s"] * len(types)),
+            (session_id,) + types,
         )
         return cur.fetchone()
     except Exception:
@@ -668,7 +694,9 @@ def mark_action(db, action_id, status, result_code=None, duration_ms=None):
 
     For the PENDING->CONFIRMED edge this emits exactly one ACTION_CONFIRMED
     event (guarded by the WHERE status='PENDING' rowcount), so confirmation is
-    counted once regardless of which call site confirms the action."""
+    counted once regardless of which call site confirms the action, and it
+    returns True only for the caller whose UPDATE claimed the row: concurrent
+    confirmations of one action get exactly one True."""
     if not action_id:
         return False
     try:
@@ -679,18 +707,19 @@ def mark_action(db, action_id, status, result_code=None, duration_ms=None):
                    WHERE action_id=%s AND status='PENDING'""",
                 (action_id,),
             )
-            if cur.rowcount and cur.rowcount > 0:
-                cur.execute(
-                    "SELECT session_id, action_type FROM ai_actions WHERE action_id=%s",
-                    (action_id,),
-                )
-                r = cur.fetchone()
-                if r:
-                    sid = r['session_id'] if isinstance(r, dict) else r[0]
-                    at = r['action_type'] if isinstance(r, dict) else r[1]
-                    log_event(db, EV_ACTION_CONFIRMED, session_id=sid,
-                              action_id=action_id, action_type=at,
-                              journey_stage=STAGE_NAVIGATION)
+            if not (cur.rowcount and cur.rowcount > 0):
+                return False
+            cur.execute(
+                "SELECT session_id, action_type FROM ai_actions WHERE action_id=%s",
+                (action_id,),
+            )
+            r = cur.fetchone()
+            if r:
+                sid = r['session_id'] if isinstance(r, dict) else r[0]
+                at = r['action_type'] if isinstance(r, dict) else r[1]
+                log_event(db, EV_ACTION_CONFIRMED, session_id=sid,
+                          action_id=action_id, action_type=at,
+                          journey_stage=action_stage(at))
             return True
         cur.execute(
             """UPDATE ai_actions
@@ -1004,7 +1033,8 @@ def expire_due_actions(db, dry_run=True, limit=500):
                         else 'expired')
                 ok = log_event(db, EV_ACTION_EXPIRED, session_id=c['session_id'],
                                action_id=c['action_id'], action_type=c['action_type'],
-                               journey_stage=STAGE_NAVIGATION, success=False,
+                               journey_stage=action_stage(c['action_type']),
+                               success=False,
                                failure_code=code,
                                payload={'from_status': c['status']})
                 expired.append(c)

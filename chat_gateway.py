@@ -506,10 +506,15 @@ def _lens_context(page_url, is_india, customer_id, page_state=None):
 def _face_context(db, chat_session, page_url):
     """``{'customer_id', 'section'}`` for the signed-in customer of an account
     the face-assistant gate admits, else None. The customer is the browser's
-    Flask login, never the id the widget sent at chat start."""
+    Flask login, never the id the widget sent at chat start; and the browser
+    must own the chat session it names (signed owner cookie), so a pending face
+    action can only be read, offered or settled from the browser it was
+    offered in."""
     customer_id = flask_session.get('user_id')
     if not customer_id or not face_assistant.enabled_for(
             chat_session.get('contact_email')):
+        return None
+    if not _is_chat_owner(chat_session.get('session_id')):
         return None
     try:
         product = face_assistant.page_frame(db, page_url)
@@ -542,7 +547,13 @@ def _face_confirmation(db, session_id, face_ctx, user_message, page_url):
         acr.mark_action(db, action_id, face_assistant.ST_DECLINED)
         return 'Okay — nothing changed.', {'action_id': action_id,
                                           'type': action_type, 'ok': False}
-    acr.mark_action(db, action_id, 'CONFIRMED')
+    if not acr.mark_action(db, action_id, 'CONFIRMED'):
+        # Another request claimed it first, or it expired in between: the row
+        # is no longer ours to execute, and it is executed at most once.
+        return ('That request has already been settled — ask me again if you '
+                'still want it.',
+                {'action_id': action_id, 'type': action_type, 'ok': False,
+                 'code': 'already_settled'})
     cart = flask_session.get('cart') or []
     try:
         reply, cart_changed = face_assistant.execute(
@@ -585,7 +596,14 @@ def _face_offer(db, session_id, face_ctx, ai_reply, page_url):
         face_assistant.record_blocked(db, session_id, action_type, e.code,
                                       page_url=page_url)
         return (ai_reply.rstrip() + '\n\n' + e.message).strip()
-    face_assistant.offer(db, session_id, checked)
+    if not face_assistant.offer(db, session_id, checked):
+        current_app.logger.warning('[Chat] face offer not stored: %s',
+                                   checked['type'])
+        dev_defects.record('CHAT_FACE_OFFER_NOT_STORED', where=checked['type'],
+                           page=page_url)
+        return (ai_reply.rstrip() + "\n\nI can't make that change right now — "
+                "please try again in a moment, or use the selector on the "
+                "page.").strip()
     if '?' not in ai_reply:
         ai_reply = (ai_reply.rstrip() + '\n\nShall I %s? (yes/no)'
                     % checked['summary']).strip()

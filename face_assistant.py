@@ -335,19 +335,21 @@ def execute(db, customer_id, session, cart, action_type, target):
 # --------------------------------------------------------------------------
 
 def offer(db, session_id, checked):
-    """Record a checked proposal as the session's live PENDING face action."""
+    """Record a checked proposal as the session's one live PENDING face action:
+    an earlier face offer of any type is superseded, so a yes can only ever
+    answer the question asked last. Returns the action id, or None when
+    nothing was stored."""
     return acr.create_pending_action(
         db, session_id, checked["type"], checked["target"],
         ttl_seconds=PENDING_TTL_SECONDS, offer_event=acr.EV_FACE_ACTION_OFFERED,
-        journey_stage=acr.STAGE_SUPPORT)
+        journey_stage=acr.STAGE_SUPPORT, supersede_types=ACTION_TYPES)
 
 
 def live_pending(db, session_id):
-    """The latest live pending face action of any of the three types."""
-    for action_type in ACTION_TYPES:
-        row = acr.get_live_pending_action(db, session_id, action_type)
-        if row and row.get("target"):
-            return action_type, row
+    """The newest live pending face action of any of the three types."""
+    row = acr.get_live_pending_action_of(db, session_id, ACTION_TYPES)
+    if row and row.get("target"):
+        return row["action_type"], row
     return None, None
 
 

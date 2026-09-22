@@ -498,10 +498,15 @@ class GatewayFunctionalTests(unittest.TestCase):
         self.mother = self.fp.create_profile(self.db, C1, "Mother", "parent", consent=True)
         self.env = {"FACE_PROFILES_ENABLED": "1", "FACE_ASSISTANT_ENABLED": "1",
                     "FACE_PROFILES_ALLOW_EMAILS": "lensebazaar@gmail.com"}
-        self.chat = {"contact_email": "lensebazaar@gmail.com"}
+        self.chat = {"session_id": SID, "contact_email": "lensebazaar@gmail.com"}
 
-    def _ctx(self, user_id=C1):
-        ctx = self.app.test_request_context("/api/chat/message")
+    def _owner_cookie(self, session_id=SID):
+        with self.app.app_context():
+            return self.cg._chat_cookie_serializer().dumps(session_id)
+
+    def _ctx(self, user_id=C1, owner=True):
+        headers = {"Cookie": "ow_chat_token=%s" % self._owner_cookie()} if owner else {}
+        ctx = self.app.test_request_context("/api/chat/message", headers=headers)
         ctx.push()
         from flask import session
         if user_id:
@@ -534,6 +539,102 @@ class GatewayFunctionalTests(unittest.TestCase):
                          [("ACTION_BLOCKED", "not_enabled")])
         self.assertEqual(self.fa.live_pending(self.db, SID), (None, None))
 
+    def test_a_browser_that_does_not_own_the_chat_gets_no_face_context(self):
+        """A signed-in customer naming somebody else's chat session (no signed
+        owner cookie for it) can neither read faces nor settle that session's
+        pending face action."""
+        from unittest import mock
+        with mock.patch.dict(os.environ, self.env, clear=False):
+            ctx = self._ctx()
+            try:
+                face_ctx = self.cg._face_context(self.db, self.chat, "/cart")
+                self.cg._face_offer(self.db, SID, face_ctx,
+                                    "Ok? [ACTION:FACE_DEFAULT:%d]" % self.mother["id"], "/cart")
+            finally:
+                ctx.pop()
+            for headers in ({}, {"Cookie": "ow_chat_token=%s" % self._owner_cookie("chat_other")}):
+                ctx = self.app.test_request_context("/api/chat/message", headers=headers)
+                ctx.push()
+                try:
+                    from flask import session
+                    session["user_id"] = C1
+                    self.assertIsNone(self.cg._face_context(self.db, self.chat, "/cart"))
+                finally:
+                    ctx.pop()
+        cur = self.db.cursor()
+        cur.execute("SELECT status FROM ai_actions WHERE session_id=%s", (SID,))
+        self.assertEqual([r["status"] for r in cur.fetchall()], ["PENDING"])
+        self.assertFalse(self.fp.get_profile(self.db, C1, self.mother["id"])["is_default"])
+
+    def test_a_yes_answers_the_question_asked_last_whatever_its_type(self):
+        from unittest import mock
+        from flask import session
+        with mock.patch.dict(os.environ, self.env, clear=False):
+            ctx = self._ctx()
+            try:
+                face_ctx = self.cg._face_context(self.db, self.chat, "/cart")
+                self.cg._face_offer(self.db, SID, face_ctx,
+                                    "A? [ACTION:FACE_SHOP_FOR:%d]" % self.mother["id"], "/cart")
+                self.cg._face_offer(self.db, SID, face_ctx,
+                                    "B? [ACTION:FACE_DEFAULT:%d]" % self.mother["id"], "/cart")
+                action_type, _ = self.fa.live_pending(self.db, SID)
+                self.assertEqual(action_type, "FACE_DEFAULT")
+                reply, result = self.cg._face_confirmation(self.db, SID, face_ctx, "yes", "/cart")
+                self.assertTrue(result["ok"])
+                self.assertEqual(result["type"], "FACE_DEFAULT")
+                self.assertNotIn("face_shop_pid", session, "the older question was not answered")
+            finally:
+                ctx.pop()
+        self.assertTrue(self.fp.get_profile(self.db, C1, self.mother["id"])["is_default"])
+        cur = self.db.cursor()
+        cur.execute("SELECT action_type, status FROM ai_actions WHERE session_id=%s "
+                    "ORDER BY action_type", (SID,))
+        self.assertEqual([(r["action_type"], r["status"]) for r in cur.fetchall()],
+                         [("FACE_DEFAULT", "EXECUTED"), ("FACE_SHOP_FOR", "SUPERSEDED")])
+
+    def test_a_second_confirmation_of_the_same_row_does_not_execute_again(self):
+        """Two requests read the same pending row; only the one whose UPDATE
+        claimed it executes and records the outcome."""
+        from unittest import mock
+        with mock.patch.dict(os.environ, self.env, clear=False):
+            ctx = self._ctx()
+            try:
+                face_ctx = self.cg._face_context(self.db, self.chat, "/cart")
+                self.cg._face_offer(self.db, SID, face_ctx,
+                                    "Ok? [ACTION:FACE_DEFAULT:%d]" % self.mother["id"], "/cart")
+                _, pending = self.fa.live_pending(self.db, SID)
+                with mock.patch.object(self.fa, "live_pending",
+                                       return_value=("FACE_DEFAULT", pending)):
+                    r1 = self.cg._face_confirmation(self.db, SID, face_ctx, "yes", "/cart")
+                    r2 = self.cg._face_confirmation(self.db, SID, face_ctx, "yes", "/cart")
+            finally:
+                ctx.pop()
+        self.assertTrue(r1[1]["ok"])
+        self.assertFalse(r2[1]["ok"])
+        self.assertEqual(r2[1]["code"], "already_settled")
+        self.assertIn("already been settled", r2[0])
+        types = [e["event_type"] for e in self._events()]
+        self.assertEqual(types.count("ACTION_CONFIRMED"), 1)
+        self.assertEqual(types.count("ACTION_EXECUTED"), 1)
+
+    def test_an_offer_that_was_not_stored_is_not_asked(self):
+        from unittest import mock
+        with mock.patch.dict(os.environ, self.env, clear=False):
+            ctx = self._ctx()
+            try:
+                face_ctx = self.cg._face_context(self.db, self.chat, "/cart")
+                with mock.patch.object(self.fa, "offer", return_value=None), \
+                        mock.patch.object(self.cg.dev_defects, "record") as rec:
+                    reply = self.cg._face_offer(
+                        self.db, SID, face_ctx,
+                        "I can do that. [ACTION:FACE_DEFAULT:%d]" % self.mother["id"], "/cart")
+            finally:
+                ctx.pop()
+        self.assertNotIn("(yes/no)", reply)
+        self.assertIn("can't make that change right now", reply)
+        self.assertEqual(rec.call_args[0][0], "CHAT_FACE_OFFER_NOT_STORED")
+        self.assertEqual(self.fa.live_pending(self.db, SID), (None, None))
+
     def test_gated_account_is_offered_then_a_yes_executes(self):
         from unittest import mock
         from flask import session
@@ -564,6 +665,10 @@ class GatewayFunctionalTests(unittest.TestCase):
                 ctx.pop()
         self.assertEqual(sorted(e["event_type"] for e in self._events()),
                          ["ACTION_CONFIRMED", "ACTION_EXECUTED", "FACE_ACTION_OFFERED"])
+        cur = self.db.cursor()
+        cur.execute("SELECT DISTINCT journey_stage FROM ai_events WHERE session_id=%s", (SID,))
+        self.assertEqual([r["journey_stage"] for r in cur.fetchall()], ["SUPPORT"],
+                         "the whole face lifecycle is a support fact, never navigation")
 
     def test_a_no_declines_and_a_strangers_id_is_blocked_with_a_reason(self):
         from unittest import mock
