@@ -11,7 +11,7 @@ import re
 from datetime import datetime, timedelta
 
 from flask import (Blueprint, request, jsonify, current_app, make_response, g,
-                   render_template, Response)
+                   render_template, Response, session as flask_session)
 from itsdangerous import URLSafeSerializer, BadSignature
 from openai import OpenAI
 from . import acr
@@ -19,6 +19,7 @@ from . import catalogue
 from . import chat_attachments
 from . import chat_vision
 from . import dev_defects
+from . import face_assistant
 from . import face_scan_invites
 from . import lens_config
 from . import lens_prompt
@@ -500,6 +501,95 @@ def _lens_context(page_url, is_india, customer_id, page_state=None):
         row, summary, minimums=mins, eyes_state=eyes_state,
         saved_count=saved_count)
     return row, shape, mins, section
+
+
+def _face_context(db, chat_session, page_url):
+    """``{'customer_id', 'section'}`` for the signed-in customer of an account
+    the face-assistant gate admits, else None. The customer is the browser's
+    Flask login, never the id the widget sent at chat start."""
+    customer_id = flask_session.get('user_id')
+    if not customer_id or not face_assistant.enabled_for(
+            chat_session.get('contact_email')):
+        return None
+    try:
+        product = face_assistant.page_frame(db, page_url)
+        model = face_assistant.read_model(
+            db, customer_id, flask_session, flask_session.get('cart') or [],
+            product)
+    except Exception as e:
+        current_app.logger.warning('[Chat] face context unavailable: %s', e)
+        dev_defects.record('CHAT_FACE_CONTEXT_UNAVAILABLE',
+                           where=type(e).__name__, page=page_url)
+        return None
+    return {'customer_id': customer_id,
+            'section': face_assistant.prompt_section(model)}
+
+
+def _face_confirmation(db, session_id, face_ctx, user_message, page_url):
+    """A yes/no answering a pending face action is settled by the server: the
+    action is executed (or declined) and recorded, and the reply states what
+    happened. Returns ``(reply, result)`` or ``(None, None)`` when this turn is
+    not that."""
+    confirmed = acr.is_confirmation(user_message)
+    declined = face_assistant.is_decline(user_message)
+    if not (confirmed or declined):
+        return None, None
+    action_type, pending = face_assistant.live_pending(db, session_id)
+    if not pending:
+        return None, None
+    action_id = pending['action_id']
+    if declined:
+        acr.mark_action(db, action_id, face_assistant.ST_DECLINED)
+        return 'Okay — nothing changed.', {'action_id': action_id,
+                                          'type': action_type, 'ok': False}
+    acr.mark_action(db, action_id, 'CONFIRMED')
+    cart = flask_session.get('cart') or []
+    try:
+        reply, cart_changed = face_assistant.execute(
+            db, face_ctx['customer_id'], flask_session, cart, action_type,
+            pending['target'])
+    except face_assistant.FaceActionError as e:
+        face_assistant.record_outcome(db, session_id, action_id, action_type,
+                                      False, code=e.code, page_url=page_url)
+        return ("Sorry — I couldn't do that: %s" % e.message,
+                {'action_id': action_id, 'type': action_type, 'ok': False,
+                 'code': e.code})
+    if cart_changed:
+        from .cart_persist import save_cart_to_db
+        flask_session['cart'] = cart
+        flask_session.modified = True
+        save_cart_to_db()
+    face_assistant.record_outcome(db, session_id, action_id, action_type, True,
+                                  page_url=page_url)
+    return reply, {'action_id': action_id, 'type': action_type, 'ok': True,
+                   'reload': True}
+
+
+def _face_offer(db, session_id, face_ctx, ai_reply, page_url):
+    """Strip the model's face tag; when the gate admits the account and the
+    target is the customer's own, record a PENDING action and make sure the
+    reply asks. Anything else is BLOCKED and the reply says why."""
+    ai_reply, offer = face_assistant.extract(ai_reply)
+    if offer is None:
+        return ai_reply
+    action_type, target = offer
+    if face_ctx is None:
+        face_assistant.record_blocked(db, session_id, action_type, 'not_enabled',
+                                      page_url=page_url)
+        return ai_reply
+    try:
+        checked = face_assistant.describe(
+            db, face_ctx['customer_id'], flask_session.get('cart') or [],
+            action_type, target)
+    except face_assistant.FaceActionError as e:
+        face_assistant.record_blocked(db, session_id, action_type, e.code,
+                                      page_url=page_url)
+        return (ai_reply.rstrip() + '\n\n' + e.message).strip()
+    face_assistant.offer(db, session_id, checked)
+    if '?' not in ai_reply:
+        ai_reply = (ai_reply.rstrip() + '\n\nShall I %s? (yes/no)'
+                    % checked['summary']).strip()
+    return ai_reply
 
 
 def _park_lens_proposal(reply, lens, shape, minimums):
@@ -2059,11 +2149,18 @@ def chat_message():
         page_url, is_india, customer_id, data.get('page_state'))
     photo_section = _photo_context(db, session_id)
     face_section = face_scan_invites.assistant_prompt_section(session.get('contact_email'))
+    face_ctx = _face_context(db, session, page_url)
+    faces_section = face_ctx['section'] if face_ctx else ''
     system_prompt = _build_system_prompt(
         contact_name, is_india, content, customer_id=customer_id,
-        extra_sections=tuple(s for s in (lens_section, photo_section, face_section) if s))
+        extra_sections=tuple(s for s in (lens_section, photo_section, face_section,
+                                         faces_section) if s))
     history = _get_conversation_history(db, session_id)
     ai_reply = _confirmed_ask_reply(history, content, contact_name)
+    face_result = None
+    if ai_reply is None and face_ctx:
+        ai_reply, face_result = _face_confirmation(db, session_id, face_ctx,
+                                                   content, page_url)
     error = None
     if ai_reply is None:
         # Backstop: unexecuted tool markup is a failed turn, never a reply.
@@ -2150,6 +2247,7 @@ def chat_message():
 
     # Clean AI reply (handle action tags)
     ai_reply, actions, navigate_url = _clean_ai_reply(ai_reply)
+    ai_reply = _face_offer(db, session_id, face_ctx, ai_reply, page_url)
 
     # Deterministic product navigation: override the model's freelanced link
     # with the matched product's canonical catalog URL when applicable.
@@ -2183,7 +2281,8 @@ def chat_message():
         # is NOT itself a supervisor handover / ticket confirmation — otherwise a
         # "yes" answering "connect you to my supervisor? Yes or No" would be
         # hijacked into a stale redirect.
-        _confirm_is_navigational = not ({'human_handover', 'create_ticket'} & set(actions))
+        _confirm_is_navigational = (face_result is None and
+                                    not ({'human_handover', 'create_ticket'} & set(actions)))
         if not navigate_url and _confirm_is_navigational and acr.is_confirmation(content):
             pending = acr.get_live_pending_action(db, session_id, 'NAVIGATE')
             if pending and pending.get('target'):
@@ -2286,6 +2385,8 @@ def chat_message():
         resp['navigate_url'] = navigate_url
     if acr_action:
         resp['action'] = acr_action
+    if face_result is not None:
+        resp['face_action'] = face_result
     if lens_proposal is not None:
         resp['lens_rx_proposal'] = lens_proposal
     return jsonify(resp)

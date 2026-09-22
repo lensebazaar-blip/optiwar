@@ -557,6 +557,9 @@
           window.location.reload();
         }, 2500);
       }
+      if (data.face_action && data.face_action.ok && data.face_action.reload && !data.navigate_url) {
+        setTimeout(function() { window.location.reload(); }, 1500);
+      }
       if (data.navigate_url) {
         var acrAction = data.action && data.action.action_id ? data.action : null;
         // ACR A1: stash the action across the navigation instead of reporting
