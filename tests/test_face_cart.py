@@ -72,6 +72,17 @@ class LineRuleTests(unittest.TestCase):
         legacy = {"product_id": 5, "product_category": "Contact Lenses", "right_qty": 2}
         self.assertFalse(self.fc.is_frame_line(legacy))
 
+    def test_a_catalogue_lens_with_no_category_is_not_a_frame_line(self):
+        """CL-PRECISION1 as production stores it: vertical CONTACT_LENS,
+        product_category NULL. It logged 32 not-matched frame views."""
+        cl = {"product_id": 7, "product_code": "CL-PRECISION1",
+              "product_category": None, "vertical": "CONTACT_LENS",
+              "product_size": None}
+        self.assertFalse(self.fc.is_frame_line(cl))
+        self.assertFalse(self.fc.is_frame_line(dict(cl, product_code="PRECISION1")))
+        self.assertTrue(self.fc.is_frame_line(
+            {"product_code": "CL-X", "product_category": "Spectacles Frame"}))
+
     def test_only_a_spectacle_frame_is_a_frame_line(self):
         for cat in ("Hearing Aids", "category_not_defined", None, ""):
             item = _frame_line(2, "B")

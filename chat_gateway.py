@@ -145,6 +145,31 @@ def _get_db():
     )
 
 
+def _log_journey_stage(db, session_id, page_url):
+    """Record which commerce funnel stage the chatting browser is on, when the
+    page is one (product, listing, checkout, order success). Path only."""
+    stage = acr.funnel_stage_for_url(page_url)
+    if not stage:
+        return
+    clean_url = acr.sanitize_url_for_event(page_url)
+    try:
+        cur = db.cursor()
+        cur.execute(
+            """SELECT journey_stage, page_url FROM ai_events
+               WHERE session_id = %s AND event_type = %s
+               ORDER BY created_at DESC LIMIT 1""",
+            (session_id, acr.EV_JOURNEY_STAGE))
+        last = cur.fetchone()
+        cur.close()
+    except Exception:
+        last = None
+    if last and last['journey_stage'] == stage and last['page_url'] == clean_url:
+        return
+    acr.log_event(db, acr.EV_JOURNEY_STAGE, session_id=session_id,
+                  journey_stage=stage, page_url=page_url,
+                  consent_scope=acr.CONSENT_FUNCTIONAL)
+
+
 def _log_event(db, session_id, event_type, payload=None):
     """Insert a chat_events row."""
     cur = db.cursor()
@@ -1348,6 +1373,7 @@ def chat_attachment_upload():
         (session_id,))
     session = cur.fetchone()
     if not session:
+        acr.log_event(db, acr.EV_SESSION_NOT_FOUND, payload={'route': 'attachment'})
         db.close()
         return jsonify({'error': {'code': 'SESSION_NOT_FOUND', 'message': 'session not found'}}), 404
     if session['status'] == 'archived':
@@ -2037,6 +2063,12 @@ def chat_start():
             (page_url, session_id)
         )
         _log_event(db, session_id, 'session_resumed', {'page_url': page_url})
+        acr.log_event(db, acr.EV_SESSION_RESUMED, session_id=session_id,
+                      page_url=page_url, consent_scope=acr.CONSENT_FUNCTIONAL,
+                      payload={'authenticated': bool(customer_id),
+                               'prior_status': existing['status']})
+        _log_journey_stage(db, session_id, page_url)
+        db.close()
         resp = make_response(jsonify({
             'session_id': session_id,
             'status': existing['status'],
@@ -2060,6 +2092,7 @@ def chat_start():
                   journey_stage=acr.STAGE_LANDING, page_url=page_url,
                   consent_scope=acr.CONSENT_FUNCTIONAL,
                   payload={'authenticated': bool(customer_id)})
+    _log_journey_stage(db, session_id, page_url)
 
     # Send welcome message
     welcome = f"Hi {name or 'there'}, I am here to help \u2013 ask me anything you need"
@@ -2109,8 +2142,11 @@ def chat_message():
     )
     session = cur.fetchone()
     if not session:
+        acr.log_event(db, acr.EV_SESSION_NOT_FOUND, page_url=page_url,
+                      payload={'route': 'message'})
         db.close()
         return jsonify({'error': 'session not found'}), 404
+    _log_journey_stage(db, session_id, page_url)
     if session['status'] == 'human_open':
         # Human agent has taken over — store message, AI stays silent
         customer_msg_id = _insert_message(db, session_id, 'customer', 'user', content)
@@ -2499,6 +2535,7 @@ def chat_messages(session_id):
     cur.execute("SELECT session_id, status FROM chat_sessions WHERE session_id = %s", (session_id,))
     session = cur.fetchone()
     if not session:
+        acr.log_event(db, acr.EV_SESSION_NOT_FOUND, payload={'route': 'messages'})
         db.close()
         return jsonify({'error': 'session not found'}), 404
 
@@ -2737,6 +2774,7 @@ def chat_resolve():
         (session_id,)
     )
     if not cur.fetchone():
+        acr.log_event(db, acr.EV_SESSION_NOT_FOUND, payload={'route': 'resolve'})
         db.close()
         return jsonify({'error': 'session not found'}), 404
     cur.execute(

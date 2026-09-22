@@ -1878,7 +1878,7 @@ def product_page(category, product_slug):
             face_match_status = 'no_person'
         if face_fit_result.get('measurements'):
             face_meas_data = dict(face_fit_result['measurements'])
-    elif 'user_id' in session:
+    elif not lens and 'user_id' in session:
         try:
             _uid = session['user_id']
             cursor2 = db.cursor()
@@ -1901,8 +1901,10 @@ def product_page(category, product_slug):
         except Exception:
             pass
 
-    # Log face demand (matched/not_matched) for stocking intelligence
-    if face_match_status in ('matched', 'not_matched') and 'user_id' in session:
+    # Log face demand (matched/not_matched) for stocking intelligence. Only a
+    # spectacle frame has a face fit, so only a frame is demand a face explains.
+    if (face_match_status in ('matched', 'not_matched') and 'user_id' in session
+            and face_cart.is_frame_line(product)):
         try:
             _site = 'in.optiwar.com' if _req_is_india() else 'optiwar.com'
             cursor3 = db.cursor()

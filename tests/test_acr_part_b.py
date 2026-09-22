@@ -113,6 +113,40 @@ class LogEventColumnFallbackTests(unittest.TestCase):
         acr.log_event(BoomDB(), acr.EV_MODEL_TIMEOUT, session_id="s")
 
 
+class FunnelStageTests(unittest.TestCase):
+    """The commerce funnel stage is read off the page path only."""
+
+    def test_product_checkout_and_success_pages(self):
+        self.assertEqual(acr.funnel_stage_for_url(
+            "https://optiwar.com/categories/eyeglasses/am29-frame"), acr.STAGE_PRODUCT)
+        self.assertEqual(acr.funnel_stage_for_url(
+            "https://optiwar.com/lenses/precision1/"), acr.STAGE_PRODUCT)
+        self.assertEqual(acr.funnel_stage_for_url(
+            "https://optiwar.com/checkout?step=2"), acr.STAGE_CHECKOUT)
+        self.assertEqual(acr.funnel_stage_for_url(
+            "https://in.optiwar.com/success/ORD1?token=x"), acr.STAGE_PURCHASE)
+
+    def test_listing_pages(self):
+        for u in ("https://optiwar.com/eyeglasses", "https://optiwar.com/categories/",
+                  "https://optiwar.com/search?q=round", "https://optiwar.com/lenses"):
+            self.assertEqual(acr.funnel_stage_for_url(u), acr.STAGE_LISTING, u)
+
+    def test_pages_outside_the_funnel_have_no_stage(self):
+        for u in ("", None, "https://optiwar.com/", "https://optiwar.com/profile/?tab=faces",
+                  "https://optiwar.com/support", "not a url"):
+            self.assertIsNone(acr.funnel_stage_for_url(u), u)
+
+    def test_query_string_never_decides_the_stage(self):
+        self.assertIsNone(acr.funnel_stage_for_url(
+            "https://optiwar.com/profile/?next=/checkout"))
+
+    def test_new_events_are_in_the_vocabulary(self):
+        self.assertEqual(acr.EV_SESSION_RESUMED, "SESSION_RESUMED")
+        self.assertEqual(acr.EV_SESSION_NOT_FOUND, "SESSION_NOT_FOUND")
+        self.assertEqual(acr.EV_JOURNEY_STAGE, "JOURNEY_STAGE")
+        self.assertEqual(acr.FUNNEL_STAGES, ("LISTING", "PRODUCT", "CHECKOUT", "PURCHASE"))
+
+
 class VocabularyTests(unittest.TestCase):
     def test_all_nineteen_event_types_present(self):
         expected = {

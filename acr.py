@@ -221,7 +221,14 @@ def decide_session_outcome(is_escalated=TRUTH_FALSE, is_failed=TRUTH_FALSE,
 # read-side alias for historical rows until one clean observation window has
 # passed (then the alias is retired). Never dual-write both names.
 EV_SESSION_STARTED = "SESSION_STARTED"
-EV_SESSION_RESUMED = "SESSION_RESUMED"           # reserved (not emitted yet)
+EV_SESSION_RESUMED = "SESSION_RESUMED"
+# A browser named a session the gateway does not have (or no longer owns):
+# expired, archived, or a stale cookie. Counted so a rise in rebinds is seen.
+EV_SESSION_NOT_FOUND = "SESSION_NOT_FOUND"
+# The page a live session's browser is on, classified into a commerce funnel
+# stage (journey_stage = PRODUCT / CHECKOUT / PURCHASE ...). One row per
+# (session, page load); the report counts distinct sessions per stage.
+EV_JOURNEY_STAGE = "JOURNEY_STAGE"
 EV_RECOMMENDATION_GENERATED = "RECOMMENDATION_GENERATED"
 EV_NAVIGATION_OFFERED = "NAVIGATION_OFFERED"
 EV_ACTION_CONFIRMED = "ACTION_CONFIRMED"
@@ -272,6 +279,45 @@ STAGE_LANDING = "LANDING"
 STAGE_RECOMMENDATION = "RECOMMENDATION"
 STAGE_NAVIGATION = "NAVIGATION"
 STAGE_SUPPORT = "SUPPORT"
+# Commerce funnel stages, read off the page a chatting browser is on. The cart
+# is shown on /checkout, so "cart" and "checkout" are one page here and are
+# reported as one stage; payment happens inside that page (gateway modal) and
+# is therefore not a page stage at all — it is read from the order.
+STAGE_PRODUCT = "PRODUCT"
+STAGE_CHECKOUT = "CHECKOUT"
+STAGE_PURCHASE = "PURCHASE"
+STAGE_LISTING = "LISTING"
+FUNNEL_STAGES = (STAGE_LISTING, STAGE_PRODUCT, STAGE_CHECKOUT, STAGE_PURCHASE)
+
+_LISTING_PREFIXES = ("/eyeglasses", "/categories", "/lenses", "/contact_lenses",
+                     "/search")
+
+
+def funnel_stage_for_url(url):
+    """Funnel stage of a page URL, or None when the page is not part of the
+    commerce funnel (home, profile, support ...). Path only; the query string
+    is never read."""
+    if not url:
+        return None
+    try:
+        from urllib.parse import urlsplit
+        path = urlsplit(str(url)).path or "/"
+    except Exception:
+        return None
+    path = path.rstrip("/") or "/"
+    parts = [p for p in path.split("/") if p]
+    if not parts:
+        return None
+    head = "/" + parts[0]
+    if head == "/success":
+        return STAGE_PURCHASE
+    if head == "/checkout":
+        return STAGE_CHECKOUT
+    if head in ("/categories", "/lenses", "/contact_lenses") and len(parts) >= 2:
+        return STAGE_PRODUCT
+    if head in _LISTING_PREFIXES:
+        return STAGE_LISTING
+    return None
 
 # Action types whose whole lifecycle (offer, confirmation, outcome, expiry) is
 # a support fact, not a navigation one.
