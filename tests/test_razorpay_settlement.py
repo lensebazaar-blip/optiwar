@@ -755,5 +755,32 @@ class ResolveReferenceTest(unittest.TestCase):
         self.assertEqual({'optiwar_order_id': 'BSNICP-523998', 'host': 'optiwar.in'}, notes)
 
 
+class SettleCallersTest(unittest.TestCase):
+    """models.py cannot be imported without Flask + MySQL; read its two
+    settle() call sites as text and require that every outcome settle()
+    can return is branched on before the caller reads settled['paid']."""
+
+    def setUp(self):
+        with open(os.path.join(REPO, 'models.py')) as fh:
+            self.src = fh.read()
+
+    def _branch_before_paid(self, start_marker):
+        start = self.src.index(start_marker)
+        return self.src[start:self.src.index("['paid']", start)]
+
+    def test_webhook_handles_every_non_applied_outcome_before_reading_paid(self):
+        body = self._branch_before_paid("source='razorpay-webhook'")
+        for name in ('NOT_CAPTURED', 'UNKNOWN_ORDER', 'AMOUNT_MISMATCH',
+                     'CURRENCY_MISMATCH', 'DUPLICATE', 'ALREADY_BOUND'):
+            self.assertIn('outcome == %s' % name, body, name)
+
+    def test_browser_callback_refuses_a_bound_payment(self):
+        body = self._branch_before_paid("event='browser_callback'")
+        refused = body[:body.index('Payment verification failed')]
+        for name in ('UNKNOWN_ORDER', 'AMOUNT_MISMATCH', 'CURRENCY_MISMATCH',
+                     'ALREADY_BOUND'):
+            self.assertIn(name, refused, name)
+
+
 if __name__ == "__main__":
     unittest.main()
