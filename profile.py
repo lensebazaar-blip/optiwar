@@ -2,7 +2,8 @@ from flask import Blueprint, render_template, request, redirect, url_for, sessio
 from .db import get_db
 from .auth import login_required
 from .rx_powers import normalize_rows
-from .customer_orders import ORDER_LINES_SQL, customer_orders
+from .customer_orders import ORDER_LINES_SQL, customer_orders, attach_reship
+from . import reship
 from . import face_profiles, face_profiles_api, face_scan_groups, face_scan_invites_api
 
 bp = Blueprint('profile', __name__, url_prefix='/profile')
@@ -83,10 +84,18 @@ def profile_page():
 
     normalize_rows(orders)
     grouped_orders = customer_orders(orders)[:30]
+    cust_id = customer['customer_id'] if customer else user_id
+    reship_rows = {}
+    if grouped_orders and cust_id and reship.enabled() and reship.is_india_host(request.host):
+        try:
+            reship.ensure_schema(db)
+            reship_rows = reship.for_customer(db, cust_id)
+        except Exception:  # noqa: BLE001 - the order list must still render
+            reship_rows = {}
+    attach_reship(grouped_orders, reship_rows, request.host)
 
     # Get face measurement data
     face_data = None
-    cust_id = customer['customer_id'] if customer else user_id
     if cust_id:
         cursor.execute(
             "SELECT pd_far, pd_near, face_width, eye_mouth, "

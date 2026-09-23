@@ -199,6 +199,13 @@ def settle(db, order_id, payment, site, source, method='', event='', logger=None
         log('error', 'RAZORPAY_UNKNOWN_ORDER')
         return out
 
+    if _is_reship_fee(payment, cursor):
+        # A ₹250 reshipping charge is its own ledger (reship.py); it never
+        # settles merchandise, whatever order its receipt might resolve to.
+        out['outcome'] = ALREADY_BOUND
+        log('error', 'RAZORPAY_PAYMENT_ALREADY_BOUND', ' bound_to:reship-fee')
+        return out
+
     owner = payment_owner(cursor, payment_id)
     if owner and owner != order_id:
         out['outcome'] = ALREADY_BOUND
@@ -258,7 +265,35 @@ def payment_owner(cursor, payment_id):
         "SELECT order_id FROM payment_collector "
         "WHERE payment_ref=%s AND status='TXN_SUCCESS' LIMIT 1", (payment_id,))
     row = cursor.fetchone()
-    return ((row or {}).get('order_id') or '').strip()
+    owner = ((row or {}).get('order_id') or '').strip()
+    if owner:
+        return owner
+    try:
+        cursor.execute("SELECT reship_uuid FROM order_reshipments "
+                       "WHERE razorpay_payment_id=%s LIMIT 1", (payment_id,))
+        row = cursor.fetchone()
+    except Exception:  # noqa: BLE001 - reship ledger not created yet
+        row = None
+    ruuid = ((row or {}).get('reship_uuid') or '').strip()
+    return ('reship:' + ruuid) if ruuid else ''
+
+
+def _is_reship_fee(payment, cursor=None):
+    """A payment against a reship's dedicated Razorpay order, or one whose
+    notes say so. Payment notes are what the checkout sent, so the order id
+    stored by ``reship.begin_payment`` is the authority."""
+    notes = (payment or {}).get('notes') or {}
+    if isinstance(notes, dict) and notes.get('purpose') == 'RESHIPMENT':
+        return True
+    rzp_order = ((payment or {}).get('order_id') or '').strip()
+    if not rzp_order or cursor is None:
+        return False
+    try:
+        cursor.execute("SELECT 1 AS hit FROM order_reshipments WHERE razorpay_order_id=%s LIMIT 1",
+                       (rzp_order,))
+        return cursor.fetchone() is not None
+    except Exception:  # noqa: BLE001 - table not deployed yet
+        return False
 
 
 def _acceptance(cursor, order_id, logger=None):

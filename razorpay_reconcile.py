@@ -105,6 +105,30 @@ def main():
             min_age_minutes=MIN_AGE_MINUTES, max_age_hours=MAX_AGE_HOURS,
             now_ts=int(time.time()), on_settled=on_settled, mode=mode)
 
+    # Reshipping charges (optiwar.in): a captured ₹250 whose callback never
+    # arrived is settled here through reship.settle_payment, and the courier's
+    # "Returned" rows get their one return_started notice. Never merchandise.
+    reship_summary = {}
+    try:
+        from flaskr import reship, reship_api
+        with app.test_request_context(base_url='https://optiwar.in/'):
+            db = get_db()
+            reship.ensure_schema(db)
+            pending = reship.reconcile_pending_payments(db, order_payments, logger=app.logger,
+                                                        max_age_hours=MAX_AGE_HOURS)
+            for ruuid in pending['settled']:
+                row = reship.by_uuid(db, ruuid)
+                reship_api._notify(db, reship.EV_PAYMENT_COMPLETED, row,
+                                   row.get('site_from') or 'optiwar.in')
+            sweep = reship.sweep_return_started(db)
+        reship_summary = {'checked': pending['checked'], 'settled': len(pending['settled']),
+                          'refused': pending['refused'], 'unavailable': pending['unavailable'],
+                          'return_started_notified': sweep.get('notified', 0)}
+    except Exception as exc:  # noqa: BLE001 - must never stop the order reconcile
+        app.logger.error('RESHIP_RECONCILE_FAILED %s' % exc)
+        reship_summary = {'error': str(exc)[:160]}
+    summary['reship'] = reship_summary
+
     summary['mode'] = mode
     text = summary_json(summary, started)
     try:
@@ -125,6 +149,11 @@ def main():
               % (e['order_id'], e['payment_id'], e['reason']))
     for u in summary['unavailable_orders']:
         print('unavailable order=%s reason=%s (retried next run)' % (u['order_id'], u['reason']))
+    if reship_summary.get('checked') or reship_summary.get('return_started_notified') \
+            or reship_summary.get('error'):
+        print('reship: %s' % json.dumps(reship_summary, default=str))
+    for r in reship_summary.get('refused') or []:
+        alert('RESHIP_PAYMENT_REFUSED reship=%s reason=%s' % (r['reship_uuid'], r['outcome']))
     if summary['over_grace']:
         alert('PAYMENT_INVARIANT_RED %d order(s) captured at Razorpay but Pending '
               'locally beyond %d min: %s'

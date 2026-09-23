@@ -755,6 +755,17 @@
     .oh-act{display:inline-flex;align-items:center;gap:6px;padding:10px 16px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;border:none;transition:.2s;font-family:inherit;}
     .oh-act:active{transform:scale(0.97);}
     .oh-act--view{background:#eef2ff;color:#4f46e5;flex:1;justify-content:center;}
+    .oh-reship{margin:14px 0 0;padding:14px 16px;border-radius:12px;border:1px solid #fde68a;background:#fffbeb;}
+    .oh-reship--paid,.oh-reship--shipped{border-color:#a7f3d0;background:#ecfdf5;}
+    .oh-reship-kicker{display:block;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#92400e;margin-bottom:4px;}
+    .oh-reship--paid .oh-reship-kicker,.oh-reship--shipped .oh-reship-kicker{color:#065f46;}
+    .oh-reship-title{font-size:15px;font-weight:700;color:#0f172a;margin:0 0 6px;}
+    .oh-reship p{margin:0 0 6px;font-size:13px;color:#334155;line-height:1.5;}
+    .oh-reship-fee{font-weight:700;color:#0f172a;}
+    .oh-reship-awb{font-family:ui-monospace,monospace;font-size:13px;color:#0f172a;}
+    .oh-reship-btn{display:inline-flex;align-items:center;justify-content:center;margin-top:8px;padding:10px 18px;border-radius:10px;border:none;background:#4f46e5;color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
+    .oh-reship-btn[disabled]{opacity:.6;cursor:wait;}
+    .oh-reship-err{color:#b91c1c;font-size:12px;margin-top:6px;}
     .oh-act--view:hover{background:#e0e7ff;}
     .oh-act--support{background:#fff;color:#64748b;border:1.5px solid #e2e8f0;flex:1;justify-content:center;}
     .oh-act--support:hover{background:#f8fafc;border-color:#cbd5e1;}
@@ -901,6 +912,42 @@
                 <span class="oh-pay-val oh-pay-val--green">{% if is_india %}Rs{% else %}&euro;{% endif %} {{ order.grand_total|int }}</span>
               </div>
             </div>
+
+            {% if order.reship %}
+            {% set rs = order.reship %}
+            {% if rs.state == 'RETURNING_TO_OPS' %}
+            <div class="oh-reship" data-reship-order="{{ order.order_id }}">
+              <span class="oh-reship-kicker">Order status</span>
+              <div class="oh-reship-title">Returning to Optiwar</div>
+              <p>Your delivery could not be completed and the package is currently being returned to us.</p>
+              <p>You can reschedule delivery once it reaches Optiwar.</p>
+            </div>
+            {% elif rs.state == 'RETURNED_TO_OPS' %}
+            <div class="oh-reship" data-reship-order="{{ order.order_id }}" data-reship-uuid="{{ rs.reship_uuid }}">
+              <span class="oh-reship-kicker">Order status</span>
+              <div class="oh-reship-title">Returned to Optiwar</div>
+              <p>Your package has reached us.<br>You can have this order shipped again for:</p>
+              <p class="oh-reship-fee">Rs {{ rs.fee }} reshipping charge</p>
+              {% if rs.can_pay %}
+              <button type="button" class="oh-reship-btn" onclick="event.stopPropagation();owReshipPay(this)">Reship for Rs {{ rs.fee }}</button>
+              <div class="oh-reship-err" hidden></div>
+              {% endif %}
+            </div>
+            {% elif rs.state == 'RESHIP_PAID' %}
+            <div class="oh-reship oh-reship--paid" data-reship-order="{{ order.order_id }}">
+              <span class="oh-reship-kicker">Reshipment paid</span>
+              <div class="oh-reship-title">&#10003; Reshipment paid</div>
+              <p class="oh-reship-fee">Rs {{ rs.fee }} paid{% if rs.paid_at %} on {{ rs.paid_at.strftime('%d %b %Y') }}{% endif %}</p>
+              <p>We are preparing your package for dispatch.<br>You will receive the new tracking details once it is dispatched.</p>
+            </div>
+            {% elif rs.state == 'RESHIPPED' %}
+            <div class="oh-reship oh-reship--shipped" data-reship-order="{{ order.order_id }}">
+              <span class="oh-reship-kicker">Reshipped</span>
+              <div class="oh-reship-title">&#10003; Reshipped</div>
+              <p>{{ rs.new_courier }}<br><span class="oh-reship-awb">AWB {{ rs.new_awb }}</span></p>
+            </div>
+            {% endif %}
+            {% endif %}
 
             <!-- Action buttons -->
             <div class="oh-actions">
@@ -2064,6 +2111,53 @@ if (window.location.hash) {
   }
 })();
 
+</script>
+<script>
+(function(){
+  // Reship for Rs 250: the server names the amount, currency and Razorpay
+  // order; the browser sends only the reship id and Razorpay's signed ids
+  // back. The card is re-rendered from server state after verification.
+  function loadRzp(cb){
+    if (window.Razorpay) return cb();
+    var s=document.createElement('script');s.src='https://checkout.razorpay.com/v1/checkout.js';
+    s.onload=function(){cb();};s.onerror=function(){cb(new Error('checkout unavailable'));};document.head.appendChild(s);
+  }
+  function post(url, body){
+    return fetch(url,{method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})})
+      .then(function(r){return r.json().then(function(j){j.__status=r.status;return j;});});
+  }
+  window.owReshipPay = function(btn){
+    var card=btn.closest('.oh-reship'), uuid=card.getAttribute('data-reship-uuid');
+    var err=card.querySelector('.oh-reship-err'), label=btn.textContent;
+    function fail(m){btn.disabled=false;btn.textContent=label;if(err){err.textContent=m;err.hidden=false;}}
+    btn.disabled=true;btn.textContent='Starting payment\u2026';if(err){err.hidden=true;}
+    post('/api/reshipments/'+encodeURIComponent(uuid)+'/payment/create').then(function(o){
+      if(!o.ok){return fail(o.message||'Payment could not be started. Please try again.');}
+      loadRzp(function(e){
+        if(e){return fail('Payment could not be started. Please try again.');}
+        var rzp=new Razorpay({key:o.key_id,amount:o.amount,currency:o.currency,
+          name:'Optiwar',description:'Reshipping charge \u2014 order #'+o.order_id,
+          order_id:o.razorpay_order_id,theme:{color:'#4f46e5'},
+          notes:{purpose:'RESHIPMENT',reship_uuid:uuid,original_order_id:o.order_id},
+          modal:{ondismiss:function(){fail('Payment not completed.');}},
+          handler:function(resp){
+            btn.textContent='Verifying\u2026';
+            post('/api/reshipments/'+encodeURIComponent(uuid)+'/payment/verify',{
+              razorpay_payment_id:resp.razorpay_payment_id,
+              razorpay_order_id:resp.razorpay_order_id,
+              razorpay_signature:resp.razorpay_signature
+            }).then(function(v){
+              if(v.ok||v.__status===202){window.location.href='/profile/?tab=orders';return;}
+              fail('We could not verify this payment yet. If money was deducted it is reconciled automatically; nothing is charged twice.');
+            }).catch(function(){fail('Network error while verifying. Please reload My Orders.');});
+          }});
+        rzp.on('payment.failed',function(){fail('Payment failed. You have not been charged.');});
+        rzp.open();
+      });
+    }).catch(function(){fail('Network error. Please try again.');});
+  };
+})();
 </script>
 
 {% endblock %}

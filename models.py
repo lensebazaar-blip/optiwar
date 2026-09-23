@@ -12,6 +12,7 @@ from .razorpay_settlement import (resolve_order_reference, settle, notify_paid_o
 from .rx_powers import normalize_rows
 from . import ops_refunds
 from . import policy_terms
+from . import reship, reship_api
 from flaskr.notifications import notify_payment_attempted, notify_payment_success, notify_payment_failed, notify_order_confirmed, notify_order_shipped
 import os
 import MySQLdb
@@ -53,6 +54,7 @@ bp = Blueprint('main', __name__)
 # the deployment set: a blueprint of its own could not be registered without
 # editing a file the deploy tool cannot safely replace.
 ops_refunds.register(bp)
+reship_api.register(bp)
 # Uploaded-prescription routes (customer upload + Ops signed download), for
 # the same reason.
 lens_upload.register(bp)
@@ -3959,6 +3961,20 @@ def razorpay_webhook():
     kind = event.get('event', '')
     if kind not in PAID_EVENTS:
         return jsonify({'status': 'ignored', 'event': kind}), 200
+
+    _entity = (((event.get('payload') or {}).get('payment') or {}).get('entity') or {})
+    _ruuid = reship.reship_for_payment(get_db(), _entity)
+    if _ruuid:
+        # A reshipping charge: its own ledger, never merchandise settlement.
+        _res = reship_api.settle_and_notify(get_db(), _ruuid, _entity, 'razorpay-webhook',
+                                            request.host)
+        if _res['outcome'] in (reship.APPLIED, reship.DUPLICATE):
+            return jsonify({'status': 'success', 'reship': _res['outcome']}), 200
+        if _res['outcome'] == reship.NOT_CAPTURED:
+            return jsonify({'status': 'ignored', 'reason': 'payment not captured'}), 200
+        if _res['outcome'] == reship.UNKNOWN_RESHIP:
+            return jsonify({'status': 'error', 'message': 'unknown reship'}), 500
+        return jsonify({'status': 'error', 'reason': 'reship_' + _res['outcome']}), 200
 
     payment, order_id, method = resolve_order_reference(
         event, fetch_order=fetch_razorpay_order, logger=current_app.logger)
