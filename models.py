@@ -7,7 +7,8 @@ from .paid_orders import (apply_paid_order, order_payment_state)
 from .razorpay_events import PAID_EVENTS
 from .razorpay_settlement import (resolve_order_reference, settle, notify_paid_order,
                                   APPLIED, DUPLICATE, NOT_CAPTURED, UNKNOWN_ORDER,
-                                  AMOUNT_MISMATCH, CURRENCY_MISMATCH, BY_BROWSER)
+                                  AMOUNT_MISMATCH, CURRENCY_MISMATCH, ALREADY_BOUND,
+                                  BY_BROWSER)
 from .rx_powers import normalize_rows
 from . import ops_refunds
 from . import policy_terms
@@ -3861,7 +3862,8 @@ def razorpay_verify():
                 db, order_id, _entity, site=request.host, source='storefront',
                 method=BY_BROWSER, event='browser_callback', logger=current_app.logger,
                 extra_dump={'razorpay_signature': razorpay_signature})
-            if _settled['outcome'] in (UNKNOWN_ORDER, AMOUNT_MISMATCH, CURRENCY_MISMATCH):
+            if _settled['outcome'] in (UNKNOWN_ORDER, AMOUNT_MISMATCH, CURRENCY_MISMATCH,
+                                       ALREADY_BOUND):
                 return jsonify({'status': 'error',
                                 'message': 'Payment verification failed'}), 400
             if _settled['outcome'] != APPLIED:
@@ -3981,6 +3983,8 @@ def razorpay_webhook():
         return jsonify({'status': 'error', 'message': 'currency mismatch'}), 200
     if outcome == DUPLICATE:
         return jsonify({'status': 'success', 'reason': 'duplicate_payment'}), 200
+    if outcome == ALREADY_BOUND:
+        return jsonify({'status': 'error', 'reason': 'payment_already_bound'}), 200
 
     notify_paid_order(db.cursor(), order_id, settled, request.host,
                       notify_payment_success, notify_order_confirmed,
