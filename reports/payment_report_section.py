@@ -62,6 +62,7 @@ LOG_TAGS = (
     ("RAZORPAY_DUPLICATE_SUPPRESSED", "Duplicate event suppressed"),
     ("RAZORPAY_WEBHOOK_REJECTED", "Webhook rejected (bad signature)"),
     ("PAYMENT_RECONCILIATION_EXCEPTION", "PAYMENT_RECONCILIATION_EXCEPTION"),
+    ("PAYMENT_RECONCILIATION_UNAVAILABLE", "Provider unavailable (429/transport), retried"),
     ("PAYMENT_INVARIANT_RED", "Captured at Razorpay but Pending locally (> grace)"),
 )
 
@@ -186,7 +187,9 @@ def status(m):
         return RED, ("captured Razorpay payment(s) were Pending locally beyond the "
                      "grace period")
     if tags.get("PAYMENT_RECONCILIATION_EXCEPTION") or worker.get("exceptions"):
-        return RED, "reconciliation exception: evidence conflicts, not auto-applied"
+        reasons = sorted({e.get("reason") or "UNCLASSIFIED" for e in worker.get("exceptions") or []})
+        return RED, ("reconciliation exception: evidence conflicts, not auto-applied%s"
+                     % (" (%s)" % ", ".join(reasons) if reasons else ""))
     if m.get("half_applied"):
         return RED, ("%d payment(s) recorded without a Processed status: %s"
                      % (len(m["half_applied"]), ", ".join(m["half_applied"][:5])))
@@ -196,6 +199,10 @@ def status(m):
         return AMBER, "webhook(s) could not be matched to an order"
     if m.get("worker") is None or m.get("worker_stale"):
         return AMBER, "reconciliation worker state stale or missing — safety net unverified"
+    if worker.get("unavailable") or tags.get("PAYMENT_RECONCILIATION_UNAVAILABLE"):
+        return AMBER, ("Razorpay could not be asked for %s order(s) in the last run — "
+                       "no evidence, nothing applied, retried every run"
+                       % worker.get("unavailable", "?"))
     if m.get("by_source") is None:
         return AMBER, "payment tables unreadable — coverage gap"
     return GREEN, None
@@ -236,15 +243,21 @@ def build():
     if worker is None:
         add("  Reconciliation worker: no state file — NOT RUNNING or never ran")
     else:
-        add("  Reconciliation worker (last run %s%s): checked %s | settled %s | "
-            "unpaid %s | duplicate %s | exception %s"
+        add("  Reconciliation worker (last run %s%s, keys: %s): checked %s | settled %s | "
+            "unpaid %s | duplicate %s | exception %s | unavailable %s"
             % (worker.get("generated_at", "?"),
                ", STALE" if m.get("worker_stale") else "",
+               worker.get("mode") or "?",
                worker.get("checked", "?"), worker.get("settled", "?"),
                worker.get("unpaid", "?"), worker.get("duplicate", "?"),
-               worker.get("exception", "?")))
+               worker.get("exception", "?"), worker.get("unavailable", "?")))
         for e in (worker.get("exceptions") or [])[:5]:
-            add("      %s %s %s" % (e.get("order_id"), e.get("payment_id"), e.get("detail")))
+            add("      PAYMENT_RECONCILIATION_EXCEPTION order=%s payment=%s reason=%s"
+                % (e.get("order_id"), e.get("payment_id") or "-",
+                   e.get("reason") or "UNCLASSIFIED"))
+        for u in (worker.get("unavailable_orders") or [])[:5]:
+            add("      PAYMENT_RECONCILIATION_UNAVAILABLE order=%s reason=%s (retried)"
+                % (u.get("order_id"), u.get("reason") or "UNCLASSIFIED"))
     add("")
     over = tags.get("PAYMENT_INVARIANT_RED", 0) + ((worker or {}).get("over_grace") or 0)
     add("  INVARIANT  captured at Razorpay + Pending locally > grace: %d%s"

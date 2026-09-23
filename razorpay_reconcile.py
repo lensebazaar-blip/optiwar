@@ -34,6 +34,24 @@ MAX_AGE_HOURS = int(os.environ.get('RAZORPAY_RECONCILE_MAX_AGE_HOURS', '72'))
 STATE_FILE = os.environ.get('RAZORPAY_RECONCILE_STATE',
                             '/var/log/optiwar/razorpay_reconcile_latest.json')
 ALERT_LOG = os.environ.get('OPTIWAR_ALERT_LOG', '/var/log/optiwar/alerts.log')
+# Razorpay answers 429 under a shared account-wide limit; one short backoff
+# before the run gives up on an order and leaves it for the next run.
+BACKOFF_SECONDS = (2.0, 5.0)
+
+
+def with_backoff(fetch, is_rate_limited, sleep=time.sleep, delays=BACKOFF_SECONDS):
+    """Wrap a provider lookup: a 429 is retried after each delay, then raised;
+    any other error is raised at once."""
+    def wrapped(*args):
+        for delay in delays:
+            try:
+                return fetch(*args)
+            except Exception as exc:  # noqa: BLE001
+                if not is_rate_limited(exc):
+                    raise
+                sleep(delay)
+        return fetch(*args)
+    return wrapped
 
 
 def alert(text):
@@ -65,10 +83,13 @@ def main():
     from flaskr.payments import (fetch_razorpay_orders_by_receipt,
                                  fetch_razorpay_order_payments)
     from flaskr.razorpay_settlement import (reconcile_pending, notify_paid_order,
-                                            summary_json)
+                                            summary_json, key_mode, is_rate_limited)
 
     app = create_app()
     started = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    mode = key_mode(app.config.get('RAZORPAY_KEY_ID', ''))
+    orders_by_receipt = with_backoff(fetch_razorpay_orders_by_receipt, is_rate_limited)
+    order_payments = with_backoff(fetch_razorpay_order_payments, is_rate_limited)
 
     def on_settled(order_row, settled):
         host = order_row.get('site_from') or 'optiwar.com'
@@ -79,11 +100,12 @@ def main():
 
     with app.test_request_context(base_url='https://optiwar.com/'):
         summary = reconcile_pending(
-            get_db(), fetch_razorpay_orders_by_receipt, fetch_razorpay_order_payments,
+            get_db(), orders_by_receipt, order_payments,
             logger=app.logger, grace_minutes=GRACE_MINUTES,
             min_age_minutes=MIN_AGE_MINUTES, max_age_hours=MAX_AGE_HOURS,
-            now_ts=int(time.time()), on_settled=on_settled)
+            now_ts=int(time.time()), on_settled=on_settled, mode=mode)
 
+    summary['mode'] = mode
     text = summary_json(summary, started)
     try:
         tmp = STATE_FILE + '.tmp'
@@ -93,12 +115,16 @@ def main():
     except OSError as exc:
         print('state file not written: %s' % exc)
 
-    print('[%s] checked=%d settled=%d unpaid=%d duplicate=%d exception=%d over_grace=%d'
-          % (started, summary['checked'], summary['settled'], summary['unpaid'],
-             summary['duplicate'], summary['exception'], summary['over_grace']))
+    print('[%s] mode=%s checked=%d settled=%d unpaid=%d duplicate=%d exception=%d '
+          'unavailable=%d over_grace=%d'
+          % (started, mode or '?', summary['checked'], summary['settled'], summary['unpaid'],
+             summary['duplicate'], summary['exception'], summary['unavailable'],
+             summary['over_grace']))
     for e in summary['exceptions']:
-        alert('PAYMENT_RECONCILIATION_EXCEPTION order=%s payment=%s %s'
-              % (e['order_id'], e['payment_id'], e['detail']))
+        alert('PAYMENT_RECONCILIATION_EXCEPTION order=%s payment=%s reason=%s'
+              % (e['order_id'], e['payment_id'], e['reason']))
+    for u in summary['unavailable_orders']:
+        print('unavailable order=%s reason=%s (retried next run)' % (u['order_id'], u['reason']))
     if summary['over_grace']:
         alert('PAYMENT_INVARIANT_RED %d order(s) captured at Razorpay but Pending '
               'locally beyond %d min: %s'
