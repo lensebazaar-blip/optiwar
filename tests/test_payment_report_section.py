@@ -62,6 +62,39 @@ class StatusTest(unittest.TestCase):
         m["worker"]["exceptions"] = [{"order_id": "A", "payment_id": "p", "detail": "x"}]
         self.assertEqual(prs.RED, prs.status(m)[0])
 
+    def test_exception_reason_code_names_the_status_and_the_line_carries_no_detail(self):
+        m = _metrics()
+        m["worker"]["exceptions"] = [{"order_id": "UATSIN-508803", "payment_id": "",
+                                      "reason": "RECEIPT_AMBIGUOUS",
+                                      "detail": "2 razorpay orders ... pay_secret upi@handle"}]
+        verdict, why = prs.status(m)
+        self.assertEqual(prs.RED, verdict)
+        self.assertIn("RECEIPT_AMBIGUOUS", why)
+        prs._reset_cache()
+        prs._CACHE.append((m, []))
+        text = prs.build()
+        prs._reset_cache()
+        self.assertIn("PAYMENT_RECONCILIATION_EXCEPTION order=UATSIN-508803 payment=- "
+                      "reason=RECEIPT_AMBIGUOUS", text)
+        self.assertNotIn("upi@handle", text)
+        self.assertNotIn("pay_secret", text)
+
+    def test_provider_unavailable_is_amber_not_an_evidence_conflict(self):
+        m = _metrics()
+        m["worker"]["unavailable"] = 1
+        m["worker"]["unavailable_orders"] = [{"order_id": "UATSIN-508803",
+                                              "reason": "PROVIDER_RATE_LIMITED"}]
+        verdict, why = prs.status(m)
+        self.assertEqual(prs.AMBER, verdict)
+        self.assertIn("could not be asked", why)
+        prs._reset_cache()
+        prs._CACHE.append((m, []))
+        text = prs.build()
+        prs._reset_cache()
+        self.assertIn("PAYMENT_RECONCILIATION_UNAVAILABLE order=UATSIN-508803 "
+                      "reason=PROVIDER_RATE_LIMITED (retried)", text)
+        self.assertNotIn("STATUS: RED", text)
+
     def test_payment_without_processed_is_red(self):
         self.assertEqual(prs.RED, prs.status(_metrics(half_applied=["X-1"]))[0])
 

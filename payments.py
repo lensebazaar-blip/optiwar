@@ -85,7 +85,7 @@ import hmac
 import hashlib
 
 from .razorpay_events import verify_webhook_signature
-from .razorpay_settlement import order_notes
+from .razorpay_settlement import order_notes, key_mode
 
 def get_razorpay_client():
     """Get Razorpay client instance."""
@@ -110,7 +110,8 @@ def create_razorpay_order(order_id, amount_eur, currency='EUR', host=''):
         'amount': amount_cents,
         'currency': currency,
         'receipt': str(order_id),
-        'notes': order_notes(order_id, host),
+        'notes': order_notes(order_id, host,
+                             mode=key_mode(current_app.config.get('RAZORPAY_KEY_ID', ''))),
         'payment_capture': 1  # Auto-capture payment
     }
     try:

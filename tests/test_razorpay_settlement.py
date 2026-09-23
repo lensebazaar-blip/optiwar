@@ -81,9 +81,14 @@ class Razorpay:
         self.payments = {}
         self.order_fetches = 0
 
-    def add(self, rzp_order_id, receipt, payments=(), notes=None):
-        self.orders[rzp_order_id] = {'id': rzp_order_id, 'receipt': receipt,
-                                     'notes': notes if notes is not None else {}}
+    def add(self, rzp_order_id, receipt, payments=(), notes=None, amount=None, currency=None):
+        order = {'id': rzp_order_id, 'receipt': receipt,
+                 'notes': notes if notes is not None else {}}
+        if amount is not None:
+            order['amount'] = amount
+        if currency is not None:
+            order['currency'] = currency
+        self.orders[rzp_order_id] = order
         self.payments[rzp_order_id] = list(payments)
 
     def fetch_order(self, rzp_order_id):
@@ -327,9 +332,10 @@ class SettlementDbTest(unittest.TestCase):
         second = self._order()
         payment = self._pay(first)
         self.assertEqual(rs.APPLIED, self._browser(first, payment)['outcome'])
-        # the same payment id presented for another order: the unique key refuses it
+        # the same payment id presented for another order: named as bound elsewhere,
+        # not passed off as a harmless duplicate
         out = self._browser(second, payment)
-        self.assertEqual(rs.DUPLICATE, out['outcome'])
+        self.assertEqual(rs.ALREADY_BOUND, out['outcome'])
         self.assertEqual([('Pending', None)], self._statuses(second))
         self.assertEqual(1, len(self._payments(ref=payment['id'])))
 
@@ -457,14 +463,242 @@ class SettlementDbTest(unittest.TestCase):
         self.assertEqual(0, summary['checked'])
         self._assert_paid_once(order_id, payment['id'], 'razorpay-webhook')
 
-    def test_reconcile_treats_a_lookup_failure_as_exception_not_unpaid(self):
-        self._order(age_minutes=40)
+    def test_reconcile_treats_a_lookup_failure_as_unavailable_not_unpaid(self):
+        order_id = self._order(age_minutes=40)
 
         def boom(receipt):
             raise RuntimeError("razorpay 5xx")
         summary = rs.reconcile_pending(self.db, boom, self.rzp.order_payments,
                                        logger=self.log, now_ts=int(time.time()))
+        self.assertEqual(0, summary['exception'])
+        self.assertEqual(0, summary['unpaid'])
+        self.assertEqual(1, summary['unavailable'])
+        self.assertEqual([{'order_id': order_id, 'reason': rs.R_PROVIDER_LOOKUP_FAILED}],
+                         summary['unavailable_orders'])
+        self.assertEqual([('Pending', None)], self._statuses(order_id))
+
+    # ─── P0 UATSIN-508803: a 429 is not an evidence conflict ─────────
+
+    def test_rate_limit_on_order_lookup_is_unavailable_with_its_reason(self):
+        order_id = self._order(age_minutes=40)
+
+        def too_many(receipt):
+            raise RuntimeError("Too many requests")
+        summary = rs.reconcile_pending(self.db, too_many, self.rzp.order_payments,
+                                       logger=self.log, now_ts=int(time.time()))
+        self.assertEqual({'exception': 0, 'unavailable': 1},
+                         {k: summary[k] for k in ('exception', 'unavailable')})
+        self.assertEqual(rs.R_PROVIDER_RATE_LIMITED, summary['unavailable_orders'][0]['reason'])
+        self.assertEqual([], summary['exceptions'])
+        self.assertEqual([], self._payments(order_id))
+
+    def test_rate_limit_on_payments_lookup_is_unavailable_and_nothing_is_applied(self):
+        order_id = self._order(age_minutes=40)
+        self._pay(order_id)
+
+        def too_many(rzp_order_id):
+            raise RuntimeError("Too many requests")
+        summary = rs.reconcile_pending(self.db, self.rzp.orders_by_receipt, too_many,
+                                       logger=self.log, now_ts=int(time.time()))
+        self.assertEqual(1, summary['unavailable'])
+        self.assertEqual(0, summary['settled'])
+        self.assertEqual([('Pending', None)], self._statuses(order_id))
+
+    def test_worker_retry_after_unavailable_settles_exactly_once(self):
+        order_id = self._order(age_minutes=40)
+        payment = self._pay(order_id)
+        calls = {'n': 0}
+
+        def flaky(receipt):
+            calls['n'] += 1
+            if calls['n'] == 1:
+                raise RuntimeError("Too many requests")
+            return self.rzp.orders_by_receipt(receipt)
+        first = rs.reconcile_pending(self.db, flaky, self.rzp.order_payments,
+                                     logger=self.log, now_ts=int(time.time()))
+        self.assertEqual(1, first['unavailable'])
+        second = rs.reconcile_pending(self.db, flaky, self.rzp.order_payments,
+                                      logger=self.log, now_ts=int(time.time()))
+        self.assertEqual(1, second['settled'])
+        third = rs.reconcile_pending(self.db, flaky, self.rzp.order_payments,
+                                     logger=self.log, now_ts=int(time.time()))
+        self.assertEqual(0, third['checked'])
+        self._assert_paid_once(order_id, payment['id'], 'razorpay-reconcile')
+
+    def test_captured_payment_with_exact_order_match_settles_once(self):
+        order_id = self._order(total=949, age_minutes=40)
+        rzp_order_id = 'order_' + uuid.uuid4().hex[:14]
+        payment = rzp_payment('pay_exact_1', rzp_order_id, 94900)
+        self.rzp.add(rzp_order_id, order_id, [payment], amount=94900, currency='INR',
+                     notes={rs.NOTE_ORDER_KEY: order_id, rs.NOTE_MODE_KEY: 'live'})
+        summary = rs.reconcile_pending(self.db, self.rzp.orders_by_receipt,
+                                       self.rzp.order_payments, logger=self.log,
+                                       now_ts=int(time.time()), mode='live')
+        self.assertEqual(1, summary['settled'])
+        again = rs.reconcile_pending(self.db, self.rzp.orders_by_receipt,
+                                     self.rzp.order_payments, logger=self.log,
+                                     now_ts=int(time.time()), mode='live')
+        self.assertEqual(0, again['checked'])
+        self._assert_paid_once(order_id, payment['id'], 'razorpay-reconcile')
+
+    def test_receipt_matching_two_provider_orders_with_payments_is_ambiguous(self):
+        order_id = self._order(age_minutes=40)
+        a, b = 'order_' + uuid.uuid4().hex[:14], 'order_' + uuid.uuid4().hex[:14]
+        self.rzp.add(a, order_id, [rzp_payment('pay_amb_a', a, 94900)])
+        self.rzp.add(b, order_id, [rzp_payment('pay_amb_b', b, 94900)])
+        summary = self._reconcile()
         self.assertEqual(1, summary['exception'])
+        self.assertEqual(rs.R_RECEIPT_AMBIGUOUS, summary['exceptions'][0]['reason'])
+        self.assertEqual([('Pending', None)], self._statuses(order_id))
+        self.assertEqual([], self._payments(order_id))
+
+    def test_receipt_order_whose_notes_name_another_order_is_a_conflict(self):
+        order_id = self._order(age_minutes=40)
+        other = self._order(age_minutes=40)
+        rzp_order_id = 'order_' + uuid.uuid4().hex[:14]
+        self.rzp.add(rzp_order_id, order_id, [rzp_payment('pay_notes_x', rzp_order_id, 94900)],
+                     notes={rs.NOTE_ORDER_KEY: other})
+        summary = self._reconcile()
+        self.assertEqual(rs.R_RECEIPT_ORDER_MISMATCH,
+                         [e for e in summary['exceptions'] if e['order_id'] == order_id][0]['reason'])
+        self.assertEqual([('Pending', None)], self._statuses(order_id))
+        self.assertEqual([('Pending', None)], self._statuses(other))
+
+    def test_provider_order_amount_disagreeing_with_local_order_is_a_conflict(self):
+        order_id = self._order(total=949, age_minutes=40)
+        rzp_order_id = 'order_' + uuid.uuid4().hex[:14]
+        self.rzp.add(rzp_order_id, order_id, [rzp_payment('pay_oamt', rzp_order_id, 94900)],
+                     amount=50000, currency='INR')
+        summary = self._reconcile()
+        self.assertEqual(rs.R_AMOUNT_MISMATCH, summary['exceptions'][0]['reason'])
+        self.assertEqual([], self._payments(order_id))
+
+    def test_provider_order_currency_disagreeing_with_local_order_is_a_conflict(self):
+        order_id = self._order(total=949, age_minutes=40)
+        rzp_order_id = 'order_' + uuid.uuid4().hex[:14]
+        self.rzp.add(rzp_order_id, order_id, [rzp_payment('pay_ocur', rzp_order_id, 94900)],
+                     amount=94900, currency='EUR')
+        summary = self._reconcile()
+        self.assertEqual(rs.R_CURRENCY_MISMATCH, summary['exceptions'][0]['reason'])
+        self.assertEqual([('Pending', None)], self._statuses(order_id))
+
+    def test_payment_currency_mismatch_is_exception_with_reason_and_no_mutation(self):
+        order_id = self._order(total=949, age_minutes=40)
+        self._pay(order_id, currency='EUR')
+        summary = self._reconcile()
+        self.assertEqual(1, summary['exception'])
+        self.assertEqual(rs.R_CURRENCY_MISMATCH, summary['exceptions'][0]['reason'])
+        self.assertEqual([('Pending', None)], self._statuses(order_id))
+        self.assertEqual([], self._payments(order_id))
+
+    def test_payment_amount_mismatch_carries_its_reason(self):
+        order_id = self._order(total=949, age_minutes=40)
+        self._pay(order_id, amount=50000)
+        summary = self._reconcile()
+        self.assertEqual(rs.R_AMOUNT_MISMATCH, summary['exceptions'][0]['reason'])
+
+    def test_payment_already_bound_to_another_local_order_is_a_conflict(self):
+        first = self._order(age_minutes=40)
+        second = self._order(age_minutes=40)
+        payment = self._pay(first)
+        self.assertEqual(rs.APPLIED, self._browser(first, payment)['outcome'])
+        # Razorpay lists the same captured payment under an order whose receipt is `second`
+        rzp_order_id = 'order_' + uuid.uuid4().hex[:14]
+        self.rzp.add(rzp_order_id, second, [dict(payment, order_id=rzp_order_id)])
+        summary = self._reconcile()
+        self.assertEqual(1, summary['exception'])
+        self.assertEqual(rs.R_PAYMENT_ALREADY_BOUND, summary['exceptions'][0]['reason'])
+        self.assertEqual([('Pending', None)], self._statuses(second))
+        self.assertEqual(1, len(self._payments(ref=payment['id'])))
+
+    def test_payment_listed_under_an_order_it_does_not_name_is_a_conflict(self):
+        order_id = self._order(age_minutes=40)
+        rzp_order_id = 'order_' + uuid.uuid4().hex[:14]
+        self.rzp.add(rzp_order_id, order_id,
+                     [rzp_payment('pay_stray', 'order_somebodyelse', 94900)])
+        summary = self._reconcile()
+        self.assertEqual(rs.R_PAYMENT_ORDER_MISMATCH, summary['exceptions'][0]['reason'])
+        self.assertEqual([], self._payments(order_id))
+
+    def test_test_mode_order_seen_by_live_worker_is_a_conflict(self):
+        order_id = self._order(age_minutes=40)
+        rzp_order_id = 'order_' + uuid.uuid4().hex[:14]
+        self.rzp.add(rzp_order_id, order_id, [rzp_payment('pay_testmode', rzp_order_id, 94900)],
+                     notes={rs.NOTE_ORDER_KEY: order_id, rs.NOTE_MODE_KEY: 'test'})
+        summary = rs.reconcile_pending(self.db, self.rzp.orders_by_receipt,
+                                       self.rzp.order_payments, logger=self.log,
+                                       now_ts=int(time.time()), mode='live')
+        self.assertEqual(rs.R_ENVIRONMENT_MISMATCH, summary['exceptions'][0]['reason'])
+        self.assertEqual([('Pending', None)], self._statuses(order_id))
+
+    def test_provider_order_with_no_payments_is_unpaid_not_settled(self):
+        # UATSIN-508803 as Razorpay actually holds it: one order, status created, 0 payments
+        order_id = self._order(total=499, age_minutes=40)
+        rzp_order_id = 'order_' + uuid.uuid4().hex[:14]
+        self.rzp.add(rzp_order_id, order_id, [], amount=49900, currency='INR',
+                     notes={rs.NOTE_ORDER_KEY: order_id})
+        summary = self._reconcile()
+        self.assertEqual({'unpaid': 1, 'settled': 0, 'exception': 0, 'unavailable': 0},
+                         {k: summary[k] for k in ('unpaid', 'settled', 'exception', 'unavailable')})
+        self.assertEqual([('Pending', None)], self._statuses(order_id))
+
+    def test_receipt_alone_never_settles_an_unpaid_order(self):
+        # a Razorpay order carries our receipt but its only payment is not captured
+        order_id = self._order(age_minutes=40)
+        rzp_order_id = 'order_' + uuid.uuid4().hex[:14]
+        self.rzp.add(rzp_order_id, order_id,
+                     [rzp_payment('pay_auth_only', rzp_order_id, 94900, status='authorized')])
+        summary = self._reconcile()
+        self.assertEqual(1, summary['unpaid'])
+        self.assertEqual([], self._payments(order_id))
+
+
+class ReasonHelpersTest(unittest.TestCase):
+
+    def test_key_mode_from_key_prefix_only(self):
+        self.assertEqual('live', rs.key_mode('rzp_live_abcdef'))
+        self.assertEqual('test', rs.key_mode('rzp_test_abcdef'))
+        self.assertEqual('', rs.key_mode(''))
+        self.assertEqual('', rs.key_mode('something_else'))
+
+    def test_order_notes_carry_mode_when_known(self):
+        self.assertEqual({'optiwar_order_id': 'X-1', 'host': 'optiwar.in', 'key_mode': 'live'},
+                         rs.order_notes('X-1', 'optiwar.in', mode='live'))
+        self.assertNotIn('key_mode', rs.order_notes('X-1', 'optiwar.in'))
+
+    def test_is_rate_limited(self):
+        class E(Exception):
+            status_code = 429
+        self.assertTrue(rs.is_rate_limited(E('x')))
+        self.assertTrue(rs.is_rate_limited(RuntimeError('Too many requests')))
+        self.assertFalse(rs.is_rate_limited(RuntimeError('Bad request')))
+
+    def test_worker_backoff_retries_only_a_rate_limit(self):
+        reconcile = _load('razorpay_reconcile')
+        slept, calls = [], {'n': 0}
+
+        def fetch(receipt):
+            calls['n'] += 1
+            if calls['n'] < 3:
+                raise RuntimeError('Too many requests')
+            return ['ok']
+        wrapped = reconcile.with_backoff(fetch, rs.is_rate_limited, sleep=slept.append,
+                                         delays=(1, 2))
+        self.assertEqual(['ok'], wrapped('R'))
+        self.assertEqual([1, 2], slept)
+
+        def always(receipt):
+            raise RuntimeError('Too many requests')
+        with self.assertRaises(RuntimeError):
+            reconcile.with_backoff(always, rs.is_rate_limited, sleep=slept.append,
+                                   delays=(1,))('R')
+
+        def other(receipt):
+            raise ValueError('bad')
+        before = list(slept)
+        with self.assertRaises(ValueError):
+            reconcile.with_backoff(other, rs.is_rate_limited, sleep=slept.append)('R')
+        self.assertEqual(before, slept)
 
 
 class ResolveReferenceTest(unittest.TestCase):
