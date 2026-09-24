@@ -124,10 +124,12 @@ RESHIP_LABELS = {
 }
 
 
-def attach_reship(orders, reship_rows, host, environ=None):
+def attach_reship(orders, reship_rows, host, environ=None, shipments=None):
     """Give each order its reship card, from server state only.
 
-    ``reship_rows`` is ``reship.for_customer``'s ``{order_id: row}``. An order
+    ``reship_rows`` is ``reship.for_customer``'s ``{order_id: row}``;
+    ``shipments`` is ``reship.shipments_for_orders``'s ``{order_id: (awb,
+    courier)}`` so the card can show the parcel being returned. An order
     gets ``order['reship']`` (``reship.public_view``) only when the workflow
     is open for it on this host — so on .com nothing is attached and the
     template has nothing to draw. The header label follows the reship state.
@@ -138,7 +140,8 @@ def attach_reship(orders, reship_rows, host, environ=None):
         if not reship.workflow_open(host, order.get('site_from'), oid, environ):
             continue
         row = reship_rows.get(oid)
-        view = reship.public_view(row, order.get('order_status_name'))
+        view = reship.public_view(row, order.get('order_status_name'),
+                                  shipment=(shipments or {}).get(oid))
         if view is None:
             continue
         order['reship'] = view

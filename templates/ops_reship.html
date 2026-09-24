@@ -52,14 +52,15 @@
 </header>
 <div class="wrap">
 
-  <h2>Courier says returning — not yet in hand</h2>
+  <h2>Returning to Ops — courier says returning, parcel not yet in hand</h2>
+  <p class="muted" style="margin:0 0 8px;font-size:12px">Press <b>Confirm Returned to Ops</b> only once the parcel is physically at Optiwar and checked in. Courier tracking saying RTO / return initiated / returning / undelivered is not enough. Confirming unlocks the customer's Rs {{ fee }} payment and sends them a notification.</p>
   <table>
     <thead><tr><th>Order</th><th>Original AWB</th><th>Courier</th><th>Return reason</th><th></th></tr></thead>
     <tbody>
     {% for r in queue.returning %}
       <tr data-order="{{ r.order_id }}">
         <td><code>{{ r.order_id }}</code></td>
-        <td>{{ r.awb or '—' }}</td>
+        <td><code>{{ r.awb or '—' }}</code>{% if r.track_url %} <a href="{{ r.track_url }}" target="_blank" rel="noopener noreferrer">Track</a>{% endif %}</td>
         <td>{{ r.courier or '—' }}</td>
         <td><input class="reason" placeholder="e.g. address not found" maxlength="255"></td>
         <td>

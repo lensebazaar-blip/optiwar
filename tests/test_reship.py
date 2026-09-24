@@ -100,11 +100,13 @@ def _package():
     _load("ops")
     _load("reship")
     _load("reship_api")
+    _load("customer_orders")
 
 
 _package()
 reship = sys.modules[PKG + ".reship"]
 reship_api = sys.modules[PKG + ".reship_api"]
+attach_reship = sys.modules[PKG + ".customer_orders"].attach_reship
 
 
 def _app():
@@ -303,6 +305,50 @@ class ReshipTest(unittest.TestCase):
         os.environ[reship.ALLOW_ORDERS_ENV] = "DUNGQO-731870," + oid
         self.assertEqual(self._client(cid).get("/api/orders/%s/reship" % oid,
                                                environ_overrides=IN).status_code, 200)
+
+    def test_allow_list_also_gates_the_ops_queue_and_confirmation(self):
+        cid = self._customer()
+        pilot = self._order(cid, awb="7X000PILOT01")
+        other = self._order(cid, awb="7X119057819")
+        os.environ[reship.ALLOW_ORDERS_ENV] = pilot
+        q = reship.ops_queue(self.db)
+        self.assertEqual([r["order_id"] for r in q["returning"]], [pilot])
+        self.assertEqual(q["returning"][0]["track_url"], "https://www.dtdc.com/track")
+        ops = self._client(ops=True)
+        r = ops.post("/ops/api/shipments/%s/return-received" % other, environ_overrides=IN)
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(r.get_json()["error"], "not_in_rollout")
+        self.assertIsNone(reship.active_for_order(self.db, other))
+        self.assertEqual(Stubs.mails, [])
+        page = ops.get("/ops/reship", environ_overrides=IN).get_data(as_text=True)
+        self.assertIn(pilot, page)
+        self.assertNotIn(other, page)
+        self.assertEqual(ops.post("/ops/api/shipments/%s/return-received" % pilot,
+                                  environ_overrides=IN).status_code, 200)
+
+    def test_returning_card_names_the_original_shipment_and_where_to_track_it(self):
+        cid = self._customer()
+        oid = self._order(cid, awb="7X000PILOT01")
+        view = self._client(cid).get("/api/orders/%s/reship" % oid,
+                                     environ_overrides=IN).get_json()["reship"]
+        self.assertEqual(view["state"], "RETURNING_TO_OPS")
+        self.assertEqual((view["original_awb"], view["original_courier"]), ("7X000PILOT01", "DTDC"))
+        self.assertEqual(view["original_track_url"], "https://www.dtdc.com/track")
+        self.assertIsNone(view["new_track_url"])
+        self.assertNotIn("razorpay_order_id", view)
+        self.assertEqual(reship.tracking_url("Delhivery", "1238 6210"),
+                         "https://www.delhivery.com/track-v2/package/1238%206210")
+        self.assertIsNone(reship.tracking_url("BlueDart", "X1"))
+        self.assertIsNone(reship.tracking_url("DTDC", ""))
+        shipments = reship.shipments_for_orders(self.db, [oid, "nope"])
+        self.assertEqual(shipments, {oid: ("7X000PILOT01", "DTDC")})
+        orders = [{"order_id": oid, "site_from": "optiwar.in", "order_status_name": "Returned",
+                   "stage_label": "", "stage_tone": "", "stage_step": 0}]
+        attach_reship(orders, {}, "optiwar.in", shipments=shipments)
+        self.assertEqual(orders[0]["reship"]["original_awb"], "7X000PILOT01")
+        self.assertEqual(orders[0]["stage_label"], "Returning to Optiwar")
+        attach_reship(orders, {}, "optiwar.com", shipments=shipments)
+        self.assertIsNone(orders[0]["reship"])
 
     def test_another_customer_gets_404_everywhere(self):
         cid, oid, row = self._returned()

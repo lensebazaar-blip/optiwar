@@ -35,6 +35,7 @@ for Razorpay and the notification channels.
 import json
 import os
 import uuid
+from urllib.parse import quote
 
 try:
     from .paid_orders import add_history
@@ -199,6 +200,23 @@ def order_allowed(order_id, environ=None):
     return not allow or str(order_id) in allow
 
 
+TRACKING_PAGES = {
+    "dtdc": "https://www.dtdc.com/track",
+    "delhivery": "https://www.delhivery.com/track-v2/package/{awb}",
+}
+
+
+def tracking_url(courier, awb):
+    """The courier's public tracking page for an AWB, or None when the
+    courier is unknown. DTDC has no deep link, so its page is opened and the
+    customer pastes the AWB shown next to it."""
+    awb = (awb or "").strip()
+    page = TRACKING_PAGES.get((courier or "").strip().lower())
+    if not awb or not page:
+        return None
+    return page.format(awb=quote(awb, safe=""))
+
+
 def workflow_open(host, order_site, order_id, environ=None):
     """Whether the reship workflow exists at all for this request + order:
     the flag is on, the request is on the India site, the order was taken on
@@ -282,6 +300,24 @@ def for_customer(db, customer_id):
     return {r["order_id"]: r for r in cur.fetchall()}
 
 
+def shipments_for_orders(db, order_ids):
+    """``{order_id: (awb, courier)}`` — the latest shipment on record for each
+    order, from the courier platform's table when present."""
+    ids = [str(o) for o in order_ids if o]
+    if not ids:
+        return {}
+    cur = db.cursor()
+    try:
+        cur.execute("SELECT ow_order_id, tracking_number, courier FROM ops_shipping_awb "
+                    "WHERE ow_order_id IN (%s) ORDER BY id" % ",".join(["%s"] * len(ids)),
+                    tuple(ids))
+        rows = cur.fetchall()
+    except Exception:  # noqa: BLE001 - table belongs to the courier platform
+        return {}
+    return {r["ow_order_id"]: ((r.get("tracking_number") or "").strip(),
+                               (r.get("courier") or "").strip()) for r in rows}
+
+
 def _latest_status(cur, order_id):
     cur.execute("SELECT order_status_name FROM order_status WHERE order_id=%s "
                 "ORDER BY order_status_id DESC LIMIT 1", (str(order_id),))
@@ -322,11 +358,16 @@ def logistics_state(row, latest_status):
     return None
 
 
-def public_view(row, latest_status=None, open_=True):
-    """What the customer's order card is told. No provider ids."""
+def public_view(row, latest_status=None, open_=True, shipment=None):
+    """What the customer's order card is told. No provider ids.
+
+    ``shipment`` is the ``(awb, courier)`` of the original shipment, shown so
+    the customer can follow the parcel back; the reship row's own copy wins
+    once Ops has confirmed receipt."""
     state = logistics_state(row, latest_status)
     if state is None:
         return None
+    awb, courier = shipment or ("", "")
     out = {"state": state, "fee": FEE_INR, "currency": CURRENCY,
            "can_pay": False, "reship_uuid": None,
            "new_awb": None, "new_courier": None, "paid_at": None, "reshipped_at": None}
@@ -337,6 +378,12 @@ def public_view(row, latest_status=None, open_=True):
         out["reshipped_at"] = row.get("reshipped_at")
         out["new_awb"] = row.get("new_awb")
         out["new_courier"] = row.get("new_courier")
+        awb = row.get("original_awb") or awb
+        courier = row.get("original_courier") or courier
+    out["original_awb"] = awb or None
+    out["original_courier"] = courier or None
+    out["original_track_url"] = tracking_url(courier, awb)
+    out["new_track_url"] = tracking_url(out["new_courier"], out["new_awb"])
     return out
 
 
@@ -359,6 +406,9 @@ def confirm_returned(db, order_id, confirmed_by, original_awb=None, courier=None
         raise ReshipError("unknown_order", "Order not found", 404)
     if not is_india_host(head.get("site_from")):
         raise ReshipError("not_india", "Reship exists only for optiwar.in orders", 409)
+    if not order_allowed(order_id, environ):
+        raise ReshipError("not_in_rollout", "This order is outside the reship rollout "
+                          "allow-list; receipt cannot be confirmed here yet", 409)
     if not courier_returning(cur, order_id):
         raise ReshipError("not_returning", "The courier has not reported this parcel "
                           "as returning; Optiwar cannot confirm receipt", 409)
@@ -665,9 +715,10 @@ def ship(db, reship_uuid, shipped_by, new_awb, new_courier):
 # Ops queue
 # --------------------------------------------------------------------------
 
-def ops_queue(db, days=60):
+def ops_queue(db, days=60, environ=None):
     """India orders the courier reports returning, and every active reship,
-    for the Ops page. Newest first."""
+    for the Ops page. Newest first. Orders outside the rollout allow-list are
+    left out, so Ops is never offered a confirmation the workflow would refuse."""
     ensure_schema(db)
     cur = db.cursor()
     cur.execute(
@@ -677,12 +728,15 @@ def ops_queue(db, days=60):
         "GROUP BY os.order_id ORDER BY sid DESC LIMIT 200", (COURIER_RETURN_STATUS,))
     returning = []
     for r in cur.fetchall():
+        if not order_allowed(r["order_id"], environ):
+            continue
         head = _order_head(cur, r["order_id"])
         if not head or not is_india_host(head.get("site_from")):
             continue
         awb, courier = original_shipment(cur, r["order_id"])
         returning.append({"order_id": r["order_id"], "awb": awb, "courier": courier,
-                          "customer_id": head.get("customer_id")})
+                          "customer_id": head.get("customer_id"),
+                          "track_url": tracking_url(courier, awb)})
     cur.execute("SELECT * FROM order_reshipments WHERE status IN "
                 "('RETURNED','PAYMENT_PENDING','PAID','RESHIPPED') "
                 "AND created_at >= NOW() - INTERVAL %s DAY ORDER BY id DESC", (int(days),))
