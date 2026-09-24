@@ -861,7 +861,10 @@ EMAILS = {
         "Optiwar — your package has returned (order {order_id})",
         "Hello {name},\n\nYour package for order {order_id} has now reached back to "
         "Optiwar.\n\nYou can reship your order by paying the Rs 250 reshipping charge. "
-        "Open My Orders to continue:\n{url}\n\nPrescription/customized lenses are not "
+        "Open My Orders to continue:\n{url}\n\nBefore paying, please check that the "
+        "delivery address and phone number on the order are correct. If anything needs "
+        "to change, reply to this email or write to support@optiwar.com and we will "
+        "update it before dispatch.\n\nPrescription/customized lenses are not "
         "eligible for cancellation after preparation.\n\nSafety notice: make payments "
         "only through Optiwar's official website. Optiwar will never ask you to share "
         "OTPs, passwords, card details or banking credentials.\n\nRegards,\n"
@@ -1017,10 +1020,14 @@ def sweep_return_started(db, host_for=None, mailer=None, whatsapp=None, environ=
     return {"notified": count}
 
 
+RESHIP_CC = "admin@optiwar.com"
+
+
 def _default_mailer(to_email, subject, text):
     from flask import current_app
     from flask_mail import Message
-    msg = Message(subject=subject, recipients=[to_email], body=text,
+    cc = [RESHIP_CC] if RESHIP_CC.lower() != (to_email or "").lower() else []
+    msg = Message(subject=subject, recipients=[to_email], cc=cc, body=text,
                   html="<pre style='font-family:inherit;white-space:pre-wrap'>%s</pre>" % _html(text),
                   sender="Optiwar Support <support@optiwar.com>",
                   reply_to="support@optiwar.com")

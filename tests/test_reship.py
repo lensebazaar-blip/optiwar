@@ -719,6 +719,39 @@ class ReshipTest(unittest.TestCase):
                       reship_uuid=row["reship_uuid"], whatsapp=lambda *a: sent.append(a))
         self.assertEqual(sent, [])
 
+    def test_every_reship_email_copies_admin_and_available_asks_to_check_address(self):
+        cid, oid, row = self._returned()
+        got = []
+        reship.notify(self.db, reship.EV_AVAILABLE, oid, cid, "optiwar.in",
+                      reship_uuid=row["reship_uuid"],
+                      mailer=lambda to, subj, text: got.append(text))
+        self.assertIn("delivery address and phone number", got[0])
+        self.assertIn("support@optiwar.com", got[0])
+
+        captured = {}
+
+        class _Mail:
+            def send(self, msg):
+                captured["msg"] = msg
+
+        class _Message:
+            def __init__(self, **kw):
+                self.__dict__.update(kw)
+        import sys
+        import types
+        from unittest import mock
+        from flask import Flask
+        fm = types.ModuleType("flask_mail")
+        fm.Message = _Message
+        app = Flask("t")
+        app.extensions["mail"] = _Mail()
+        with mock.patch.dict(sys.modules, {"flask_mail": fm}), app.app_context():
+            self._mail("shreya@example.com", "s", "t")
+            self.assertEqual(captured["msg"].recipients, ["shreya@example.com"])
+            self.assertEqual(captured["msg"].cc, ["admin@optiwar.com"])
+            self._mail("admin@optiwar.com", "s", "t")
+            self.assertEqual(captured["msg"].cc, [])
+
 
 if __name__ == "__main__":
     unittest.main()
