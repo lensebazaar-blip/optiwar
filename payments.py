@@ -85,7 +85,7 @@ import hmac
 import hashlib
 
 from .razorpay_events import verify_webhook_signature
-from .razorpay_settlement import order_notes, key_mode
+from .razorpay_settlement import order_notes, key_mode, NOTE_MODE_KEY
 
 def get_razorpay_client():
     """Get Razorpay client instance."""
@@ -93,6 +93,19 @@ def get_razorpay_client():
         current_app.config['RAZORPAY_KEY_ID'],
         current_app.config['RAZORPAY_KEY_SECRET']
     ))
+
+def create_reship_razorpay_order(amount_minor, currency, receipt, notes):
+    """The dedicated Razorpay order for a reshipping charge. Amount, currency,
+    receipt and notes are decided by ``reship.py``; nothing here reads the
+    request. Raises on provider failure."""
+    data = {'amount': int(amount_minor), 'currency': currency, 'receipt': receipt,
+            'notes': dict(notes or {}), 'payment_capture': 1}
+    data['notes'][NOTE_MODE_KEY] = key_mode(current_app.config.get('RAZORPAY_KEY_ID', ''))
+    order = get_razorpay_client().order.create(data=data)
+    current_app.logger.info("Razorpay reship order created: %s for %s %s"
+                            % (order['id'], currency, amount_minor))
+    return order
+
 
 def create_razorpay_order(order_id, amount_eur, currency='EUR', host=''):
     """Create a Razorpay order for EUR payments.

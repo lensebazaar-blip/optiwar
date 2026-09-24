@@ -21,8 +21,10 @@ from collections import OrderedDict
 
 try:
     from .paid_orders import payment_state
+    from . import reship
 except ImportError:  # loaded standalone by the tests
     from paid_orders import payment_state
+    import reship
 
 # Latest status row per order and whether any successful payment exists, as
 # columns on each order line. ``payment_collector`` is joined in a subquery so
@@ -112,3 +114,35 @@ def customer_orders(rows):
         order['grand_total'] += (row.get('order_total') or 0)
         order['item_count'] += (row.get('order_quantity') or 0)
     return [o for o in grouped.values() if o['payment_state'] == 'paid']
+
+
+RESHIP_LABELS = {
+    'RETURNING_TO_OPS': ('Returning to Optiwar', 'returned'),
+    'RETURNED_TO_OPS': ('Returned to Optiwar', 'returned'),
+    'RESHIP_PAID': ('Reshipment paid', 'confirmed'),
+    'RESHIPPED': ('Reshipped', 'shipped'),
+}
+
+
+def attach_reship(orders, reship_rows, host, environ=None):
+    """Give each order its reship card, from server state only.
+
+    ``reship_rows`` is ``reship.for_customer``'s ``{order_id: row}``. An order
+    gets ``order['reship']`` (``reship.public_view``) only when the workflow
+    is open for it on this host — so on .com nothing is attached and the
+    template has nothing to draw. The header label follows the reship state.
+    """
+    for order in orders:
+        order['reship'] = None
+        oid = order['order_id']
+        if not reship.workflow_open(host, order.get('site_from'), oid, environ):
+            continue
+        row = reship_rows.get(oid)
+        view = reship.public_view(row, order.get('order_status_name'))
+        if view is None:
+            continue
+        order['reship'] = view
+        label, tone = RESHIP_LABELS[view['state']]
+        order['stage_label'], order['stage_tone'] = label, tone
+        order['stage_step'] = 2 if view['state'] == 'RESHIPPED' else 0
+    return orders

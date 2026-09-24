@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Ops — Returns &amp; Reshipments (optiwar.in)</title>
+  <style>
+    :root{--bg:#0f172a;--card:#1e293b;--line:#334155;--txt:#e2e8f0;--muted:#94a3b8;
+          --ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;--accent:#38bdf8}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+         background:var(--bg);color:var(--txt);font-size:14px}
+    header{padding:16px 24px;border-bottom:1px solid var(--line);display:flex;
+           align-items:baseline;gap:16px;flex-wrap:wrap}
+    header h1{font-size:18px;margin:0}
+    header .sub{color:var(--muted);font-size:12px}
+    header .flag{margin-left:auto;font-size:11px;border:1px solid var(--line);
+                 padding:3px 8px;border-radius:12px}
+    header .flag.off{color:var(--bad);border-color:var(--bad)}
+    header .flag.on{color:var(--ok);border-color:var(--ok)}
+    h2{font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;
+       margin:24px 0 8px}
+    .wrap{padding:0 24px 40px}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);
+          vertical-align:top;overflow-wrap:anywhere}
+    th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+    .pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;
+          border:1px solid var(--line);white-space:nowrap}
+    .pill.RETURNED,.pill.PAYMENT_PENDING{color:var(--warn);border-color:var(--warn)}
+    .pill.PAID{color:var(--accent);border-color:var(--accent)}
+    .pill.RESHIPPED{color:var(--ok);border-color:var(--ok)}
+    .muted{color:var(--muted)}
+    code{font-size:12px;color:var(--accent)}
+    input{background:var(--bg);color:var(--txt);border:1px solid var(--line);
+          border-radius:6px;padding:6px 8px;font:inherit;font-size:13px;width:150px}
+    button{background:var(--accent);color:#0f172a;border:none;border-radius:6px;
+           padding:7px 12px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+    button[disabled]{opacity:.5;cursor:wait}
+    .row-act{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+    .msg{font-size:12px;margin-top:4px}
+    .msg.bad{color:var(--bad)} .msg.ok{color:var(--ok)}
+    .empty{color:var(--muted);padding:14px 12px}
+  </style>
+</head>
+<body>
+<header>
+  <h1>Returns &amp; Reshipments</h1>
+  <span class="sub">optiwar.in · reship fee Rs {{ fee }} · confirming receipt here is what unlocks the customer's payment</span>
+  <span class="flag {% if enabled %}on{% else %}off{% endif %}">RESHIP_ENABLED_IN {% if enabled %}on{% else %}off{% endif %}</span>
+</header>
+<div class="wrap">
+
+  <h2>Courier says returning — not yet in hand</h2>
+  <table>
+    <thead><tr><th>Order</th><th>Original AWB</th><th>Courier</th><th>Return reason</th><th></th></tr></thead>
+    <tbody>
+    {% for r in queue.returning %}
+      <tr data-order="{{ r.order_id }}">
+        <td><code>{{ r.order_id }}</code></td>
+        <td>{{ r.awb or '—' }}</td>
+        <td>{{ r.courier or '—' }}</td>
+        <td><input class="reason" placeholder="e.g. address not found" maxlength="255"></td>
+        <td>
+          <div class="row-act">
+            <button onclick="confirmReturned(this)">Confirm Returned to Ops</button>
+          </div>
+          <div class="msg"></div>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="empty">No parcel is currently reported returning.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Reshipments (last 60 days)</h2>
+  <table>
+    <thead><tr><th>Order</th><th>State</th><th>Payment</th><th>Original</th><th>Received</th><th>New shipment</th><th></th></tr></thead>
+    <tbody>
+    {% for a in queue.active %}
+      <tr data-uuid="{{ a.reship_uuid }}">
+        <td><code>{{ a.order_id }}</code></td>
+        <td><span class="pill {{ a.status }}">{{ a.status }}</span></td>
+        <td>{{ a.payment_status }}{% if a.paid_at %}<br><span class="muted">{{ a.paid_at }}</span>{% endif %}</td>
+        <td>{{ a.original_courier or '—' }} {{ a.original_awb or '' }}{% if a.return_reason %}<br><span class="muted">{{ a.return_reason }}</span>{% endif %}</td>
+        <td>{{ a.ops_return_confirmed_by }}<br><span class="muted">{{ a.ops_return_confirmed_at }}</span></td>
+        <td>
+          {% if a.status == 'RESHIPPED' %}
+            {{ a.new_courier }} <code>{{ a.new_awb }}</code><br><span class="muted">{{ a.shipped_by }} · {{ a.reshipped_at }}</span>
+          {% elif a.status == 'PAID' %}
+            <div class="row-act">
+              <input class="courier" placeholder="Courier (e.g. DTDC)" maxlength="64">
+              <input class="awb" placeholder="New AWB" maxlength="64">
+              <button onclick="ship(this)">Record reshipment</button>
+            </div>
+            <div class="msg"></div>
+          {% else %}
+            <span class="muted">Awaiting customer's Rs {{ fee }} payment</span>
+          {% endif %}
+        </td>
+        <td></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" class="empty">No reshipments yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<script>
+function post(url, body){
+  return fetch(url,{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(function(r){return r.json();});
+}
+function say(tr, cls, text){var m=tr.querySelector('.msg');if(m){m.className='msg '+cls;m.textContent=text;}}
+function confirmReturned(btn){
+  var tr=btn.closest('tr'), oid=tr.getAttribute('data-order');
+  var reason=(tr.querySelector('.reason')||{}).value||'';
+  if(!confirm('Confirm the parcel for order '+oid+' is physically in hand? This unlocks the customer\'s Rs {{ fee }} reship payment.'))return;
+  btn.disabled=true;
+  post('/ops/api/shipments/'+encodeURIComponent(oid)+'/return-received',{return_reason:reason})
+    .then(function(j){ if(j.ok){say(tr,'ok','Confirmed — customer notified. Reloading…');setTimeout(function(){location.reload();},900);}
+                       else{btn.disabled=false;say(tr,'bad',j.message||j.error||'Refused');} })
+    .catch(function(){btn.disabled=false;say(tr,'bad','Network error');});
+}
+function ship(btn){
+  var tr=btn.closest('tr'), uuid=tr.getAttribute('data-uuid');
+  var courier=tr.querySelector('.courier').value.trim(), awb=tr.querySelector('.awb').value.trim();
+  if(!courier||!awb){say(tr,'bad','Courier and new AWB are both required');return;}
+  btn.disabled=true;
+  post('/ops/api/reshipments/'+encodeURIComponent(uuid)+'/ship',{new_courier:courier,new_awb:awb})
+    .then(function(j){ if(j.ok){say(tr,'ok','Recorded — customer notified. Reloading…');setTimeout(function(){location.reload();},900);}
+                       else{btn.disabled=false;say(tr,'bad',j.message||j.error||'Refused');} })
+    .catch(function(){btn.disabled=false;say(tr,'bad','Network error');});
+}
+</script>
+</body>
+</html>
