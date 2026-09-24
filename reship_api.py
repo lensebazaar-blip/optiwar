@@ -84,8 +84,9 @@ def register(bp):
             head, row = reship.customer_reship(db, _customer(), order_id, request.host)
         except reship.ReshipError as exc:
             return _error(exc)
-        latest = reship._latest_status(db.cursor(), order_id)
-        view = reship.public_view(row, latest)
+        cur = db.cursor()
+        latest = reship._latest_status(cur, order_id)
+        view = reship.public_view(row, latest, shipment=reship.original_shipment(cur, order_id))
         return jsonify({"ok": True, "order_id": order_id, "reship": view})
 
     @bp.route("/api/reshipments/<reship_uuid>/payment/create", methods=["POST"])
