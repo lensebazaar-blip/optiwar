@@ -92,7 +92,12 @@
             {{ a.new_courier }} <code>{{ a.new_awb }}</code><br><span class="muted">{{ a.shipped_by }} · {{ a.reshipped_at }}</span>
           {% elif a.status == 'PAID' %}
             <div class="row-act">
-              <input class="courier" placeholder="Courier (e.g. DTDC)" maxlength="64">
+              <select class="courier">
+                <option value="DTDC">DTDC</option>
+                <option value="Delhivery">Delhivery</option>
+                <option value="">Other…</option>
+              </select>
+              <input class="courier-other" placeholder="Courier name" maxlength="64" style="display:none">
               <input class="awb" placeholder="New AWB" maxlength="64">
               <button onclick="ship(this)">Record reshipment</button>
             </div>
@@ -126,10 +131,18 @@ function confirmReturned(btn){
                        else{btn.disabled=false;say(tr,'bad',j.message||j.error||'Refused');} })
     .catch(function(){btn.disabled=false;say(tr,'bad','Network error');});
 }
+document.querySelectorAll('select.courier').forEach(function(s){
+  s.addEventListener('change',function(){
+    var o=s.closest('tr').querySelector('.courier-other'); o.style.display=s.value?'none':'';
+  });
+});
 function ship(btn){
   var tr=btn.closest('tr'), uuid=tr.getAttribute('data-uuid');
-  var courier=tr.querySelector('.courier').value.trim(), awb=tr.querySelector('.awb').value.trim();
+  var sel=tr.querySelector('.courier'), other=tr.querySelector('.courier-other');
+  var courier=(sel.value||other.value).trim(), awb=tr.querySelector('.awb').value.trim().toUpperCase();
   if(!courier||!awb){say(tr,'bad','Courier and new AWB are both required');return;}
+  if(courier==='DTDC'&&!/^[A-Z0-9]{9,14}$/.test(awb)){say(tr,'bad','A DTDC AWB is 9-14 letters/digits, e.g. 7X119057819');return;}
+  if(courier==='Delhivery'&&!/^[0-9]{10,16}$/.test(awb)){say(tr,'bad','A Delhivery AWB is 10-16 digits');return;}
   btn.disabled=true;
   post('/ops/api/reshipments/'+encodeURIComponent(uuid)+'/ship',{new_courier:courier,new_awb:awb})
     .then(function(j){ if(j.ok){say(tr,'ok','Recorded — customer notified. Reloading…');setTimeout(function(){location.reload();},900);}

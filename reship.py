@@ -34,6 +34,7 @@ for Razorpay and the notification channels.
 """
 import json
 import os
+import re
 import uuid
 from urllib.parse import quote
 
@@ -204,6 +205,22 @@ TRACKING_PAGES = {
     "dtdc": "https://www.dtdc.com/track",
     "delhivery": "https://www.delhivery.com/track-v2/package/{awb}",
 }
+
+
+AWB_FORMATS = {
+    "dtdc": (re.compile(r"^[A-Z0-9]{9,14}$"), "a DTDC AWB is 9-14 letters/digits, e.g. 7X119057819"),
+    "delhivery": (re.compile(r"^[0-9]{10,16}$"), "a Delhivery AWB is 10-16 digits"),
+}
+
+
+def awb_format_error(courier, awb):
+    """Why an AWB cannot belong to the named courier, or None when it can
+    (or the courier's format is unknown to us)."""
+    rule = AWB_FORMATS.get((courier or "").strip().lower())
+    if not rule:
+        return None
+    pattern, hint = rule
+    return None if pattern.match((awb or "").strip().upper()) else hint
 
 
 def tracking_url(courier, awb):
@@ -681,6 +698,11 @@ def ship(db, reship_uuid, shipped_by, new_awb, new_courier):
     if awb == (row["original_awb"] or ""):
         db.rollback()
         raise ReshipError("same_awb", "The new AWB must differ from the original", 400)
+    bad = awb_format_error(courier, awb)
+    if bad:
+        db.rollback()
+        raise ReshipError("awb_format", "AWB %s does not look like a %s number: %s"
+                          % (awb, courier, bad), 400)
     cur = db.cursor()
     cur.execute("UPDATE order_reshipments SET status=%s, new_awb=%s, new_courier=%s, "
                 "shipped_by=%s, reshipped_at=NOW() WHERE id=%s AND status='PAID'",
@@ -701,10 +723,14 @@ def ship(db, reship_uuid, shipped_by, new_awb, new_courier):
                 % (courier, awb, row["original_awb"] or "n/a"))
     if _has_table(cur, "ops_shipping_awb"):
         # The courier platform's own shipment table: a new row, the original
-        # AWB row untouched. When the table exists the row must land.
-        cur.execute("INSERT INTO ops_shipping_awb (ow_order_id, tracking_number, courier, "
-                    "awb_status, created_by) VALUES (%s,%s,%s,'created',%s)",
-                    (row["order_id"], awb, courier, ("reship:" + who)[:100]))
+        # AWB row untouched. The platform books the AWB itself and may have
+        # written its row already; then there is nothing to add.
+        cur.execute("SELECT 1 FROM ops_shipping_awb WHERE ow_order_id=%s AND tracking_number=%s "
+                    "LIMIT 1", (row["order_id"], awb))
+        if not cur.fetchone():
+            cur.execute("INSERT INTO ops_shipping_awb (ow_order_id, tracking_number, courier, "
+                        "awb_status, created_by) VALUES (%s,%s,%s,'created',%s)",
+                        (row["order_id"], awb, courier, ("reship:" + who)[:100]))
     db.commit()
     emit(db, EV_SHIPPED, row["order_id"], reship_uuid, row.get("customer_id"),
          {"awb": awb, "courier": courier, "by": who})

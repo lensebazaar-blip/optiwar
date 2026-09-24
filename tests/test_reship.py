@@ -591,6 +591,16 @@ class ReshipTest(unittest.TestCase):
         path = "/ops/api/reshipments/%s/ship" % row["reship_uuid"]
         same = ops.post(path, json={"new_awb": "7X119057819", "new_courier": "DTDC"}, environ_overrides=IN)
         self.assertEqual(same.status_code, 400)
+        # an AWB that cannot be the named courier's is refused before anything moves
+        for courier, awb in (("DTDC", "7X3"), ("Delhivery", "7X200000001"), ("DTDC", "7X2000-0001")):
+            bad = ops.post(path, json={"new_awb": awb, "new_courier": courier}, environ_overrides=IN)
+            self.assertEqual((bad.status_code, bad.get_json()["error"]), (400, "awb_format"), (courier, awb))
+        self.assertEqual(len(Stubs.shipped), 0)
+        self.assertEqual(len(self._awbs(oid)), 1)
+        # the courier platform booked the AWB and wrote its own row first: no duplicate
+        self.cur.execute("INSERT INTO ops_shipping_awb (ow_order_id, tracking_number, courier, "
+                         "awb_status, created_by) VALUES (%s,'7X200000001','DTDC','created','platform')", (oid,))
+        self.db.commit()
         r = ops.post(path, json={"new_awb": "7X200000001", "new_courier": "DTDC"}, environ_overrides=IN)
         self.assertEqual(r.status_code, 200, r.get_json())
         body = r.get_json()["reship"]
