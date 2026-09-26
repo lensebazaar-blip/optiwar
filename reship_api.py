@@ -40,11 +40,15 @@ def _body():
     return request.get_json(silent=True) or {}
 
 
-def _ops_operator():
+def _ops_operator(body=None):
+    """Who acted: the admin session, else the platform's own operator name
+    (``operator`` in the body) recorded under the token so the audit names
+    the person, not only the integration."""
     email = session.get("user_email")
     if email:
         return email
-    return "ops-api-token"
+    who = str((body or {}).get("operator") or "").strip()[:80]
+    return "ops-api-token:%s" % who if who else "ops-api-token"
 
 
 def _ops_auth():
@@ -175,7 +179,7 @@ def register(bp):
         db = get_db()
         before = reship.active_for_order(db, order_id)
         try:
-            row = reship.confirm_returned(db, order_id, _ops_operator(),
+            row = reship.confirm_returned(db, order_id, _ops_operator(body),
                                           original_awb=body.get("original_awb"),
                                           courier=body.get("courier"),
                                           return_reason=body.get("return_reason"))
@@ -195,7 +199,7 @@ def register(bp):
         db = get_db()
         before = reship.by_uuid(db, reship_uuid)
         try:
-            row = reship.ship(db, reship_uuid, _ops_operator(), body.get("new_awb"),
+            row = reship.ship(db, reship_uuid, _ops_operator(body), body.get("new_awb"),
                               body.get("new_courier"))
         except reship.ReshipError as exc:
             return _error(exc)

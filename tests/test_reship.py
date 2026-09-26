@@ -654,6 +654,15 @@ class ReshipTest(unittest.TestCase):
         self.assertEqual(len(Stubs.mails), 1)
         self.assertEqual(len(self._events(oid, reship.EV_AVAILABLE)), 1)
 
+    def test_token_caller_names_its_operator_in_the_audit(self):
+        cid = self._customer()
+        oid = self._order(cid)
+        ops = self._client(ops=True)
+        r = ops.post("/ops/api/shipments/%s/return-received" % oid,
+                     json={"operator": " ravi@ops "}, environ_overrides=IN)
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(r.get_json()["reship"]["ops_return_confirmed_by"], "ops-api-token:ravi@ops")
+
     def test_only_the_returned_shipment_of_a_multi_line_order_is_affected(self):
         cid = self._customer()
         oid = self._order(cid, lines=3)
