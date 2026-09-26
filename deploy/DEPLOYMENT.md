@@ -340,7 +340,7 @@ On the release that carries the 60-day holding period (`reship.py`
 1. Copy `reports/reship_report_section.py` to `/root/reports/reports/`.
 2. In `run_daily_report.sh`, append `reports.reship_report_section` next to
    `reports.pendency_register_section`.
-3. `GRANT SELECT ON optiwar2.order_reshipments, optiwar2.order_reshipment_events
+3. `GRANT SELECT ON optiwar2.order_reshipments, optiwar2.reship_events
    TO 'optiwar_ro'@'localhost'` — the section reads both.
 4. Optional overrides in the gunicorn drop-in: `RESHIP_ABANDON_AFTER_DAYS`
    (60), `RESHIP_REMINDER_DAYS` (30,45,55), `RESHIP_FINAL_WINDOW_DAYS` (5),
