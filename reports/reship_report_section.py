@@ -87,6 +87,11 @@ ALERTS = (
     ("unsynced", "ABANDONED but the Ops platform has not acknowledged it",
      "SELECT order_id, abandoned_at FROM order_reshipments WHERE status='ABANDONED' "
      "AND (ops_sync_status IS NULL OR ops_sync_status IN ('PENDING','FAILED'))"),
+    ("late_capture", "Rs 250 captured after abandonment - refund or reship by hand",
+     "SELECT r.order_id, MAX(e.created_at) FROM order_reshipments r "
+     "JOIN reship_events e ON e.reship_uuid=r.reship_uuid "
+     "AND e.event_type='reship.payment_refused' AND e.payload LIKE '%late_capture%' "
+     "WHERE r.status='ABANDONED' GROUP BY r.order_id"),
 )
 
 
@@ -111,7 +116,7 @@ def collect(sql=run_sql):
 
 
 def status_of(metrics, alerts):
-    if alerts.get("unsynced"):
+    if alerts.get("unsynced") or alerts.get("late_capture"):
         return RED
     if any(alerts.get(k) for k in ("unnotified", "paid_unshipped", "final_window")):
         return AMBER
@@ -165,7 +170,7 @@ def findings(metrics=None, alerts=None, errors=None):
     for e in errors or ():
         out.append(Finding(WARNING, "reship", "reship report: %s" % e, "reship"))
     sev = {"unnotified": WARNING, "paid_unshipped": WARNING, "final_window": WARNING,
-           "unsynced": ACTION}
+           "unsynced": ACTION, "late_capture": ACTION}
     for key, label, _q in ALERTS:
         rows = alerts.get(key)
         if not rows:
