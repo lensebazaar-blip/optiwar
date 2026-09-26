@@ -69,7 +69,12 @@ ALERTS = (
      "SELECT r.order_id, r.ops_return_confirmed_at FROM order_reshipments r "
      "WHERE r.status IN %s AND r.ops_return_confirmed_at < NOW() - INTERVAL %d MINUTE "
      "AND NOT EXISTS (SELECT 1 FROM reship_events e WHERE e.reship_uuid=r.reship_uuid "
-     "AND e.event_type='reship.notified' AND e.payload LIKE '%%reship.available%%')"
+     "AND e.event_type='reship.notified' AND e.payload LIKE '%%reship.available%%' "
+     # a claim whose delivery then failed on that channel is not a notice
+     "AND NOT EXISTS (SELECT 1 FROM reship_events f WHERE f.reship_uuid=e.reship_uuid "
+     "AND f.event_type='reship.notify_failed' AND f.payload LIKE '%%reship.available%%' "
+     "AND JSON_UNQUOTE(JSON_EXTRACT(f.payload,'$.channel'))"
+     "=JSON_UNQUOTE(JSON_EXTRACT(e.payload,'$.channel'))))"
      % (OPEN, NOTIFY_GRACE_MINUTES)),
     ("paid_unshipped", "RESHIP_PAID for more than %dh and not shipped" % SHIP_THRESHOLD_HOURS,
      "SELECT order_id, paid_at FROM order_reshipments WHERE status='PAID' "

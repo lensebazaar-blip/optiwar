@@ -720,6 +720,21 @@ class ReshipTest(unittest.TestCase):
         self.assertEqual(out["email"], "FAILED")
         self.assertEqual(reship.by_uuid(self.db, row["reship_uuid"])["status"], "RETURNED")
         self.assertEqual(len(self._events(oid, reship.EV_NOTIFY_FAILED)), 1)
+        # the daily report still counts this customer as not told: the claim
+        # that preceded the failure is not a notice
+        from reports import reship_report_section as rrs
+        unnotified = [q for key, _label, q in rrs.ALERTS if key == "unnotified"][0]
+        self.cur.execute("UPDATE order_reshipments SET ops_return_confirmed_at="
+                         "ops_return_confirmed_at - INTERVAL 1 HOUR WHERE order_id=%s", (oid,))
+        self.db.commit()
+        cid2, oid2, row2 = self._returned()
+        reship.notify(self.db, reship.EV_AVAILABLE, oid2, cid2, "optiwar.in",
+                      reship_uuid=row2["reship_uuid"], mailer=lambda *a: None)
+        self.cur.execute("UPDATE order_reshipments SET ops_return_confirmed_at="
+                         "ops_return_confirmed_at - INTERVAL 1 HOUR WHERE order_id=%s", (oid2,))
+        self.db.commit()
+        self.cur.execute(unnotified)
+        self.assertEqual([r["order_id"] for r in self.cur.fetchall()], [oid])
 
     def test_whatsapp_is_draft_only_until_approved(self):
         self.assertEqual(set(reship.WA_TEMPLATES), {"return_started", "reship_available",
@@ -987,6 +1002,119 @@ class ReshipTest(unittest.TestCase):
         self.assertEqual(r.get_json()["error"], "not_holdable")
         self.assertEqual(self._client().post("/ops/api/reshipments/%s/hold" % u, json={"reason": "x"},
                                              environ_overrides=IN).status_code, 401)
+
+    def test_a_held_parcel_cannot_be_paid_for_and_says_so(self):
+        cid, oid, row = self._returned()
+        u = row["reship_uuid"]
+        reship.hold(self.db, u, "ravi", "legal hold")
+        view = self._client(cid).get("/api/orders/%s/reship" % oid,
+                                     environ_overrides=IN).get_json()["reship"]
+        self.assertEqual((view["state"], view["can_pay"], view["on_hold"]),
+                         ("RETURNED_TO_OPS", False, True))
+        r = self._client(cid).post("/api/reshipments/%s/payment/create" % u,
+                                   environ_overrides=IN)
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(r.get_json()["error"], "on_hold")
+        self.assertIsNone(reship.by_uuid(self.db, u)["razorpay_order_id"])
+        # an order started before the hold is not handed out again either
+        reship.release_hold(self.db, u, "ravi")
+        c, rzp_order = self._start(cid, row)
+        reship.hold(self.db, u, "ravi", "payment dispute")
+        r = c.post("/api/reshipments/%s/payment/create" % u, environ_overrides=IN)
+        self.assertEqual((r.status_code, r.get_json()["error"]), (409, "on_hold"))
+        reship.release_hold(self.db, u, "ravi")
+        c, again = self._start(cid, row)
+        self.assertEqual(again, rzp_order)
+
+    def test_reminders_after_a_hold_follow_the_extended_deadline(self):
+        cid, oid, row = self._returned()
+        u = row["reship_uuid"]
+        Stubs.mails = []
+        # held from day 20 for 20 days: the customer's day 30 is calendar day 50
+        reship.hold(self.db, u, "ravi", "legal")
+        self.cur.execute("UPDATE order_reshipments SET hold_at=%s WHERE reship_uuid=%s",
+                         (self._at(row, 20), u))
+        self.db.commit()
+        after = reship.release_hold(self.db, u, "ravi", now=self._at(row, 40))
+        self.assertEqual(after["abandon_at"], self._at(row, 80))
+        h = reship.holding(after, now=self._at(row, 45))
+        self.assertEqual((h["days_held"], h["days_remaining"]), (25, 35))
+        s = self._sweep(self._at(row, 45))
+        self.assertEqual(s["reminded"], 0)
+        self.assertEqual(Stubs.mails, [])
+        self.assertEqual(self._sweep(self._at(row, 50))["reminded"], 1)
+        self.assertEqual(len(self._events(oid, reship.EV_REMINDER)), 1)
+        self.assertEqual(len(self._events(oid, reship.EV_FINAL_WARNING)), 0)
+        # the final warning is five days before the real deadline, not day 55
+        self.assertEqual(self._sweep(self._at(row, 65))["reminded"], 1)
+        self.assertEqual(len(self._events(oid, reship.EV_FINAL_WARNING)), 0)
+        self.assertEqual(self._sweep(self._at(row, 75))["reminded"], 1)
+        self.assertEqual(len(self._events(oid, reship.EV_FINAL_WARNING)), 1)
+        self.assertEqual(self._sweep(self._at(row, 79))["abandoned"], 0)
+        self.assertEqual(self._sweep(self._at(row, 80))["abandoned"], 1)
+        gone = reship.by_uuid(self.db, u)
+        self.assertEqual(gone["abandon_reason"], "RETURNED_UNCLAIMED_80_DAYS")
+        self.cur.execute("SELECT * FROM order_history WHERE order_id=%s", (oid,))
+        notes = [v for r in self.cur.fetchall() for v in r.values()
+                 if isinstance(v, str) and "unclaimed" in v]
+        self.assertEqual(len(notes), 1)
+        self.assertIn("unclaimed for 80 days", notes[0])
+
+    def test_a_captured_fee_that_cannot_be_applied_holds_the_row_instead_of_abandoning(self):
+        cid, oid, row = self._returned()
+        u = row["reship_uuid"]
+        c, rzp_order = self._start(cid, row)
+        short = _payment("pay_short", rzp_order, amount=20000)  # captured, wrong amount
+        fetch = lambda oid_: [short] if oid_ == rzp_order else []  # noqa: E731
+        Stubs.mails = []
+        s = self._sweep(self._at(row, 60), fetch_order_payments=fetch)
+        self.assertEqual((s["abandoned"], s["settled"], s["held"]), (0, 0, 1))
+        after = reship.by_uuid(self.db, u)
+        self.assertEqual(after["status"], "PAYMENT_PENDING")
+        self.assertEqual(after["hold_by"], reship.SYSTEM_OPERATOR)
+        self.assertIn("PAYMENT_EXCEPTION amount_mismatch", after["hold_reason"])
+        self.assertIn("pay_short", after["hold_reason"])
+        self.assertEqual(Stubs.mails, [])  # neither "abandoned" nor "received Rs 250"
+        # the next sweeps neither abandon nor ask the provider again
+        calls = []
+
+        def counting(oid_):
+            calls.append(oid_)
+            return [short]
+        s = self._sweep(self._at(row, 61), fetch_order_payments=counting)
+        self.assertEqual((s["abandoned"], s["held"]), (0, 1))
+        self.assertEqual(calls, [])
+        self.assertEqual(len(self._events(oid, reship.EV_HOLD)), 1)
+        ops = self._client(ops=True)
+        act = ops.get("/ops/api/reship/queue", environ_overrides=IN).get_json()
+        me = [a for a in act["active"] if a["reship_uuid"] == u][0]
+        self.assertEqual(me["ops_state"], "ON_HOLD")
+
+    def test_a_webhook_url_without_a_secret_sends_nothing(self):
+        cid, oid, row = self._returned()
+        env = dict(os.environ)
+        env[reship.OPS_WEBHOOK_URL_ENV] = "https://ops.example/hooks/optiwar"
+        env.pop(reship.OPS_WEBHOOK_SECRET_ENV, None)
+        calls = []
+
+        def post(url, body, headers):
+            calls.append((url, body, headers))
+            return 200
+        s = self._sweep(self._at(row, 60), environ=env, http_post=post)
+        self.assertEqual((s["abandoned"], s["sync_failed"], s["synced"]), (1, 1, 0))
+        self.assertEqual(calls, [])
+        after = reship.by_uuid(self.db, row["reship_uuid"])
+        self.assertEqual((after["status"], after["ops_sync_status"]), ("ABANDONED", "FAILED"))
+        self.assertIsNone(after["ops_synced_at"])
+        failed = self._events(oid, reship.EV_OPS_SYNC_FAILED)
+        self.assertEqual(len(failed), 1)
+        self.assertIn(reship.OPS_WEBHOOK_SECRET_ENV, json.loads(failed[0]["payload"])["error"])
+        # the secret arrives: the same event goes out, signed
+        env[reship.OPS_WEBHOOK_SECRET_ENV] = "s3cret"
+        s = self._sweep(self._at(row, 61), environ=env, http_post=post)
+        self.assertEqual((s["synced"], s["sync_failed"]), (1, 0))
+        self.assertTrue(calls[0][2]["X-Optiwar-Signature"].startswith("sha256="))
+        self.assertEqual(reship.by_uuid(self.db, row["reship_uuid"])["ops_sync_status"], "SENT")
 
     def test_ops_is_told_of_an_abandonment_and_a_failed_delivery_is_retried(self):
         cid, oid, row = self._returned()

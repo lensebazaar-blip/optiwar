@@ -950,6 +950,8 @@
               {% if rs.can_pay %}
               <button type="button" class="oh-reship-btn" onclick="event.stopPropagation();owReshipPay(this)">Reship for Rs {{ rs.fee }}</button>
               <div class="oh-reship-err" hidden></div>
+              {% elif rs.on_hold %}
+              <p>Reshipment for this order is paused while we look into it; the holding period is paused too. Write to <a href="mailto:{{ rs.support_email }}" onclick="event.stopPropagation()">{{ rs.support_email }}</a> quoting order {{ order.order_id }}.</p>
               {% endif %}
             </div>
             {% elif rs.state == 'ABANDONED' %}
