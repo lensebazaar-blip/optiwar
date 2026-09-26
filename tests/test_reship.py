@@ -242,6 +242,10 @@ class ReshipTest(unittest.TestCase):
     def _events(self, oid, kind):
         return [e for e in reship.events_for(self.db, oid) if e["event_type"] == kind]
 
+    def _history(self, oid):
+        self.cur.execute("SELECT * FROM order_history WHERE order_id=%s", (oid,))
+        return self.cur.fetchall()
+
     def _awbs(self, oid):
         self.cur.execute("SELECT tracking_number, courier FROM ops_shipping_awb "
                          "WHERE ow_order_id=%s ORDER BY id", (oid,))
@@ -935,12 +939,76 @@ class ReshipTest(unittest.TestCase):
         s = self._sweep(self._at(row, 60), fetch_order_payments=lambda _: [])
         self.assertEqual(s["abandoned"], 1)
         self.assertEqual(reship.by_uuid(self.db, row["reship_uuid"])["status"], "ABANDONED")
-        # a payment that arrives after is refused, and the row stays terminal
+        # a checkout that completes a moment later reopens it: the money wins
         gone = reship.by_uuid(self.db, row["reship_uuid"])
+        Stubs.mails = []
         res = reship.settle_payment(self.db, row["reship_uuid"],
                                     _payment("pay_after", gone["razorpay_order_id"]), "test")
-        self.assertEqual(res["outcome"], reship.NOT_PAYABLE)
-        self.assertEqual(reship.by_uuid(self.db, row["reship_uuid"])["status"], "ABANDONED")
+        self.assertEqual(res["outcome"], reship.APPLIED)
+        after = reship.by_uuid(self.db, row["reship_uuid"])
+        self.assertEqual((after["status"], after["payment_status"], after["razorpay_payment_id"],
+                          after["abandoned_at"], after["abandon_reason"], after["ops_sync_status"]),
+                         ("PAID", "PAID", "pay_after", None, None, None))
+        self.assertEqual(len(self._events(oid, reship.EV_REOPENED)), 1)
+        notes = " ".join(str(v) for h in self._history(oid) for v in h.values())
+        self.assertIn("Reship reopened", notes)
+        self.assertEqual(reship.ops_state(after), reship.OPS_READY)
+        view = reship.public_view(after)
+        self.assertEqual((view["state"], view["can_pay"]), ("RESHIP_PAID", False))
+        # never abandoned again, and Ops can ship it as any paid reship
+        self.assertEqual(reship.abandon(self.db, row["reship_uuid"],
+                                        now=self._at(row, 90))[0], reship.NOT_OPEN)
+        self.assertEqual(reship.ship(self.db, row["reship_uuid"], "ops", "7X119057999",
+                                     "DTDC")["status"], "RESHIPPED")
+
+    def _abandoned(self, hours_ago):
+        cid, oid, row = self._returned()
+        self._start(cid, row)
+        s = self._sweep(self._at(row, 60), fetch_order_payments=lambda _: [])
+        self.assertEqual(s["abandoned"], 1)
+        cur = self.db.cursor()
+        cur.execute("UPDATE order_reshipments SET abandoned_at=NOW() - INTERVAL %s HOUR "
+                    "WHERE reship_uuid=%s", (hours_ago, row["reship_uuid"]))
+        self.db.commit()
+        return cid, oid, reship.by_uuid(self.db, row["reship_uuid"])
+
+    def test_a_fee_captured_after_the_grace_is_an_exception_for_a_person(self):
+        cid, oid, row = self._abandoned(hours_ago=25)
+        Stubs.mails = []
+        res = reship.settle_payment(self.db, row["reship_uuid"],
+                                    _payment("pay_toolate", row["razorpay_order_id"]), "test")
+        self.assertEqual(res["outcome"], reship.LATE_CAPTURE)
+        after = reship.by_uuid(self.db, row["reship_uuid"])
+        self.assertEqual((after["status"], after["razorpay_payment_id"]), ("ABANDONED", None))
+        self.assertEqual(Stubs.mails, [])
+        refused = self._events(oid, reship.EV_PAYMENT_REFUSED)
+        self.assertEqual(len(refused), 1)
+        self.assertIn("late_capture", refused[0]["payload"])
+        notes = " ".join(str(v) for h in self._history(oid) for v in h.values())
+        self.assertIn("LATE PAYMENT EXCEPTION", notes)
+        self.assertIn("pay_toolate", notes)
+        # the report names it, red
+        from reports import reship_report_section as rep
+        from reports.report_severity import ACTION
+        sql = [q for k, _l, q in rep.ALERTS if k == "late_capture"][0]
+        cur = self.db.cursor()
+        cur.execute(sql)
+        self.assertEqual([r["order_id"] for r in cur.fetchall()], [oid])
+        found = rep.findings({}, {"late_capture": [(oid, "x")]}, [])
+        self.assertEqual((found[0].severity, rep.status_of({}, {"late_capture": [(oid, "x")]})),
+                         (ACTION, rep.RED))
+        # inside the grace window the same capture would have reopened it
+        cid2, oid2, row2 = self._abandoned(hours_ago=23)
+        res = reship.settle_payment(self.db, row2["reship_uuid"],
+                                    _payment("pay_intime", row2["razorpay_order_id"]), "test")
+        self.assertEqual(res["outcome"], reship.APPLIED)
+        # a grace of 0 never reopens
+        cid3, oid3, row3 = self._abandoned(hours_ago=0)
+        res = reship.settle_payment(self.db, row3["reship_uuid"],
+                                    _payment("pay_nograce", row3["razorpay_order_id"]), "test",
+                                    environ={"RESHIP_REOPEN_GRACE_HOURS": "0"})
+        self.assertEqual(res["outcome"], reship.LATE_CAPTURE)
+        self.assertEqual(reship.by_uuid(self.db, row3["reship_uuid"])["status"], "ABANDONED")
 
     def test_paid_and_reshipped_rows_are_never_abandoned(self):
         cid, oid, row, _pay = self._paid()

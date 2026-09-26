@@ -70,10 +70,12 @@ REMINDER_DAYS_ENV = "RESHIP_REMINDER_DAYS"
 FINAL_WINDOW_ENV = "RESHIP_FINAL_WINDOW_DAYS"
 OPS_WEBHOOK_URL_ENV = "RESHIP_OPS_WEBHOOK_URL"
 OPS_WEBHOOK_SECRET_ENV = "RESHIP_OPS_WEBHOOK_SECRET"
+REOPEN_GRACE_ENV = "RESHIP_REOPEN_GRACE_HOURS"   # a capture this soon after abandonment reopens
 
 DEFAULT_ABANDON_DAYS = 60
 DEFAULT_REMINDER_DAYS = (30, 45, 55)
 DEFAULT_FINAL_WINDOW_DAYS = 5
+DEFAULT_REOPEN_GRACE_HOURS = 24
 ABANDON_REASON = "RETURNED_UNCLAIMED_%d_DAYS"
 SUPPORT_EMAIL = "support@optiwar.com"
 
@@ -142,6 +144,7 @@ EV_HOLD = "reship.hold"
 EV_HOLD_RELEASED = "reship.hold_released"
 EV_OPS_SYNC = "reship.ops_sync"
 EV_OPS_SYNC_FAILED = "reship.ops_sync_failed"
+EV_REOPENED = "reship.reopened"
 
 _EVENT_NS = uuid.UUID("2b7c1f4e-9d3a-4c58-8f0e-6a1b5d2c7e93")
 
@@ -155,6 +158,7 @@ AMOUNT_MISMATCH = "amount_mismatch"
 CURRENCY_MISMATCH = "currency_mismatch"
 ALREADY_BOUND = "already_bound"
 NOT_PAYABLE = "not_payable"
+LATE_CAPTURE = "late_capture"      # captured after ABANDONED + grace: a person decides
 
 RESHIPMENTS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS order_reshipments (
@@ -323,6 +327,13 @@ def final_window_days(environ=None):
     Ops state is ABANDONMENT_PENDING."""
     env = os.environ if environ is None else environ
     return _int_env(env, FINAL_WINDOW_ENV, DEFAULT_FINAL_WINDOW_DAYS)
+
+
+def reopen_grace_hours(environ=None):
+    """A fee captured within this many hours of abandonment reopens the
+    reship; 0 means an abandonment is never reopened by a payment."""
+    env = os.environ if environ is None else environ
+    return _int_env(env, REOPEN_GRACE_ENV, DEFAULT_REOPEN_GRACE_HOURS, low=0)
 
 
 def order_allowed(order_id, environ=None):
@@ -801,7 +812,7 @@ def _payment_bound_elsewhere(cur, payment_id, reship_id):
     return ""
 
 
-def settle_payment(db, reship_uuid, payment, source, logger=None):
+def settle_payment(db, reship_uuid, payment, source, logger=None, environ=None):
     """Apply Razorpay's record of the fee payment to one reship, once.
 
     ``payment`` is Razorpay's payment entity, fetched or webhook-delivered —
@@ -854,21 +865,56 @@ def settle_payment(db, reship_uuid, payment, source, logger=None):
     elsewhere = _payment_bound_elsewhere(cur, payment_id, row["id"])
     if elsewhere:
         return refuse(ALREADY_BOUND, "payment already paid " + elsewhere)
-    if row["status"] not in PAYABLE:
+    reopening = None
+    if row["status"] == ST_ABANDONED:
+        # The customer's checkout can complete a moment after the sweep closed
+        # the row. Inside the grace window the money reopens the reship; after
+        # it the parcel may be gone, so a person decides (refund or reship).
+        since = db_now(db) - (row.get("abandoned_at") or datetime.min)
+        grace = timedelta(hours=reopen_grace_hours(environ))
+        if timedelta(0) <= since <= grace and grace > timedelta(0):
+            reopening = since
+        else:
+            refuse(LATE_CAPTURE, "captured %s after abandonment; grace is %sh"
+                   % (str(since).split(".")[0], grace.total_seconds() // 3600))
+            cur = db.cursor()
+            add_history(cur, row["order_id"],
+                        "LATE PAYMENT EXCEPTION: reshipping charge INR %d captured (razorpay %s) "
+                        "after the parcel was abandoned - refund or reship by hand"
+                        % (FEE_INR, payment_id))
+            db.commit()
+            if logger:
+                logger.error("ACTIVITY:RESHIP_LATE_CAPTURE_EXCEPTION order:%s reship:%s payment:%s"
+                             % (row["order_id"], reship_uuid, payment_id))
+            return out
+    elif row["status"] not in PAYABLE:
         return refuse(NOT_PAYABLE, "reship is %s" % row["status"])
 
     dump = json.dumps({k: payment.get(k) for k in
                        ("id", "order_id", "amount", "currency", "status", "method",
                         "created_at")}, default=str)
     try:
-        cur.execute("UPDATE order_reshipments SET razorpay_payment_id=%s, payment_dump=%s, "
-                    "status=%s, payment_status=%s, paid_at=NOW(), paid_source=%s "
-                    "WHERE id=%s AND status IN ('RETURNED','PAYMENT_PENDING')",
-                    (payment_id, dump, ST_PAID, PAY_PAID, source, row["id"]))
+        if reopening is not None:
+            cur.execute("UPDATE order_reshipments SET razorpay_payment_id=%s, payment_dump=%s, "
+                        "status=%s, payment_status=%s, paid_at=NOW(), paid_source=%s, "
+                        "abandoned_at=NULL, abandon_reason=NULL, "
+                        "ops_sync_status=NULL, ops_synced_at=NULL "
+                        "WHERE id=%s AND status='ABANDONED'",
+                        (payment_id, dump, ST_PAID, PAY_PAID, source, row["id"]))
+        else:
+            cur.execute("UPDATE order_reshipments SET razorpay_payment_id=%s, payment_dump=%s, "
+                        "status=%s, payment_status=%s, paid_at=NOW(), paid_source=%s "
+                        "WHERE id=%s AND status IN ('RETURNED','PAYMENT_PENDING')",
+                        (payment_id, dump, ST_PAID, PAY_PAID, source, row["id"]))
         if cur.rowcount != 1:
             db.rollback()
             out["outcome"] = DUPLICATE
             return out
+        if reopening is not None:
+            add_history(cur, row["order_id"],
+                        "Reship reopened: charge received %s after abandonment, within the "
+                        "%dh grace - parcel to be reshipped"
+                        % (str(reopening).split(".")[0], reopen_grace_hours(environ)))
         add_history(cur, row["order_id"],
                     "Reshipping charge INR %d received - razorpay %s" % (FEE_INR, payment_id))
         db.commit()
@@ -877,6 +923,15 @@ def settle_payment(db, reship_uuid, payment, source, logger=None):
         if "Duplicate entry" in str(exc) or (exc.args and exc.args[0] in (1062, 1586)):
             return refuse(ALREADY_BOUND, "payment id already bound")
         raise
+    if reopening is not None:
+        emit(db, EV_REOPENED, row["order_id"], reship_uuid, row.get("customer_id"),
+             {"payment_id": payment_id, "was_abandoned_at": str(row.get("abandoned_at")),
+              "late_seconds": int(reopening.total_seconds()),
+              "was_reason": row.get("abandon_reason")})
+        if logger:
+            logger.warning("ACTIVITY:RESHIP_REOPENED order:%s reship:%s payment:%s late:%ss"
+                           % (row["order_id"], reship_uuid, payment_id,
+                              int(reopening.total_seconds())))
     emit(db, EV_PAYMENT_COMPLETED, row["order_id"], reship_uuid, row.get("customer_id"),
          {"payment_id": payment_id, "amount": FEE_MINOR, "currency": CURRENCY,
           "source": source})
