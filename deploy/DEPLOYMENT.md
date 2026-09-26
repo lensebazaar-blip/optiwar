@@ -330,3 +330,25 @@ repo. On the release that carries `reports/face_demand_section.py`,
    'optiwar_ro'@'localhost'` — the frame-only section reads them.
 
 Nothing in `face_demand_log` or `chat_sessions` is deleted by any of this.
+
+## Daily report — box-side steps for the returned-parcel holding release
+
+On the release that carries the 60-day holding period (`reship.py`
+`HOLDING_COLUMNS`, applied by the schema step) and
+`reports/reship_report_section.py`:
+
+1. Copy `reports/reship_report_section.py` to `/root/reports/reports/`.
+2. In `run_daily_report.sh`, append `reports.reship_report_section` next to
+   `reports.pendency_register_section`.
+3. `GRANT SELECT ON optiwar2.order_reshipments, optiwar2.order_reshipment_events
+   TO 'optiwar_ro'@'localhost'` — the section reads both.
+4. Optional overrides in the gunicorn drop-in: `RESHIP_ABANDON_AFTER_DAYS`
+   (60), `RESHIP_REMINDER_DAYS` (30,45,55), `RESHIP_FINAL_WINDOW_DAYS` (5),
+   `RESHIP_OPS_WEBHOOK_URL` / `RESHIP_OPS_WEBHOOK_SECRET` for the
+   `reship.abandoned` push (without them Ops reads the state from the queue
+   API). `RESHIP_WA_REMINDER_TEMPLATES_APPROVED` stays unset until Meta
+   approves the three holding-period templates.
+
+The clock starts only at `POST /ops/api/shipments/<order_id>/return-received`;
+rows confirmed before this release are backfilled from
+`ops_return_confirmed_at` once, by `ensure_schema`.

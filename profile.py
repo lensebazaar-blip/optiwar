@@ -85,7 +85,7 @@ def profile_page():
     normalize_rows(orders)
     grouped_orders = customer_orders(orders)[:30]
     cust_id = customer['customer_id'] if customer else user_id
-    reship_rows, shipments = {}, {}
+    reship_rows, shipments, reship_now = {}, {}, None
     if grouped_orders and cust_id and reship.enabled() and reship.is_india_host(request.host):
         try:
             reship.ensure_schema(db)
@@ -93,9 +93,10 @@ def profile_page():
             shipments = reship.shipments_for_orders(
                 db, [o['order_id'] for o in grouped_orders
                      if o.get('order_status_name') == reship.COURIER_RETURN_STATUS])
+            reship_now = reship.db_now(db)
         except Exception:  # noqa: BLE001 - the order list must still render
             reship_rows, shipments = {}, {}
-    attach_reship(grouped_orders, reship_rows, request.host, shipments=shipments)
+    attach_reship(grouped_orders, reship_rows, request.host, shipments=shipments, now=reship_now)
 
     # Get face measurement data
     face_data = None

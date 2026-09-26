@@ -13,6 +13,8 @@ Ops (``ops._require_ops_auth``: admin session or Bearer OPS_API_TOKEN):
     GET  /ops/api/reship/queue
     POST /ops/api/shipments/<order_id>/return-received  Confirm Returned to Ops
     POST /ops/api/reshipments/<uuid>/ship               record the new AWB
+    POST /ops/api/reshipments/<uuid>/hold               pause the holding period (reason)
+    POST /ops/api/reshipments/<uuid>/release-hold       resume it; deadline moves out
 
 Routes attach to the main blueprint; ``__init__.py`` and ``ops.py`` are not in
 the deployment set.
@@ -90,7 +92,8 @@ def register(bp):
             return _error(exc)
         cur = db.cursor()
         latest = reship._latest_status(cur, order_id)
-        view = reship.public_view(row, latest, shipment=reship.original_shipment(cur, order_id))
+        view = reship.public_view(row, latest, shipment=reship.original_shipment(cur, order_id),
+                                  now=reship.db_now(db))
         return jsonify({"ok": True, "order_id": order_id, "reship": view})
 
     @bp.route("/api/reshipments/<reship_uuid>/payment/create", methods=["POST"])
@@ -148,7 +151,13 @@ def register(bp):
         if res["outcome"] in (reship.APPLIED, reship.DUPLICATE):
             latest = reship._latest_status(db.cursor(), row["order_id"])
             return jsonify({"ok": True, "reship": reship.public_view(
-                reship.by_uuid(db, reship_uuid), latest)})
+                reship.by_uuid(db, reship_uuid), latest, now=reship.db_now(db))})
+        if res["outcome"] == reship.NOT_PAYABLE:
+            current = reship.by_uuid(db, reship_uuid)
+            if current and current["status"] == reship.ST_ABANDONED:
+                return jsonify({"ok": False, "error": "abandoned",
+                                "message": "The holding period for this package has ended; "
+                                           "write to %s" % reship.SUPPORT_EMAIL}), 409
         if res["outcome"] == reship.NOT_CAPTURED:
             return jsonify({"ok": False, "error": "not_captured",
                             "message": "Payment not captured yet"}), 202
@@ -162,13 +171,16 @@ def register(bp):
             return jsonify({"error": "Unauthorized"}), 401
         q = reship.ops_queue(get_db())
         return render_template("ops_reship.html", queue=q, fee=reship.FEE_INR,
-                               enabled=reship.enabled())
+                               enabled=reship.enabled(), holding_days=reship.abandon_days())
 
     @bp.route("/ops/api/reship/queue", methods=["GET"])
     def ops_reship_queue():
         if not _ops_auth():
             return jsonify({"error": "Unauthorized"}), 401
-        return jsonify({"ok": True, **reship.ops_queue(get_db())})
+        q = reship.ops_queue(get_db())
+        return jsonify({"ok": True, "holding_days": reship.abandon_days(),
+                        "returning": q["returning"],
+                        "active": [_ops_row(r) for r in q["active"]]})
 
     @bp.route("/ops/api/shipments/<order_id>/return-received", methods=["POST"])
     def ops_return_received(order_id):
@@ -212,11 +224,44 @@ def register(bp):
                                          % (reship_uuid, exc))
         return jsonify({"ok": True, "reship": _ops_row(row)})
 
+    @bp.route("/ops/api/reshipments/<reship_uuid>/hold", methods=["POST"])
+    def ops_reship_hold(reship_uuid):
+        """Administrative / legal / payment-dispute hold: the row is never
+        abandoned while it stands. Requires a reason."""
+        if not _ops_auth():
+            return jsonify({"error": "Unauthorized"}), 401
+        body = _body()
+        try:
+            row = reship.hold(get_db(), reship_uuid, _ops_operator(body), body.get("reason"))
+        except reship.ReshipError as exc:
+            return _error(exc)
+        return jsonify({"ok": True, "reship": _ops_row(row)})
+
+    @bp.route("/ops/api/reshipments/<reship_uuid>/release-hold", methods=["POST"])
+    def ops_reship_release_hold(reship_uuid):
+        if not _ops_auth():
+            return jsonify({"error": "Unauthorized"}), 401
+        body = _body()
+        try:
+            row = reship.release_hold(get_db(), reship_uuid, _ops_operator(body))
+        except reship.ReshipError as exc:
+            return _error(exc)
+        return jsonify({"ok": True, "reship": _ops_row(row)})
+
 
 def _ops_row(row):
+    """The queue row as Ops sees it: identifiers, lifecycle, the server's
+    deadline fields and states. Never the payment dump or customer contact."""
     keys = ("reship_uuid", "order_id", "customer_id", "status", "payment_status",
             "fee_amount", "fee_currency", "original_awb", "original_courier",
             "return_reason", "razorpay_order_id", "razorpay_payment_id",
             "ops_return_confirmed_by", "ops_return_confirmed_at", "paid_at",
-            "reshipped_at", "new_awb", "new_courier", "shipped_by")
-    return {k: row.get(k) for k in keys}
+            "reshipped_at", "new_awb", "new_courier", "shipped_by",
+            "returned_at", "abandon_at", "abandoned_at", "abandon_reason",
+            "hold_reason", "hold_by", "hold_at",
+            "ops_state", "days_remaining", "days_held", "final_period", "holding_days",
+            "on_hold", "payment_state", "notification_state", "ops_sync")
+    out = {k: row.get(k) for k in keys}
+    if "ops_state" not in row:
+        out.update(reship.ops_projection(row, [], reship.db_now(get_db())))
+    return out

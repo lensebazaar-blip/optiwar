@@ -7,12 +7,14 @@ order; browser callback, webhook and reconciliation converge on one PAID row;
 Ops ships under a new AWB and the original AWB is never rewritten.
 """
 import importlib.util
+import json
 import os
 import sys
 import time
 import types
 import unittest
 import uuid
+from datetime import timedelta
 
 from flask import Blueprint, Flask
 
@@ -721,11 +723,19 @@ class ReshipTest(unittest.TestCase):
 
     def test_whatsapp_is_draft_only_until_approved(self):
         self.assertEqual(set(reship.WA_TEMPLATES), {"return_started", "reship_available",
-                                                     "reship_paid"})
+                                                     "reship_paid", "reship_reminder",
+                                                     "reship_final_warning",
+                                                     "reship_abandoned"})
         cid, oid, row = self._returned()
         sent = []
         reship.notify(self.db, reship.EV_AVAILABLE, oid, cid, "optiwar.in",
                       reship_uuid=row["reship_uuid"], whatsapp=lambda *a: sent.append(a))
+        self.assertEqual(sent, [])
+        # The holding-period templates have their own approval flag: the
+        # approval of the first three does not switch them on.
+        reship.notify(self.db, reship.EV_REMINDER, oid, cid, "optiwar.in",
+                      reship_uuid=row["reship_uuid"], whatsapp=lambda *a: sent.append(a),
+                      environ={reship.WA_APPROVED_ENV: "true"}, mailer=lambda *a: None)
         self.assertEqual(sent, [])
 
     def test_every_reship_email_copies_admin_and_available_asks_to_check_address(self):
@@ -760,6 +770,314 @@ class ReshipTest(unittest.TestCase):
             self.assertEqual(captured["msg"].cc, ["admin@optiwar.com"])
             self._mail("admin@optiwar.com", "s", "t")
             self.assertEqual(captured["msg"].cc, [])
+
+
+    # ---------------------------------------------------- holding period
+
+    def _at(self, row, days):
+        """The clock ``days`` after this row's physical receipt."""
+        return row["returned_at"] + timedelta(days=days)
+
+    def _sweep(self, now, **kw):
+        kw.setdefault("environ", dict(os.environ))
+        return reship.sweep_holding(self.db, now=now, **kw)
+
+    def test_only_physical_receipt_starts_the_holding_clock(self):
+        cid = self._customer()
+        oid = self._order(cid)  # courier says Returned; nobody has the parcel
+        view = self._client(cid).get("/api/orders/%s/reship" % oid,
+                                     environ_overrides=IN).get_json()["reship"]
+        self.assertEqual(view["state"], "RETURNING_TO_OPS")
+        self.assertIsNone(view["returned_at"])
+        self.assertIsNone(view["abandon_at"])
+        self.assertIsNone(view["days_remaining"])
+        reship.sweep_return_started(self.db)
+        self.assertEqual(self._sweep(reship.db_now(self.db))["abandoned"], 0)
+        self.assertIsNone(reship.active_for_order(self.db, oid))
+
+        row = reship.confirm_returned(self.db, oid, "ops@optiwar.com", return_reason="RTO")
+        self.assertIsNotNone(row["returned_at"])
+        self.assertEqual(row["returned_at"], row["ops_return_confirmed_at"])
+        self.assertEqual(row["abandon_at"] - row["returned_at"], timedelta(days=60))
+        h = reship.holding(row, now=self._at(row, 0))
+        self.assertEqual((h["days_remaining"], h["days_held"], h["final_period"]), (60, 0, False))
+        h = reship.holding(row, now=self._at(row, 56))
+        self.assertEqual((h["days_remaining"], h["final_period"]), (4, True))
+        view = self._client(cid).get("/api/orders/%s/reship" % oid,
+                                     environ_overrides=IN).get_json()["reship"]
+        self.assertEqual(view["holding_days"], 60)
+        self.assertTrue(view["can_pay"])
+        self.assertIsNotNone(view["abandon_at"])
+
+    def test_holding_period_is_configurable_and_reminders_stay_inside_it(self):
+        env = {reship.ENABLED_ENV: "true", reship.ABANDON_DAYS_ENV: "45",
+               reship.REMINDER_DAYS_ENV: "30, 45, 55, x"}
+        self.assertEqual(reship.abandon_days(env), 45)
+        self.assertEqual(reship.reminder_days(env), (30,))
+        self.assertEqual(reship.reminder_days({}), (30, 45, 55))
+        self.assertEqual(reship.abandon_days({reship.ABANDON_DAYS_ENV: "junk"}), 60)
+
+    def test_reminders_and_abandonment_happen_exactly_once_each(self):
+        cid, oid, row = self._returned()
+        Stubs.mails = []
+        for day in (1, 29):
+            s = self._sweep(self._at(row, day))
+            self.assertEqual((s["reminded"], s["abandoned"]), (0, 0))
+        self.assertEqual(Stubs.mails, [])
+
+        self.assertEqual(self._sweep(self._at(row, 30))["reminded"], 1)
+        self.assertEqual(self._sweep(self._at(row, 30))["reminded"], 0)
+        self.assertEqual(self._sweep(self._at(row, 31))["reminded"], 0)
+        self.assertEqual(len(Stubs.mails), 1)
+        self.assertEqual(len(self._events(oid, reship.EV_REMINDER)), 1)
+
+        self.assertEqual(self._sweep(self._at(row, 45))["reminded"], 1)
+        self.assertEqual(self._sweep(self._at(row, 55))["reminded"], 1)
+        self.assertEqual(self._sweep(self._at(row, 55))["reminded"], 0)
+        self.assertEqual(len(Stubs.mails), 3)
+        self.assertEqual(len(self._events(oid, reship.EV_REMINDER)), 2)
+        self.assertEqual(len(self._events(oid, reship.EV_FINAL_WARNING)), 1)
+
+        # the deadline day itself: still the customer's, nothing closes
+        s = self._sweep(self._at(row, 60) - timedelta(seconds=1))
+        self.assertEqual(s["abandoned"], 0)
+        self.assertEqual(reship.by_uuid(self.db, row["reship_uuid"])["status"], "RETURNED")
+
+        s = self._sweep(self._at(row, 60))
+        self.assertEqual(s["abandoned"], 1)
+        self.assertEqual(s["synced"], 1)
+        after = reship.by_uuid(self.db, row["reship_uuid"])
+        self.assertEqual(after["status"], "ABANDONED")
+        self.assertEqual(after["abandon_reason"], "RETURNED_UNCLAIMED_60_DAYS")
+        self.assertIsNotNone(after["abandoned_at"])
+        self.assertEqual(after["ops_sync_status"], "QUEUE")   # no webhook: queue is the channel
+        self.assertEqual(len(Stubs.mails), 4)
+        self.assertEqual(len(self._events(oid, reship.EV_ABANDONED)), 1)
+
+        # rerun: idempotent, silent
+        s = self._sweep(self._at(row, 61))
+        self.assertEqual((s["abandoned"], s["reminded"], s["synced"]), (0, 0, 0))
+        self.assertEqual(len(Stubs.mails), 4)
+        self.assertEqual(reship.abandon(self.db, row["reship_uuid"])[0], reship.NOT_OPEN)
+
+        # the customer: terminal card, no button, no payment start
+        view = self._client(cid).get("/api/orders/%s/reship" % oid,
+                                     environ_overrides=IN).get_json()["reship"]
+        self.assertEqual(view["state"], "ABANDONED")
+        self.assertFalse(view["can_pay"])
+        self.assertIsNotNone(view["abandoned_at"])
+        self.assertEqual(view["support_email"], "support@optiwar.com")
+        r = self._client(cid).post("/api/reshipments/%s/payment/create" % row["reship_uuid"],
+                                   environ_overrides=IN)
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(r.get_json()["error"], "not_payable")
+        orders = [{"order_id": oid, "site_from": "optiwar.in", "order_status_name": "Returned",
+                   "stage_label": "", "stage_tone": "", "stage_step": 0}]
+        attach_reship(orders, {oid: after}, "optiwar.in", now=self._at(row, 61))
+        self.assertEqual(orders[0]["stage_label"], "Abandoned")
+        self.assertFalse(orders[0]["reship"]["can_pay"])
+
+    def test_a_sweep_that_was_down_sends_only_the_latest_reminder(self):
+        cid, oid, row = self._returned()
+        Stubs.mails = []
+        s = self._sweep(self._at(row, 56))
+        self.assertEqual(s["reminded"], 1)
+        self.assertEqual(len(Stubs.mails), 1)
+        self.assertEqual(len(self._events(oid, reship.EV_REMINDER)), 2)      # 30, 45 claimed
+        self.assertEqual(len(self._events(oid, reship.EV_FINAL_WARNING)), 1)  # 55 sent
+        self.assertEqual(self._sweep(self._at(row, 57))["reminded"], 0)
+
+    def test_a_captured_fee_beats_the_deadline(self):
+        cid, oid, row = self._returned()
+        c, rzp_order = self._start(cid, row)
+        pay = _payment("pay_late1", rzp_order)
+        # the provider knows of the capture; the callback never came
+        fetch = lambda oid_: [pay] if oid_ == rzp_order else []  # noqa: E731
+        Stubs.mails = []
+        s = self._sweep(self._at(row, 60), fetch_order_payments=fetch)
+        self.assertEqual((s["abandoned"], s["settled"]), (0, 1))
+        after = reship.by_uuid(self.db, row["reship_uuid"])
+        self.assertEqual(after["status"], "PAID")
+        self.assertEqual(after["razorpay_payment_id"], "pay_late1")
+        self.assertEqual(len(Stubs.mails), 1)  # "we received Rs 250", not "abandoned"
+        self.assertEqual(self._events(oid, reship.EV_ABANDONED), [])
+        self.assertEqual(reship.abandon(self.db, row["reship_uuid"],
+                                        now=self._at(row, 90))[0], reship.NOT_OPEN)
+
+    def test_a_provider_that_will_not_answer_postpones_abandonment(self):
+        cid, oid, row = self._returned()
+        self._start(cid, row)
+
+        def down(_):
+            raise RuntimeError("razorpay 503")
+        s = self._sweep(self._at(row, 60), fetch_order_payments=down)
+        self.assertEqual((s["abandoned"], s["deferred"]), (0, 1))
+        self.assertEqual(reship.by_uuid(self.db, row["reship_uuid"])["status"], "PAYMENT_PENDING")
+        # no provider at all: also deferred, never abandoned blind
+        s = self._sweep(self._at(row, 60))
+        self.assertEqual((s["abandoned"], s["deferred"]), (0, 1))
+        # provider answers "nothing captured": now it closes
+        s = self._sweep(self._at(row, 60), fetch_order_payments=lambda _: [])
+        self.assertEqual(s["abandoned"], 1)
+        self.assertEqual(reship.by_uuid(self.db, row["reship_uuid"])["status"], "ABANDONED")
+        # a payment that arrives after is refused, and the row stays terminal
+        gone = reship.by_uuid(self.db, row["reship_uuid"])
+        res = reship.settle_payment(self.db, row["reship_uuid"],
+                                    _payment("pay_after", gone["razorpay_order_id"]), "test")
+        self.assertEqual(res["outcome"], reship.NOT_PAYABLE)
+        self.assertEqual(reship.by_uuid(self.db, row["reship_uuid"])["status"], "ABANDONED")
+
+    def test_paid_and_reshipped_rows_are_never_abandoned(self):
+        cid, oid, row, _pay = self._paid()
+        self.assertEqual(reship.abandon(self.db, row["reship_uuid"],
+                                        now=self._at(row, 99))[0], reship.NOT_OPEN)
+        row = reship.ship(self.db, row["reship_uuid"], "ops", "7X119057886", "DTDC")
+        s = self._sweep(self._at(row, 99))
+        self.assertEqual(s["abandoned"], 0)
+        self.assertEqual(reship.by_uuid(self.db, row["reship_uuid"])["status"], "RESHIPPED")
+        h = reship.holding(row, now=self._at(row, 99))
+        self.assertIsNone(h["days_remaining"])
+
+    def test_a_hold_pauses_the_clock_and_release_gives_the_days_back(self):
+        cid, oid, row = self._returned()
+        ops = self._client(ops=True)
+        u = row["reship_uuid"]
+        r = ops.post("/ops/api/reshipments/%s/hold" % u, json={}, environ_overrides=IN)
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.get_json()["error"], "reason_required")
+        r = ops.post("/ops/api/reshipments/%s/hold" % u,
+                     json={"reason": "payment dispute raised", "operator": "ravi"},
+                     environ_overrides=IN)
+        self.assertEqual(r.status_code, 200, r.get_json())
+        body = r.get_json()["reship"]
+        self.assertEqual((body["ops_state"], body["on_hold"]), ("ON_HOLD", True))
+        self.assertEqual(body["hold_by"], "ops-api-token:ravi")
+        self.assertEqual(body["hold_reason"], "payment dispute raised")
+        self.assertEqual(len(self._events(oid, reship.EV_HOLD)), 1)
+        # same hold again: no second event
+        ops.post("/ops/api/reshipments/%s/hold" % u, json={"reason": "again"}, environ_overrides=IN)
+        self.assertEqual(len(self._events(oid, reship.EV_HOLD)), 1)
+
+        deadline = reship.by_uuid(self.db, u)["abandon_at"]
+        s = self._sweep(self._at(row, 70))
+        self.assertEqual((s["abandoned"], s["held"], s["reminded"]), (0, 1, 0))
+        self.assertEqual(reship.by_uuid(self.db, u)["status"], "RETURNED")
+        self.assertEqual(reship.abandon(self.db, u, now=self._at(row, 70))[0], reship.HELD)
+
+        held_for = timedelta(days=10)
+        with_clock = reship.release_hold(self.db, u, "ravi",
+                                         now=reship.by_uuid(self.db, u)["hold_at"] + held_for)
+        self.assertFalse(reship.held(with_clock))
+        self.assertEqual(with_clock["abandon_at"], deadline + held_for)
+        self.assertEqual(len(self._events(oid, reship.EV_HOLD_RELEASED)), 1)
+        r = ops.post("/ops/api/reshipments/%s/release-hold" % u, json={}, environ_overrides=IN)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(self._events(oid, reship.EV_HOLD_RELEASED)), 1)
+        # the customer still has the 10 days they were held for
+        s = self._sweep(self._at(row, 65))
+        self.assertEqual(s["abandoned"], 0)
+        s = self._sweep(self._at(row, 70))
+        self.assertEqual(s["abandoned"], 1)
+
+        # a paid row cannot be held
+        cid2, oid2, paid, _ = self._paid()
+        r = ops.post("/ops/api/reshipments/%s/hold" % paid["reship_uuid"],
+                     json={"reason": "x"}, environ_overrides=IN)
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(r.get_json()["error"], "not_holdable")
+        self.assertEqual(self._client().post("/ops/api/reshipments/%s/hold" % u, json={"reason": "x"},
+                                             environ_overrides=IN).status_code, 401)
+
+    def test_ops_is_told_of_an_abandonment_and_a_failed_delivery_is_retried(self):
+        cid, oid, row = self._returned()
+        env = dict(os.environ)
+        env[reship.OPS_WEBHOOK_URL_ENV] = "https://ops.example/hooks/optiwar"
+        env[reship.OPS_WEBHOOK_SECRET_ENV] = "s3cret"
+        calls = []
+
+        def failing(url, body, headers):
+            calls.append((url, body, headers))
+            return 503
+        s = self._sweep(self._at(row, 60), environ=env, http_post=failing)
+        self.assertEqual((s["abandoned"], s["sync_failed"]), (1, 1))
+        after = reship.by_uuid(self.db, row["reship_uuid"])
+        self.assertEqual((after["status"], after["ops_sync_status"]), ("ABANDONED", "FAILED"))
+        self.assertEqual(len(self._events(oid, reship.EV_OPS_SYNC_FAILED)), 1)
+        payload = json.loads(calls[0][1])
+        self.assertEqual(set(payload), {"event_id", "event", "order_ref", "reship_uuid",
+                                        "abandoned_at", "reason"})
+        self.assertEqual((payload["event"], payload["order_ref"], payload["reason"]),
+                         ("reship.abandoned", oid, "RETURNED_UNCLAIMED_60_DAYS"))
+        self.assertTrue(calls[0][2]["X-Optiwar-Signature"].startswith("sha256="))
+        self.assertNotIn(b"c@example.in", calls[0][1])
+        self.assertNotIn(b"Test Customer", calls[0][1])
+
+        def ok(url, body, headers):
+            calls.append((url, body, headers))
+            return 200
+        s = self._sweep(self._at(row, 61), environ=env, http_post=ok)
+        self.assertEqual((s["abandoned"], s["synced"], s["sync_failed"]), (0, 1, 0))
+        after = reship.by_uuid(self.db, row["reship_uuid"])
+        self.assertEqual(after["ops_sync_status"], "SENT")
+        self.assertIsNotNone(after["ops_synced_at"])
+        self.assertEqual(json.loads(calls[1][1])["event_id"], payload["event_id"])  # same event
+        self.assertEqual(self._sweep(self._at(row, 62), environ=env, http_post=ok)["synced"], 0)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(self._events(oid, reship.EV_OPS_SYNC)), 1)
+
+    def test_queue_api_carries_the_deadline_so_ops_computes_nothing(self):
+        cid, oid, row = self._returned()
+        reship.notify(self.db, reship.EV_AVAILABLE, oid, cid, "optiwar.in",
+                      reship_uuid=row["reship_uuid"])
+        ops = self._client(ops=True)
+        act = ops.get("/ops/api/reship/queue", environ_overrides=IN).get_json()
+        self.assertEqual(act["holding_days"], 60)
+        me = [a for a in act["active"] if a["reship_uuid"] == row["reship_uuid"]][0]
+        self.assertEqual(me["ops_state"], "CUSTOMER_NOTIFIED")
+        self.assertEqual(me["payment_state"], "AWAITING_PAYMENT")
+        self.assertTrue(me["notification_state"]["day0_sent"])
+        self.assertIsNotNone(me["returned_at"])
+        self.assertIsNotNone(me["abandon_at"])
+        self.assertEqual(me["days_remaining"], 60)
+        self.assertFalse(me["final_period"])
+        self.assertEqual(me["ops_sync"]["status"], None)
+        # inside the final window the derived state says so
+        notes = reship.notifications_for(self.db, [row["reship_uuid"]])
+        proj = reship.ops_projection(row, notes[row["reship_uuid"]], now=self._at(row, 56))
+        self.assertEqual((proj["ops_state"], proj["days_remaining"], proj["final_period"]),
+                         ("ABANDONMENT_PENDING", 4, True))
+        self._sweep(self._at(row, 60))
+        act = ops.get("/ops/api/reship/queue", environ_overrides=IN).get_json()
+        me = [a for a in act["active"] if a["reship_uuid"] == row["reship_uuid"]][0]
+        self.assertEqual((me["ops_state"], me["payment_state"]), ("ABANDONED", "NEVER_PAID"))
+        self.assertEqual(me["ops_sync"]["status"], "QUEUE")
+        self.assertEqual(me["days_remaining"], None)
+        r = ops.post("/ops/api/reshipments/%s/ship" % row["reship_uuid"],
+                     json={"new_courier": "DTDC", "new_awb": "7X119057886"}, environ_overrides=IN)
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(r.get_json()["error"], "unpaid")
+
+    def test_holding_messages_name_the_deadline_and_the_test_order_is_skipped(self):
+        cid, oid, row = self._returned()
+        self.cur.execute("UPDATE orders SET is_test=1 WHERE order_id=%s", (oid,))
+        self.db.commit()
+        Stubs.mails = []
+        s = self._sweep(self._at(row, 60))
+        self.assertEqual((s["abandoned"], s["reminded"]), (0, 0))
+        self.assertEqual(Stubs.mails, [])
+        fields = reship.holding_fields(row, now=self._at(row, 45))
+        self.assertEqual(fields["days_remaining"], 15)
+        self.assertEqual(fields["holding_days"], 60)
+        self.assertEqual(fields["deadline"], row["abandon_at"].strftime("%d %b %Y"))
+        fields.update({"name": "Test", "order_id": oid, "url": reship.my_orders_url("optiwar.in")})
+        for ev in (reship.EV_AVAILABLE, reship.EV_REMINDER, reship.EV_FINAL_WARNING,
+                   reship.EV_ABANDONED):
+            subj, text = reship.EMAILS[ev]
+            subj, text = subj.format(**fields), text.format(**fields)
+            self.assertIn(oid, subj)
+            self.assertIn(fields["deadline"], text)
+            self.assertIn("support@optiwar.com", text)
+        self.assertIn("15 days remaining", reship.EMAILS[reship.EV_REMINDER][1].format(**fields))
 
 
 if __name__ == "__main__":
