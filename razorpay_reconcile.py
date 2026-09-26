@@ -121,9 +121,15 @@ def main():
                 reship_api._notify(db, reship.EV_PAYMENT_COMPLETED, row,
                                    row.get('site_from') or 'optiwar.in')
             sweep = reship.sweep_return_started(db)
+            # Holding period: reminders on the configured days, abandonment on
+            # the deadline. A PAYMENT_PENDING row is asked about at Razorpay
+            # first, so a captured fee is settled, never abandoned.
+            holding = reship.sweep_holding(db, fetch_order_payments=order_payments,
+                                           logger=app.logger)
         reship_summary = {'checked': pending['checked'], 'settled': len(pending['settled']),
                           'refused': pending['refused'], 'unavailable': pending['unavailable'],
-                          'return_started_notified': sweep.get('notified', 0)}
+                          'return_started_notified': sweep.get('notified', 0),
+                          'holding': holding}
     except Exception as exc:  # noqa: BLE001 - must never stop the order reconcile
         app.logger.error('RESHIP_RECONCILE_FAILED %s' % exc)
         reship_summary = {'error': str(exc)[:160]}
@@ -149,9 +155,17 @@ def main():
               % (e['order_id'], e['payment_id'], e['reason']))
     for u in summary['unavailable_orders']:
         print('unavailable order=%s reason=%s (retried next run)' % (u['order_id'], u['reason']))
+    holding = reship_summary.get('holding') or {}
     if reship_summary.get('checked') or reship_summary.get('return_started_notified') \
-            or reship_summary.get('error'):
+            or reship_summary.get('error') or any(holding.get(k) for k in
+                                                  ('reminded', 'abandoned', 'sync_failed')):
         print('reship: %s' % json.dumps(reship_summary, default=str))
+    if holding.get('abandoned'):
+        alert('RESHIP_ABANDONED %d returned parcel(s) closed after the holding period'
+              % holding['abandoned'])
+    if holding.get('sync_failed'):
+        alert('RESHIP_OPS_SYNC_FAILED %d abandonment(s) not acknowledged by Ops (retried)'
+              % holding['sync_failed'])
     for r in reship_summary.get('refused') or []:
         alert('RESHIP_PAYMENT_REFUSED reship=%s reason=%s' % (r['reship_uuid'], r['outcome']))
     if summary['over_grace']:

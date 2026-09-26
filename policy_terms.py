@@ -287,13 +287,23 @@ The customer should retain the order confirmation, invoice, prescription details
 
 Optiwar will similarly retain the applicable order and acceptance record according to its record-retention practices.
 
-16. ACCEPTANCE AT CHECKOUT
+16. FAILED DELIVERY, RETURNED PACKAGES AND UNCLAIMED PARCELS
+
+Where the courier cannot deliver an order (for example an incorrect or incomplete address, an unreachable phone number, refusal at the door or repeated absence) and returns the package to Optiwar, the order is not cancelled and the amount paid is not refunded on that account. Optiwar will inform the customer that the package is coming back.
+
+Once the returned package has been physically received and checked in by Optiwar's operations team, the customer will be notified that it can be shipped again. For eligible orders placed on optiwar.in, reshipment is offered on payment of a fixed reshipping charge of Rs 250 through the customer's account (My Orders). The customer should confirm or correct the delivery address and phone number before paying, as the reshipment will otherwise be attempted to the same address.
+
+Optiwar will hold a returned package for sixty (60) days counted from the date its operations team physically confirmed receipt of the package (not from the date the courier first failed to deliver, initiated the return or marked the shipment as returned). During this period Optiwar will make reasonable attempts to notify the customer at the e-mail address and phone number on the order.
+
+If the reshipping charge has not been paid and the package has not been reshipped when the holding period ends, the package will be treated as abandoned. Reshipment through the customer's account is then no longer available, and Optiwar may handle or dispose of the abandoned goods as permitted by applicable law. The customer may write to support@optiwar.com within the holding period if the notified deadline needs to be reviewed. Nothing in this clause limits any right the customer has under law that cannot be excluded.
+
+17. ACCEPTANCE AT CHECKOUT
 
 This policy forms part of the terms upon which Optiwar accepts an order.
 
 The customer is shown the applicable terms before payment/order confirmation, and the checkout requires an affirmative, un-preselected acceptance of Optiwar's Terms & Conditions and this Returns, Replacements & Limited Warranty Policy. The version accepted is recorded against the order.
 
-17. CUSTOMER ACKNOWLEDGEMENT
+18. CUSTOMER ACKNOWLEDGEMENT
 
 By affirmatively accepting the applicable terms and placing an order, the customer acknowledges that the disclosed conditions formed part of the purchase decision.
 
@@ -375,7 +385,9 @@ Decisions on incorrect-supply and defect claims are communicated in writing. The
 This policy forms part of the terms upon which Optiwar accepts an order. The customer is shown the applicable terms before payment, and the checkout requires an affirmative, un-preselected acceptance of Optiwar's Terms & Conditions and this policy. The version accepted is recorded against the order.
 """
 
-RETURNS_VERSION_DATE = {SITE_IN: "2026-09-15", SITE_COM: "2026-09-15"}
+# .in 2026-09-27: clause 16 (failed delivery, returned packages, 60-day hold
+# from physical receipt, abandonment). Earlier versions stay sealed as accepted.
+RETURNS_VERSION_DATE = {SITE_IN: "2026-09-27", SITE_COM: "2026-09-15"}
 RETURNS_TEXT = {SITE_IN: RETURNS_IN, SITE_COM: RETURNS_COM}
 
 # What the customer ticks, immediately before paying. Each is the concise form
@@ -404,7 +416,8 @@ FORM_VERSION_FIELD = "returns_policy_version"
 
 # Disclosure flags recorded YES/NO against the order.
 DISCLOSURES = ("lens_deduction_shown", "reverse_charge_shown",
-               "contact_lens_hygiene_shown", "international_non_returnable_shown")
+               "contact_lens_hygiene_shown", "international_non_returnable_shown",
+               "returned_parcel_holding_shown")
 
 SCHEMA_VERSIONS = """
 CREATE TABLE IF NOT EXISTS policy_versions (
@@ -571,6 +584,7 @@ def disclosures_for(cart, site):
         "reverse_charge_shown": not intl,
         "contact_lens_hygiene_shown": has_cl,
         "international_non_returnable_shown": intl,
+        "returned_parcel_holding_shown": not intl,
     }
 
 

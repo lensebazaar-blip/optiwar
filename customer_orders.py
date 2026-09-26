@@ -121,10 +121,11 @@ RESHIP_LABELS = {
     'RETURNED_TO_OPS': ('Returned to Optiwar', 'returned'),
     'RESHIP_PAID': ('Reshipment paid', 'confirmed'),
     'RESHIPPED': ('Reshipped', 'shipped'),
+    'ABANDONED': ('Abandoned', 'returned'),
 }
 
 
-def attach_reship(orders, reship_rows, host, environ=None, shipments=None):
+def attach_reship(orders, reship_rows, host, environ=None, shipments=None, now=None):
     """Give each order its reship card, from server state only.
 
     ``reship_rows`` is ``reship.for_customer``'s ``{order_id: row}``;
@@ -141,7 +142,8 @@ def attach_reship(orders, reship_rows, host, environ=None, shipments=None):
             continue
         row = reship_rows.get(oid)
         view = reship.public_view(row, order.get('order_status_name'),
-                                  shipment=(shipments or {}).get(oid))
+                                  shipment=(shipments or {}).get(oid), now=now,
+                                  environ=environ)
         if view is None:
             continue
         order['reship'] = view

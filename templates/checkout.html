@@ -1812,6 +1812,9 @@ footer{ display:none !important; }
           <p><strong>No change-of-mind returns.</strong> Correctly supplied products are returnable only with Optiwar's written authorization, subject to inspection.</p>
           {% endif %}
           <p>Return or reverse-pickup charges are payable by the customer unless Optiwar confirms otherwise in writing.</p>
+          {% if disclosures.returned_parcel_holding_shown %}
+          <p><strong>If delivery fails</strong> and the courier returns the package to us, you can have it reshipped for a fixed Rs 250 from My Orders. We hold a returned package for 60 days from the day our team physically receives it; after that it is treated as abandoned. Please check your address and phone number now.</p>
+          {% endif %}
           {% endif %}
           {% if disclosures.contact_lens_hygiene_shown %}
           <p><strong>Contact lenses:</strong> opened, worn, unsealed or tampered packs are hygiene-sensitive and cannot be returned. Please verify brand, power, cylinder, axis, ADD, BC and quantity before paying.</p>

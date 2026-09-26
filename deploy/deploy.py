@@ -513,8 +513,13 @@ def migration():
               for name, ddl in face_cart_module().TABLES]
     items += [("%s (table)" % name, " ".join(ddl.split()))
               for name, ddl in favorites_module().TABLES]
+    rs = reship_module()
     items += [("%s (table)" % name, " ".join(ddl.split()))
-              for name, ddl in reship_module().TABLES]
+              for name, ddl in rs.TABLES]
+    for table, columns in rs.ADDED_COLUMNS:
+        items += [("%s.%s (column)" % (table, name),
+                   "ALTER TABLE %s ADD COLUMN %s %s" % (table, name, decl))
+                  for name, decl in columns]
     for table, columns in ca.SESSION_COLUMNS:
         items += [("%s.%s (column)" % (table, name),
                    "ALTER TABLE %s ADD COLUMN %s %s" % (table, name, decl))

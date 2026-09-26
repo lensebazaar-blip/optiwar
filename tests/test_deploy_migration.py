@@ -65,6 +65,8 @@ class DeployMigrationTest(unittest.TestCase):
         expected += ["%s (table)" % n for n, _d in self.fc.TABLES]
         expected += ["%s (table)" % n for n, _d in self.fav.TABLES]
         expected += ["%s (table)" % n for n, _d in self.rs.TABLES]
+        for table, columns in self.rs.ADDED_COLUMNS:
+            expected += ["%s.%s (column)" % (table, n) for n, _d in columns]
         for table, columns in self.ca.SESSION_COLUMNS:
             expected += ["%s.%s (column)" % (table, n) for n, _d in columns]
         expected += ["products.%s (column)" % n
@@ -217,7 +219,7 @@ class DeployMigrationTest(unittest.TestCase):
         known = {"ai_events", "ai_actions", "products",
                  "contact_lens_products", "contact_lens_images",
                  "contact_lens_variants", "contact_lens_prescriptions",
-                 "chat_sessions", "chat_attachments"}
+                 "chat_sessions", "chat_attachments", "order_reshipments"}
         for label, sql in self.deploy.migration():
             if label.endswith("(table)"):
                 self.assertIn(label.split(" ", 1)[0], sql, label)

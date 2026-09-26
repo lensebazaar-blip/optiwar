@@ -31,6 +31,9 @@
     .pill.RETURNED,.pill.PAYMENT_PENDING{color:var(--warn);border-color:var(--warn)}
     .pill.PAID{color:var(--accent);border-color:var(--accent)}
     .pill.RESHIPPED{color:var(--ok);border-color:var(--ok)}
+    .pill.ABANDONED{color:var(--muted);border-color:var(--muted)}
+    .pill.ABANDONMENT_PENDING,.pill.ON_HOLD{color:var(--bad);border-color:var(--bad)}
+    button.ghost{background:transparent;color:var(--txt);border:1px solid var(--line)}
     .muted{color:var(--muted)}
     code{font-size:12px;color:var(--accent)}
     input{background:var(--bg);color:var(--txt);border:1px solid var(--line);
@@ -76,17 +79,34 @@
     </tbody>
   </table>
 
-  <h2>Reshipments (last 60 days)</h2>
+  <h2>Reshipments (received parcels; held {{ holding_days }} days from receipt)</h2>
+  <p class="muted" style="margin:0 0 8px;font-size:12px">The holding period starts only when receipt is confirmed above. A parcel still unpaid after {{ holding_days }} days is marked ABANDONED automatically (a captured payment always wins). A hold pauses the countdown for a legal, payment-dispute or customer-service reason and must be released explicitly. Abandoned means closed for online reshipment — it does not authorise disposal.</p>
   <table>
-    <thead><tr><th>Order</th><th>State</th><th>Payment</th><th>Original</th><th>Received</th><th>New shipment</th><th></th></tr></thead>
+    <thead><tr><th>Order</th><th>State</th><th>Payment</th><th>Original</th><th>Received</th><th>Deadline</th><th>New shipment</th><th></th></tr></thead>
     <tbody>
     {% for a in queue.active %}
       <tr data-uuid="{{ a.reship_uuid }}">
         <td><code>{{ a.order_id }}</code></td>
-        <td><span class="pill {{ a.status }}">{{ a.status }}</span></td>
+        <td><span class="pill {{ a.status }}">{{ a.status }}</span>{% if a.ops_state and a.ops_state != a.status %}<br><span class="pill {{ a.ops_state }}">{{ a.ops_state }}</span>{% endif %}
+          {% if a.notification_state and a.notification_state.last_event %}<br><span class="muted">last notice: {{ a.notification_state.last_event }} {{ a.notification_state.last_at }}{% if a.notification_state.failed %} · {{ a.notification_state.failed }} failed{% endif %}</span>{% elif a.notification_state %}<br><span style="color:var(--bad)">customer not yet notified</span>{% endif %}</td>
         <td>{{ a.payment_status }}{% if a.paid_at %}<br><span class="muted">{{ a.paid_at }}</span>{% endif %}</td>
         <td>{{ a.original_courier or '—' }} {{ a.original_awb or '' }}{% if a.return_reason %}<br><span class="muted">{{ a.return_reason }}</span>{% endif %}</td>
-        <td>{{ a.ops_return_confirmed_by }}<br><span class="muted">{{ a.ops_return_confirmed_at }}</span></td>
+        <td>{{ a.ops_return_confirmed_by }}<br><span class="muted">{{ a.returned_at or a.ops_return_confirmed_at }}</span></td>
+        <td>
+          {% if a.status == 'ABANDONED' %}
+            <span class="muted">Abandoned {{ a.abandoned_at }}<br>{{ a.abandon_reason }}{% if a.ops_sync and a.ops_sync.status %} · ops sync {{ a.ops_sync.status }}{% endif %}</span>
+          {% elif a.on_hold %}
+            <span style="color:var(--bad)">ON HOLD</span> since {{ a.hold_at }}<br><span class="muted">{{ a.hold_by }} · {{ a.hold_reason }}</span>
+            <div class="row-act"><button class="ghost" onclick="releaseHold(this)">Release hold</button></div>
+            <div class="msg"></div>
+          {% elif a.days_remaining is not none %}
+            {{ a.abandon_at }}<br><span {% if a.final_period %}style="color:var(--bad)"{% else %}class="muted"{% endif %}>{{ a.days_remaining }} day(s) left</span>
+            <div class="row-act"><button class="ghost" onclick="hold(this)">Hold</button></div>
+            <div class="msg"></div>
+          {% else %}
+            <span class="muted">—</span>
+          {% endif %}
+        </td>
         <td>
           {% if a.status == 'RESHIPPED' %}
             {{ a.new_courier }} <code>{{ a.new_awb }}</code><br><span class="muted">{{ a.shipped_by }} · {{ a.reshipped_at }}</span>
@@ -102,6 +122,8 @@
               <button onclick="ship(this)">Record reshipment</button>
             </div>
             <div class="msg"></div>
+          {% elif a.status == 'ABANDONED' %}
+            <span class="muted">Closed — no online reshipment</span>
           {% else %}
             <span class="muted">Awaiting customer's Rs {{ fee }} payment</span>
           {% endif %}
@@ -109,7 +131,7 @@
         <td></td>
       </tr>
     {% else %}
-      <tr><td colspan="7" class="empty">No reshipments yet.</td></tr>
+      <tr><td colspan="8" class="empty">No reshipments yet.</td></tr>
     {% endfor %}
     </tbody>
   </table>
@@ -136,6 +158,25 @@ document.querySelectorAll('select.courier').forEach(function(s){
     var o=s.closest('tr').querySelector('.courier-other'); o.style.display=s.value?'none':'';
   });
 });
+function hold(btn){
+  var tr=btn.closest('tr'), uuid=tr.getAttribute('data-uuid');
+  var reason=prompt('Reason for the hold (legal / payment dispute / customer service). The countdown pauses until released.');
+  if(!reason||!reason.trim())return;
+  btn.disabled=true;
+  post('/ops/api/reshipments/'+encodeURIComponent(uuid)+'/hold',{reason:reason.trim()})
+    .then(function(j){ if(j.ok){say(tr,'ok','On hold. Reloading…');setTimeout(function(){location.reload();},900);}
+                       else{btn.disabled=false;say(tr,'bad',j.message||j.error||'Refused');} })
+    .catch(function(){btn.disabled=false;say(tr,'bad','Network error');});
+}
+function releaseHold(btn){
+  var tr=btn.closest('tr'), uuid=tr.getAttribute('data-uuid');
+  if(!confirm('Release the hold? The countdown resumes; the paused time is added to the deadline.'))return;
+  btn.disabled=true;
+  post('/ops/api/reshipments/'+encodeURIComponent(uuid)+'/release-hold',{})
+    .then(function(j){ if(j.ok){say(tr,'ok','Released. Reloading…');setTimeout(function(){location.reload();},900);}
+                       else{btn.disabled=false;say(tr,'bad',j.message||j.error||'Refused');} })
+    .catch(function(){btn.disabled=false;say(tr,'bad','Network error');});
+}
 function ship(btn){
   var tr=btn.closest('tr'), uuid=tr.getAttribute('data-uuid');
   var sel=tr.querySelector('.courier'), other=tr.querySelector('.courier-other');

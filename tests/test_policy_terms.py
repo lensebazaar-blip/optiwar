@@ -124,12 +124,28 @@ class SiteAwareText(unittest.TestCase):
         self.assertIn("<h3>", html)
 
 
+class ReturnedParcelClause(unittest.TestCase):
+    def test_in_policy_is_a_new_version_with_the_holding_clause(self):
+        ind = pt.current("in")
+        self.assertEqual(ind["returns"]["version"], "2026-09-27-in")
+        text = pt.RETURNS_TEXT["in"]
+        self.assertIn("FAILED DELIVERY, RETURNED PACKAGES AND UNCLAIMED PARCELS", text)
+        self.assertIn("sixty (60) days", text)
+        self.assertIn("physically confirmed receipt", text)
+        self.assertIn("Rs 250", text)
+        self.assertIn("treated as abandoned", text)
+        # the clause is India-only; .com stays on its sealed version
+        self.assertNotIn("UNCLAIMED PARCELS", pt.RETURNS_TEXT["com"])
+        self.assertEqual(pt.current("com")["returns"]["version"], "2026-09-15-com")
+
+
 class Disclosures(unittest.TestCase):
     def test_in_customized_spectacles(self):
         d = pt.disclosures_for([FRAME], "optiwar.in")
         self.assertEqual(d, {"lens_deduction_shown": True, "reverse_charge_shown": True,
                              "contact_lens_hygiene_shown": False,
-                             "international_non_returnable_shown": False})
+                             "international_non_returnable_shown": False,
+                             "returned_parcel_holding_shown": True})
 
     def test_in_plain_frame_has_no_lens_deduction(self):
         d = pt.disclosures_for([PLAIN], "optiwar.in")
@@ -140,7 +156,8 @@ class Disclosures(unittest.TestCase):
         d = pt.disclosures_for([FRAME, LENS], "optiwar.com")
         self.assertEqual(d, {"lens_deduction_shown": False, "reverse_charge_shown": False,
                              "contact_lens_hygiene_shown": True,
-                             "international_non_returnable_shown": True})
+                             "international_non_returnable_shown": True,
+                             "returned_parcel_holding_shown": False})
 
     def test_contact_lens_hygiene_on_in_too(self):
         self.assertTrue(pt.disclosures_for([LENS], "in")["contact_lens_hygiene_shown"])
@@ -206,7 +223,8 @@ class Snapshot(unittest.TestCase):
         self.assertEqual(json.loads(row["disclosures"]),
                          {"lens_deduction_shown": "YES", "reverse_charge_shown": "YES",
                           "contact_lens_hygiene_shown": "NO",
-                          "international_non_returnable_shown": "NO"})
+                          "international_non_returnable_shown": "NO",
+                          "returned_parcel_holding_shown": "YES"})
         self.assertEqual(out["returns_policy_version"], ind["returns"]["version"])
         # the full text is sealed so the accepted document can be reproduced
         self.assertEqual(pt.sealed_text(cur, "returns", ind["returns"]["sha256"]),
