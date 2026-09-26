@@ -527,7 +527,12 @@ def holding(row, now=None, environ=None):
     if returned_at and abandon_at:
         out["holding_days"] = (abandon_at - returned_at).days
     now = now or datetime.now()
-    if returned_at:
+    if abandon_at:
+        # Measured against the deadline, so time spent on hold (which moved
+        # the deadline out) does not count as days the customer had.
+        elapsed = timedelta(days=abandon_days(environ)) - (abandon_at - now)
+        out["days_held"] = max(0, elapsed.days)
+    elif returned_at:
         out["days_held"] = max(0, (now - returned_at).days)
     if abandon_at and row["status"] in PAYABLE:
         left = (abandon_at - now).total_seconds()
@@ -587,14 +592,15 @@ def public_view(row, latest_status=None, open_=True, shipment=None, now=None, en
            "new_awb": None, "new_courier": None, "paid_at": None, "reshipped_at": None,
            "returned_at": None, "abandon_at": None, "days_remaining": None,
            "holding_days": abandon_days(environ), "final_period": False,
-           "abandoned_at": None, "support_email": SUPPORT_EMAIL}
+           "abandoned_at": None, "on_hold": False, "support_email": SUPPORT_EMAIL}
     if row:
         h = holding(row, now, environ)
+        out["on_hold"] = h["on_hold"]
         for k in ("returned_at", "abandon_at", "days_remaining", "holding_days",
                   "final_period", "abandoned_at"):
             out[k] = h[k]
         out["reship_uuid"] = row["reship_uuid"]
-        out["can_pay"] = bool(open_) and row["status"] in PAYABLE
+        out["can_pay"] = bool(open_) and row["status"] in PAYABLE and not held(row)
         out["paid_at"] = row.get("paid_at")
         out["reshipped_at"] = row.get("reshipped_at")
         out["new_awb"] = row.get("new_awb")
@@ -710,9 +716,14 @@ def begin_payment(db, customer_id, reship_uuid, host, create_order, environ=None
         raise ReshipError("already_paid", "Reshipping charge already paid", 409)
     if row["status"] not in PAYABLE:
         raise ReshipError("not_payable", "This reship is no longer open", 409)
+    if held(row):
+        raise ReshipError("on_hold", "This reship is on hold; please contact support", 409)
 
     db.commit()
     locked = by_uuid(db, reship_uuid, for_update=True)
+    if held(locked):
+        db.commit()
+        raise ReshipError("on_hold", "This reship is on hold; please contact support", 409)
     if locked["razorpay_order_id"] and locked["status"] in PAYABLE:
         db.commit()
         return locked, False
@@ -1119,6 +1130,8 @@ def release_hold(db, reship_uuid, by, now=None):
     return by_uuid(db, reship_uuid)
 
 
+SYSTEM_OPERATOR = "system:abandonment-sweep"
+
 ABANDONED = "abandoned"
 NOT_DUE = "not_due"
 HELD = "held"
@@ -1170,9 +1183,24 @@ def abandon(db, reship_uuid, now=None, environ=None, fetch_order_payments=None,
         if captured:
             res = settle_payment(db, reship_uuid, captured[0], "razorpay-reconcile",
                                  logger=logger)
-            if res["outcome"] == APPLIED:
+            if res["outcome"] in (APPLIED, DUPLICATE):
                 return SETTLED, by_uuid(db, reship_uuid)
-            return NOT_OPEN, by_uuid(db, reship_uuid)
+            current = by_uuid(db, reship_uuid)
+            if current["status"] not in PAYABLE:
+                return NOT_OPEN, current
+            # The provider holds the customer's money but it cannot be applied
+            # (amount, currency, another order...). That is a payment
+            # exception for a person to resolve, never an abandonment.
+            try:
+                hold(db, reship_uuid, SYSTEM_OPERATOR,
+                     "PAYMENT_EXCEPTION %s: payment %s %s"
+                     % (res["outcome"], captured[0].get("id", ""), res["reason"]))
+            except ReshipError:  # settled or held by someone else meanwhile
+                return NOT_OPEN, by_uuid(db, reship_uuid)
+            if logger:
+                logger.error("RESHIP_ABANDON_BLOCKED_PAYMENT_EXCEPTION reship:%s payment:%s %s"
+                             % (reship_uuid, captured[0].get("id", ""), res["reason"]))
+            return HELD, by_uuid(db, reship_uuid)
         row = by_uuid(db, reship_uuid, for_update=True)
         if row["status"] not in PAYABLE:
             db.commit()
@@ -1183,6 +1211,9 @@ def abandon(db, reship_uuid, now=None, environ=None, fetch_order_payments=None,
         if row["abandon_at"] > now:
             db.commit()
             return NOT_DUE, row
+    received = row["returned_at"] or row["ops_return_confirmed_at"]
+    if received:
+        days = (row["abandon_at"] - received).days  # the period this row actually had
     reason = ABANDON_REASON % days
     cur = db.cursor()
     cur.execute("UPDATE order_reshipments SET status=%s, abandoned_at=NOW(), abandon_reason=%s, "
@@ -1195,7 +1226,7 @@ def abandon(db, reship_uuid, now=None, environ=None, fetch_order_payments=None,
     add_history(cur, row["order_id"],
                 "Returned parcel unclaimed for %d days after receipt (%s) - reship closed as "
                 "ABANDONED; goods held subject to policy, no disposal recorded here"
-                % (days, row["returned_at"] or row["ops_return_confirmed_at"]))
+                % (days, received))
     db.commit()
     row = by_uuid(db, reship_uuid)
     emit(db, EV_ABANDONED, row["order_id"], reship_uuid, row.get("customer_id"),
@@ -1241,18 +1272,22 @@ def sync_abandoned_to_ops(db, row, environ=None, http_post=None, logger=None):
         return SYNC_QUEUE
     payload = ops_event_payload(row)
     body = json.dumps(payload, sort_keys=True).encode("utf-8")
-    secret = str(env.get(OPS_WEBHOOK_SECRET_ENV, "")).encode("utf-8")
+    secret = str(env.get(OPS_WEBHOOK_SECRET_ENV, "")).strip().encode("utf-8")
     headers = {"Content-Type": "application/json",
                "X-Optiwar-Event": payload["event"],
                "X-Optiwar-Event-Id": payload["event_id"]}
-    if secret:
+    if not secret:
+        # An unsigned event is one Ops cannot trust; nothing leaves until the
+        # secret is configured, and the row stays FAILED so the next sweep retries.
+        ok, err = False, "%s not configured; event not sent" % OPS_WEBHOOK_SECRET_ENV
+    else:
         headers["X-Optiwar-Signature"] = "sha256=" + hmac.new(secret, body, hashlib.sha256).hexdigest()
-    try:
-        status = (http_post or _default_http_post)(url, body, headers)
-        ok = 200 <= int(status or 0) < 300
-        err = None if ok else "http %s" % status
-    except Exception as exc:  # noqa: BLE001
-        ok, err = False, str(exc)[:160]
+        try:
+            status = (http_post or _default_http_post)(url, body, headers)
+            ok = 200 <= int(status or 0) < 300
+            err = None if ok else "http %s" % status
+        except Exception as exc:  # noqa: BLE001
+            ok, err = False, str(exc)[:160]
     state = SYNC_SENT if ok else SYNC_FAILED
     cur.execute("UPDATE order_reshipments SET ops_sync_status=%s, "
                 "ops_synced_at=%s WHERE id=%s",
