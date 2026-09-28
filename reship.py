@@ -1617,7 +1617,7 @@ WA_TEMPLATES = {
         "body": ("Final notice for order {{1}}: your returned package will be treated as "
                  "abandoned on {{2}} ({{3}} days remaining).\n\n"
                  "To have it reshipped, pay the ₹250 reshipping charge in My Orders before "
-                 "then:\n{{4}}"),
+                 "then:\n{{4}}\n\nAfter that date the package can no longer be reshipped online."),
         "variables": {"1": "order id", "2": "deadline", "3": "days remaining",
                       "4": "My Orders URL"},
     },
@@ -1626,7 +1626,7 @@ WA_TEMPLATES = {
         "body": ("The {{2}}-day holding period for the returned package of order {{1}} has "
                  "ended and the package is now treated as abandoned. Reshipment is no "
                  "longer available online.\n\n"
-                 "If you believe this is a mistake, write to {{3}}."),
+                 "If you believe this is a mistake, write to {{3}} and we will look into it."),
         "variables": {"1": "order id", "2": "holding days", "3": "support email"},
     },
 }
