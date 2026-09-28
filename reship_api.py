@@ -212,7 +212,7 @@ def register(bp):
         before = reship.by_uuid(db, reship_uuid)
         try:
             row = reship.ship(db, reship_uuid, _ops_operator(body), body.get("new_awb"),
-                              body.get("new_courier"))
+                              body.get("new_courier"), logger=current_app.logger)
         except reship.ReshipError as exc:
             return _error(exc)
         if before and before["status"] != reship.ST_RESHIPPED:

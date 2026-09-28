@@ -948,7 +948,7 @@ class ReshipTest(unittest.TestCase):
         after = reship.by_uuid(self.db, row["reship_uuid"])
         self.assertEqual((after["status"], after["payment_status"], after["razorpay_payment_id"],
                           after["abandoned_at"], after["abandon_reason"], after["ops_sync_status"]),
-                         ("PAID", "PAID", "pay_after", None, None, None))
+                         ("PAID", "PAID", "pay_after", None, None, "QUEUE"))
         self.assertEqual(len(self._events(oid, reship.EV_REOPENED)), 1)
         notes = " ".join(str(v) for h in self._history(oid) for v in h.values())
         self.assertIn("Reship reopened", notes)
@@ -1201,7 +1201,7 @@ class ReshipTest(unittest.TestCase):
         self.assertEqual(len(self._events(oid, reship.EV_OPS_SYNC_FAILED)), 1)
         payload = json.loads(calls[0][1])
         self.assertEqual(set(payload), {"event_id", "event", "order_ref", "reship_uuid",
-                                        "abandoned_at", "reason"})
+                                        "status", "abandoned_at", "reason"})
         self.assertEqual((payload["event"], payload["order_ref"], payload["reason"]),
                          ("reship.abandoned", oid, "RETURNED_UNCLAIMED_60_DAYS"))
         self.assertTrue(calls[0][2]["X-Optiwar-Signature"].startswith("sha256="))
@@ -1220,6 +1220,56 @@ class ReshipTest(unittest.TestCase):
         self.assertEqual(self._sweep(self._at(row, 62), environ=env, http_post=ok)["synced"], 0)
         self.assertEqual(len(calls), 2)
         self.assertEqual(len(self._events(oid, reship.EV_OPS_SYNC)), 1)
+
+    def test_ops_is_told_of_a_payment_and_a_shipment_on_the_same_signed_path(self):
+        cid, oid, row = self._returned()
+        env = dict(os.environ)
+        env[reship.OPS_WEBHOOK_URL_ENV] = "https://ops.example/hooks/optiwar"
+        env[reship.OPS_WEBHOOK_SECRET_ENV] = "s3cret"
+        calls = []
+
+        def failing(url, body, headers):
+            calls.append((url, body, headers))
+            return 503
+
+        def ok(url, body, headers):
+            calls.append((url, body, headers))
+            return 200
+        _c, rzp_order = self._start(cid, row)
+        res = reship.settle_payment(self.db, row["reship_uuid"],
+                                    _payment("pay_ops", rzp_order), "test",
+                                    environ=env, http_post=failing)
+        self.assertEqual(res["outcome"], reship.APPLIED)
+        after = reship.by_uuid(self.db, row["reship_uuid"])
+        self.assertEqual((after["status"], after["ops_sync_status"]), ("PAID", "FAILED"))
+        paid = json.loads(calls[0][1])
+        self.assertEqual((paid["event"], paid["status"], paid["razorpay_payment_id"],
+                          paid["fee_amount"], paid["order_ref"]),
+                         ("reship.payment_completed", "PAID", "pay_ops", 250, oid))
+        self.assertIsNotNone(paid["paid_at"])
+        self.assertEqual(calls[0][2]["X-Optiwar-Event"], "reship.payment_completed")
+        self.assertTrue(calls[0][2]["X-Optiwar-Signature"].startswith("sha256="))
+        self.assertNotIn(b"payment_dump", calls[0][1])
+        self.assertNotIn(b"c@example.in", calls[0][1])
+        # the sweep retries the payment event, once, with the same event id
+        s = self._sweep(self._at(row, 1), environ=env, http_post=ok)
+        self.assertEqual((s["synced"], s["sync_failed"]), (1, 0))
+        self.assertEqual(json.loads(calls[1][1])["event_id"], paid["event_id"])
+        self.assertEqual(reship.by_uuid(self.db, row["reship_uuid"])["ops_sync_status"], "SENT")
+        self.assertEqual(self._sweep(self._at(row, 2), environ=env, http_post=ok)["synced"], 0)
+        self.assertEqual(len(calls), 2)
+        # shipping is its own event, sent at once
+        shipped = reship.ship(self.db, row["reship_uuid"], "ops:test", "7X119057886", "DTDC",
+                              environ=env, http_post=ok)
+        self.assertEqual((shipped["status"], shipped["ops_sync_status"]), ("RESHIPPED", "SENT"))
+        ship_ev = json.loads(calls[2][1])
+        self.assertEqual((ship_ev["event"], ship_ev["status"], ship_ev["new_awb"],
+                          ship_ev["new_courier"], ship_ev["shipped_by"]),
+                         ("reship.shipped", "RESHIPPED", "7X119057886", "DTDC", "ops:test"))
+        self.assertNotEqual(ship_ev["event_id"], paid["event_id"])
+        self.assertEqual(len(self._events(oid, reship.EV_OPS_SYNC)), 2)
+        self.assertEqual(self._sweep(self._at(row, 3), environ=env, http_post=ok)["synced"], 0)
+        self.assertEqual(len(calls), 3)
 
     def test_queue_api_carries_the_deadline_so_ops_computes_nothing(self):
         cid, oid, row = self._returned()
