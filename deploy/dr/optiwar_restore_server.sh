@@ -231,5 +231,13 @@ if run_step 12; then
     echo "RPO: age of the bundle's DB dump at the moment of loss (daily bundle => <= 24h; /root/backups dump also daily)"
     echo "RTO: this run took ${DUR}s + OS provisioning + DNS TTL"
   } | tee "$REPORT"
+  # machine-readable verdict; on a drill, copy this file to the production
+  # server's /root/dr_backups/last_drill.json so the daily report can state it
+  mkdir -p /root/dr_backups
+  printf '{"result":"%s","finished_at":"%s","host":"%s","drill":%s,"bundle":"%s","duration_s":%d,"problems":%d,"open_items":%d}\n' \
+    "$([ ${#PROBLEMS[@]} -eq 0 ] && echo PASS || echo FAIL)" "$(date -Is)" "$(hostname)" \
+    "$([ "$DRILL" = 1 ] && echo true || echo false)" "$(basename "$BUNDLE")" "$DUR" \
+    "${#PROBLEMS[@]}" "${#MANUAL[@]}" > /root/dr_backups/last_drill.json
+  chmod 600 /root/dr_backups/last_drill.json
   [ ${#PROBLEMS[@]} -eq 0 ] && exit 0 || exit 1
 fi

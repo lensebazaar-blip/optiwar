@@ -354,3 +354,23 @@ On the release that carries the 60-day holding period (`reship.py`
 The clock starts only at `POST /ops/api/shipments/<order_id>/return-received`;
 rows confirmed before this release are backfilled from
 `ops_return_confirmed_at` once, by `ensure_schema`.
+
+### Disaster recovery (box-side, no application release)
+
+`deploy/dr/` is server tooling, not part of the manifest. On the box, as root:
+
+1. `optiwar_disaster_backup.sh`, `optiwar_restore_server.sh`,
+   `optiwar_dr_confirm_offhost.sh`, `RESTORE_NOTES.txt` → `/root/`, mode 700.
+2. `/etc/optiwar/dr.env` (0600) names `DR_PASSPHRASE_FILE`; the passphrase
+   file (0600) is generated once and copied to the owner's password manager —
+   the bundle's `secrets.tar.gz.gpg` cannot be opened without it.
+3. Cron: `45 3 * * 1-6 /root/optiwar_disaster_backup.sh` and
+   `45 3 * * 0 /root/optiwar_disaster_backup.sh --images`, logging to
+   `/var/log/optiwar/dr_backup.log`. Exit is non-zero if any stage failed.
+4. Copy `reports/dr_report_section.py` to `/root/reports/reports/` and append
+   `reports.dr_report_section` to the section loop in `run_daily_report.sh`
+   (it reads files under `/root`, no DB grant needed). It reports RED for a
+   stale/failed dump or bundle, AMBER while no off-host copy or restore drill
+   has been confirmed — those two only turn green through
+   `optiwar_dr_confirm_offhost.sh` and a `last_drill.json` copied from the
+   drill host; never by hand.
