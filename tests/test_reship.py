@@ -1271,6 +1271,42 @@ class ReshipTest(unittest.TestCase):
         self.assertEqual(self._sweep(self._at(row, 3), environ=env, http_post=ok)["synced"], 0)
         self.assertEqual(len(calls), 3)
 
+    def test_a_payment_push_that_failed_is_still_sent_after_the_parcel_ships(self):
+        cid, oid, row = self._returned()
+        env = dict(os.environ)
+        env[reship.OPS_WEBHOOK_URL_ENV] = "https://ops.example/hooks/optiwar"
+        env[reship.OPS_WEBHOOK_SECRET_ENV] = "s3cret"
+        calls = []
+
+        def failing(url, body, headers):
+            calls.append(json.loads(body)["event"])
+            return 503
+
+        def ok(url, body, headers):
+            calls.append(json.loads(body)["event"])
+            return 200
+        _c, rzp_order = self._start(cid, row)
+        reship.settle_payment(self.db, row["reship_uuid"], _payment("pay_lost", rzp_order),
+                              "test", environ=env, http_post=failing)
+        # Ops ships before the payment push got through; the shipped push fails too
+        shipped = reship.ship(self.db, row["reship_uuid"], "ops", "7X119057886", "DTDC",
+                              environ=env, http_post=failing)
+        self.assertEqual((shipped["status"], shipped["ops_sync_status"]), ("RESHIPPED", "FAILED"))
+        self.assertEqual(calls, ["reship.payment_completed", "reship.shipped"])
+        # a late outcome for the payment event does not mark the shipped row SENT
+        reship.sync_to_ops(self.db, dict(shipped, status="PAID"), reship.EV_PAYMENT_COMPLETED,
+                           env, failing)
+        self.assertEqual(reship.by_uuid(self.db, row["reship_uuid"])["ops_sync_status"], "FAILED")
+        # the sweep sends the payment first, then the shipment, then nothing more
+        s = self._sweep(self._at(row, 1), environ=env, http_post=ok)
+        self.assertEqual((s["synced"], s["sync_failed"]), (1, 0))
+        self.assertEqual(calls[-2:], ["reship.payment_completed", "reship.shipped"])
+        self.assertEqual(reship.by_uuid(self.db, row["reship_uuid"])["ops_sync_status"], "SENT")
+        self.assertTrue(reship.ops_acknowledged(self.db, row["reship_uuid"],
+                                                reship.EV_PAYMENT_COMPLETED))
+        self.assertEqual(self._sweep(self._at(row, 2), environ=env, http_post=ok)["synced"], 0)
+        self.assertEqual(len(calls), 5)
+
     def test_queue_api_carries_the_deadline_so_ops_computes_nothing(self):
         cid, oid, row = self._returned()
         reship.notify(self.db, reship.EV_AVAILABLE, oid, cid, "optiwar.in",
