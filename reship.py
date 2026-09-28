@@ -26,7 +26,8 @@ reconcile worker), each claimed once under a deterministic event id. Abandonment
 locks the row and re-reads it: a captured payment that settled first wins, a
 held row waits, and a PAID or RESHIPPED row is never abandoned. Ops learns of an
 abandonment from the queue API and, when ``RESHIP_OPS_WEBHOOK_URL`` is set,
-from a signed ``reship.abandoned`` POST.
+from a signed POST for every transition Ops acts on: ``reship.payment_completed``,
+``reship.shipped`` and ``reship.abandoned``.
 
 The fee is fixed by this module (``FEE_INR``), never by the browser; the
 Razorpay order for it is a dedicated one whose notes say ``purpose=RESHIPMENT``
@@ -812,7 +813,8 @@ def _payment_bound_elsewhere(cur, payment_id, reship_id):
     return ""
 
 
-def settle_payment(db, reship_uuid, payment, source, logger=None, environ=None):
+def settle_payment(db, reship_uuid, payment, source, logger=None, environ=None,
+                   http_post=None):
     """Apply Razorpay's record of the fee payment to one reship, once.
 
     ``payment`` is Razorpay's payment entity, fetched or webhook-delivered —
@@ -903,7 +905,8 @@ def settle_payment(db, reship_uuid, payment, source, logger=None, environ=None):
                         (payment_id, dump, ST_PAID, PAY_PAID, source, row["id"]))
         else:
             cur.execute("UPDATE order_reshipments SET razorpay_payment_id=%s, payment_dump=%s, "
-                        "status=%s, payment_status=%s, paid_at=NOW(), paid_source=%s "
+                        "status=%s, payment_status=%s, paid_at=NOW(), paid_source=%s, "
+                        "ops_sync_status=NULL, ops_synced_at=NULL "
                         "WHERE id=%s AND status IN ('RETURNED','PAYMENT_PENDING')",
                         (payment_id, dump, ST_PAID, PAY_PAID, source, row["id"]))
         if cur.rowcount != 1:
@@ -939,6 +942,7 @@ def settle_payment(db, reship_uuid, payment, source, logger=None, environ=None):
         logger.info("ACTIVITY:RESHIP_PAID order:%s reship:%s payment:%s source:%s"
                     % (row["order_id"], reship_uuid, payment_id, source))
     out["outcome"] = APPLIED
+    sync_to_ops(db, by_uuid(db, reship_uuid), EV_PAYMENT_COMPLETED, environ, http_post, logger)
     out["row"] = by_uuid(db, reship_uuid)
     return out
 
@@ -947,7 +951,8 @@ def settle_payment(db, reship_uuid, payment, source, logger=None, environ=None):
 # Ops: ship again
 # --------------------------------------------------------------------------
 
-def ship(db, reship_uuid, shipped_by, new_awb, new_courier):
+def ship(db, reship_uuid, shipped_by, new_awb, new_courier, environ=None, http_post=None,
+         logger=None):
     """PAID -> RESHIPPED with a new AWB. The original AWB stays where it is;
     an unpaid reship is refused."""
     ensure_schema(db)
@@ -981,7 +986,8 @@ def ship(db, reship_uuid, shipped_by, new_awb, new_courier):
                           % (awb, courier, bad), 400)
     cur = db.cursor()
     cur.execute("UPDATE order_reshipments SET status=%s, new_awb=%s, new_courier=%s, "
-                "shipped_by=%s, reshipped_at=NOW() WHERE id=%s AND status='PAID'",
+                "shipped_by=%s, reshipped_at=NOW(), ops_sync_status=NULL, ops_synced_at=NULL "
+                "WHERE id=%s AND status='PAID'",
                 (ST_RESHIPPED, awb[:64], courier[:64], who[:191], row["id"]))
     if cur.rowcount != 1:
         db.rollback()
@@ -1010,6 +1016,7 @@ def ship(db, reship_uuid, shipped_by, new_awb, new_courier):
     db.commit()
     emit(db, EV_SHIPPED, row["order_id"], reship_uuid, row.get("customer_id"),
          {"awb": awb, "courier": courier, "by": who})
+    sync_to_ops(db, by_uuid(db, reship_uuid), EV_SHIPPED, environ, http_post, logger)
     return by_uuid(db, reship_uuid)
 
 
@@ -1293,14 +1300,31 @@ def abandon(db, reship_uuid, now=None, environ=None, fetch_order_payments=None,
     return ABANDONED, row
 
 
+OPS_EVENT_FOR_STATUS = {ST_PAID: EV_PAYMENT_COMPLETED, ST_RESHIPPED: EV_SHIPPED,
+                        ST_ABANDONED: EV_ABANDONED}
+
+
+def _iso(value):
+    return value.isoformat(sep=" ") if value else None
+
+
 def ops_event_payload(row, event=EV_ABANDONED):
-    """What Ops is told about an abandonment: identifiers and the reason, no
-    customer data."""
-    return {"event_id": event_id_for(event, row["reship_uuid"], "ops"),
-            "event": event, "order_ref": row["order_id"], "reship_uuid": row["reship_uuid"],
-            "abandoned_at": (row.get("abandoned_at").isoformat(sep=" ")
-                             if row.get("abandoned_at") else None),
-            "reason": row.get("abandon_reason")}
+    """What Ops is told about one transition: identifiers, the row's status and
+    the facts of that transition. No customer data, no payment dump."""
+    out = {"event_id": event_id_for(event, row["reship_uuid"], "ops"),
+           "event": event, "order_ref": row["order_id"], "reship_uuid": row["reship_uuid"],
+           "status": row.get("status")}
+    if event == EV_PAYMENT_COMPLETED:
+        out.update({"paid_at": _iso(row.get("paid_at")), "paid_source": row.get("paid_source"),
+                    "razorpay_payment_id": row.get("razorpay_payment_id"),
+                    "fee_amount": row.get("fee_amount"), "fee_currency": row.get("fee_currency")})
+    elif event == EV_SHIPPED:
+        out.update({"reshipped_at": _iso(row.get("reshipped_at")), "new_awb": row.get("new_awb"),
+                    "new_courier": row.get("new_courier"), "shipped_by": row.get("shipped_by")})
+    else:
+        out.update({"abandoned_at": _iso(row.get("abandoned_at")),
+                    "reason": row.get("abandon_reason")})
+    return out
 
 
 def _default_http_post(url, body, headers, timeout=10):
@@ -1309,13 +1333,14 @@ def _default_http_post(url, body, headers, timeout=10):
         return resp.status
 
 
-def sync_abandoned_to_ops(db, row, environ=None, http_post=None, logger=None):
-    """Tell the Ops platform about one abandonment.
+def sync_to_ops(db, row, event=EV_ABANDONED, environ=None, http_post=None, logger=None):
+    """Tell the Ops platform about one transition (paid, shipped, abandoned).
 
     Without ``RESHIP_OPS_WEBHOOK_URL`` the queue API is the channel and the
     row is marked QUEUE at once. With it, the payload is POSTed with an HMAC
     of the body in ``X-Optiwar-Signature``; SENT on 2xx, else FAILED and
-    retried by the next sweep. The customer is told nothing here.
+    retried by the next sweep. ``ops_sync_status`` describes the row's latest
+    transition. The customer is told nothing here.
     """
     env = os.environ if environ is None else environ
     url = str(env.get(OPS_WEBHOOK_URL_ENV, "")).strip()
@@ -1325,8 +1350,8 @@ def sync_abandoned_to_ops(db, row, environ=None, http_post=None, logger=None):
                     "WHERE id=%s", (SYNC_QUEUE, row["id"]))
         db.commit()
         return SYNC_QUEUE
-    payload = ops_event_payload(row)
-    body = json.dumps(payload, sort_keys=True).encode("utf-8")
+    payload = ops_event_payload(row, event)
+    body = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
     secret = str(env.get(OPS_WEBHOOK_SECRET_ENV, "")).strip().encode("utf-8")
     headers = {"Content-Type": "application/json",
                "X-Optiwar-Event": payload["event"],
@@ -1350,13 +1375,38 @@ def sync_abandoned_to_ops(db, row, environ=None, http_post=None, logger=None):
     db.commit()
     if ok:
         emit(db, EV_OPS_SYNC, row["order_id"], row["reship_uuid"], None,
-             {"event": payload["event"], "event_id": payload["event_id"]}, suffix="ops")
+             {"event": payload["event"], "event_id": payload["event_id"]},
+             suffix="ops:" + payload["event"])
     else:
         emit(db, EV_OPS_SYNC_FAILED, row["order_id"], row["reship_uuid"], None,
              {"event": payload["event"], "error": err}, suffix=str(uuid.uuid4()))
         if logger:
-            logger.warning("RESHIP_OPS_SYNC_FAILED reship:%s %s" % (row["reship_uuid"], err))
+            logger.warning("RESHIP_OPS_SYNC_FAILED reship:%s %s %s" % (row["reship_uuid"], event, err))
     return state
+
+
+def sync_abandoned_to_ops(db, row, environ=None, http_post=None, logger=None):
+    return sync_to_ops(db, row, EV_ABANDONED, environ, http_post, logger)
+
+
+def resync_ops(db, environ=None, http_post=None, logger=None, skip=()):
+    """Retry every PAID / RESHIPPED / ABANDONED row whose latest transition Ops
+    has not acknowledged. Returns (synced, failed)."""
+    cur = db.cursor()
+    cur.execute("SELECT reship_uuid, status FROM order_reshipments WHERE status IN "
+                "('PAID','RESHIPPED','ABANDONED') AND (ops_sync_status IS NULL OR "
+                "ops_sync_status IN ('PENDING','FAILED')) ORDER BY id")
+    synced = failed = 0
+    for r in cur.fetchall():
+        if r["reship_uuid"] in skip:
+            continue
+        row = by_uuid(db, r["reship_uuid"])
+        state = sync_to_ops(db, row, OPS_EVENT_FOR_STATUS[row["status"]], environ, http_post, logger)
+        if state == SYNC_FAILED:
+            failed += 1
+        else:
+            synced += 1
+    return synced, failed
 
 
 def sweep_holding(db, now=None, host_for=None, mailer=None, whatsapp=None, environ=None,
@@ -1437,14 +1487,9 @@ def sweep_holding(db, now=None, host_for=None, mailer=None, whatsapp=None, envir
                          fields=fields, suffix="%s:day%d" % (ev, d))
             if res.get("sent"):
                 summary["reminded"] += 1
-    cur.execute("SELECT reship_uuid FROM order_reshipments WHERE status='ABANDONED' "
-                "AND (ops_sync_status IS NULL OR ops_sync_status IN ('PENDING','FAILED'))")
-    for r in cur.fetchall():
-        if r["reship_uuid"] in synced_now:
-            continue
-        row = by_uuid(db, r["reship_uuid"])
-        state = sync_abandoned_to_ops(db, row, environ, http_post, logger)
-        summary["synced" if state != SYNC_FAILED else "sync_failed"] += 1
+    synced, failed = resync_ops(db, environ, http_post, logger, skip=synced_now)
+    summary["synced"] += synced
+    summary["sync_failed"] += failed
     return summary
 
 
