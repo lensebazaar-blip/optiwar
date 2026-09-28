@@ -45,6 +45,9 @@ class TestAcrReportSection(unittest.TestCase):
         self.assertIn("RESHIPPING_REVENUE", out)
         self.assertIn("Added to cart", out)
         self.assertIn("Attribution basis", out)
+        # every stage the report prints a line for is one funnel() keeps
+        for stage in ("LISTING", "PRODUCT", "CART", "CHECKOUT", "PURCHASE"):
+            self.assertIn(stage, s.FUNNEL_STAGES)
         self.assertEqual(s._fmt_money({}), "0")
         self.assertEqual(s._fmt_money({"EUR": {"orders": 2, "amount": 61.9},
                                        "INR": {"orders": 1, "amount": 2479}}),
