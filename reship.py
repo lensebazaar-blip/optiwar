@@ -1302,6 +1302,7 @@ def abandon(db, reship_uuid, now=None, environ=None, fetch_order_payments=None,
 
 OPS_EVENT_FOR_STATUS = {ST_PAID: EV_PAYMENT_COMPLETED, ST_RESHIPPED: EV_SHIPPED,
                         ST_ABANDONED: EV_ABANDONED}
+STATUS_FOR_OPS_EVENT = {v: k for k, v in OPS_EVENT_FOR_STATUS.items()}
 
 
 def _iso(value):
@@ -1369,9 +1370,12 @@ def sync_to_ops(db, row, event=EV_ABANDONED, environ=None, http_post=None, logge
         except Exception as exc:  # noqa: BLE001
             ok, err = False, str(exc)[:160]
     state = SYNC_SENT if ok else SYNC_FAILED
+    # The column describes the row's *current* transition: a late outcome for
+    # an event the row has since moved past must not overwrite it.
     cur.execute("UPDATE order_reshipments SET ops_sync_status=%s, "
-                "ops_synced_at=%s WHERE id=%s",
-                (state, datetime.now() if ok else None, row["id"]))
+                "ops_synced_at=%s WHERE id=%s AND status=%s",
+                (state, datetime.now() if ok else None, row["id"],
+                 STATUS_FOR_OPS_EVENT.get(event, row.get("status"))))
     db.commit()
     if ok:
         emit(db, EV_OPS_SYNC, row["order_id"], row["reship_uuid"], None,
@@ -1389,9 +1393,20 @@ def sync_abandoned_to_ops(db, row, environ=None, http_post=None, logger=None):
     return sync_to_ops(db, row, EV_ABANDONED, environ, http_post, logger)
 
 
+def ops_acknowledged(db, reship_uuid, event):
+    """True once Ops has taken ``event`` for this reship (a ``reship.ops_sync``
+    record exists for it)."""
+    cur = db.cursor()
+    cur.execute("SELECT 1 FROM reship_events WHERE event_id=%s",
+                (event_id_for(EV_OPS_SYNC, reship_uuid, "ops:" + event),))
+    return cur.fetchone() is not None
+
+
 def resync_ops(db, environ=None, http_post=None, logger=None, skip=()):
     """Retry every PAID / RESHIPPED / ABANDONED row whose latest transition Ops
-    has not acknowledged. Returns (synced, failed)."""
+    has not acknowledged. A RESHIPPED row whose payment push never got through
+    is sent the payment first, so Ops never sees a shipment without its
+    payment. Returns (synced, failed)."""
     cur = db.cursor()
     cur.execute("SELECT reship_uuid, status FROM order_reshipments WHERE status IN "
                 "('PAID','RESHIPPED','ABANDONED') AND (ops_sync_status IS NULL OR "
@@ -1401,7 +1416,15 @@ def resync_ops(db, environ=None, http_post=None, logger=None, skip=()):
         if r["reship_uuid"] in skip:
             continue
         row = by_uuid(db, r["reship_uuid"])
-        state = sync_to_ops(db, row, OPS_EVENT_FOR_STATUS[row["status"]], environ, http_post, logger)
+        events = [OPS_EVENT_FOR_STATUS[row["status"]]]
+        if (row["status"] == ST_RESHIPPED and row.get("paid_at")
+                and not ops_acknowledged(db, row["reship_uuid"], EV_PAYMENT_COMPLETED)):
+            events.insert(0, EV_PAYMENT_COMPLETED)
+        state = None
+        for event in events:
+            state = sync_to_ops(db, row, event, environ, http_post, logger)
+            if state == SYNC_FAILED:
+                break
         if state == SYNC_FAILED:
             failed += 1
         else:
