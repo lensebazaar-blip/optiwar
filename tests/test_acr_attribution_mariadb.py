@@ -243,6 +243,62 @@ class NearestPrecedingAttributionTests(unittest.TestCase):
         self._order(60, is_test=1)
         self.assertEqual(self._attributed(), {})
 
+    # ── the same-browser proof ──
+
+    def _success_page(self, sid, order_id, minutes):
+        """The browser bound to ``sid`` rendered ``order_id``'s success page."""
+        eid = acr.log_journey_stage(self.db, sid, acr.STAGE_PURCHASE,
+                                    page_url="/success/%s" % order_id,
+                                    order_id=order_id)
+        self.assertTrue(eid)
+        self.cur.execute("UPDATE ai_events SET created_at=%s WHERE event_id=%s",
+                         (BASE + timedelta(minutes=minutes), eid))
+
+    def _basis(self, sid):
+        self.cur.execute("SELECT attribution_type, attribution_delta_seconds "
+                         "FROM ai_session_commerce WHERE session_id=%s", (sid,))
+        return self.cur.fetchone()
+
+    def test_the_browser_that_saw_the_success_page_outranks_the_clock(self):
+        # Two conversations; the *earlier* one's browser rendered the success
+        # page, so it is the proven session, not the nearest one.
+        proven = self._session(0)
+        nearest = self._session(120)
+        order = self._order(150)
+        self._success_page(proven, order, 151)
+        got = self._attributed()
+        self.assertEqual(got[proven], order)
+        self.assertNotIn(nearest, got)  # one order, one session
+        row = self._basis(proven)
+        self.assertEqual(row["attribution_type"], acr.ATTRIBUTION_SAME_BROWSER)
+        self.assertEqual(row["attribution_delta_seconds"], 150 * 60)
+
+    def test_a_guest_whose_browser_paid_is_attributed(self):
+        guest = self._session(0, customer=GUEST)
+        order = self._order(60)
+        self._success_page(guest, order, 61)
+        self.assertEqual(self._attributed(), {guest: order})
+        self.assertEqual(self._basis(guest)["attribution_type"],
+                         acr.ATTRIBUTION_SAME_BROWSER)
+
+    def test_a_success_page_of_a_test_order_proves_nothing(self):
+        sid = self._session(0)
+        order = self._order(60, is_test=1)
+        self._success_page(sid, order, 61)
+        self.assertEqual(self._attributed(), {})
+
+    def test_a_success_page_of_an_unknown_order_proves_nothing(self):
+        sid = self._session(0, customer=GUEST)
+        self._success_page(sid, "ORD_%s_nowhere" % self.tag, 61)
+        self.assertEqual(self._attributed(), {})
+
+    def test_the_time_rule_still_applies_without_a_success_page(self):
+        sid = self._session(0)
+        order = self._order(60)
+        self.assertEqual(self._attributed(), {sid: order})
+        self.assertEqual(self._basis(sid)["attribution_type"],
+                         acr.ATTRIBUTION_NEAREST_PRECEDING)
+
     def test_two_sessions_in_the_same_second_resolve_to_one_winner(self):
         # Identical created_at: without the (created_at, session_id) tie-break
         # both would satisfy "no later session precedes the order" and the order

@@ -151,23 +151,7 @@ def _log_journey_stage(db, session_id, page_url):
     stage = acr.funnel_stage_for_url(page_url)
     if not stage:
         return
-    clean_url = acr.sanitize_url_for_event(page_url)
-    try:
-        cur = db.cursor()
-        cur.execute(
-            """SELECT journey_stage, page_url FROM ai_events
-               WHERE session_id = %s AND event_type = %s
-               ORDER BY created_at DESC LIMIT 1""",
-            (session_id, acr.EV_JOURNEY_STAGE))
-        last = cur.fetchone()
-        cur.close()
-    except Exception:
-        last = None
-    if last and last['journey_stage'] == stage and last['page_url'] == clean_url:
-        return
-    acr.log_event(db, acr.EV_JOURNEY_STAGE, session_id=session_id,
-                  journey_stage=stage, page_url=page_url,
-                  consent_scope=acr.CONSENT_FUNCTIONAL)
+    acr.log_journey_stage(db, session_id, stage, page_url=page_url)
 
 
 def _log_event(db, session_id, event_type, payload=None):
@@ -1950,14 +1934,14 @@ def _recover_nav_target():
 # ─── API Endpoints ───
 
 def _chat_cookie_serializer():
-    return URLSafeSerializer(current_app.config.get("SECRET_KEY", ""), salt="ow-chat-session")
+    return acr.chat_cookie_serializer(current_app.config.get("SECRET_KEY", ""))
 
 
 def _set_chat_owner_cookie(resp, session_id):
     """Bind this browser to its chat session via a signed HttpOnly cookie."""
     try:
         token = _chat_cookie_serializer().dumps(session_id)
-        resp.set_cookie("ow_chat_token", token, max_age=7 * 24 * 3600,
+        resp.set_cookie(acr.CHAT_COOKIE_NAME, token, max_age=7 * 24 * 3600,
                         httponly=True, secure=True, samesite="Lax")
     except Exception as e:
         current_app.logger.warning(f"[chat] could not set owner cookie: {e}")
@@ -1966,13 +1950,9 @@ def _set_chat_owner_cookie(resp, session_id):
 
 def _is_chat_owner(session_id):
     """True only if the request carries a valid signed cookie for this session."""
-    token = request.cookies.get("ow_chat_token", "")
-    if not token:
-        return False
-    try:
-        return _chat_cookie_serializer().loads(token) == session_id
-    except (BadSignature, Exception):
-        return False
+    sid = acr.session_from_chat_cookie(
+        request.cookies, current_app.config.get("SECRET_KEY", ""))
+    return bool(sid) and sid == session_id
 
 
 def _acr_enabled_for(contact_email):

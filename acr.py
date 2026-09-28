@@ -284,10 +284,90 @@ STAGE_SUPPORT = "SUPPORT"
 # reported as one stage; payment happens inside that page (gateway modal) and
 # is therefore not a page stage at all — it is read from the order.
 STAGE_PRODUCT = "PRODUCT"
+# CART is an act (a line added), not a page: it is recorded by the add-to-cart
+# routes, never derived from a URL.
+STAGE_CART = "CART"
 STAGE_CHECKOUT = "CHECKOUT"
 STAGE_PURCHASE = "PURCHASE"
 STAGE_LISTING = "LISTING"
-FUNNEL_STAGES = (STAGE_LISTING, STAGE_PRODUCT, STAGE_CHECKOUT, STAGE_PURCHASE)
+FUNNEL_STAGES = (STAGE_LISTING, STAGE_PRODUCT, STAGE_CART, STAGE_CHECKOUT,
+                 STAGE_PURCHASE)
+
+# The signed HttpOnly cookie that binds a browser to its chat session. Owned by
+# the chat gateway; read here so a commerce route (product page, add-to-cart,
+# checkout, order success) can attribute the browser's step to the session it
+# is chatting in without the chat being open on that page.
+CHAT_COOKIE_NAME = "ow_chat_token"
+CHAT_COOKIE_SALT = "ow-chat-session"
+
+
+def chat_cookie_serializer(secret_key):
+    from itsdangerous import URLSafeSerializer
+    return URLSafeSerializer(secret_key or "", salt=CHAT_COOKIE_SALT)
+
+
+def session_from_chat_cookie(cookies, secret_key):
+    """The chat session this browser is bound to, or None. A cookie that does
+    not verify is None too — never a guess."""
+    token = (cookies or {}).get(CHAT_COOKIE_NAME, "")
+    if not token or not secret_key:
+        return None
+    try:
+        sid = chat_cookie_serializer(secret_key).loads(token)
+    except Exception:
+        return None
+    return str(sid) if sid else None
+
+
+def log_journey_stage(db, session_id, stage, page_url=None, order_id=None):
+    """Record one funnel step for a session, once: the same stage on the same
+    page (or for the same order) directly after itself is not a second step.
+    A PURCHASE step carries the order it was the success page of, which is the
+    same-browser attribution basis. Best-effort; returns the event_id or None."""
+    if not session_id or stage not in FUNNEL_STAGES:
+        return None
+    clean_url = sanitize_url_for_event(page_url) if page_url else None
+    payload = {'order_id': str(order_id)} if order_id else None
+    try:
+        cur = db.cursor()
+        cur.execute(
+            """SELECT journey_stage, page_url, payload FROM ai_events
+               WHERE session_id = %s AND event_type = %s
+               ORDER BY created_at DESC LIMIT 1""",
+            (session_id, EV_JOURNEY_STAGE))
+        last = cur.fetchone()
+        cur.close()
+    except Exception:
+        last = None
+    if last is not None and not isinstance(last, dict):
+        last = dict(zip(('journey_stage', 'page_url', 'payload'), last))
+    if last and last['journey_stage'] == stage:
+        if payload:
+            if (last.get('payload') or '') == json.dumps(payload):
+                return None
+        elif (last.get('page_url') or None) == clean_url:
+            return None
+    return log_event(db, EV_JOURNEY_STAGE, session_id=session_id,
+                     journey_stage=stage, page_url=page_url, payload=payload,
+                     consent_scope=CONSENT_FUNCTIONAL)
+
+
+def log_browser_stage(db, cookies, secret_key, stage, page_url=None,
+                      order_id=None):
+    """``log_journey_stage`` for whichever chat session the requesting browser
+    is bound to; a browser with no (valid) chat cookie records nothing."""
+    sid = session_from_chat_cookie(cookies, secret_key)
+    if not sid:
+        return None
+    try:
+        event_id = log_journey_stage(db, sid, stage, page_url=page_url,
+                                     order_id=order_id)
+        if event_id:
+            db.commit()
+        return event_id
+    except Exception:
+        return None
+
 
 _LISTING_PREFIXES = ("/eyeglasses", "/categories", "/lenses", "/contact_lenses",
                      "/search")
@@ -1298,6 +1378,37 @@ ATTRIBUTION_SESSION_WINDOW = "session_window"
 # The decided rule: one order -> at most one session, the nearest eligible
 # session preceding it.
 ATTRIBUTION_NEAREST_PRECEDING = "nearest_preceding_session"
+# The browser bound to the session (signed chat cookie) rendered this order's
+# success page: a proof, not an inference, so it needs no customer_id and
+# outranks the time-window rule.
+ATTRIBUTION_SAME_BROWSER = "same_browser_success_page"
+
+
+def _attribute_same_browser(db, session_id, session_created_at):
+    truth, row = _probe_row(
+        db,
+        """SELECT o.order_id AS order_id,
+                  TIMESTAMPDIFF(SECOND, %s, MIN(o.date_created)) AS delta_seconds
+           FROM ai_events e
+           JOIN orders o
+             ON o.order_id = JSON_UNQUOTE(JSON_EXTRACT(e.payload, '$.order_id'))
+            AND o.is_test = 0
+           WHERE e.session_id = %s AND e.event_type = %s
+             AND e.journey_stage = %s AND e.payload IS NOT NULL
+           GROUP BY o.order_id
+           ORDER BY MIN(e.created_at) ASC LIMIT 1""",
+        (session_created_at, session_id, EV_JOURNEY_STAGE, STAGE_PURCHASE),
+        columns=('order_id', 'delta_seconds'),
+    )
+    if truth != TRUTH_TRUE:
+        return truth, None
+    return TRUTH_TRUE, {
+        'session_id': session_id,
+        'order_id': row['order_id'],
+        'attribution_type': ATTRIBUTION_SAME_BROWSER,
+        'attribution_window_hours': PURCHASE_ATTRIBUTION_HOURS,
+        'attribution_delta_seconds': row['delta_seconds'],
+    }
 
 
 def attribute_session_commerce(db, session_id, customer_id, session_created_at,
@@ -1321,15 +1432,24 @@ def attribute_session_commerce(db, session_id, customer_id, session_created_at,
     ceiling in force and the time delta, so a BI figure can be traced back to the
     decision that produced it instead of being implied by a bare PURCHASED label.
 
+    The browser's own evidence comes first: when the browser bound to this
+    session (signed chat cookie) rendered an order's success page, that order is
+    this session's regardless of the clock or of sign-in, and the time rule
+    below never re-credits it to another session.
+
     Two deliberate exclusions:
 
-    - a guest (``customer_id IS NULL``) is ``FALSE``, never a guess. Matching on
-      weak identifiers would credit one shopper's purchase to another shopper's
-      conversation, and a ledger that does that is worse than an empty one.
+    - a guest (``customer_id IS NULL``) is ``FALSE`` under the time rule, never
+      a guess. Matching on weak identifiers would credit one shopper's purchase
+      to another shopper's conversation, and a ledger that does that is worse
+      than an empty one.
     - the row comparison tie-breaks on ``session_id``, so two sessions created
       in the same second still resolve to one winner rather than to whichever
       the optimiser returned first.
     """
+    truth, rec = _attribute_same_browser(db, session_id, session_created_at)
+    if truth == TRUTH_TRUE:
+        return truth, rec
     if customer_id is None:
         return TRUTH_FALSE, None
     truth, row = _probe_row(
@@ -1346,12 +1466,15 @@ def attribute_session_commerce(db, session_id, customer_id, session_created_at,
                  WHERE s2.customer_id = o.customer_id
                    AND (s2.created_at, s2.session_id) > (%s, %s)
                    AND s2.created_at <= o.date_created)
+             AND NOT EXISTS (
+                 SELECT 1 FROM ai_session_commerce c
+                 WHERE c.order_id = o.order_id AND c.session_id <> %s)
            ORDER BY o.date_created ASC LIMIT 1""",
         (session_created_at, customer_id,
          session_created_at, session_created_at,
          session_last_activity, session_last_activity,
          PURCHASE_ATTRIBUTION_HOURS,
-         session_created_at, session_id),
+         session_created_at, session_id, session_id),
         columns=('order_id', 'delta_seconds'),
     )
     if truth != TRUTH_TRUE:
@@ -1486,6 +1609,17 @@ def find_sessions_awaiting_attribution(db, limit=500):
     return cur.fetchall() or []
 
 
+def _prefer_proven_claims(candidates):
+    """Within one sweep, an order the success page proved for one session is
+    not also the nearest-preceding session's. The loser is left unclaimed and
+    re-evaluated next sweep, where the ledger row now excludes that order."""
+    proven = {c['order_id'] for c in candidates
+              if c['attribution_type'] == ATTRIBUTION_SAME_BROWSER}
+    return [c for c in candidates
+            if c['attribution_type'] == ATTRIBUTION_SAME_BROWSER
+            or c['order_id'] not in proven]
+
+
 def attribute_archived_session_commerce(db, dry_run=True, limit=500):
     """Record purchase attribution for archived sessions, separately from their
     conversation outcome.
@@ -1522,6 +1656,7 @@ def attribute_archived_session_commerce(db, dry_run=True, limit=500):
             continue
         if truth == TRUTH_TRUE and record:
             candidates.append(record)
+    candidates = _prefer_proven_claims(candidates)
     if dry_run:
         return {'candidates': candidates, 'attributed': list(candidates),
                 'deferred': deferred, 'already_claimed': [],

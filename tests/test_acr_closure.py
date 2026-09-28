@@ -209,6 +209,14 @@ class _FakeCursor:
                 raise RuntimeError("simulated ai_events write failure")
             self.db.events.append(params)
             self.rowcount = 1
+        elif s.startswith("SELECT o.order_id AS order_id") and "FROM ai_events e" in s:
+            # The browser's own proof: a PURCHASE stage naming the order.
+            self._deny_if_unreadable("orders")
+            oid = self.db.truth.get("proven_order_id")
+            self._result = ([{"order_id": oid,
+                              "delta_seconds": self.db.truth.get(
+                                  "order_delta_seconds", 0)}]
+                            if oid else [])
         elif s.startswith("SELECT o.order_id AS order_id"):
             # The nearest-preceding NOT EXISTS is SQL a fake cannot evaluate; it
             # is asserted as a contract here and exercised for real in
@@ -678,6 +686,35 @@ class CommerceAttributionTests(unittest.TestCase):
         self.assertEqual(r["attributed"], [])
         self.assertEqual(db.commerce, {})
         self.assertEqual(db.order_probes, [])   # not even asked
+
+    def test_a_guest_whose_own_browser_saw_the_success_page_is_attributed(self):
+        # Sign-in is the time rule's requirement, not the browser proof's.
+        db = self._db({"proven_order_id": "ORD-1", "order_delta_seconds": 90})
+        db.archived_sessions = [
+            {"session_id": "s1", "customer_id": None, "created_at": "2026-01-01",
+             "last_activity": "2026-01-02"}]
+        r = acr.attribute_archived_session_commerce(db, dry_run=False)
+        self.assertEqual(r["attributed"][0]["order_id"], "ORD-1")
+        row = db.commerce["s1"]
+        self.assertEqual(row["attribution_type"], acr.ATTRIBUTION_SAME_BROWSER)
+        self.assertEqual(row["attribution_delta_seconds"], 90)
+        self.assertEqual(db.order_probes, [])   # the clock was never consulted
+
+    def test_within_one_sweep_the_proven_session_keeps_the_order(self):
+        proven = {"session_id": "a", "order_id": "ORD-1",
+                  "attribution_type": acr.ATTRIBUTION_SAME_BROWSER}
+        timed = {"session_id": "b", "order_id": "ORD-1",
+                 "attribution_type": acr.ATTRIBUTION_NEAREST_PRECEDING}
+        other = {"session_id": "c", "order_id": "ORD-2",
+                 "attribution_type": acr.ATTRIBUTION_NEAREST_PRECEDING}
+        self.assertEqual(acr._prefer_proven_claims([timed, proven, other]),
+                         [proven, other])
+
+    def test_the_time_rule_skips_an_order_the_ledger_already_credits(self):
+        db = self._db({"order_id": "ORD-1"})
+        acr.attribute_archived_session_commerce(db, dry_run=True)
+        sql = " ".join([s for s, _ in db.executed if "FROM orders o" in s][0].split())
+        self.assertIn("FROM ai_session_commerce c WHERE c.order_id = o.order_id", sql)
 
     def test_a_ledger_holding_the_old_rules_duplicates_is_reported_not_rewritten(self):
         # Deciding which of two historical claims to delete is an analytics
