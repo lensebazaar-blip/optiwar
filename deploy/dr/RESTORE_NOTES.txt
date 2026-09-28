@@ -1,0 +1,35 @@
+OPTIWAR DR BUNDLE — RESTORE NOTES (shipped inside every bundle)
+
+You are holding: optiwar_dr_<ts>.tar
+  MANIFEST.txt            what is inside, release + git commit, stage results
+  SHA256SUMS              verify first:  sha256sum -c SHA256SUMS
+  SYSTEM_INVENTORY.txt    non-secret facts about the server (domains, ports, jobs, flags)
+  db/<db>.sql.gz          consistent MariaDB dump (schema, data, triggers, routines, events)
+  db/table_rowcounts.txt  expected table list to compare after load
+  app/flaskr_code.tar.gz  application code (static images excluded), RELEASE.txt, requirements-freeze.txt
+  system/                 nginx, redis, mariadb, fail2ban, logrotate, cron, firewalld, timers,
+                          /usr/local/sbin jobs, /root/backups scripts, REDACTED systemd units
+  secrets.tar.gz.gpg      AES256: /etc/optiwar/*, gunicorn.service + drop-ins (real values),
+                          TLS live/archive/keys/accounts, mysql_grants.sql, secure_uploads,
+                          /root/reports + /root/catalog + cron .py (they hold credentials)
+  inventory/              rpm list, versions, permission manifests, parked-images note
+
+Passphrase: kept OUTSIDE the server (owner's password manager). Without it the
+bundle restores the public parts only; every secret then has to be re-issued
+(Razorpay, MSG91, DeepSeek/OpenAI, KET, SMTP, Google OAuth, DB passwords, SECRET_KEY,
+OPS_API_TOKEN, RESHIP_OPS_WEBHOOK_SECRET) — restore still works, integrations do not.
+
+Quick restore on a clean Rocky Linux 8 host (as root):
+  scp optiwar_dr_<ts>.tar optiwar_static_images_<ts>.tar.gz root@NEW:/root/
+  echo -n '<passphrase>' > /root/dr_passphrase && chmod 600 /root/dr_passphrase
+  /root/optiwar_restore_server.sh --bundle /root/optiwar_dr_<ts>.tar \
+      --passphrase-file /root/dr_passphrase --images /root/optiwar_static_images_<ts>.tar.gz --drill
+  (the restore script itself is at system/root/optiwar_restore_server.sh inside the bundle:
+   tar xf optiwar_dr_<ts>.tar --wildcards '*/system/root/optiwar_restore_server.sh')
+
+Order: os -> unpack/verify/decrypt -> app -> mysql -> redis -> config -> gunicorn
+       -> nginx/tls -> cron -> permissions -> smoke -> report.  DNS is never changed by the script.
+--drill installs zz-dr-drill.conf (no WhatsApp/email/Razorpay/Ops/AI calls) and a fully
+commented crontab. Remove both before live traffic.
+Redis holds sessions/cache only — nothing authoritative; an empty Redis is fine.
+Parked lens images (/root/lens_sources/incoming) are NOT in this bundle by owner instruction.
