@@ -329,6 +329,39 @@ def _collect():
     safe("purchases_attributed", lambda: _gated(
         EV_COMMERCE_OUTCOME, lambda: _event_count(EV_COMMERCE_OUTCOME), NA_LEDGER))
 
+    # ── revenue: money of orders the ledger attributes, per currency, read
+    # from the order rows themselves (analytics never re-prices anything).
+    # Reshipping fees are a different product (INR 250 to send a returned
+    # parcel again) and are reported on their own line, never inside
+    # "assisted revenue".
+    def revenue_assisted():
+        rows = run_sql(
+            "SELECT CASE WHEN o.site_from LIKE '%%in.optiwar%%' OR o.site_from LIKE '%%optiwar.in%%' "
+            "THEN 'INR' ELSE 'EUR' END AS cur, COUNT(DISTINCT c.order_id), "
+            "COALESCE(SUM(o.order_total),0) "
+            "FROM ai_session_commerce c JOIN orders o ON o.order_id=c.order_id "
+            "WHERE c.created_at >= %s AND o.is_test=0 GROUP BY 1" % SINCE)
+        return {r[0]: {"orders": _to_int(r[1]), "amount": float(r[2] or 0)} for r in rows}
+    safe("revenue_assisted", lambda: _gated(EV_COMMERCE_OUTCOME, revenue_assisted, NA_LEDGER))
+
+    def attribution_basis():
+        rows = run_sql(
+            "SELECT attribution_type, COUNT(*) FROM ai_session_commerce "
+            "WHERE created_at >= %s GROUP BY 1" % SINCE)
+        return {r[0]: _to_int(r[1]) for r in rows}
+    safe("attribution_basis", lambda: _gated(EV_COMMERCE_OUTCOME, attribution_basis, NA_LEDGER))
+
+    def reshipping_revenue():
+        rows = run_sql(
+            "SELECT r.fee_currency, COUNT(*), COALESCE(SUM(r.fee_minor),0), "
+            "SUM(CASE WHEN c.order_id IS NULL THEN 0 ELSE 1 END) "
+            "FROM order_reshipments r "
+            "LEFT JOIN ai_session_commerce c ON c.order_id=r.order_id "
+            "WHERE r.payment_status='PAID' AND r.paid_at >= %s GROUP BY 1" % SINCE)
+        return {r[0]: {"fees": _to_int(r[1]), "amount": float(r[2] or 0) / 100.0,
+                       "ai_assisted_orders": _to_int(r[3])} for r in rows}
+    safe("reshipping_revenue", reshipping_revenue)
+
     def products_bought():
         rows = run_sql(
             "SELECT p.product_code, COUNT(*) FROM ai_session_commerce c "
@@ -610,6 +643,27 @@ def _val(v):
     return str(v)
 
 
+def _fmt_money(d):
+    """``{'EUR': {'orders': n, 'amount': x}, ...}`` as one line per currency;
+    an empty dict is a true zero, a NotEmitted is its reason."""
+    if not _is_live(d):
+        return _val(d)
+    if not d:
+        return "0"
+    return " | ".join("%s %.2f (%d orders)" % (k, d[k]["amount"], d[k]["orders"])
+                      for k in sorted(d))
+
+
+def _fmt_reship_revenue(d):
+    if not _is_live(d):
+        return _val(d)
+    if not d:
+        return "0"
+    return " | ".join("%s %.2f (%d fees, %d on AI-assisted orders)"
+                      % (k, d[k]["amount"], d[k]["fees"], d[k]["ai_assisted_orders"])
+                      for k in sorted(d))
+
+
 def _fmt_dist(d, keys=None):
     if not _is_live(d):
         return _val(d)
@@ -703,7 +757,9 @@ def build():
     add("  Customers assisted    %s" % _val(m.get("customers_assisted")))
     add("  Recommendations       %s" % _val(m.get("recommendations")))
     add("  Purchases assisted    %s" % _val(m.get("purchases_attributed")))
-    add("  Revenue assisted      %s" % NA)   # needs ledger + order amounts
+    add("  Revenue assisted      %s" % _fmt_money(m.get("revenue_assisted")))
+    add("  RESHIPPING_REVENUE    %s  (reship fees paid; separate from assisted revenue)"
+        % _fmt_reship_revenue(m.get("reshipping_revenue")))
     add("  Escalations           %s" % _val(m.get("escalations")))
     add("  Failures              %s" % _val(failed))
     add("  Unsafe actions        %s" % _val(m.get("unsafe_url_rejected")))
@@ -721,11 +777,13 @@ def build():
     fl = funnel if isinstance(funnel, dict) else {}
     add("    Listing viewed            %s" % (fl.get("LISTING") if fl else _val(funnel)))
     add("    Product viewed            %s" % (fl.get("PRODUCT") if fl else _val(funnel)))
+    add("    Added to cart             %s" % (fl.get("CART") if fl else _val(funnel)))
     add("    Cart / checkout           %s  (one page: the cart is shown on /checkout)"
         % (fl.get("CHECKOUT") if fl else _val(funnel)))
     add("    Payment                   (inside /checkout; read from the order, see Purchase)")
     add("    Order success page        %s" % (fl.get("PURCHASE") if fl else _val(funnel)))
     add("    Purchase (attributed)     %s" % _val(m.get("purchases_attributed")))
+    add("    Attribution basis         %s" % _fmt_dist(m.get("attribution_basis")))
     add("    (guest / authenticated)   %s" %
         ("%d / %d" % ga if ga else NA))
     add("")

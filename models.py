@@ -77,6 +77,17 @@ def eu_redirect(rest=''):
 
 
 
+def _acr_stage(stage, order_id=None):
+    """Record this browser's commerce step against the chat session it is bound
+    to (signed chat cookie), if any. Analytics only; never raises."""
+    try:
+        acr.log_browser_stage(get_db(), request.cookies,
+                              current_app.config.get('SECRET_KEY', ''), stage,
+                              page_url=request.url, order_id=order_id)
+    except Exception:
+        pass
+
+
 def _req_is_india():
     """True if the current request host is an India storefront
     (in.optiwar.com legacy or optiwar.in). Central India-detection helper."""
@@ -756,6 +767,7 @@ def add_to_cart():
     # Sync cart to DB for cross-device persistence
     if session.get('user_id'):
         save_cart_to_db()
+    _acr_stage(acr.STAGE_CART)
     _host = request.host
     _ip = request.headers.get('X-Forwarded-For', request.remote_addr)
     _uid = session.get('user_id', 'anon')
@@ -1331,6 +1343,7 @@ def add_to_cart_wcl():
         # Sync cart to DB for cross-device persistence
         if session.get("user_id"):
             save_cart_to_db()
+        _acr_stage(acr.STAGE_CART)
 
         current_app.logger.info(f'🧾 New RX record created with rx_id={rx_id} for product {product_id}')
         current_app.logger.debug(f'Cart updated: {cart}')
@@ -1929,6 +1942,7 @@ def product_page(category, product_slug):
     # A lens has its own page: nothing on the frame page (face measurement,
     # sizes, complimentary spectacle lenses, stock counts) is true of it.
     template = "product_page_lens.html" if lens else "product_page.html"
+    _acr_stage(acr.STAGE_PRODUCT)
     page = render_template(template, product=product,
                            reviews=reviews, avg_rating=avg_rating, review_count=review_count,
                            inr_disc_pct=_inr_disc_pct, eur_disc_pct=_eur_disc_pct,
@@ -2771,6 +2785,7 @@ def add_to_cart_with_lenses():
 
         session['cart'] = cart
         session.modified = True
+        _acr_stage(acr.STAGE_CART)
 
         current_app.logger.info("🛒 Cart updated and redirecting to checkout")
         return redirect(url_for('main.checkout'))
@@ -3108,6 +3123,7 @@ def checkout_page():
 
     import uuid as _uuid
     session['checkout_token'] = str(_uuid.uuid4())
+    _acr_stage(acr.STAGE_CHECKOUT)
     return render_template('checkout.html', cart=cart,ship_days=ship_days, face_lines=face_lines,product_image_map=product_image_map, grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, right_eye=right_eye, left_eye=left_eye,right_pwr=right_pwr, right_lens_color=right_lens_color, right_cyl=right_cyl, right_qty=right_qty, right_axis=right_axis, right_add=right_add, left_pwr=left_pwr, left_lens_color=left_lens_color, left_cyl=left_cyl, left_qty=left_qty, left_axis=left_axis, left_add=left_add, lens_recommendations=lens_recommendations, prefill=prefill, saved_addresses=saved_addresses, lens_removal_pending=lens_removal_pending, lens_removal_confirm_text=lens_cart.CONFIRM_REMOVAL, **policy_terms.checkout_context(cart, _get_site_from()))
 
 """
@@ -4124,6 +4140,7 @@ def success(order_id):
             f"[{request.host}] ACTIVITY:ORDER_SUCCESS_UNPAID order:{order_id} "
             f"state:{payment_state} status:{latest_status or '-'}")
 
+    _acr_stage(acr.STAGE_PURCHASE, order_id=order_id)
     return render_template('success.html', order_details=order_details, grand_total=grand_total,
                            ship_date=ship_date, gcr=gcr, payment_state=payment_state,
                            latest_status=latest_status)

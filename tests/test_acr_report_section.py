@@ -38,6 +38,23 @@ class TestAcrReportSection(unittest.TestCase):
         self.assertIn("Revenue assisted", out)
         self.assertIn(acr_report_section.NA, out)
 
+    def test_revenue_lines_render_and_never_mix_reship_fees(self):
+        s = acr_report_section
+        out = s.build()
+        self.assertIn("Revenue assisted", out)
+        self.assertIn("RESHIPPING_REVENUE", out)
+        self.assertIn("Added to cart", out)
+        self.assertIn("Attribution basis", out)
+        self.assertEqual(s._fmt_money({}), "0")
+        self.assertEqual(s._fmt_money({"EUR": {"orders": 2, "amount": 61.9},
+                                       "INR": {"orders": 1, "amount": 2479}}),
+                         "EUR 61.90 (2 orders) | INR 2479.00 (1 orders)")
+        self.assertEqual(s._fmt_reship_revenue(
+            {"INR": {"fees": 2, "amount": 500.0, "ai_assisted_orders": 1}}),
+            "INR 500.00 (2 fees, 1 on AI-assisted orders)")
+        self.assertEqual(s._fmt_money(s.NotEmitted("pending")), "pending")
+        self.assertEqual(s._fmt_money(None), s.NA)
+
     def test_degraded_data_never_fabricates_green_all_clear(self):
         # With no DB, the core action query degrades. The report must NOT print a
         # false "Failures 0" / GREEN all-clear; it should flag data incomplete and
