@@ -1,9 +1,18 @@
 import os
 import sys
+import types
 import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+if "flask_mail" not in sys.modules:
+    try:
+        import flask_mail  # noqa: F401
+    except ImportError:
+        _fm = types.ModuleType("flask_mail")
+        _fm.Message = type("Message", (), {})
+        sys.modules["flask_mail"] = _fm
 
 import notifications  # noqa: E402
 
