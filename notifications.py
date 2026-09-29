@@ -163,6 +163,31 @@ def _extract_msg91_request_id(resp):
     return ''
 
 
+INDIA_COUNTRY_CODE = '91'
+
+
+def whatsapp_recipient(raw):
+    """Digits-only E.164 recipient for MSG91, or '' when the value cannot be a
+    WhatsApp number.
+
+    A 10-digit Indian mobile (6-9 leading, as customers type it on .in) gets the
+    91 prefix; MSG91 otherwise reads its first digits as a foreign country code
+    ("Outbound restricted due to blocked prefixes (60)"). A bare country code or
+    anything shorter than 8 digits is refused here instead of being sent
+    ("The phone number is malformed").
+    """
+    digits = ''.join(ch for ch in str(raw or '') if ch.isdigit())
+    if digits.startswith('00'):
+        digits = digits[2:]
+    if len(digits) == 11 and digits[0] == '0' and digits[1] in '6789':
+        digits = digits[1:]
+    if len(digits) == 10 and digits[0] in '6789':
+        digits = INDIA_COUNTRY_CODE + digits
+    if len(digits) < 8 or len(digits) > 15:
+        return ''
+    return digits
+
+
 def send_whatsapp_tracked(to_phone, template_name, components=None):
     """Send WhatsApp via MSG91 and return delivery details for the audit log.
 
@@ -171,6 +196,12 @@ def send_whatsapp_tracked(to_phone, template_name, components=None):
     """
     auth_key = current_app.config.get('MSG91_AUTH_KEY', '')
     wa_number = current_app.config.get('MSG91_WHATSAPP_NUMBER', '')
+
+    recipient = whatsapp_recipient(to_phone)
+    if not recipient:
+        _log(f"WHATSAPP:SKIPPED to={to_phone} template={template_name} reason=invalid_phone")
+        return {"ok": False, "request_id": "", "status": "skipped", "error": "invalid_phone"}
+    to_phone = recipient
 
     if not auth_key:
         _log(f"WHATSAPP:SKIPPED to={to_phone} template={template_name} reason=no_auth_key")
