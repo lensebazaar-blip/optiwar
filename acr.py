@@ -1389,6 +1389,14 @@ ATTRIBUTION_NEAREST_PRECEDING = "nearest_preceding_session"
 # outranks the time-window rule.
 ATTRIBUTION_SAME_BROWSER = "same_browser_success_page"
 
+# An order is revenue only once the gateway has confirmed its payment. A row in
+# payment_collector with TXN_SUCCESS is the one proof of money the platform
+# accepts (paid_orders.payment_state); an order that was merely created, is
+# pending, or failed at the gateway is attributed to nobody, under either rule.
+ORDER_IS_PAID_SQL = """EXISTS (SELECT 1 FROM payment_collector pc
+                          WHERE pc.order_id = o.order_id
+                            AND pc.status = 'TXN_SUCCESS')"""
+
 
 def _attribute_same_browser(db, session_id, session_created_at):
     truth, row = _probe_row(
@@ -1399,6 +1407,7 @@ def _attribute_same_browser(db, session_id, session_created_at):
            JOIN orders o
              ON o.order_id = JSON_UNQUOTE(JSON_EXTRACT(e.payload, '$.order_id'))
             AND o.is_test = 0
+            AND """ + ORDER_IS_PAID_SQL + """
            WHERE e.session_id = %s AND e.event_type = %s
              AND e.journey_stage = %s AND e.payload IS NOT NULL
            GROUP BY o.order_id
@@ -1443,8 +1452,11 @@ def attribute_session_commerce(db, session_id, customer_id, session_created_at,
     this session's regardless of the clock or of sign-in, and the time rule
     below never re-credits it to another session.
 
-    Two deliberate exclusions:
+    Three deliberate exclusions:
 
+    - an order without a gateway-confirmed payment (``ORDER_IS_PAID_SQL``) is
+      never attributed, by either rule: assisted revenue is money received,
+      not orders created.
     - a guest (``customer_id IS NULL``) is ``FALSE`` under the time rule, never
       a guess. Matching on weak identifiers would credit one shopper's purchase
       to another shopper's conversation, and a ledger that does that is worse
@@ -1464,6 +1476,7 @@ def attribute_session_commerce(db, session_id, customer_id, session_created_at,
                   TIMESTAMPDIFF(SECOND, %s, o.date_created) AS delta_seconds
            FROM orders o
            WHERE o.customer_id=%s AND o.is_test=0
+             AND """ + ORDER_IS_PAID_SQL + """
              AND (%s IS NULL OR o.date_created >= %s)
              AND (%s IS NULL OR
                   o.date_created <= %s + INTERVAL %s HOUR)
