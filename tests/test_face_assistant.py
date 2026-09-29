@@ -422,7 +422,7 @@ class GatewayWiringTests(unittest.TestCase):
     def test_the_section_is_in_the_prompt_and_the_tag_is_handled_after_cleaning(self):
         src = self.src
         self.assertIn("face_ctx = _face_context(db, session, page_url)", src)
-        self.assertIn("faces_section) if s))", src)
+        self.assertIn("faces_section, reship_section) if s))", src)
         clean = src.index("ai_reply, actions, navigate_url = _clean_ai_reply(ai_reply)")
         self.assertLess(clean, src.index("ai_reply = _face_offer(db, session_id, face_ctx, ai_reply, page_url)"))
         self.assertIn("ai_reply, face_result = _face_confirmation(db, session_id, face_ctx,", src)

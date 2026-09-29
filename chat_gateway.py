@@ -9,6 +9,7 @@ import uuid
 import time
 import re
 from datetime import datetime, timedelta
+from urllib.parse import urlparse
 
 from flask import (Blueprint, request, jsonify, current_app, make_response, g,
                    render_template, Response, session as flask_session)
@@ -25,6 +26,7 @@ from . import lens_config
 from . import lens_prompt
 from . import lens_order
 from . import lens_rx
+from . import reship_assistant
 from .mail import create_ticket_in_db
 import smtplib
 from email.message import EmailMessage
@@ -537,6 +539,27 @@ def _face_context(db, chat_session, page_url):
         return None
     return {'customer_id': customer_id,
             'section': face_assistant.prompt_section(model)}
+
+
+def _reship_model(db, page_url):
+    """The customer's returned-parcel facts (``reship_assistant.read_model``)
+    for a signed-in customer on the India site; None where the workflow is
+    closed or the ledger could not be read (the reply must then not guess).
+
+    The customer is the browser's login, not the id the widget sent when the
+    chat started: a returned parcel's order id, AWB and deadline are read for
+    the account that is actually signed in, and for nobody else."""
+    customer_id = flask_session.get('user_id')
+    host = urlparse(page_url or '').netloc
+    if not customer_id or not reship_assistant.enabled(host):
+        return None
+    try:
+        return reship_assistant.read_model(db, customer_id, host)
+    except Exception as e:  # noqa: BLE001 - the chat must still answer
+        current_app.logger.warning('[Chat] reship context unavailable: %s', e)
+        dev_defects.record('CHAT_RESHIP_CONTEXT_UNAVAILABLE',
+                           where='reship_assistant.read_model', page=page_url)
+        return None
 
 
 def _face_confirmation(db, session_id, face_ctx, user_message, page_url):
@@ -1596,6 +1619,11 @@ def _forward_ticket_from_chat(db, session_id, session, page_url):
 
     # Generate AI summary
     summary = _generate_chat_summary(db, session_id)
+    # A reship matter escalates with the ledger's snapshot, not the chat's
+    # memory of it (no provider ids, tokens or signed URLs).
+    reship_model = _reship_model(db, page_url)
+    reship_note = reship_assistant.ket_context_text(
+        reship_assistant.ket_context(db, reship_model)) if reship_model else ''
 
     contact_name = session.get('contact_name') or 'Visitor'
     contact_email = session.get('contact_email') or ''
@@ -1607,7 +1635,7 @@ def _forward_ticket_from_chat(db, session_id, session, page_url):
             name=contact_name,
             email=contact_email,
             subject=f"[AI Chat] {summary[:100]}",
-            message=f"[AI-Assisted Ticket]\n\nSummary:\n{summary}\n\nFull Transcript:\n{transcript}"
+            message=f"[AI-Assisted Ticket]\n\nSummary:\n{summary}\n{reship_note}\nFull Transcript:\n{transcript}"
         )
         current_app.logger.info(f"[Chat Ticket] Local DB ticket #{local_ticket_id} created")
     except Exception as e:
@@ -1631,7 +1659,7 @@ def _forward_ticket_from_chat(db, session_id, session, page_url):
             email=contact_email,
             phone='',
             subject=f"[AI Chat] {summary[:100]}",
-            description=f"[AI-Assisted Ticket]\n\n{summary}",
+            description=f"[AI-Assisted Ticket]\n\n{summary}\n{reship_note}",
             source="ai_chat_handover",
             chat_transcript=json.dumps([{'role': m['role'], 'content': m['content']} for m in history]),
             session_id=session_id,
@@ -2185,10 +2213,12 @@ def chat_message():
     face_section = face_scan_invites.assistant_prompt_section(session.get('contact_email'))
     face_ctx = _face_context(db, session, page_url)
     faces_section = face_ctx['section'] if face_ctx else ''
+    reship_model = _reship_model(db, page_url)
+    reship_section = reship_assistant.prompt_section(reship_model) if reship_model else ''
     system_prompt = _build_system_prompt(
         contact_name, is_india, content, customer_id=customer_id,
         extra_sections=tuple(s for s in (lens_section, photo_section, face_section,
-                                         faces_section) if s))
+                                         faces_section, reship_section) if s))
     history = _get_conversation_history(db, session_id)
     ai_reply = _confirmed_ask_reply(history, content, contact_name)
     face_result = None
@@ -2339,6 +2369,15 @@ def chat_message():
             if recovered:
                 navigate_url = recovered
                 actions.append('navigate')
+
+        # A returned-parcel reply that contradicts the ledger it was given is a
+        # QC fact (never a rewrite of the reply; the customer still gets it).
+        if reship_model and reship_model.get('orders'):
+            _breach = reship_assistant.reply_violations(reship_model, ai_reply)
+            if _breach:
+                acr.log_event(db, acr.EV_RESHIP_RULE_BREACH, session_id=session_id,
+                              journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
+                              payload={'codes': _breach})
 
         # ── ACR A1: create/confirm a structured action + mandatory fallback link ──
         if navigate_url:

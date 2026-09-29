@@ -274,6 +274,12 @@ EV_LENS_RX_PROPOSED = "LENS_RX_PROPOSED"
 # itself follows ACTION_CONFIRMED -> ACTION_EXECUTED/FAILED like any other.
 EV_FACE_ACTION_OFFERED = "FACE_ACTION_OFFERED"
 
+# A reply to a customer with a returned parcel contradicted the reship ledger it
+# was given (offered payment while not payable, asked a paid customer to pay,
+# called a paid parcel abandoned, quoted an AWB the ledger does not hold).
+# payload.codes names the rules; the reply itself is never stored.
+EV_RESHIP_RULE_BREACH = "RESHIP_RULE_BREACH"
+
 # Journey stages (coarse, safe to store).
 STAGE_LANDING = "LANDING"
 STAGE_RECOMMENDATION = "RECOMMENDATION"

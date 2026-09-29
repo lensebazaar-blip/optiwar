@@ -124,6 +124,7 @@ EV_ACTION_BLOCKED = "ACTION_BLOCKED"
 EV_ACTION_EXPIRED = "ACTION_EXPIRED"
 EV_PROMISE_WITHOUT_ACTION = "PROMISE_WITHOUT_ACTION"
 EV_UNSAFE_URL_REJECTED = "UNSAFE_URL_REJECTED"
+EV_RESHIP_RULE_BREACH = "RESHIP_RULE_BREACH"
 EV_MODEL_CALL = "MODEL_CALL"
 EV_MODEL_TIMEOUT = "MODEL_TIMEOUT"
 EV_ADMISSION_503 = "ADMISSION_503"
@@ -306,6 +307,7 @@ def _collect():
 
     safe("promise_without_action", lambda: _event_count(EV_PROMISE_WITHOUT_ACTION))
     safe("unsafe_url_rejected", lambda: _event_count(EV_UNSAFE_URL_REJECTED))
+    safe("reship_rule_breach", lambda: _event_count(EV_RESHIP_RULE_BREACH))
 
     # ── funnel (canonical JOURNEY_STAGE: distinct sessions per stage) ──
     def funnel():
@@ -379,7 +381,7 @@ def _collect():
     # ── quality: sessions carrying a defect signal in the window ──
     defect_events = (EV_ACTION_FAILED, EV_PROMISE_WITHOUT_ACTION, EV_MODEL_TIMEOUT,
                      EV_PROVIDER_FAILURE, EV_ADMISSION_503, EV_UNSAFE_URL_REJECTED,
-                     EV_HANDOVER_ESCALATED)
+                     EV_RESHIP_RULE_BREACH, EV_HANDOVER_ESCALATED)
     safe("sessions_needs_review", lambda: _to_int(_scalar(
         "SELECT COUNT(DISTINCT session_id) FROM ai_events WHERE created_at >= %s "
         "AND session_id IS NOT NULL AND session_id<>'' AND event_type IN (%s)"
@@ -834,6 +836,7 @@ def build():
     add("      %s" % _lifecycle_line(m.get("face_actions")))
     add("      promise-without-action       %s" % _val(m.get("promise_without_action")))
     add("      unsafe-url rejected          %s" % _val(m.get("unsafe_url_rejected")))
+    add("      reship rule breach           %s" % _val(m.get("reship_rule_breach")))
     add("    AI health (canonical MODEL_* events):")
     mc = m.get("model_calls")
     lat = m.get("model_latencies")
