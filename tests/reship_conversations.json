@@ -1,0 +1,233 @@
+{
+  "_comment": [
+    "Returned-parcel (India RTO / reship) regression conversations.",
+    "Each case fixes the ledger facts the assistant is given (`orders`, in the",
+    "shape reship_assistant.read_model produces), a customer question, one",
+    "reply that keeps the rules (`good`) and one that breaks them (`bad`) with",
+    "the violation codes reply_violations() must raise for it. `facts` are",
+    "strings the prompt section must contain for those orders, so the model is",
+    "told the fact the good reply relies on. Add a case here; no test code."
+  ],
+  "conversations": [
+    {
+      "name": "returning: cannot pay yet",
+      "customer": "My parcel is being returned. Can I pay the 250 now?",
+      "orders": [
+        {
+          "order_id": "JPYVJI-567578",
+          "state": "RETURNING_TO_OPS",
+          "can_pay": false,
+          "original_awb": "7X119057819",
+          "original_courier": "DTDC"
+        }
+      ],
+      "facts": [
+        "state=RETURNING_TO_OPS",
+        "can_pay=no",
+        "not received by Optiwar yet"
+      ],
+      "good": "Not yet. The courier is still bringing order JPYVJI-567578 back to us (AWB 7X119057819, DTDC). Once our team physically receives it, we will notify you and the INR 250 reshipping charge becomes payable in My Orders.",
+      "bad": "Yes, you can pay the INR 250 now in My Orders and we will reship it right away.",
+      "bad_codes": [
+        "RESHIP_PAY_OFFERED_WHILE_NOT_PAYABLE"
+      ]
+    },
+    {
+      "name": "returned: how do I get it again",
+      "customer": "My parcel reached Optiwar. How do I get it again?",
+      "orders": [
+        {
+          "order_id": "JPYVJI-567578",
+          "state": "RETURNED_TO_OPS",
+          "sub_state": "RESHIP_AVAILABLE",
+          "can_pay": true,
+          "returned_at": "2026-09-26T09:39:59",
+          "abandon_at": "2026-11-25T09:39:59",
+          "days_remaining": 57
+        }
+      ],
+      "facts": [
+        "state=RETURNED_TO_OPS",
+        "can_pay=yes",
+        "abandon_at=25 Nov 2026",
+        "days_remaining=57"
+      ],
+      "good": "Your returned parcel for JPYVJI-567578 is with our team. To have it shipped again, pay the fixed INR 250 reshipping charge in My Orders before 25 Nov 2026. Would you like me to take you to My Orders? [ACTION:NAVIGATE:/profile/?tab=orders]",
+      "bad": "Sure, I have arranged the reshipment; the new AWB is 7D998812345 and it ships tomorrow.",
+      "bad_codes": [
+        "RESHIP_AWB_NOT_IN_LEDGER"
+      ],
+      "good_offers_navigation": true
+    },
+    {
+      "name": "paid but not shipped yet",
+      "customer": "I paid ₹250 but Ops has not shipped yet.",
+      "orders": [
+        {
+          "order_id": "JPYVJI-567578",
+          "state": "RESHIP_PAID",
+          "can_pay": false,
+          "paid_at": "2026-09-28T10:00:00",
+          "returned_at": "2026-09-26T09:39:59"
+        }
+      ],
+      "facts": [
+        "state=RESHIP_PAID",
+        "fee_paid=yes",
+        "paid_on=28 Sep 2026",
+        "no new AWB yet"
+      ],
+      "good": "Your INR 250 payment for JPYVJI-567578 was received on 28 Sep 2026; nothing more to pay. Our team is preparing the reshipment and you will get the new tracking details as soon as it is dispatched. If you would like, I can open a support ticket to ask for an update.",
+      "bad": "I don't see a shipment yet, so please pay the INR 250 again in My Orders to restart the reshipment.",
+      "bad_codes": [
+        "RESHIP_PAY_OFFERED_WHILE_NOT_PAYABLE",
+        "RESHIP_PAY_REQUESTED_WHEN_PAID"
+      ]
+    },
+    {
+      "name": "cancel customized glasses because delivery failed",
+      "customer": "Can you cancel my customized glasses because delivery failed?",
+      "orders": [
+        {
+          "order_id": "JPYVJI-567578",
+          "state": "RETURNED_TO_OPS",
+          "sub_state": "RESHIP_AVAILABLE",
+          "can_pay": true,
+          "abandon_at": "2026-11-25T09:39:59",
+          "days_remaining": 57
+        }
+      ],
+      "facts": [
+        "Custom-made prescription glasses cannot be",
+        "cancelled because delivery failed"
+      ],
+      "good": "A failed delivery does not cancel the order, and custom-made prescription glasses cannot be cancelled for that reason. The parcel is with our team; you can have it reshipped for INR 250 from My Orders before 25 Nov 2026. If you want this reviewed by a person I can open a support ticket for you.",
+      "bad": "Yes, I have cancelled the order and the refund will be issued; the return tracking is 9Z00112233.",
+      "bad_codes": [
+        "RESHIP_AWB_NOT_IN_LEDGER"
+      ]
+    },
+    {
+      "name": "when will my package be abandoned",
+      "customer": "When will my package be abandoned?",
+      "orders": [
+        {
+          "order_id": "JPYVJI-567578",
+          "state": "RETURNED_TO_OPS",
+          "sub_state": "RESHIP_AVAILABLE",
+          "can_pay": true,
+          "returned_at": "2026-09-26T09:39:59",
+          "abandon_at": "2026-11-25T09:39:59",
+          "days_remaining": 57
+        }
+      ],
+      "facts": [
+        "abandon_at=25 Nov 2026",
+        "days_remaining=57",
+        "received_by_ops=26 Sep 2026"
+      ],
+      "good": "The parcel is held for 60 days from the day our team received it (26 Sep 2026). It will be treated as abandoned on 25 Nov 2026 — 57 days from now — unless the INR 250 reshipping charge is paid in My Orders before then.",
+      "bad": null
+    },
+    {
+      "name": "paid on day 59",
+      "customer": "I paid on day 59. Will my package still be abandoned tomorrow?",
+      "orders": [
+        {
+          "order_id": "JPYVJI-567578",
+          "state": "RESHIP_PAID",
+          "can_pay": false,
+          "paid_at": "2026-11-24T18:00:00"
+        }
+      ],
+      "facts": [
+        "fee_paid=yes",
+        "a paid parcel is never abandoned"
+      ],
+      "good": "No. Your INR 250 payment for JPYVJI-567578 was received on 24 Nov 2026, and a paid parcel is never abandoned. Our team will now prepare the reshipment.",
+      "bad": "Since the 60 days end tomorrow, the parcel will be treated as abandoned; please pay again once it is reinstated.",
+      "bad_codes": [
+        "RESHIP_PAY_OFFERED_WHILE_NOT_PAYABLE",
+        "RESHIP_PAY_REQUESTED_WHEN_PAID",
+        "RESHIP_ABANDON_CLAIMED_WHEN_PAID"
+      ]
+    },
+    {
+      "name": "package says abandoned",
+      "customer": "My package says abandoned. What now?",
+      "orders": [
+        {
+          "order_id": "JPYVJI-567578",
+          "state": "ABANDONED",
+          "can_pay": false,
+          "abandoned_at": "2026-11-25T09:40:01"
+        }
+      ],
+      "facts": [
+        "state=ABANDONED",
+        "abandoned_on=25 Nov 2026",
+        "refer to support@optiwar.com"
+      ],
+      "good": "The 60-day holding period for JPYVJI-567578 ended on 25 Nov 2026 without the reshipping charge being paid, so the parcel is now treated as abandoned and cannot be reshipped online. If you believe this is a mistake, write to support@optiwar.com, or I can open a support ticket for you.",
+      "bad": "You can still pay the INR 250 now and it will be reshipped.",
+      "bad_codes": [
+        "RESHIP_PAY_OFFERED_WHILE_NOT_PAYABLE"
+      ]
+    },
+    {
+      "name": "give me the new AWB (reshipped)",
+      "customer": "Give me the new AWB.",
+      "orders": [
+        {
+          "order_id": "RSPLOT-000250",
+          "state": "RESHIPPED",
+          "can_pay": false,
+          "new_awb": "7X119057999",
+          "new_courier": "DTDC",
+          "reshipped_at": "2026-09-27T12:00:00",
+          "new_track_url": "https://track.example/7X119057999"
+        }
+      ],
+      "facts": [
+        "state=RESHIPPED",
+        "new_awb=7X119057999 (DTDC)",
+        "reshipped_on=27 Sep 2026"
+      ],
+      "good": "Order RSPLOT-000250 was reshipped on 27 Sep 2026 with DTDC. The new AWB is 7X119057999: https://track.example/7X119057999",
+      "bad": "The new AWB is 7X119058888 with DTDC.",
+      "bad_codes": [
+        "RESHIP_AWB_NOT_IN_LEDGER"
+      ]
+    },
+    {
+      "name": "give me the new AWB (not shipped yet)",
+      "customer": "Give me the new AWB.",
+      "orders": [
+        {
+          "order_id": "JPYVJI-567578",
+          "state": "RESHIP_PAID",
+          "can_pay": false,
+          "paid_at": "2026-09-28T10:00:00"
+        }
+      ],
+      "facts": [
+        "no new AWB yet"
+      ],
+      "good": "There is no new AWB yet: your payment for JPYVJI-567578 is received and our team is preparing the shipment. You will be notified with the tracking number as soon as it is dispatched.",
+      "bad": "Your new tracking number is DL4455667788.",
+      "bad_codes": [
+        "RESHIP_AWB_NOT_IN_LEDGER"
+      ]
+    },
+    {
+      "name": "no record: nothing to promise",
+      "customer": "Where is my returned order OW-123456?",
+      "orders": [],
+      "facts": [
+        "none on record"
+      ],
+      "good": "I have no returned-parcel record for that order. Would you like me to open a support ticket so a person can check it for you?",
+      "bad": null
+    }
+  ]
+}
