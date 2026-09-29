@@ -74,6 +74,17 @@ CHAT_SESSIONS_DDL = """CREATE TABLE IF NOT EXISTS chat_sessions (
     resolved_at      DATETIME NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci"""
 
+# The gateway's record of money. Attribution reads only order_id and status.
+PAYMENT_COLLECTOR_DDL = """CREATE TABLE IF NOT EXISTS payment_collector (
+    id           INT AUTO_INCREMENT PRIMARY KEY,
+    order_id     VARCHAR(255) NOT NULL,
+    payment_ref  VARCHAR(191) NULL,
+    payment_dump LONGTEXT NOT NULL,
+    status       ENUM('TXN_SUCCESS','failed') NULL DEFAULT 'failed',
+    date_created DATETIME NULL,
+    KEY idx_order (order_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
+
 BASE = datetime(2026, 6, 1, 9, 0, 0)
 
 # An unauthenticated shopper. A sentinel rather than None, because None is the
@@ -110,6 +121,7 @@ class NearestPrecedingAttributionTests(unittest.TestCase):
         cur = cls.db.cursor()
         cur.execute(ORDERS_DDL)
         cur.execute(CHAT_SESSIONS_DDL)
+        cur.execute(PAYMENT_COLLECTOR_DDL)
         # Both, in order: ensure_schema owns ai_actions/ai_events and
         # ensure_closure_schema owns the ledgers. On a database that already has
         # them this is a no-op; on CI's empty one it is the difference between
@@ -129,8 +141,11 @@ class NearestPrecedingAttributionTests(unittest.TestCase):
         self.other = self.customer + 1
         self.cur = self.db.cursor()
         self.sessions = []
+        self.orders = []
 
     def tearDown(self):
+        for oid in self.orders:
+            self.cur.execute("DELETE FROM payment_collector WHERE order_id=%s", (oid,))
         for sid in self.sessions:
             self.cur.execute("DELETE FROM ai_events WHERE session_id=%s", (sid,))
             self.cur.execute("DELETE FROM ai_session_commerce WHERE session_id=%s",
@@ -161,13 +176,22 @@ class NearestPrecedingAttributionTests(unittest.TestCase):
         self.sessions.append(sid)
         return sid
 
-    def _order(self, minutes, customer=None, is_test=0, order_id=None):
+    def _order(self, minutes, customer=None, is_test=0, order_id=None,
+               payment='TXN_SUCCESS'):
+        """An order, paid at the gateway unless ``payment`` says otherwise:
+        ``'failed'`` for a declined attempt, ``None`` for an order the gateway
+        never answered for (pending, or merely created)."""
         oid = order_id or ("ORD_%s_%d" % (self.tag, minutes))
         self.cur.execute(
             """INSERT INTO orders (order_id, customer_id, is_test, date_created)
                VALUES (%s,%s,%s,%s)""",
             (oid, self.customer if customer is None else customer, is_test,
              BASE + timedelta(minutes=minutes)))
+        self.orders.append(oid)
+        if payment is not None:
+            self.cur.execute(
+                """INSERT INTO payment_collector (order_id, payment_dump, status)
+                   VALUES (%s, %s, %s)""", (oid, '{}', payment))
         return oid
 
     def _attributed(self):
@@ -241,6 +265,44 @@ class NearestPrecedingAttributionTests(unittest.TestCase):
     def test_a_test_order_is_not_revenue(self):
         self._session(0)
         self._order(60, is_test=1)
+        self.assertEqual(self._attributed(), {})
+
+    # ── paid only ──
+
+    def test_an_order_the_gateway_never_confirmed_is_not_revenue(self):
+        # Created, pending, abandoned at the gateway: an orders row exists, no
+        # payment_collector row does. Nobody assisted a sale that did not happen.
+        self._session(0)
+        self._order(60, payment=None)
+        self.assertEqual(self._attributed(), {})
+
+    def test_a_failed_payment_is_not_revenue(self):
+        self._session(0)
+        self._order(60, payment='failed')
+        self.assertEqual(self._attributed(), {})
+
+    def test_a_later_successful_attempt_after_a_failed_one_is_revenue(self):
+        sid = self._session(0)
+        order = self._order(60, payment='failed')
+        self.cur.execute(
+            "INSERT INTO payment_collector (order_id, payment_dump, status) "
+            "VALUES (%s, '{}', 'TXN_SUCCESS')", (order,))
+        self.assertEqual(self._attributed(), {sid: order})
+
+    def test_an_unpaid_order_does_not_block_the_paid_one_behind_it(self):
+        # The nearest rule picks the earliest eligible order; an unpaid one in
+        # front of it is simply not eligible, so the paid one is credited.
+        sid = self._session(0, active_minutes=600)
+        self._order(60, payment=None)
+        paid = self._order(120)
+        self.assertEqual(self._attributed(), {sid: paid})
+
+    def test_a_success_page_of_an_unpaid_order_proves_nothing(self):
+        # The route records PURCHASE only when paid, but the ledger does not
+        # trust the route: a stage row for an unpaid order attributes nothing.
+        sid = self._session(0, customer=GUEST)
+        order = self._order(30, payment=None)
+        self._success_page(sid, order, 31)
         self.assertEqual(self._attributed(), {})
 
     # ── the same-browser proof ──

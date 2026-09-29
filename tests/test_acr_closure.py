@@ -664,6 +664,19 @@ class CommerceAttributionTests(unittest.TestCase):
         self.assertIn("s2.created_at <= o.date_created", sql)
         self.assertIn("(s2.created_at, s2.session_id) > (%s, %s)", sql)
 
+    def test_both_rules_require_a_gateway_confirmed_payment(self):
+        # Assisted revenue is money received: every order query, the browser
+        # proof and the time rule alike, is bounded by a TXN_SUCCESS row.
+        # Evaluated for real in tests/test_acr_attribution_mariadb.py.
+        db = self._db({"order_id": "ORD-1"})
+        acr.attribute_archived_session_commerce(db, dry_run=True)
+        order_sqls = [" ".join(s.split()) for s, _ in db.executed
+                      if "JOIN orders o" in s or "FROM orders o" in s]
+        self.assertEqual(len(order_sqls), 2)
+        for sql in order_sqls:
+            self.assertIn("FROM payment_collector pc", sql)
+            self.assertIn("pc.status = 'TXN_SUCCESS'", sql)
+
     def test_an_order_already_credited_elsewhere_is_not_credited_twice(self):
         # The unique key is the backstop behind the query: if the two ever
         # disagree the order is reported, not counted a second time.

@@ -335,14 +335,20 @@ def _collect():
     # from the order rows themselves (analytics never re-prices anything).
     # Reshipping fees are a different product (INR 250 to send a returned
     # parcel again) and are reported on their own line, never inside
-    # "assisted revenue".
+    # "assisted revenue". Only orders the gateway confirmed paid (a
+    # payment_collector TXN_SUCCESS row) are money; the ledger applies the same
+    # rule when it attributes, and the report re-applies it so a row recorded
+    # before that rule cannot print as revenue.
     def revenue_assisted():
         rows = run_sql(
             "SELECT CASE WHEN o.site_from LIKE '%%in.optiwar%%' OR o.site_from LIKE '%%optiwar.in%%' "
             "THEN 'INR' ELSE 'EUR' END AS cur, COUNT(DISTINCT c.order_id), "
             "COALESCE(SUM(o.order_total),0) "
             "FROM ai_session_commerce c JOIN orders o ON o.order_id=c.order_id "
-            "WHERE c.created_at >= %s AND o.is_test=0 GROUP BY 1" % SINCE)
+            "WHERE c.created_at >= %s AND o.is_test=0 "
+            "AND EXISTS (SELECT 1 FROM payment_collector pc "
+            "WHERE pc.order_id=o.order_id AND pc.status='TXN_SUCCESS') "
+            "GROUP BY 1" % SINCE)
         return {r[0]: {"orders": _to_int(r[1]), "amount": float(r[2] or 0)} for r in rows}
     safe("revenue_assisted", lambda: _gated(EV_COMMERCE_OUTCOME, revenue_assisted, NA_LEDGER))
 
