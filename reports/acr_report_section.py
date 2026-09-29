@@ -669,7 +669,8 @@ def _fmt_dist(d, keys=None):
         return _val(d)
     if not d:
         return "none"
-    items = [(k, d[k]) for k in keys] if keys else sorted(d.items(), key=lambda kv: -kv[1])
+    items = ([(k, d.get(k, 0)) for k in keys] if keys
+             else sorted(d.items(), key=lambda kv: -kv[1]))
     return " | ".join("%s %s" % (k, v) for k, v in items)
 
 

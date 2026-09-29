@@ -58,6 +58,14 @@ class TestAcrReportSection(unittest.TestCase):
         self.assertEqual(s._fmt_money(s.NotEmitted("pending")), "pending")
         self.assertEqual(s._fmt_money(None), s.NA)
 
+    def test_outcome_distribution_names_every_class_even_when_absent(self):
+        # the first closure canary produced only ESCALATED; the report must not
+        # crash on the classes the window has none of
+        s = acr_report_section
+        self.assertEqual(
+            s._fmt_dist({"ESCALATED": 10}, ("ANSWERED", "ESCALATED", "ABANDONED", "FAILED")),
+            "ANSWERED 0 | ESCALATED 10 | ABANDONED 0 | FAILED 0")
+
     def test_degraded_data_never_fabricates_green_all_clear(self):
         # With no DB, the core action query degrades. The report must NOT print a
         # false "Failures 0" / GREEN all-clear; it should flag data incomplete and
