@@ -138,7 +138,7 @@ EV_OPS_CONSOLE_AUTH_FAILURE = "OPS_CONSOLE_AUTH_FAILURE"
 # different collations; a join between them must state one.
 SESSION_JOIN = "s.session_id = e.session_id COLLATE utf8mb4_general_ci"
 
-FUNNEL_STAGES = ("LISTING", "PRODUCT", "CHECKOUT", "PURCHASE")
+FUNNEL_STAGES = ("LISTING", "PRODUCT", "CART", "CHECKOUT", "PURCHASE")
 FACE_ACTION_TYPES = ("FACE_SHOP_FOR", "FACE_DEFAULT", "FACE_CART_LINE")
 
 

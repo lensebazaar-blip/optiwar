@@ -1130,6 +1130,7 @@ def lens_add_to_cart():
         '[%s] ACTIVITY:ADD_TO_CART_LENS user:%s product:%s boxes:%s total:%s',
         request.host, session.get('user_id', 'anon'), item['product_id'],
         item['order_quantity'], item['ATC_WCL'])
+    _acr_stage(acr.STAGE_CART)
     # "Fast checkout" is the same validated, priced line taken straight to the
     # checkout page; "Add to cart" leaves the customer on the lens page. Neither
     # skips authentication, payment or the checkout's own confirmation.
@@ -4140,7 +4141,8 @@ def success(order_id):
             f"[{request.host}] ACTIVITY:ORDER_SUCCESS_UNPAID order:{order_id} "
             f"state:{payment_state} status:{latest_status or '-'}")
 
-    _acr_stage(acr.STAGE_PURCHASE, order_id=order_id)
+    if payment_state == 'paid':
+        _acr_stage(acr.STAGE_PURCHASE, order_id=order_id)
     return render_template('success.html', order_details=order_details, grand_total=grand_total,
                            ship_date=ship_date, gcr=gcr, payment_state=payment_state,
                            latest_status=latest_status)
