@@ -191,6 +191,16 @@ def _gated(event_type, fn, reason=NA_NOT_EMITTED):
     return fn()
 
 
+def _ledger_gated(fn):
+    """Commerce-ledger metrics. The closure job writes SESSION_OUTCOME on every
+    session it closes and COMMERCE_OUTCOME only for a paid, attributable order;
+    either proves the job runs here, after which an empty ledger is a true 0,
+    not an unscheduled job."""
+    if not (_ever(EV_SESSION_OUTCOME) or _ever(EV_COMMERCE_OUTCOME)):
+        return NotEmitted(NA_LEDGER)
+    return fn()
+
+
 # ─────────────────────────── metric collection ───────────────────────────
 
 def _collect():
@@ -328,8 +338,8 @@ def _collect():
         return {r[0]: _to_int(r[1]) for r in rows}
     safe("outcomes", lambda: _gated(EV_SESSION_OUTCOME, outcomes, NA_LEDGER))
 
-    safe("purchases_attributed", lambda: _gated(
-        EV_COMMERCE_OUTCOME, lambda: _event_count(EV_COMMERCE_OUTCOME), NA_LEDGER))
+    safe("purchases_attributed",
+         lambda: _ledger_gated(lambda: _event_count(EV_COMMERCE_OUTCOME)))
 
     # ── revenue: money of orders the ledger attributes, per currency, read
     # from the order rows themselves (analytics never re-prices anything).
@@ -350,14 +360,14 @@ def _collect():
             "WHERE pc.order_id=o.order_id AND pc.status='TXN_SUCCESS') "
             "GROUP BY 1" % SINCE)
         return {r[0]: {"orders": _to_int(r[1]), "amount": float(r[2] or 0)} for r in rows}
-    safe("revenue_assisted", lambda: _gated(EV_COMMERCE_OUTCOME, revenue_assisted, NA_LEDGER))
+    safe("revenue_assisted", lambda: _ledger_gated(revenue_assisted))
 
     def attribution_basis():
         rows = run_sql(
             "SELECT attribution_type, COUNT(*) FROM ai_session_commerce "
             "WHERE created_at >= %s GROUP BY 1" % SINCE)
         return {r[0]: _to_int(r[1]) for r in rows}
-    safe("attribution_basis", lambda: _gated(EV_COMMERCE_OUTCOME, attribution_basis, NA_LEDGER))
+    safe("attribution_basis", lambda: _ledger_gated(attribution_basis))
 
     def reshipping_revenue():
         rows = run_sql(
@@ -378,7 +388,7 @@ def _collect():
             "WHERE c.created_at >= %s GROUP BY p.product_code ORDER BY 2 DESC LIMIT 5"
             % SINCE)
         return [(r[0], _to_int(r[1])) for r in rows]
-    safe("products_bought", lambda: _gated(EV_COMMERCE_OUTCOME, products_bought, NA_LEDGER))
+    safe("products_bought", lambda: _ledger_gated(products_bought))
 
     # ── escalation ──
     safe("escalations", lambda: _event_count(EV_HANDOVER_ESCALATED))

@@ -178,6 +178,23 @@ class TestInstrumentationCoverage(unittest.TestCase):
         self.assertEqual(s._coverage({"a": v, "b": 3}, 0)[0], 1)
         self.assertEqual(str(v), s.NA_LEDGER)
 
+    def test_ledger_metrics_are_zero_once_the_closure_job_has_run(self):
+        # A job that closed sessions but found no paid order to attribute has
+        # run: an empty commerce ledger is then a true 0, not "not scheduled".
+        s = acr_report_section
+        orig = s._ever
+        calls = []
+        try:
+            s._ever = lambda ev: calls.append(ev) or ev == s.EV_SESSION_OUTCOME
+            self.assertEqual(s._ledger_gated(lambda: 0), 0)
+            s._ever = lambda ev: False
+            v = s._ledger_gated(lambda: 0)
+            self.assertIsInstance(v, s.NotEmitted)
+            self.assertEqual(str(v), s.NA_LEDGER)
+        finally:
+            s._ever = orig
+        self.assertIn(s.EV_SESSION_OUTCOME, calls)
+
     def test_section_reports_its_coverage(self):
         out = acr_report_section.build()
         self.assertIn("DATA COVERAGE", out)
