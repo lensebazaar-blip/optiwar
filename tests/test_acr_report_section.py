@@ -248,3 +248,41 @@ class TestMultilingualSection(unittest.TestCase):
         block = src[src.index("# ── multilingual understanding"):src.index("# ── funnel")]
         self.assertNotIn("chat_messages", block)
         self.assertNotIn("content", block)
+
+
+class TestKetMappingAndLookupLines(unittest.TestCase):
+    def setUp(self):
+        for k in ("ACR_REPORT_DB_HOST", "ACR_REPORT_DB_USER", "ACR_REPORT_DB_PASS",
+                  "ACR_REPORT_DB_NAME", "MYSQL_HOST", "MYSQL_USER", "MYSQL_PASSWORD",
+                  "MYSQL_DB", "MYSQL_DATABASE"):
+            os.environ.pop(k, None)
+        acr_report_section._COLLECT_CACHE[:] = []
+
+    def tearDown(self):
+        acr_report_section._COLLECT_CACHE[:] = []
+
+    def _findings_with(self, **metrics):
+        acr_report_section._COLLECT_CACHE[:] = [(dict(metrics), [])]
+        return acr_report_section.findings()
+
+    def test_a_ket_ticket_without_a_mapping_row_is_an_action(self):
+        found = self._findings_with(nav_actions={}, ket_tickets_unmapped=2)
+        msgs = [f.message for f in found if f.severity == "ACTION"]
+        self.assertEqual(len(msgs), 1)
+        self.assertIn("2 KET ticket(s) have no optiwar_ticket_mapping row", msgs[0])
+
+    def test_every_ket_ticket_mapped_raises_nothing(self):
+        found = self._findings_with(nav_actions={}, ket_tickets_unmapped=0)
+        self.assertFalse([f for f in found if "optiwar_ticket_mapping" in f.message])
+
+    def test_lookup_lines_render_without_a_database(self):
+        out = acr_report_section.build()
+        for label in ("found nothing on file", "prescription lookups",
+                      "KET tickets without a mapping row"):
+            self.assertIn(label, out)
+
+    def test_a_lookup_that_found_nothing_is_not_a_tool_failure(self):
+        with open(_PATH, encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn('safe("contact_tool_failed", _count(EV_TOOL_USED, '
+                      '"AND success=0 AND failure_code=\'lookup_failed\'"))', src)
