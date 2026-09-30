@@ -65,7 +65,8 @@ TABLE_DDL = """CREATE TABLE IF NOT EXISTS order_reverse_pickups (
 
 TABLES = [("order_reverse_pickups", TABLE_DDL)]
 
-_WA_TEMPLATES = {EV_BOOKED: "reverse_pickup_booked", EV_CANCELLED: "reverse_pickup_cancelled"}
+_WA_TEMPLATES = {EV_BOOKED: "reverse_pickup_booked_v2", EV_CANCELLED: "reverse_pickup_cancelled_v2"}
+CHANGE_EMAIL = "admin@optiwar.com"
 
 EMAILS = {
     EV_BOOKED: (
@@ -80,7 +81,7 @@ EMAILS = {
         "- Keep the product in its original box/case with all accessories and the invoice, packed and ready.\n"
         "- Keep your phone reachable so the agent can contact you.\n"
         "- Please do not ship the product yourself and do not hand it to any other courier.\n\n"
-        "To change the pickup address or reschedule, reply to this email or write to {support}.\n\n"
+        "To change the pickup address or reschedule, reply to this email or write to {change_email}.\n\n"
         "Any reverse-pickup charge applies as described in clause 9B of our Terms "
         "(Return / Reverse-pickup cost): {terms_url}\n\n"
         "You can see this pickup in My Orders: {url}\n\n"
@@ -283,6 +284,7 @@ def notify(db, event_type, row, host, mailer=None, whatsapp=None, environ=None):
               "order_id": row["order_id"], "awb": row["awb"],
               "track_url": reship.tracking_url(COURIER, row["awb"]) or "",
               "support": reship.SUPPORT_EMAIL,
+              "change_email": CHANGE_EMAIL,
               "terms_url": _host_url(host, "/terms-and-conditions"),
               "url": reship.my_orders_url(host)}
     key = row["pickup_uuid"]
