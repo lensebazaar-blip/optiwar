@@ -235,6 +235,14 @@ SMOKE = (
     # cookie-less and origin-less, is stopped at 403 before any view.
     ("face-scan owner api still origin-guarded",
      "https://optiwar.in/api/face-profiles/0/scan-request/cancel", 403, "POST"),
+    # Ops calls its shipment endpoints from its own server with the Bearer
+    # token and no Origin. 401 is the view refusing this made-up token, so the
+    # call got past the origin guard; without the header it still gets 403.
+    ("ops bearer call not origin-blocked",
+     "https://optiwar.in/ops/api/shipments/SMOKE-0/reverse-pickup", 401, "POST",
+     "Authorization: Bearer smoke-not-a-token"),
+    ("ops shipment api without bearer still origin-guarded",
+     "https://optiwar.in/ops/api/shipments/SMOKE-0/reverse-pickup", 403, "POST"),
 )
 
 # Canonical events a single canary conversation must produce. Their absence
@@ -805,6 +813,8 @@ def smoke():
         # No Origin/Referer and no body is deliberate for the POST cases: that
         # is exactly the shape of a provider's server-to-server delivery.
         method = "-X %s -H Content-Type:application/json" % rest[0] if rest else ""
+        if len(rest) > 1:
+            method += " -H %s" % shlex.quote(rest[1])
         code = remote("curl -s -o /dev/null -w '%%{http_code}' -m 20 %s %s"
                       % (method, shlex.quote(url)), check=False)
         ok = (str(code) == str(want) if isinstance(want, int)
