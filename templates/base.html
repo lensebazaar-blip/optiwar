@@ -890,8 +890,14 @@
 		{% endif %}
 	{% endwith %}
 
-<!-- Contact Us Popup Modal --><div id="contactModal" class="ow-contact-overlay" style="display:none;">  <div class="ow-contact-modal">    <button class="ow-contact-close" onclick="closeContactModal()">&times;</button>    <h2 class="ow-contact-title">{{ _('Contact Us') }}</h2>    <p class="ow-contact-subtitle">{{ _('Raise a support ticket and our team will respond shortly.') }}</p>    <form id="contactForm" class="ow-contact-form">      <div class="ow-contact-field">        <label for="cName">{{ _('Name') }}</label>        <input type="text" id="cName" name="name" placeholder="{{ _('Your name') }}" required>      </div>      <div class="ow-contact-field">        <label for="cSubject">{{ _('Subject') }}</label>        <select id="cSubject" name="subject" onchange="prefillContactDesc()" required>          <option value="">{{ _('Select a subject') }}</option>          <option value="I want to order frames with lenses">I want to order frames with lenses</option>          <option value="Requesting someone to call me before I order">Requesting callback before ordering</option>          <option value="Others">Something else</option>        </select>      </div>      <div class="ow-contact-field">        <label for="cDesc">{{ _('Description') }}</label>        <textarea id="cDesc" name="description" rows="3" placeholder="{{ _('Tell us how we can help...') }}" required></textarea>      </div>      <div class="ow-contact-row">        <div class="ow-contact-field">          <label for="cPhone">{{ _('Mobile') }}</label>          <input type="tel" id="cPhone" name="phone" placeholder="+91 ..." required>        </div>        <div class="ow-contact-field">          <label for="cEmail">{{ _('Email') }}</label>          <input type="email" id="cEmail" name="email" placeholder="you@email.com" required>        </div>      </div>      <div class="ow-contact-captcha">        <label>{{ _('Enter the text shown below:') }}</label>        <img id="captchaImg" src="" alt="CAPTCHA" class="ow-captcha-img">        <input type="text" id="cCaptcha" name="captcha" placeholder="Enter CAPTCHA" required>      </div>      <button type="submit" class="ow-contact-submit">Submit Ticket</button>      <p class="ow-contact-note" id="contactStatus"></p>    </form>  </div></div><script>function openContactChoice(){if(typeof window.owChatOpen==="function"){window.owChatOpen("text");}else if(typeof window.openAiChat==="function"){window.openAiChat();}else{openContactModal();}}
-function openContactModal(orderId){  document.getElementById("contactModal").style.display="flex";  if(orderId){document.getElementById("cSubject").value="Others";document.getElementById("cDesc").value="Hi, I need help with my order #"+orderId;}  fetch("/contact_us/captcha?t="+Date.now(),{credentials:"same-origin"}).then(function(r){return r.json();}).then(function(d){document.getElementById("captchaImg").src="data:image/png;base64,"+d.captcha_image;}).catch(function(e){console.warn("Captcha load error",e);});}function closeContactModal(){  document.getElementById("contactModal").style.display="none";}function prefillContactDesc(){  var s=document.getElementById("cSubject").value;  var d=document.getElementById("cDesc");  if(s==="I want to order frames with lenses") d.value="Hi, I would like to order spectacle frames with lenses. Please assist.";  else if(s==="Requesting someone to call me before I order") d.value="Hi, please call me before I place my order. I have a few questions.";  else d.value="";}document.getElementById("contactForm").addEventListener("submit",function(e){  e.preventDefault();  var st=document.getElementById("contactStatus");  st.textContent="Submitting...";  st.style.color="#6366f1";  var fd=new FormData(this);  fetch("/contact_us/submit",{method:"POST",body:fd})    .then(function(r){return r.json();})    .then(function(d){      if(d.success){        st.textContent="Ticket submitted! We will respond shortly.";        st.style.color="#22c55e";        document.getElementById("contactForm").reset();      } else {        st.textContent=d.error||"Something went wrong. Please try again.";        st.style.color="#ef4444";        fetch("/contact_us/captcha?t="+Date.now(),{credentials:"same-origin"}).then(function(r){return r.json();}).then(function(d){document.getElementById("captchaImg").src="data:image/png;base64,"+d.captcha_image;});      }    })    .catch(function(){      st.textContent="Network error. Please try again.";      st.style.color="#ef4444";    });});</script>
+<script>
+/* Every support entry opens the Optiwar assistant; a ticket is something the
+   assistant files, never a form the customer fills in. */
+function owSupportOpen(entry){if(typeof window.owChatOpen==="function"){window.owChatOpen("text",entry||"contact_us");}else{window.location.href="/#owchat";}}
+function openContactChoice(entry){owSupportOpen(entry||"contact_us");}
+function openContactModal(){owSupportOpen("order_support");}
+window.openAiChat=function(){owSupportOpen("contact_us");};
+</script>
 
 
 
@@ -1427,12 +1433,7 @@ function openContactModal(orderId){  document.getElementById("contactModal").sty
 
 
 
-<!-- Single AI-first support entry: the Manual-vs-AI choice modal was removed.
-     "Contact Us" now opens AI Support directly (openContactChoice -> openAiChat).
-     The manual contactModal above is retained only as an internal/operational
-     fallback (order support + AI-unavailable path), not a customer choice. -->
-
-<!-- Logged-in identity for AI auto-fill (never re-ask known details) -->
+<!-- Logged-in identity for page scripts (static/scripts.js reads logged_in) -->
 <script>
 window.__owUser = {
   logged_in: {{ 'true' if logged_in else 'false' }},
@@ -1443,343 +1444,17 @@ window.__owUser = {
 };
 </script>
 
-<!-- AI Chat Support Widget -->
-<div id="aiChatModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(0,0,0,0.5);align-items:center;justify-content:center;">
-  <div style="background:#fff;border-radius:20px;width:95%;max-width:420px;height:85vh;max-height:600px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
-    <!-- Header -->
-    <div style="background:linear-gradient(135deg,#4f46e5,#7c3aed);padding:16px 20px;display:flex;align-items:center;justify-content:space-between;">
-      <div style="display:flex;align-items:center;gap:10px;">
-        <div style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        </div>
-        <div>
-          <div style="color:#fff;font-weight:700;font-size:15px;">Optiwar AI Support</div>
-          <div style="color:rgba(255,255,255,0.7);font-size:11px;">Typically replies instantly</div>
-        </div>
-      </div>
-      <button onclick="closeAiChat()" style="background:none;border:none;color:#fff;font-size:24px;cursor:pointer;padding:4px 8px;">&times;</button>
-    </div>
-    <!-- Chat Messages -->
-    <div id="aiChatMessages" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;background:#f8fafc;">
-    </div>
-    <!-- Input -->
-    <div style="padding:12px 16px;border-top:1px solid #e2e8f0;background:#fff;display:flex;gap:8px;">
-      <input type="text" id="aiChatInput" placeholder="Type your message..." style="flex:1;border:1.5px solid #e2e8f0;border-radius:12px;padding:10px 14px;font-size:14px;outline:none;transition:border-color 0.2s;" onfocus="this.style.borderColor='#4f46e5'" onblur="this.style.borderColor='#e2e8f0'" onkeydown="if(event.key==='Enter')sendAiMsg()">
-      <button onclick="sendAiMsg()" style="background:#4f46e5;color:#fff;border:none;border-radius:12px;padding:10px 16px;cursor:pointer;font-weight:600;font-size:14px;">Send</button>
-    </div>
-    <!-- Timer -->
-    <div id="aiChatTimer" style="padding:6px 16px 10px;text-align:center;font-size:11px;color:#94a3b8;background:#fff;">Session: <span id="aiTimerDisplay">4:00</span> remaining</div>
-  </div>
-</div>
-
-<script>
-(function(){
-  var aiHistory = [];
-  var aiTimer = null;
-  var aiSecondsLeft = 240; // 4 minutes
-  var aiTicketSubmitted = false;
-  // Layer 2 (transparent fallback): when the AI provider is unavailable the
-  // SAME interface switches to direct ticket capture. The customer never sees
-  // "AI unavailable" and never chooses between AI and a human.
-  var owDirect = {active:false, awaitingEmail:false, email:null};
-  var OW_FALLBACK_MSG = "We're temporarily experiencing high demand. I've already prepared your support request and our support team will continue assisting you.";
-
-  function owGreet(){
-    var u = window.__owUser || {};
-    if(u.logged_in && u.name){
-      var first = String(u.name).split(' ')[0];
-      addBotMsg("Hi " + first + "! I'm Optiwar's AI support assistant. How can I help you today?");
-    } else {
-      addBotMsg("Hi there! I'm Optiwar's AI support assistant. How can I help you today?");
-    }
-  }
-
-  window.openAiChat = function(){
-    document.getElementById("aiChatModal").style.display = "flex";
-    document.body.style.overflow = "hidden";
-    aiHistory = [];
-    aiTicketSubmitted = false;
-    owDirect = {active:false, awaitingEmail:false, email:null};
-    aiSecondsLeft = 240;
-    document.getElementById("aiChatMessages").innerHTML = "";
-    // Start timer
-    updateTimerDisplay();
-    if(aiTimer) clearInterval(aiTimer);
-    aiTimer = setInterval(function(){
-      aiSecondsLeft--;
-      updateTimerDisplay();
-      if(aiSecondsLeft <= 0){
-        clearInterval(aiTimer);
-        // On timeout, keep the customer in the same interface and capture the
-        // request directly rather than exposing a separate manual workflow.
-        enterDirectCapture();
-      }
-    }, 1000);
-    // Health-aware greeting: decide AI vs direct capture before greeting so the
-    // customer sees one coherent experience.
-    fetch("/support/status", {credentials:"same-origin"})
-      .then(function(r){ return r.json(); })
-      .then(function(d){
-        if(d && d.ai_available === false){ enterDirectCapture(); }
-        else { owGreet(); }
-      })
-      .catch(function(){ owGreet(); });
-  };
-
-  // Switch the same interface into transparent direct-capture mode.
-  function enterDirectCapture(){
-    if(owDirect.active) return;
-    owDirect.active = true;
-    addBotMsg(OW_FALLBACK_MSG);
-    // If the customer already described something, prepare the ticket now.
-    if(owHasUserContent()){
-      attemptDirectSubmit();
-    } else {
-      addBotMsg("Please describe your issue below and we'll create a support ticket right away.");
-    }
-  }
-
-  function owHasUserContent(){
-    for(var i=0;i<aiHistory.length;i++){ if(aiHistory[i].role==="user") return true; }
-    return false;
-  }
-
-  function owBuildDescription(){
-    var parts = [];
-    for(var i=0;i<aiHistory.length;i++){ if(aiHistory[i].role==="user") parts.push(aiHistory[i].content); }
-    return parts.join(" \u2022 ") || "Customer requested support.";
-  }
-
-  function attemptDirectSubmit(){
-    if(aiTicketSubmitted) return;
-    var u = window.__owUser || {};
-    var email = (u.logged_in && u.email) || owDirect.email || "";
-    if(!email){
-      owDirect.awaitingEmail = true;
-      addBotMsg("Could you share your email address so our team can follow up with you?");
-      return;
-    }
-    aiTicketSubmitted = true;
-    submitAiTicket({
-      name: (u.logged_in && u.name) || "",
-      email: email,
-      phone: (u.logged_in && u.phone) || "",
-      subject: "Support request",
-      description: owBuildDescription()
-    });
-  }
-
-  window.closeAiChat = function(){
-    document.getElementById("aiChatModal").style.display = "none";
-    document.body.style.overflow = "";
-    if(aiTimer) clearInterval(aiTimer);
-  };
-
-  function updateTimerDisplay(){
-    var m = Math.floor(aiSecondsLeft/60);
-    var s = aiSecondsLeft % 60;
-    document.getElementById("aiTimerDisplay").textContent = m + ":" + (s<10?"0":"") + s;
-  }
-
-  function addBotMsg(text){
-    var div = document.createElement("div");
-    div.style.cssText = "align-self:flex-start;background:#fff;border:1px solid #e2e8f0;border-radius:14px 14px 14px 4px;padding:10px 14px;max-width:85%;font-size:14px;color:#1e293b;line-height:1.5;box-shadow:0 1px 3px rgba(0,0,0,0.05);";
-    div.textContent = text;
-    document.getElementById("aiChatMessages").appendChild(div);
-    scrollChat();
-  }
-
-  function addUserMsg(text){
-    var div = document.createElement("div");
-    div.style.cssText = "align-self:flex-end;background:#4f46e5;border-radius:14px 14px 4px 14px;padding:10px 14px;max-width:85%;font-size:14px;color:#fff;line-height:1.5;";
-    div.textContent = text;
-    document.getElementById("aiChatMessages").appendChild(div);
-    scrollChat();
-  }
-
-  function addSystemMsg(text){
-    var div = document.createElement("div");
-    div.style.cssText = "align-self:center;background:#dcfce7;border-radius:10px;padding:8px 14px;font-size:13px;color:#166534;font-weight:500;text-align:center;";
-    div.textContent = text;
-    document.getElementById("aiChatMessages").appendChild(div);
-    scrollChat();
-  }
-
-  function scrollChat(){
-    var c = document.getElementById("aiChatMessages");
-    c.scrollTop = c.scrollHeight;
-  }
-
-  function showTyping(){
-    var div = document.createElement("div");
-    div.id = "aiTyping";
-    div.style.cssText = "align-self:flex-start;background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:10px 14px;font-size:13px;color:#94a3b8;";
-    div.textContent = "Typing...";
-    document.getElementById("aiChatMessages").appendChild(div);
-    scrollChat();
-  }
-
-  function hideTyping(){
-    var t = document.getElementById("aiTyping");
-    if(t) t.remove();
-  }
-
-  window.sendAiMsg = function(){
-    var input = document.getElementById("aiChatInput");
-    var msg = input.value.trim();
-    if(!msg || aiTicketSubmitted) return;
-    input.value = "";
-    addUserMsg(msg);
-    aiHistory.push({role:"user", content:msg});
-
-    // Direct-capture mode: no AI call — collect the issue (and email if needed)
-    // and create the ticket through the same pipeline.
-    if(owDirect.active){
-      if(owDirect.awaitingEmail && /.+@.+\..+/.test(msg)){
-        owDirect.email = msg;
-        owDirect.awaitingEmail = false;
-      }
-      attemptDirectSubmit();
-      return;
-    }
-
-    showTyping();
-    fetch("/contact_us/ai_chat", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      credentials: "same-origin",
-      body: JSON.stringify({message: msg, history: aiHistory, identity: window.__owUser || null})
-    })
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      hideTyping();
-      // Provider failure: transparently switch to direct capture in-place.
-      if(d.ai_available === false){
-        enterDirectCapture();
-        return;
-      }
-      if(d.error){
-        enterDirectCapture();
-        return;
-      }
-      addBotMsg(d.reply);
-      aiHistory.push({role:"assistant", content:d.reply});
-
-      if(d.done && d.ticket_data){
-        aiTicketSubmitted = true;
-        submitAiTicket(d.ticket_data);
-      }
-    })
-    .catch(function(e){
-      hideTyping();
-      // Network/timeout: never expose an error — keep helping via direct capture.
-      enterDirectCapture();
-    });
-  };
-
-  function submitAiTicket(ticketData){
-    addSystemMsg("Creating your support ticket...");
-    fetch("/contact_us/ai_submit", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      credentials: "same-origin",
-      body: JSON.stringify({
-        name: (window.__owUser && window.__owUser.logged_in && window.__owUser.name) || ticketData.name || "",
-        email: (window.__owUser && window.__owUser.logged_in && window.__owUser.email) || ticketData.email || "",
-        phone: (window.__owUser && window.__owUser.logged_in && window.__owUser.phone) || ticketData.phone || "",
-        subject: ticketData.subject || "Others",
-        description: ticketData.description || "",
-        chat_history: aiHistory
-      })
-    })
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      if(d.success){
-        addSystemMsg("Ticket #" + d.ticket_id + " created! Our team will respond shortly.");
-        if(aiTimer) clearInterval(aiTimer);
-        document.getElementById("aiTimerDisplay").textContent = "Done!";
-      } else {
-        // Allow another attempt within the same interface.
-        aiTicketSubmitted = false;
-        addBotMsg((d.error||"We couldn't submit that just now.") + " Please try again in a moment.");
-      }
-    })
-    .catch(function(){
-      aiTicketSubmitted = false;
-      addBotMsg("We couldn't reach our servers just now. Please try again in a moment.");
-    });
-  }
-})();
-</script>
-
-<!-- Optiwar AI Chat Widget -->
-{% if logged_in %}
+<!-- Optiwar AI Chat Widget: the same assistant signed in or out; the
+     browser's session is bound by the owner cookie, the account by the login -->
 <script>
 window.__optiwarChat = {
-  email: "{{ current_user_email }}",
-  name: "{{ current_user_name }}",
-  customerId: {{ current_user_id if current_user_id else 'null' }}
+  signedIn: {{ 'true' if logged_in else 'false' }},
+  name: {{ (current_user_name or '')|tojson }}
 };
 </script>
-<script src="{{ url_for('static', filename='js/chat-widget.js') + '?v=23' }}"></script>
+<script src="{{ url_for('static', filename='js/chat-widget.js') + '?v=24' }}"></script>
+{% if logged_in %}
 <script src="{{ url_for('static', filename='js/voice-widget.js') + '?v=10' }}"></script>
-{% else %}
-<style>
-.ow-login-btn{position:fixed;bottom:20px;right:20px;z-index:9999;width:clamp(60px,12vw,80px);height:clamp(60px,12vw,80px);border-radius:50%;border:none;background:radial-gradient(circle at center,#0f172a,#020617);cursor:pointer;box-shadow:0 4px 20px rgba(14,165,233,0.4),0 0 40px rgba(56,189,248,0.15);display:grid;place-items:center;overflow:hidden;padding:0;transition:transform .2s}
-.ow-login-btn:hover{transform:scale(1.1)}
-.ow-login-btn .ec-circle{position:absolute;border-radius:50%;border:2px solid rgba(56,189,248,.18)}
-.ow-login-btn .ec-c1{width:38%;height:38%;animation:ecRingSpin 16s linear infinite}
-.ow-login-btn .ec-c2{width:64%;height:64%;animation:ecRingSpinR 20s linear infinite}
-.ow-login-btn .ec-c3{width:90%;height:90%;animation:ecRingSpin 24s linear infinite}
-.ow-login-btn .ec-energy{position:absolute;inset:0;display:grid;place-items:center}
-.ow-login-btn .ec-energy span{position:absolute;width:8px;height:8px;border-radius:50%;background:#fff;box-shadow:0 0 6px #67e8f9,0 0 12px #38bdf8,0 0 18px #0ea5e9}
-.ow-login-btn .ec-orbit1{animation:ecOrbit 8s linear infinite}
-.ow-login-btn .ec-orbit1 span{transform:translateY(-12px)}
-.ow-login-btn .ec-orbit2{animation:ecOrbit 8s linear infinite 2.6s}
-.ow-login-btn .ec-orbit2 span{transform:translateY(-20px)}
-.ow-login-btn .ec-orbit3{animation:ecOrbit 8s linear infinite 5.2s}
-.ow-login-btn .ec-orbit3 span{transform:translateY(-28px)}
-@keyframes ecRingSpin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
-@keyframes ecRingSpinR{from{transform:rotate(360deg)}to{transform:rotate(0deg)}}
-@keyframes ecOrbit{0%{opacity:0;transform:rotate(0deg)}10%{opacity:1}40%{opacity:1}50%{opacity:0}100%{opacity:0;transform:rotate(360deg)}}
-</style>
-<script>
-(function() {
-  if (window.location.pathname === "/search") return;
-  var btn = document.createElement("button");
-  btn.className = "ow-login-btn";
-  btn.title = "Chat with us";
-  btn.setAttribute("aria-label", "Chat with us");
-  btn.innerHTML = '<div class="ec-circle ec-c1"></div><div class="ec-circle ec-c2"></div><div class="ec-circle ec-c3"></div><div class="ec-energy ec-orbit1"><span></span></div><div class="ec-energy ec-orbit2"><span></span></div><div class="ec-energy ec-orbit3"><span></span></div>';
-  // Choice menu for non-logged-in users
-  var choiceMenu = document.createElement("div");
-  choiceMenu.className = "ow-login-menu";
-  choiceMenu.style.cssText = "position:fixed;bottom:90px;right:20px;z-index:9999;display:none;flex-direction:column;gap:10px;animation:owMenuFadeIn .2s ease";
-  choiceMenu.innerHTML = '<div id="ow-login-text" style="display:flex;align-items:center;gap:12px;padding:14px 20px;background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;cursor:pointer;transition:all .2s;box-shadow:0 4px 16px rgba(0,0,0,0.08);min-width:180px"><div style="width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#6366f1,#4f46e5)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></div><div><div style="font-size:14px;font-weight:600;color:#1e293b">Text Chat</div><div style="font-size:11px;color:#64748b">Type your questions</div></div></div><div id="ow-login-voice" style="display:flex;align-items:center;gap:12px;padding:14px 20px;background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;cursor:pointer;transition:all .2s;box-shadow:0 4px 16px rgba(0,0,0,0.08);min-width:180px"><div style="width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0ea5e9,#0284c7)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></div><div><div style="font-size:14px;font-weight:600;color:#1e293b">Voice Chat</div><div style="font-size:11px;color:#64748b">Talk with AI assistant</div></div></div>';
-  document.body.appendChild(choiceMenu);
-  document.body.appendChild(btn);
-
-  var menuOpen = false;
-  btn.onclick = function() {
-    menuOpen = !menuOpen;
-    choiceMenu.style.display = menuOpen ? "flex" : "none";
-  };
-  document.getElementById("ow-login-text").onclick = function() {
-    var returnUrl = encodeURIComponent(window.location.href);
-    window.location.href = "/auth/login?next=" + returnUrl;
-  };
-  document.getElementById("ow-login-voice").onclick = function() {
-    var returnUrl = encodeURIComponent(window.location.href);
-    window.location.href = "/auth/login?next=" + returnUrl;
-  };
-  document.addEventListener("click", function(e) {
-    if (menuOpen && !btn.contains(e.target) && !choiceMenu.contains(e.target)) {
-      menuOpen = false;
-      choiceMenu.style.display = "none";
-    }
-  });
-})();
-</script>
 {% endif %}
 <script>
 (function(){

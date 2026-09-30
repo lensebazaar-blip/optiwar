@@ -26,6 +26,7 @@ INTENT_PRESCRIPTION_FOR_ORDER = "PRESCRIPTION_FOR_ORDER"
 INTENT_PRESCRIPTION_ENTRY_HELP = "PRESCRIPTION_ENTRY_HELP"
 INTENT_ORDER_STATUS = "ORDER_STATUS"
 INTENT_RESHIP_STATUS = "RESHIP_STATUS"
+INTENT_PAYMENT_STATUS = "PAYMENT_STATUS"
 INTENT_HUMAN_REQUEST = "HUMAN_REQUEST"
 INTENT_CALLBACK_REQUEST = "CALLBACK_REQUEST"
 INTENT_PRODUCT_SEARCH = "PRODUCT_SEARCH"
@@ -35,7 +36,7 @@ INTENT_OTHER = "OTHER"
 PRESCRIPTION_INTENTS = (INTENT_PRESCRIPTION_CONFIRMATION, INTENT_PRESCRIPTION_STATUS,
                         INTENT_PRESCRIPTION_FOR_ORDER, INTENT_PRESCRIPTION_ENTRY_HELP)
 INTENTS = PRESCRIPTION_INTENTS + (
-    INTENT_ORDER_STATUS, INTENT_RESHIP_STATUS, INTENT_HUMAN_REQUEST,
+    INTENT_ORDER_STATUS, INTENT_RESHIP_STATUS, INTENT_PAYMENT_STATUS, INTENT_HUMAN_REQUEST,
     INTENT_CALLBACK_REQUEST, INTENT_PRODUCT_SEARCH, INTENT_GREETING, INTENT_OTHER)
 
 # The deterministic capability an intent is served by. Language never changes
@@ -48,6 +49,7 @@ INTENT_CAPABILITY = {
     INTENT_PRESCRIPTION_ENTRY_HELP: "NAVIGATE",
     INTENT_ORDER_STATUS: "LOOKUP_ORDER",
     INTENT_RESHIP_STATUS: "LOOKUP_RESHIP_STATUS",
+    INTENT_PAYMENT_STATUS: "LOOKUP_ORDER",
     INTENT_HUMAN_REQUEST: "CREATE_TICKET",
     INTENT_CALLBACK_REQUEST: "CREATE_TICKET",
     INTENT_PRODUCT_SEARCH: "NAVIGATE",
@@ -56,7 +58,13 @@ INTENT_CAPABILITY = {
 # Intents the assistant can answer itself; a ticket filed for one of these
 # without an answer is an AI failure, not a customer choice.
 ANSWERABLE_INTENTS = PRESCRIPTION_INTENTS + (
-    INTENT_ORDER_STATUS, INTENT_RESHIP_STATUS, INTENT_PRODUCT_SEARCH)
+    INTENT_ORDER_STATUS, INTENT_RESHIP_STATUS, INTENT_PAYMENT_STATUS, INTENT_PRODUCT_SEARCH)
+
+# Intents answered from the customer's own account: a signed-out customer is
+# told to sign in, never asked for an order number or sent to a ticket.
+ACCOUNT_INTENTS = (INTENT_PRESCRIPTION_STATUS, INTENT_PRESCRIPTION_FOR_ORDER,
+                   INTENT_ORDER_STATUS, INTENT_RESHIP_STATUS, INTENT_PAYMENT_STATUS)
+ORDER_LOOKUP_INTENTS = (INTENT_ORDER_STATUS, INTENT_PAYMENT_STATUS)
 
 ESC_CUSTOMER_REQUESTED_HUMAN = "CUSTOMER_REQUESTED_HUMAN"
 ESC_LANGUAGE_UNDERSTANDING_FAILED = "LANGUAGE_UNDERSTANDING_FAILED"
@@ -64,14 +72,16 @@ ESC_TOOL_UNAVAILABLE = "TOOL_UNAVAILABLE"
 ESC_DATA_MISSING = "DATA_MISSING"
 ESC_POLICY_REQUIRES_HUMAN = "POLICY_REQUIRES_HUMAN"
 ESC_AI_LOW_CONFIDENCE = "AI_LOW_CONFIDENCE"
+ESC_MODEL_UNAVAILABLE = "MODEL_UNAVAILABLE"
 ESC_UNCLASSIFIED = "UNCLASSIFIED"
 ESCALATION_REASONS = (ESC_CUSTOMER_REQUESTED_HUMAN, ESC_LANGUAGE_UNDERSTANDING_FAILED,
                       ESC_TOOL_UNAVAILABLE, ESC_DATA_MISSING, ESC_POLICY_REQUIRES_HUMAN,
-                      ESC_AI_LOW_CONFIDENCE, ESC_UNCLASSIFIED)
+                      ESC_AI_LOW_CONFIDENCE, ESC_MODEL_UNAVAILABLE, ESC_UNCLASSIFIED)
 
 FAIL_NLU_LANGUAGE = "NLU_LANGUAGE_FAILURE"
 FAIL_NO_TOOL = "NO_TOOL_FOR_INTENT"
 FAIL_LOW_CONFIDENCE = "LOW_CONFIDENCE"
+FAIL_MODEL_UNAVAILABLE = "MODEL_UNAVAILABLE"
 
 LANGUAGE_NAMES = {
     "en": "English", "hi": "Hindi", "hi-Latn": "Hinglish (Hindi in Roman letters)",
@@ -423,6 +433,10 @@ _C_CALL = _concept(
 _C_RESHIP = _concept(
     "returned return wapas vapas reship reshipping reshipment rto".split(),
     ("वापस", "रिटर्न"))
+_C_PAYMENT = _concept(
+    "payment paymnt payement pay paid paisa paise amount refund refunded deducted "
+    "debited debit kata txn transaction upi razorpay".split(),
+    ("पेमेंट", "भुगतान", "पैसे", "पैसा", "रिफंड", "कट"))
 _C_PRODUCT = _concept(
     "frame frames sunglasses buy price cheap round square aviator cateye "
     "rimless kids color colour".split(),
@@ -478,7 +492,7 @@ def classify_intent(text):
         ("past", _C_PAST_ENTRY), ("saved", _C_SAVED), ("which", _C_WHICH_MADE), ("show", _C_SHOW),
         ("order", _C_ORDER), ("when", _C_WHEN_WHERE), ("how", _C_HOW),
         ("entry", _C_ENTRY_VERB), ("human", _C_HUMAN), ("call", _C_CALL),
-        ("reship", _C_RESHIP), ("product", _C_PRODUCT))}
+        ("reship", _C_RESHIP), ("payment", _C_PAYMENT), ("product", _C_PRODUCT))}
     rx_context = (has["rx"] or has["power"] or (has["number"] and (has["specs"] or has["eye"]))
                   or (has["number"] and has["saved"] and has["show"]))
     if rx_context:
@@ -497,8 +511,10 @@ def classify_intent(text):
         return INTENT_HUMAN_REQUEST, 0.85
     if has["call"] and not has["specs"]:
         return INTENT_CALLBACK_REQUEST, 0.8
-    if has["reship"] and (has["order"] or has["specs"]):
+    if has["reship"] and (has["order"] or has["specs"] or has["how"] or has["when"]):
         return INTENT_RESHIP_STATUS, 0.7
+    if has["payment"]:
+        return INTENT_PAYMENT_STATUS, 0.7
     if has["order"] or (has["specs"] and has["when"]):
         return INTENT_ORDER_STATUS, 0.7
     if has["product"] or has["specs"]:
@@ -547,8 +563,20 @@ def understand(user_messages):
             "capability": INTENT_CAPABILITY.get(intent)}
 
 
+def ticket_reason(user_messages):
+    """The subject a ticket is filed under: a callback or a person when the
+    customer asked for one anywhere in the chat, else what they came for."""
+    intents = [classify_intent(m)[0] for m in user_messages or ()
+               if m and (is_meaningful(m) or len(tokens(m)) >= 2)]
+    for wanted in (INTENT_CALLBACK_REQUEST, INTENT_HUMAN_REQUEST):
+        if wanted in intents:
+            return wanted
+    return first_substantive_intent(user_messages)[0]
+
+
 def classify_ticket(user_messages, final_action="CREATE_TICKET", ticket_reason=None,
-                    data_available=None, tool_available=True, model_reason=None):
+                    data_available=None, tool_available=True, model_reason=None,
+                    model_available=True):
     """Why a conversation ended in a ticket, kept apart from what the customer
     last clicked: ``original_intent`` (what they came for), ``final_action``,
     ``ticket_reason`` (the subject the ticket was filed under) and
@@ -559,10 +587,14 @@ def classify_ticket(user_messages, final_action="CREATE_TICKET", ticket_reason=N
     first_meaningful = next((m for m in msgs if is_meaningful(m)), msgs[0] if msgs else "")
     lang = detect(first_meaningful)
     failure = None
-    if model_reason in ESCALATION_REASONS:
-        escalation = model_reason
-    elif original in (INTENT_HUMAN_REQUEST, INTENT_CALLBACK_REQUEST):
+    asked_person = original in (INTENT_HUMAN_REQUEST, INTENT_CALLBACK_REQUEST) or ticket_reason in (
+        INTENT_HUMAN_REQUEST, INTENT_CALLBACK_REQUEST)
+    if asked_person:
         escalation = ESC_CUSTOMER_REQUESTED_HUMAN
+    elif not model_available:
+        escalation, failure = ESC_MODEL_UNAVAILABLE, FAIL_MODEL_UNAVAILABLE
+    elif model_reason in ESCALATION_REASONS:
+        escalation = model_reason
     elif original in ANSWERABLE_INTENTS:
         if not tool_available:
             escalation, failure = ESC_TOOL_UNAVAILABLE, FAIL_NO_TOOL
@@ -652,5 +684,104 @@ L2. Understand optical words in any language or spelling: "chashma/chashme/chasm
 L3. When the customer asks which power their glasses will be made with, or whether their prescription was saved, answer from PRESCRIPTIONS ON FILE when that section is present: glasses are made with exactly the prescription attached to that cart line or order. Quote the values exactly as listed; never guess, round, calculate or invent a value. If the section says nothing is on file, say so plainly and ask ONE specific question (e.g. which order, or whether they entered it on the product page).
 L4. If you are not sure what the customer means, ask ONE short, specific clarification in their language that restates what you think they asked (e.g. "Aap yeh pooch rahe hain ki jo prescription aapne save kiya hai, glasses usi power ke banenge — sahi?"). Never answer an unclear question with a menu of unrelated categories. Offer a support ticket only after a clarification did not resolve it, or when the customer asks for a person.
 L5. In the yes/no questions of rules 8 and 9, translate the question into the customer's language but keep the words "supervisor" and "support ticket" in Roman letters so the server recognises the question.
-L6. End EVERY reply with one hidden tag, on its own, exactly: [META:intent=<INTENT>;lang=<code>;clarify=<0|1>;esc=<REASON or empty>]. INTENT is one of PRESCRIPTION_CONFIRMATION, PRESCRIPTION_STATUS, PRESCRIPTION_FOR_ORDER, PRESCRIPTION_ENTRY_HELP, ORDER_STATUS, RESHIP_STATUS, HUMAN_REQUEST, CALLBACK_REQUEST, PRODUCT_SEARCH, GREETING, OTHER. lang is the code of the language you replied in (en, hi, hi-Latn, bn, ta, te, mr, gu, pa, kn, ml, or, ur, as, ne, ...). clarify=1 when this reply asks a clarifying question. esc is set only when you add [ACTION:HUMAN_HANDOVER] or [ACTION:CREATE_TICKET]: CUSTOMER_REQUESTED_HUMAN, LANGUAGE_UNDERSTANDING_FAILED, TOOL_UNAVAILABLE, DATA_MISSING, POLICY_REQUIRES_HUMAN or AI_LOW_CONFIDENCE. The server removes the tag; the customer never sees it.
+L6. End EVERY reply with one hidden tag, on its own, exactly: [META:intent=<INTENT>;lang=<code>;clarify=<0|1>;esc=<REASON or empty>]. INTENT is one of PRESCRIPTION_CONFIRMATION, PRESCRIPTION_STATUS, PRESCRIPTION_FOR_ORDER, PRESCRIPTION_ENTRY_HELP, ORDER_STATUS, RESHIP_STATUS, PAYMENT_STATUS, HUMAN_REQUEST, CALLBACK_REQUEST, PRODUCT_SEARCH, GREETING, OTHER. lang is the code of the language you replied in (en, hi, hi-Latn, bn, ta, te, mr, gu, pa, kn, ml, or, ur, as, ne, ...). clarify=1 when this reply asks a clarifying question. esc is set only when you add [ACTION:HUMAN_HANDOVER] or [ACTION:CREATE_TICKET]: CUSTOMER_REQUESTED_HUMAN, LANGUAGE_UNDERSTANDING_FAILED, TOOL_UNAVAILABLE, DATA_MISSING, POLICY_REQUIRES_HUMAN or AI_LOW_CONFIDENCE. The server removes the tag; the customer never sees it.
 """
+
+
+# ─── what the server itself says, in the customer's language ───
+# Replies the server decides (a callback or a person was asked for, the model
+# is down, an account question from a signed-out browser) are written here so
+# they never depend on the model and never answer Hinglish in English.
+
+SUPPORT_REPLIES = {
+    "callback_ticket": {
+        "en": "{lead}I've asked our support team to call you back on the number ending "
+              "{last4}. They usually call within 24 hours.",
+        "hi-Latn": "{lead}Maine support team ko aapko {last4} par khatam hone wale number "
+                   "par call karne ki request bhej di hai. Woh aam taur par 24 ghante ke "
+                   "andar call karte hain.",
+        "hi": "{lead}मैंने सपोर्ट टीम को आपको {last4} पर ख़त्म होने वाले नंबर पर कॉल करने का "
+              "अनुरोध भेज दिया है। वे आम तौर पर 24 घंटे के अंदर कॉल करते हैं।",
+    },
+    "human_ticket": {
+        "en": "{lead}I've passed this conversation to our support team. A person will "
+              "reply to you by email within 24 hours.",
+        "hi-Latn": "{lead}Maine yeh baatcheet hamari support team ko bhej di hai. Team ka "
+                   "ek vyakti 24 ghante ke andar aapko email par jawab dega.",
+        "hi": "{lead}मैंने यह बातचीत हमारी सपोर्ट टीम को भेज दी है। टीम का एक व्यक्ति 24 घंटे "
+              "के अंदर आपको ईमेल पर जवाब देगा।",
+    },
+    "ask_contact_callback": {
+        "en": "I can ask our support team to call you back. Please type your mobile "
+              "number and email address here, or sign in, and I'll create the callback "
+              "request.",
+        "hi-Latn": "Main support team se aapko call karwa sakta hoon. Apna mobile number "
+                   "aur email yahan likh dijiye, ya sign in kijiye, main callback request "
+                   "bana dunga.",
+        "hi": "मैं सपोर्ट टीम से आपको कॉल करवा सकता हूँ। अपना मोबाइल नंबर और ईमेल यहाँ "
+              "लिखिए, या साइन इन कीजिए, मैं कॉलबैक अनुरोध बना दूँगा।",
+    },
+    "ask_contact_human": {
+        "en": "I can pass this to a person on our support team. Please type your email "
+              "address here, or sign in, and I'll send them this conversation.",
+        "hi-Latn": "Main aapki baat support team ke kisi vyakti tak pahuncha sakta hoon. "
+                   "Apna email yahan likh dijiye, ya sign in kijiye, main unhe yeh "
+                   "baatcheet bhej dunga.",
+        "hi": "मैं आपकी बात सपोर्ट टीम के किसी व्यक्ति तक पहुँचा सकता हूँ। अपना ईमेल यहाँ "
+              "लिखिए, या साइन इन कीजिए, मैं उन्हें यह बातचीत भेज दूँगा।",
+    },
+    "ask_phone": {
+        "en": "I can ask our support team to call you back. Which mobile number should "
+              "they call?",
+        "hi-Latn": "Main support team se aapko call karwa sakta hoon. Kis mobile number "
+                   "par call karein?",
+        "hi": "मैं सपोर्ट टीम से आपको कॉल करवा सकता हूँ। किस मोबाइल नंबर पर कॉल करें?",
+    },
+    "ticket_ref": {
+        "en": "Your request number is {ref}.",
+        "hi-Latn": "Aapka request number {ref} hai.",
+        "hi": "आपका अनुरोध नंबर {ref} है।",
+    },
+    "sign_in_account": {
+        "en": "Your orders, payments, saved prescriptions and returned parcels are shown "
+              "after you sign in. Sign in and open My Orders.",
+        "hi-Latn": "Aapke orders, payment, saved power aur return hue parcel sign in karne "
+                   "ke baad dikhte hain. Sign in karke My Orders kholiye.",
+        "hi": "आपके ऑर्डर, पेमेंट, सेव किया हुआ पावर और लौटे हुए पार्सल साइन इन करने के बाद "
+              "दिखते हैं। साइन इन करके My Orders खोलिए।",
+    },
+    "model_down_orders": {
+        "en": "I can't read your orders this moment. They are all in My Orders, or ask "
+              "me again in a minute.",
+        "hi-Latn": "Main abhi aapke orders nahi padh pa raha. Woh sab My Orders mein hain, "
+                   "ya ek minute baad dobara poochhiye.",
+        "hi": "मैं अभी आपके ऑर्डर नहीं पढ़ पा रहा। वे सब My Orders में हैं, या एक मिनट बाद "
+              "फिर से पूछिए।",
+    },
+    "model_down_products": {
+        "en": "I can't search the catalogue this moment. You can browse all frames, or "
+              "ask me again in a minute.",
+        "hi-Latn": "Main abhi catalogue search nahi kar pa raha. Aap saare frames dekh "
+                   "sakte hain, ya ek minute baad dobara poochhiye.",
+        "hi": "मैं अभी कैटलॉग नहीं खोज पा रहा। आप सारे फ़्रेम देख सकते हैं, या एक मिनट बाद "
+              "फिर से पूछिए।",
+    },
+    "model_down_retry": {
+        "en": "I can't answer that this moment. Please ask me again in a minute.",
+        "hi-Latn": "Main abhi iska jawab nahi de pa raha. Kripya ek minute baad dobara "
+                   "poochhiye.",
+        "hi": "मैं अभी इसका जवाब नहीं दे पा रहा। कृपया एक मिनट बाद फिर से पूछिए।",
+    },
+}
+SUPPORT_REPLY_LANGUAGES = ("en", "hi-Latn", "hi")
+
+
+def support_reply(kind, language, **values):
+    """``(text, written_in)``: the server's own reply of ``kind`` in the
+    customer's language where one is written, else English (``written_in``
+    then says so, and the caller may have it translated)."""
+    texts = SUPPORT_REPLIES[kind]
+    lang = language if language in texts else "en"
+    fill = {"lead": "", "last4": "", "ref": ""}
+    fill.update(values)
+    return texts[lang].format(**fill).strip(), lang

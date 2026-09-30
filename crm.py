@@ -1,10 +1,7 @@
-from flask import Flask, request, render_template, current_app, url_for, Blueprint, flash, redirect, session
+from flask import Flask, request, render_template, current_app, Blueprint, redirect, jsonify
 import requests
 import logging
-from .mail import send_contact_email, create_ticket_in_db
 from . import acr
-from . import ai_language
-from . import rx_lookup
 from requests.auth import HTTPBasicAuth
 from .captcha import CaptchaGenerator
 from flask import current_app
@@ -342,441 +339,58 @@ def ket_attachment_upload(ticket_uid, filename, mime_type, data):
 
 
 
+# Contact Us is the Optiwar assistant. The old form, its CAPTCHA and the
+# GPT-3.5 ticket-intake bot are retired: a bookmark or a cached page still
+# reaches the assistant, and a ticket is only ever filed by the assistant
+# (chat_gateway._ticket_for_actions -> _forward_to_ket).
+ASSISTANT_URL = "/?support=legacy_contact_us"
+LEGACY_REPLY = ("Contact Us is now the Optiwar assistant. Tap the chat button at the bottom "
+                "right of any page and tell it what you need, in any language.")
+
+
+def _legacy_support_route(route):
+    """A retired support route was reached; route and method only."""
+    try:
+        from .db import get_db
+        db = get_db()
+        acr.log_event(db, acr.EV_LEGACY_SUPPORT_ROUTE, journey_stage=acr.STAGE_SUPPORT,
+                      payload={'route': route, 'method': request.method})
+    except Exception as e:  # noqa: BLE001 - a retired route still answers
+        logging.warning("legacy support route event not stored: %s", e)
+
+
 @bp.route('/contact_us', methods=['POST', 'GET'])
 def create_ticket():
-
-    if request.method == 'POST':
-        if 'ticket_id' in session:
-            ticket_id = session['ticket_id']
-            message = f'Support ticket {ticket_id} is already submitted, please wait for our team to response.'
-            logging.warning("Duplicate ticket generation prevention for ticket_id=%s", ticket_id)
-            return render_template('contact_us.html', ticket_id=ticket_id, message=message)
-        # Extract form data
-        requester_name = request.form.get('name')
-        subject = request.form.get('subject')
-        description = request.form.get('description')
-        requester_email = request.form.get('email')
-        phone = request.form.get('phone')
-        user_captcha = request.form.get('captcha')
-        if user_captcha != session.get('captcha'):
-           flash('Invalid Catpcha - Please carefully re-enter verification text ', 'danger')
-           logging.info("Wrong captcha attempted ")
-           return redirect(url_for('crm.create_ticket'))
-        logging.info("Form submission received: name=%s, subject=%s, email=%s", requester_name, subject, requester_email)
-
-
-        # Validate required fields
-        if not subject or not description or not requester_email:
-            logging.warning("Validation failed: missing required fields.")
-            flash(
-                'Please fill in complete details before submitting. '
-                'We need full details for our team to quickly help you.',
-                'warning'
-            )
-            return redirect(url_for('crm.create_ticket'))
-
-        try:
-            # Creating tickets into DB first
-            ticket_id = create_ticket_in_db(
-                name=requester_name,
-                email=requester_email,
-                subject=subject,
-                message=description
-            )
-
-
-            # --- Forward to KET Support (system of record) ---
-            ket = _forward_to_ket(
-                name=requester_name,
-                email=requester_email,
-                phone=phone,
-                subject=subject,
-                description=description,
-                source="web_form"
-            )
-            if ket:
-                persist_ticket_mapping(ticket_id, ket["ticket_id"], source_system="web_form",
-                                       ket_uid=ket["ticket_uid"], ket_ref=ket["ticket_ref"])
-            # --- End KET Support ---
-
-            # WhatsApp ack (Optiwar-owned, best-effort, after KET forward)
-            _notify_ticket_created(requester_name, requester_email, phone, ticket_id, subject)
-
-            session['ticket_id'] = ticket_id
-            logging.debug(f"Session contents: %s ", dict(session))
-
-            # Internal admin notification: best-effort, out-of-transaction.
-            # Never allowed to block ticket creation / customer confirmation.
-            send_contact_email(
-                name=requester_name,
-                email=requester_email,
-                subject=subject,
-                phone=phone,
-                message=description,
-                ticket_id=ticket_id
-            )
-
-            return render_template('contact_us.html', ticket_id=ticket_id)
-
-        except RuntimeError as e:
-            logging.error("Error sending contact form email: %s", str(e), exc_info=True)
-            flash(f"An error occurred while processing your request: {e}", 'danger')
-            return redirect(url_for('crm.create_ticket'))
-
-    if request.method == 'GET':
-       captcha_text = captcha_generator.generate_captcha()
-       session['captcha'] = captcha_text
-       captcha_image = captcha_generator.generate_captcha_image(captcha_text)
-       logging.info("Generated Captcha: %s", session['captcha'])
-
-
-
-
-    if 'ticket_id' in session:
-        session.pop('ticket_id', None)
-        logging.info("Session reset for refeshed page ")
-
-    # For GET requests, render the form
-    logging.info("Rendering contact_us page ")
-    return render_template('contact_us.html', ticket_id=None, message=None, captcha_image=captcha_image)
-
-
+    """Retired form: every visit lands on a page with the assistant open."""
+    _legacy_support_route('contact_us')
+    return redirect(ASSISTANT_URL, code=302 if request.method == 'GET' else 303)
 
 
 @bp.route('/contact_us/captcha', methods=['GET'])
 def get_captcha():
-    """AJAX endpoint to generate and return captcha image as JSON."""
-    from flask import jsonify
-    session.pop('ticket_id', None)
-    captcha_text = captcha_generator.generate_captcha()
-    session['captcha'] = captcha_text
-    captcha_image = captcha_generator.generate_captcha_image(captcha_text)
-    return jsonify({'captcha_image': captcha_image})
+    _legacy_support_route('contact_us/captcha')
+    return jsonify({'error': 'retired', 'message': LEGACY_REPLY, 'open_assistant': True}), 410
 
 
 @bp.route('/contact_us/submit', methods=['POST'])
 def submit_ticket_ajax():
-    """AJAX endpoint to submit contact form and return JSON response."""
-    from flask import jsonify
-    try:
-        if 'ticket_id' in session:
-            ticket_id = session['ticket_id']
-            return jsonify({'success': False, 'message': f'Support ticket {ticket_id} already submitted. Please wait for our team to respond.'}), 400
-
-        requester_name = request.form.get('name')
-        subject = request.form.get('subject')
-        description = request.form.get('description')
-        requester_email = request.form.get('email')
-        phone = request.form.get('phone')
-        user_captcha = request.form.get('captcha')
-
-        if user_captcha != session.get('captcha'):
-            return jsonify({'success': False, 'message': 'Invalid captcha. Please try again.', 'captcha_error': True}), 400
-
-        if not subject or not description or not requester_email:
-            return jsonify({'success': False, 'message': 'Please fill in all required fields.'}), 400
-
-        ticket_id = create_ticket_in_db(
-            name=requester_name,
-            email=requester_email,
-            subject=subject,
-            message=description
-        )
-
-        # --- Forward to KET Support (system of record) ---
-        ket = _forward_to_ket(
-            name=requester_name,
-            email=requester_email,
-            phone=phone,
-            subject=subject,
-            description=description,
-            source="web_form"
-        )
-        if ket:
-            persist_ticket_mapping(ticket_id, ket["ticket_id"], source_system="web_form",
-                                   ket_uid=ket["ticket_uid"], ket_ref=ket["ticket_ref"])
-        # --- End KET Support ---
-
-        # WhatsApp ack (Optiwar-owned, best-effort, after KET forward)
-        _notify_ticket_created(requester_name, requester_email, phone, ticket_id, subject)
-
-        session['ticket_id'] = ticket_id
-
-        # Internal admin notification: best-effort, out-of-transaction.
-        send_contact_email(
-            name=requester_name,
-            email=requester_email,
-            subject=subject,
-            phone=phone,
-            message=description,
-            ticket_id=ticket_id
-        )
-
-        return jsonify({'success': True, 'ticket_id': ticket_id, 'message': f'Support ticket #{ticket_id} created successfully! Our team will respond shortly.'})
-
-    except Exception as e:
-        logging.error("Error in AJAX contact submission: %s", str(e), exc_info=True)
-        return jsonify({'success': False, 'message': 'An error occurred. Please try again later.'}), 500
+    _legacy_support_route('contact_us/submit')
+    return jsonify({'success': False, 'error': LEGACY_REPLY, 'open_assistant': True}), 410
 
 
-# ==================== AI CHAT SUPPORT ====================
 @bp.route('/contact_us/ai_chat', methods=['POST'])
 def ai_chat():
-    """
-    AI-assisted contact chat endpoint.
-    Accepts JSON: {message: str, history: [{role, content}]}
-    Returns JSON: {reply: str, done: bool, ticket_data: {...} | null}
-    """
-    from flask import jsonify, current_app
-    from openai import OpenAI
-
-    OPENAI_KEY = os.environ.get('OPENAI_API_KEY', '')
-
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "No data provided"}), 400
-
-        user_msg = data.get("message", "").strip()
-        history = data.get("history", [])
-
-        if not user_msg:
-            return jsonify({"error": "Empty message"}), 400
-
-        # Layer 2 fallback: if the AI provider isn't even configured, don't
-        # pretend — transparently switch the same interface to direct capture.
-        if not OPENAI_KEY:
-            return jsonify({
-                "reply": AI_FALLBACK_MESSAGE,
-                "done": False,
-                "ticket_data": None,
-                "ai_available": False,
-            })
-
-        # System prompt for the AI assistant
-        system_prompt = """You are Optiwar's customer support assistant (online eyeglasses store). First understand and, where you can, answer the customer's question; create a support ticket only when it is needed.
-
-LANGUAGE AND UNDERSTANDING:
-- Reply in the language AND script of the customer's latest meaningful message: Hinglish (Hindi in Roman letters) gets Hinglish, Hindi in Devanagari gets Devanagari, Tamil/Bengali/Punjabi/Marathi/any other Indian language gets that language. Never switch to English because of one English word. Spelling mistakes and voice typing are normal; read for meaning.
-- "chashma/chashme/chasma/specs/ainak" = spectacles; "chashme ka number", "aankh ka number", "power", "number" next to spectacles/eyes = the spectacle prescription; "number add kiya / daal diya / save kiya" = the customer already entered their prescription.
-- A prescription question (which power the glasses will be made with, whether the prescription was saved) is answered from PRESCRIPTIONS ON FILE when that section is present below: glasses are made with exactly the prescription attached to that cart line or order. Quote values exactly; never guess or invent one.
-- If you are unsure what the customer means, ask ONE short clarification in their language that restates what you think they asked. NEVER answer a question with a menu of subjects.
-
-TICKET (only when the customer asks for a person or a callback, when a clarification did not resolve the question, or when the issue needs the team):
-- Collect name, email and phone (default +91) if not already known, and a 1-2 sentence description in English that states the customer's actual question (and the language they wrote in).
-- Choose the subject yourself, never ask the customer to pick: "Prescription / power question", "Order status", "I want to order frames with lenses", "Requesting callback before ordering" (only when the customer asked for a call), or "Others".
-- Keep responses to 1-2 sentences. Never re-ask for info already given.
-
-When you have enough info, end your message with EXACTLY this format (no extra text after it):
-```TICKET_DATA
-{"name": "...", "email": "...", "phone": "...", "subject": "...", "description": "..."}
-```"""
-
-        # Auto-identity: for logged-in customers the profile is already known,
-        # so instruct the assistant never to re-ask for name/email/phone.
-        # Trust the server session, not client-supplied identity.
-        if session.get('user_id'):
-            known_name = session.get('user_name', '')
-            known_email = session.get('user_email', '')
-            known_phone = session.get('user_phone', '')
-            system_prompt += (
-                "\n\nIMPORTANT — the customer is already logged in and their "
-                "contact details are ALREADY KNOWN. Do NOT ask for name, email "
-                "or phone; use these exactly as-is in the ticket data:\n"
-                f"- Name: {known_name}\n"
-                f"- Email: {known_email}\n"
-                f"- Phone: {known_phone or '+91'}\n"
-                "Understand and answer their question first; output the ticket only "
-                "when one is needed."
-            )
-
-        _asked = [h.get("content", "") for h in history[-10:]
-                  if h.get("role") == "user"] + [user_msg]
-        _turn = ai_language.understand(_asked)
-        system_prompt += ai_language.prompt_section(_turn)
-        if _turn["intent"] in ai_language.PRESCRIPTION_INTENTS or any(
-                ai_language.classify_intent(m)[0] in ai_language.PRESCRIPTION_INTENTS
-                for m in _asked[-4:]):
-            try:
-                from .db import get_db
-                _rx = rx_lookup.read_model(get_db().cursor(), session.get('cart') or [],
-                                           session.get('user_id'), _get_site_from())
-                system_prompt += rx_lookup.prompt_section(_rx, bool(session.get('user_id')))
-            except Exception as e:  # noqa: BLE001 - lookup is best-effort here
-                current_app.logger.error(f"[AI-CHAT] rx lookup failed: {e}")
-
-        # Build messages array
-        messages = [{"role": "system", "content": system_prompt}]
-        for h in history[-10:]:  # Keep last 10 messages for context
-            messages.append({"role": h.get("role", "user"), "content": h.get("content", "")})
-        messages.append({"role": "user", "content": user_msg})
-
-        # Call GPT-3.5-turbo
-        client = OpenAI(api_key=OPENAI_KEY)
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=messages,
-            max_tokens=300,
-            temperature=0.7,
-        )
-
-        reply = response.choices[0].message.content.strip()
-
-        # Check if ticket data is present in the reply
-        ticket_data = None
-        done = False
-        if "TICKET_DATA" in reply:
-            try:
-                if "```TICKET_DATA" in reply:
-                    json_start = reply.index("```TICKET_DATA") + len("```TICKET_DATA")
-                    json_end = reply.index("```", json_start)
-                    ticket_json = reply[json_start:json_end].strip()
-                    reply = reply[:reply.index("```TICKET_DATA")].strip()
-                else:
-                    idx = reply.index("TICKET_DATA")
-                    json_part = reply[idx + len("TICKET_DATA"):]
-                    brace_start = json_part.index("{")
-                    brace_end = json_part.rindex("}") + 1
-                    ticket_json = json_part[brace_start:brace_end]
-                    reply = reply[:idx].strip()
-                ticket_data = json_mod.loads(ticket_json)
-                done = True
-                if not reply:
-                    reply = "I have all the details. Let me create your support ticket now."
-            except (ValueError, json_mod.JSONDecodeError):
-                pass
-
-        return jsonify({"reply": reply, "done": done, "ticket_data": ticket_data, "ai_available": True})
-
-    except Exception as e:
-        # Layer 2: any provider failure (outage, timeout, capacity, auth) must
-        # never surface as "AI unavailable". Mark AI down so the same interface
-        # switches to direct ticket capture and keeps helping the customer.
-        current_app.logger.error(f"[AI-CHAT] Error: {e}", exc_info=True)
-        _HEALTH_CACHE["data"] = None  # invalidate so the entry re-checks health
-        return jsonify({
-            "reply": AI_FALLBACK_MESSAGE,
-            "done": False,
-            "ticket_data": None,
-            "ai_available": False,
-        })
+    """Retired ticket-intake bot: a page still running the old script is
+    told where the assistant is; no model is called and nothing is filed."""
+    _legacy_support_route('contact_us/ai_chat')
+    return jsonify({"reply": LEGACY_REPLY, "done": False, "ticket_data": None,
+                    "ai_available": False, "open_assistant": True})
 
 
 @bp.route('/contact_us/ai_submit', methods=['POST'])
 def ai_submit_ticket():
-    """
-    Submit ticket from AI chat + log the conversation.
-    Accepts JSON: {name, email, phone, subject, description, chat_history: [...]}
-    """
-    from flask import jsonify, current_app
-    from .mail import create_ticket_in_db, send_contact_email
-    from .db import get_db
-
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "No data provided"}), 400
-
-        name = data.get("name", "").strip()
-        email = data.get("email", "").strip()
-        phone = data.get("phone", "").strip()
-        subject = data.get("subject", "").strip()
-        description = data.get("description", "").strip()
-        chat_history = data.get("chat_history", [])
-
-        # Auto-identity: for logged-in customers, always trust the session
-        # profile over anything supplied by the client.
-        if session.get('user_id'):
-            name = session.get('user_name', '') or name
-            email = session.get('user_email', '') or email
-            phone = session.get('user_phone', '') or phone
-
-        # Direct-capture (AI-down) tickets may not carry an AI-chosen subject.
-        if not subject:
-            subject = "Support request"
-
-        if not email or not description:
-            return jsonify({"error": "Please provide your email and a short description of the issue."}), 400
-
-        # Create the ticket via existing route
-        ticket_id = create_ticket_in_db(
-            name=name,
-            email=email,
-            subject=subject,
-            message=description
-        )
-
-        # --- Forward to KET Support (with chat transcript) ---
-        chat_transcript = json_mod.dumps(chat_history) if chat_history else None
-        ket = _forward_to_ket(
-            name=name,
-            email=email,
-            phone=phone,
-            subject=subject,
-            description=f"[AI-Assisted] {description}",
-            source="ai_chat",
-            chat_transcript=chat_transcript
-        )
-        # --- End KET Support ---
-
-        # WhatsApp ack (Optiwar-owned, best-effort, after KET forward)
-        _notify_ticket_created(name, email, phone, ticket_id, subject)
-
-        # Internal admin notification: best-effort, out-of-transaction.
-        send_contact_email(
-            name=name,
-            email=email,
-            subject=subject,
-            phone=phone,
-            message=f"[AI-Assisted] {description}",
-            ticket_id=ticket_id
-        )
-
-
-        # Log AI chat to ai_chat_logs table
-        ai_chat_log_id = None
-        try:
-            db = get_db()
-            cursor = db.cursor()
-            ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
-            cursor.execute("""
-                INSERT INTO ai_chat_logs
-                (ticket_id, customer_name, customer_email, customer_phone, subject, chat_json, status, ip_address, session_ended_at, site_from)
-                VALUES (%s, %s, %s, %s, %s, %s, 'completed', %s, NOW(), %s)
-            """, (ticket_id, name, email, phone, subject, json_mod.dumps(chat_history), ip_address, _get_site_from()))
-            ai_chat_log_id = cursor.lastrowid
-            db.commit()
-            cursor.close()
-            _asked = [h.get("content", "") for h in chat_history
-                      if isinstance(h, dict) and h.get("role") == "user"]
-            acr.log_event(db, acr.EV_TICKET_CLASSIFIED, journey_stage=acr.STAGE_SUPPORT,
-                          payload=dict(ai_language.classify_ticket(
-                              _asked, final_action="CREATE_TICKET",
-                              ticket_reason=ai_language.legacy_ticket_reason(subject)),
-                              route="contact_us", local_ticket_id=ticket_id,
-                              ai_chat_log_id=ai_chat_log_id))
-            db.commit()
-        except Exception as e:
-            current_app.logger.error(f"[AI-CHAT] Failed to log chat: {e}")
-
-        # Persist the authoritative KET<->Optiwar bridge (Option A) linking the
-        # chat session so the lifecycle receiver can close the correct session.
-        if ket:
-            persist_ticket_mapping(ticket_id, ket["ticket_id"],
-                                   ai_chat_log_id=ai_chat_log_id, source_system="ai_chat",
-                                   ket_uid=ket["ticket_uid"], ket_ref=ket["ticket_ref"])
-
-        current_app.logger.info(f"[AI-CHAT] Ticket #{ticket_id} created for {email} via AI chat")
-
-        return jsonify({
-            "success": True,
-            "ticket_id": ticket_id,
-            "message": f"Support ticket #{ticket_id} created successfully!"
-        })
-
-    except Exception as e:
-        current_app.logger.error(f"[AI-CHAT] Submit error: {e}", exc_info=True)
-        return jsonify({"error": "We couldn't submit your request just now. Please try again in a moment."}), 500
+    _legacy_support_route('contact_us/ai_submit')
+    return jsonify({"success": False, "error": LEGACY_REPLY, "open_assistant": True}), 410
 
 
 @bp.route('/support/status', methods=['GET'])

@@ -150,7 +150,7 @@ class OnMariaDB(unittest.TestCase):
 
         self.tickets = []
 
-        def fake_ticket(db, session_id, session, page_url, reply, ai_msg_id, actions):
+        def fake_ticket(db, session_id, session, page_url, reply, ai_msg_id, actions, **kw):
             self.tickets.append(list(actions))
             return reply + " Your support ticket OPTIWA-9 has been created."
 
@@ -183,7 +183,7 @@ class OnMariaDB(unittest.TestCase):
 
     def test_yes_to_the_ticket_question_creates_the_ticket_without_asking_the_model(self):
         self.scripted = [(TICKET_ASK, None)]
-        self.assertEqual(self._say("ask your agent to call me").status_code, 200)
+        self.assertEqual(self._say("my frame arrived broken").status_code, 200)
         r = self._say("yes")
         self.assertEqual(r.status_code, 200)
         body = r.get_json()

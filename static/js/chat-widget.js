@@ -9,10 +9,10 @@
   console.log('[ChatWidget] Script executing at', _t0.toFixed(0), 'ms');
 
   var cfg = window.__optiwarChat || {};
-  var userEmail = cfg.email || '';
-  var userName = cfg.name || '';
-  var customerId = cfg.customerId || null;
-  if (!userEmail) return;
+  // Signed in or not, this is the one assistant; the server reads who the
+  // customer is from the login, and binds the chat to this browser by cookie.
+  var signedIn = !!cfg.signedIn;
+  var pendingEntry = '';
 
   var API = '/api/chat';
   var POLL_INTERVAL = 4000;
@@ -179,6 +179,7 @@
   // ─── Events ───
   var choiceMenuOpen = false;
   btn.onclick = function() {
+    if (!window.owVoiceWidget) { window.owChatOpen('text', 'orb'); return; }
     choiceMenuOpen = !choiceMenuOpen;
     choiceMenu.classList.toggle('open', choiceMenuOpen);
   };
@@ -199,13 +200,23 @@
 
   // The page's own entry point (the lens page's "Ask AI" button): straight
   // into the text chat, without the Text/Voice menu in between.
-  window.owChatOpen = function(mode) {
+  // Every support entry (Contact Us, Need Help, order support, FAQ) lands
+  // here too; ``entry`` names which one, for the Contact Us funnel.
+  window.owChatOpen = function(mode, entry) {
     choiceMenuOpen = false;
     choiceMenu.classList.remove('open');
     if (mode === 'voice' && window.owVoiceWidget) { window.owVoiceWidget.open(); return; }
     try { localStorage.setItem('ow_chat_mode', 'text'); } catch(e) {}
+    noteEntry(entry);
     togglePanel(true);
   };
+
+  function noteEntry(entry) {
+    if (!entry) return;
+    if (!sessionId) { pendingEntry = entry; return; }
+    apiCall('POST', '/opened', {session_id: sessionId, entry: entry,
+                                page_url: window.location.href}).catch(function() {});
+  }
 
   // A failure of the widget itself is a defect for the development team,
   // reported with a code and a short place; never the message text.
@@ -230,8 +241,12 @@
     }
   });
 
-  // Auto-open chat if navigated here by AI (hash #owchat) — use compact nav mode
-  if (window.location.hash === '#owchat') {
+  // A retired support page redirects here with ?support=<entry>: the full
+  // assistant opens. Navigated here by AI (hash #owchat): compact nav mode.
+  var supportEntry = (window.location.search.match(/[?&]support=([a-z_]{1,32})/) || [])[1];
+  if (supportEntry) {
+    setTimeout(function() { window.owChatOpen('text', supportEntry); }, 600);
+  } else if (window.location.hash === '#owchat') {
     setTimeout(function() {
       setMode('nav');
       togglePanel(true);
@@ -288,7 +303,7 @@
   // is re-bound with one resume call before the upload is given up on.
   function rebindSession() {
     return apiCall('POST', '/start', {
-      email: userEmail, name: userName, customer_id: customerId, page_url: window.location.href
+      page_url: window.location.href
     }).then(function(data) { return data.session_id === sessionId; });
   }
 
@@ -463,11 +478,11 @@
 
   function startSession() {
     console.log('[ChatWidget] startSession() at', (performance.now() - _t0).toFixed(0), 'ms after script load');
+    var entry = pendingEntry;
+    pendingEntry = '';
     apiCall('POST', '/start', {
-      email: userEmail,
-      name: userName,
-      customer_id: customerId,
-      page_url: window.location.href
+      page_url: window.location.href,
+      entry: entry
     }).then(function(data) {
       sessionId = data.session_id;
       sessionLabel.textContent = 'Session: ' + sessionId.replace('chat_', '#');
@@ -836,7 +851,7 @@
   flushArrivedAction();
 
   // Check for an existing session
-  apiCall('GET', '/status?email=' + encodeURIComponent(userEmail)).then(function(data) {
+  apiCall('GET', '/status').then(function(data) {
     if (data.has_active) {
       sessionId = data.session_id;
       sessionLabel.textContent = 'Session: ' + sessionId.replace('chat_', '#');

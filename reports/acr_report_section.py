@@ -127,6 +127,17 @@ EV_UNSAFE_URL_REJECTED = "UNSAFE_URL_REJECTED"
 EV_RESHIP_RULE_BREACH = "RESHIP_RULE_BREACH"
 EV_TURN_UNDERSTOOD = "TURN_UNDERSTOOD"
 EV_TICKET_CLASSIFIED = "TICKET_CLASSIFIED"
+EV_CONTACT_AI_OPENED = "CONTACT_AI_OPENED"
+EV_TOOL_USED = "TOOL_USED"
+EV_ANSWERED_WITHOUT_ESCALATION = "ANSWERED_WITHOUT_ESCALATION"
+EV_CLARIFICATION_USED = "CLARIFICATION_USED"
+EV_ESCALATION_OFFERED = "ESCALATION_OFFERED"
+EV_TICKET_CREATED = "TICKET_CREATED"
+EV_MODEL_FALLBACK_USED = "MODEL_FALLBACK_USED"
+EV_LEGACY_SUPPORT_ROUTE = "LEGACY_SUPPORT_ROUTE"
+# An escalation the assistant caused by misunderstanding, not one the
+# customer asked for or a tool/model outage forced.
+AVOIDABLE_FAILURES = ("NLU_LANGUAGE_FAILURE", "LOW_CONFIDENCE")
 LOW_LANGUAGE_CONFIDENCE = 0.6
 LANGUAGE_BUCKETS = ("English", "Hindi", "Hinglish", "Other Indian", "Unknown")
 
@@ -374,6 +385,23 @@ def _collect():
                _jv("ai_failure_reason")))
         return [(r[0], _to_int(r[1])) for r in rows]
     safe("misunderstood_intents", lambda: _gated(EV_TICKET_CLASSIFIED, misunderstood_intents))
+
+    # Contact Us funnel: every support entry opens the assistant; a ticket is
+    # the assistant's decision. Event types and labels only.
+    def _count(ev, extra=""):
+        return lambda: _gated(ev, lambda: _event_count(ev, extra))
+    safe("contact_opened", lambda: _gated(
+        EV_CONTACT_AI_OPENED, lambda: _event_sessions(EV_CONTACT_AI_OPENED)))
+    safe("contact_answered", _count(EV_ANSWERED_WITHOUT_ESCALATION))
+    safe("contact_tool_used", _count(EV_TOOL_USED))
+    safe("contact_tool_failed", _count(EV_TOOL_USED, "AND success=0"))
+    safe("contact_clarifications", _count(EV_CLARIFICATION_USED))
+    safe("contact_offered", _count(EV_ESCALATION_OFFERED))
+    safe("contact_tickets", _count(EV_TICKET_CREATED))
+    safe("contact_model_fallback", _count(EV_MODEL_FALLBACK_USED))
+    safe("contact_legacy_route", _count(EV_LEGACY_SUPPORT_ROUTE))
+    safe("avoidable_escalations", _count(EV_TICKET_CLASSIFIED, "AND %s IN (%s)" % (
+        _jv("ai_failure_reason"), ", ".join(_q(f) for f in AVOIDABLE_FAILURES))))
 
     # ── funnel (canonical JOURNEY_STAGE: distinct sessions per stage) ──
     def funnel():
@@ -904,6 +932,24 @@ def build():
         _val(m.get("avoidable_language_escalations"))))
     add("      escalation reasons           %s" % _fmt_dist(reasons))
     add("      top misunderstood intents    %s" % _fmt_top(m.get("misunderstood_intents")))
+    add("    Contact Us (assistant-first support; event labels only):")
+    add("      assistant opened %s sessions | answered without escalation %s | tools used %s"
+        " (unavailable %s)" % (
+            _val(m.get("contact_opened")), _val(m.get("contact_answered")),
+            _val(m.get("contact_tool_used")), _val(m.get("contact_tool_failed"))))
+    add("      clarifications %s | ticket offered %s | tickets created %s | model fallback %s"
+        " | legacy route hits %s" % (
+            _val(m.get("contact_clarifications")), _val(m.get("contact_offered")),
+            _val(m.get("contact_tickets")), _val(m.get("contact_model_fallback")),
+            _val(m.get("contact_legacy_route"))))
+
+    def _reason(key):
+        return _val(reasons.get(key, 0) if isinstance(reasons, dict) else reasons)
+    add("      customer asked for a person %s | tool unavailable %s | model unavailable %s"
+        " | language-related %s | avoidable %s" % (
+            _reason("CUSTOMER_REQUESTED_HUMAN"), _reason("TOOL_UNAVAILABLE"),
+            _reason("MODEL_UNAVAILABLE"), _reason("LANGUAGE_UNDERSTANDING_FAILED"),
+            _val(m.get("avoidable_escalations"))))
     add("")
 
     # ═══ LAYER 5 — ENGINEERING ═══
