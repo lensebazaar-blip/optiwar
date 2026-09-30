@@ -16,6 +16,7 @@ from flask import (Blueprint, request, jsonify, current_app, make_response, g,
 from itsdangerous import URLSafeSerializer, BadSignature
 from openai import OpenAI
 from . import acr
+from . import ai_language
 from . import catalogue
 from . import chat_attachments
 from . import chat_vision
@@ -27,6 +28,7 @@ from . import lens_prompt
 from . import lens_order
 from . import lens_rx
 from . import reship_assistant
+from . import rx_lookup
 from .mail import create_ticket_in_db
 import smtplib
 from email.message import EmailMessage
@@ -744,7 +746,7 @@ CUSTOMER'S FACE MEASUREMENTS (from AI Face Measurement tool):
 
     # Build lens catalog (what we don't sell + power recommendations)
     contact_lens_section = _build_contact_lens_section(is_india)
-    contact_lens_section += ''.join(extra_sections)
+    contact_lens_section += ai_language.LANGUAGE_RULES + ''.join(extra_sections)
 
     lens_avail_section = ''
     if lens_catalog:
@@ -883,6 +885,43 @@ def _confirmed_ask_reply(history, user_message, contact_name):
     if ask == 'human_handover':
         return f"{lead}connecting you with my supervisor now. [ACTION:HUMAN_HANDOVER]"
     return None
+
+
+def _customer_messages(history, content):
+    msgs = [m['content'] for m in history or () if m['role'] == 'user' and m['content']]
+    if not msgs or msgs[-1] != content:
+        msgs.append(content)
+    return msgs
+
+
+def _rx_context(db, understanding, user_msgs, page_url, session_id):
+    """LOOKUP_PRESCRIPTION for a prescription turn: ``(section, model)``,
+    ``('', None)`` when no recent message asks about a prescription. The
+    requester is this browser's cart and its signed-in login only."""
+    recent = [ai_language.classify_intent(m)[0] for m in user_msgs[-4:]]
+    if not (understanding.get('intent') in ai_language.PRESCRIPTION_INTENTS
+            or any(i in ai_language.PRESCRIPTION_INTENTS for i in recent)):
+        return '', None
+    customer_id = flask_session.get('user_id')
+    is_india = 'in.optiwar.com' in (page_url or '') or 'optiwar.in' in (page_url or '')
+    try:
+        model = rx_lookup.read_model(db.cursor(), flask_session.get('cart') or [],
+                                     customer_id,
+                                     'in.optiwar.com' if is_india else 'optiwar.com')
+    except Exception:
+        acr.log_event(db, acr.EV_PRESCRIPTION_LOOKUP, session_id=session_id,
+                      journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
+                      action_type='LOOKUP_PRESCRIPTION', success=False,
+                      failure_code='lookup_failed')
+        return ('\nPRESCRIPTIONS ON FILE: the lookup is unavailable right now; do not '
+                'quote any value. Say you cannot read it this moment and offer a support '
+                'ticket (esc=TOOL_UNAVAILABLE).\n'), {'unavailable': True}
+    acr.log_event(db, acr.EV_PRESCRIPTION_LOOKUP, session_id=session_id,
+                  journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
+                  action_type='LOOKUP_PRESCRIPTION', success=rx_lookup.found(model),
+                  failure_code=None if rx_lookup.found(model) else 'nothing_on_file',
+                  payload=rx_lookup.event_payload(model, bool(customer_id)))
+    return rx_lookup.prompt_section(model, bool(customer_id)), model
 
 
 def _get_conversation_history(db, session_id, limit=20):
@@ -2220,6 +2259,11 @@ def chat_message():
         extra_sections=tuple(s for s in (lens_section, photo_section, face_section,
                                          faces_section, reship_section) if s))
     history = _get_conversation_history(db, session_id)
+    user_msgs = _customer_messages(history, content)
+    understanding = ai_language.understand(user_msgs)
+    rx_section, rx_model = _rx_context(db, understanding, user_msgs, page_url, session_id)
+    system_prompt += ai_language.prompt_section(understanding) + rx_section
+    turn_meta = {}
     ai_reply = _confirmed_ask_reply(history, content, contact_name)
     face_result = None
     if ai_reply is None and face_ctx:
@@ -2292,6 +2336,9 @@ def chat_message():
             'reply': fail_msg,
             'status': 'failed'
         })
+
+    if error is None:
+        ai_reply, turn_meta = ai_language.extract_meta(ai_reply)
 
     # A prescription the model read back is a proposal for the lens page, or
     # nothing; it is never part of the text and never reaches the cart.
@@ -2431,10 +2478,31 @@ def chat_message():
         'actions': actions
     })
 
+    _escalated = bool({'human_handover', 'create_ticket'} & set(actions))
+    acr.log_event(db, acr.EV_TURN_UNDERSTOOD, session_id=session_id,
+                  journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
+                  payload=dict(understanding,
+                               model_intent=turn_meta.get('intent'),
+                               reply_language=turn_meta.get('lang'),
+                               clarification_used=bool(turn_meta.get('clarify')),
+                               escalated=_escalated,
+                               escalation_reason=turn_meta.get('esc')))
+
     # --- Ticket Creation ---
-    if 'human_handover' in actions or 'create_ticket' in actions:
+    if _escalated:
         ai_reply = _ticket_for_actions(db, session_id, session, page_url,
                                        ai_reply, ai_msg_id, actions)
+        acr.log_event(db, acr.EV_TICKET_CLASSIFIED, session_id=session_id,
+                      journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
+                      payload=ai_language.classify_ticket(
+                          user_msgs,
+                          final_action=('HUMAN_HANDOVER' if 'human_handover' in actions
+                                        else 'CREATE_TICKET'),
+                          ticket_reason=understanding.get('intent'),
+                          data_available=(None if rx_model is None
+                                          else rx_lookup.found(rx_model)),
+                          tool_available=not (rx_model or {}).get('unavailable'),
+                          model_reason=turn_meta.get('esc')))
     # --- End Ticket Creation ---
 
     # Update session status — AI keeps chatting even after handover
