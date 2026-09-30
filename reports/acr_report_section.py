@@ -135,6 +135,7 @@ EV_ESCALATION_OFFERED = "ESCALATION_OFFERED"
 EV_TICKET_CREATED = "TICKET_CREATED"
 EV_MODEL_FALLBACK_USED = "MODEL_FALLBACK_USED"
 EV_LEGACY_SUPPORT_ROUTE = "LEGACY_SUPPORT_ROUTE"
+EV_PRESCRIPTION_LOOKUP = "PRESCRIPTION_LOOKUP"
 # An escalation the assistant caused by misunderstanding, not one the
 # customer asked for or a tool/model outage forced.
 AVOIDABLE_FAILURES = ("NLU_LANGUAGE_FAILURE", "LOW_CONFIDENCE")
@@ -394,7 +395,11 @@ def _collect():
         EV_CONTACT_AI_OPENED, lambda: _event_sessions(EV_CONTACT_AI_OPENED)))
     safe("contact_answered", _count(EV_ANSWERED_WITHOUT_ESCALATION))
     safe("contact_tool_used", _count(EV_TOOL_USED))
-    safe("contact_tool_failed", _count(EV_TOOL_USED, "AND success=0"))
+    safe("contact_tool_failed", _count(EV_TOOL_USED, "AND success=0 AND failure_code='lookup_failed'"))
+    safe("contact_tool_nothing", _count(
+        EV_TOOL_USED, "AND success=0 AND COALESCE(failure_code, '')<>'lookup_failed'"))
+    safe("rx_lookups", _count(EV_PRESCRIPTION_LOOKUP))
+    safe("rx_lookups_found", _count(EV_PRESCRIPTION_LOOKUP, "AND success=1"))
     safe("contact_clarifications", _count(EV_CLARIFICATION_USED))
     safe("contact_offered", _count(EV_ESCALATION_OFFERED))
     safe("contact_tickets", _count(EV_TICKET_CREATED))
@@ -477,6 +482,12 @@ def _collect():
     # ── escalation ──
     safe("escalations", lambda: _event_count(EV_HANDOVER_ESCALATED))
     safe("ket_tickets", lambda: _event_count(EV_KET_TICKET_CREATED))
+    # A KET ticket with no bridge row cannot receive its lifecycle: KET's
+    # resolved/reopened callbacks join on ket_ticket_uid. All time, not windowed.
+    safe("ket_tickets_unmapped", lambda: _to_int(_scalar(
+        "SELECT COUNT(*) FROM chat_sessions s WHERE s.ket_ticket_uid IS NOT NULL "
+        "AND NOT EXISTS (SELECT 1 FROM optiwar_ticket_mapping m "
+        "WHERE m.ket_ticket_uid = s.ket_ticket_uid COLLATE utf8mb4_general_ci)")))
 
     # ── quality: sessions carrying a defect signal in the window ──
     defect_events = (EV_ACTION_FAILED, EV_PROMISE_WITHOUT_ACTION, EV_MODEL_TIMEOUT,
@@ -934,9 +945,14 @@ def build():
     add("      top misunderstood intents    %s" % _fmt_top(m.get("misunderstood_intents")))
     add("    Contact Us (assistant-first support; event labels only):")
     add("      assistant opened %s sessions | answered without escalation %s | tools used %s"
-        " (unavailable %s)" % (
+        " (unavailable %s | found nothing on file %s)" % (
             _val(m.get("contact_opened")), _val(m.get("contact_answered")),
-            _val(m.get("contact_tool_used")), _val(m.get("contact_tool_failed"))))
+            _val(m.get("contact_tool_used")), _val(m.get("contact_tool_failed")),
+            _val(m.get("contact_tool_nothing"))))
+    add("      prescription lookups %s (found a record %s) | KET tickets without a mapping"
+        " row (all time) %s" % (
+            _val(m.get("rx_lookups")), _val(m.get("rx_lookups_found")),
+            _val(m.get("ket_tickets_unmapped"))))
     add("      clarifications %s | ticket offered %s | tickets created %s | model fallback %s"
         " | legacy route hits %s" % (
             _val(m.get("contact_clarifications")), _val(m.get("contact_offered")),
@@ -1101,6 +1117,11 @@ def findings():
         out.append(Finding(WARNING, "acr",
                            "%d unsafe navigation URL(s) rejected in the window" % unsafe,
                            "acr"))
+    unmapped = m.get("ket_tickets_unmapped")
+    if isinstance(unmapped, int) and unmapped > 0:
+        out.append(Finding(ACTION, "acr",
+                           "%d KET ticket(s) have no optiwar_ticket_mapping row — their "
+                           "lifecycle callbacks cannot reach Optiwar" % unmapped, "acr"))
     for e in errs[:6]:
         out.append(Finding(WARNING, "acr", "degraded metric %s" % e, "acr"))
     return out
