@@ -980,6 +980,22 @@
             {% endif %}
             {% endif %}
 
+            {% if order.reverse_pickup %}
+            {% set rp = order.reverse_pickup %}
+            <div class="oh-reship{% if rp.state == 'CANCELLED' %} oh-reship--abandoned{% endif %}" data-reverse-pickup-order="{{ order.order_id }}">
+              <span class="oh-reship-kicker">Return</span>
+              {% if rp.state == 'BOOKED' %}
+              <div class="oh-reship-title">Reverse pickup scheduled</div>
+              <p class="oh-reship-ship">Delhivery &middot; <span class="oh-reship-awb">AWB {{ rp.awb }}</span>
+                {% if rp.track_url %}<a class="oh-reship-track" href="{{ rp.track_url }}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Track</a>{% endif %}</p>
+              <p>A Delhivery agent will collect the parcel from your order address in 1&ndash;3 working days. Keep it packed in its original box with all accessories and the invoice, and do not send it with any other courier.</p>
+              {% else %}
+              <div class="oh-reship-title">Reverse pickup cancelled</div>
+              <p class="oh-reship-ship">Delhivery &middot; <span class="oh-reship-awb">AWB {{ rp.awb }}</span></p>
+              {% endif %}
+            </div>
+            {% endif %}
+
             <!-- Action buttons -->
             <div class="oh-actions">
               <a href="/success/{{ order.order_id }}" class="oh-act oh-act--view">

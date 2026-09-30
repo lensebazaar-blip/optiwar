@@ -21,10 +21,11 @@ from collections import OrderedDict
 
 try:
     from .paid_orders import payment_state
-    from . import reship
+    from . import reship, reverse_pickup
 except ImportError:  # loaded standalone by the tests
     from paid_orders import payment_state
     import reship
+    import reverse_pickup
 
 # Latest status row per order and whether any successful payment exists, as
 # columns on each order line. ``payment_collector`` is joined in a subquery so
@@ -150,4 +151,16 @@ def attach_reship(orders, reship_rows, host, environ=None, shipments=None, now=N
         label, tone = RESHIP_LABELS[view['state']]
         order['stage_label'], order['stage_tone'] = label, tone
         order['stage_step'] = 2 if view['state'] == 'RESHIPPED' else 0
+    return orders
+
+
+def attach_reverse_pickup(orders, pickup_rows):
+    """Give each order its reverse-pickup card from ``reverse_pickup.
+    latest_for_customer``'s ``{order_id: row}``. A booked pickup sets the
+    header label; a cancelled one is shown but does not."""
+    for order in orders:
+        view = reverse_pickup.public_view((pickup_rows or {}).get(order['order_id']))
+        order['reverse_pickup'] = view
+        if view and view['state'] == reverse_pickup.ST_BOOKED:
+            order['stage_label'], order['stage_tone'] = 'Reverse pickup scheduled', 'returned'
     return orders

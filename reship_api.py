@@ -15,13 +15,15 @@ Ops (``ops._require_ops_auth``: admin session or Bearer OPS_API_TOKEN):
     POST /ops/api/reshipments/<uuid>/ship               record the new AWB
     POST /ops/api/reshipments/<uuid>/hold               pause the holding period (reason)
     POST /ops/api/reshipments/<uuid>/release-hold       resume it; deadline moves out
+    POST /ops/api/shipments/<order_id>/reverse-pickup   record a Delhivery reverse waybill
+    POST /ops/api/shipments/<order_id>/reverse-pickup/cancel
 
 Routes attach to the main blueprint; ``__init__.py`` and ``ops.py`` are not in
 the deployment set.
 """
 from flask import current_app, jsonify, render_template, request, session
 
-from . import reship
+from . import reship, reverse_pickup
 from .db import get_db
 from .notifications import notify_order_shipped
 from .payments import (create_reship_razorpay_order, fetch_razorpay_payment,
@@ -247,6 +249,61 @@ def register(bp):
         except reship.ReshipError as exc:
             return _error(exc)
         return jsonify({"ok": True, "reship": _ops_row(row)})
+
+    # ------------------------------------------------------ reverse pickup
+
+    def _rp_gate():
+        if not _ops_auth():
+            return jsonify({"ok": False, "error": "unauthorized",
+                            "message": "Bearer OPS_API_TOKEN required"}), 401
+        if not reverse_pickup.enabled():
+            return jsonify({"ok": False, "error": "disabled",
+                            "message": "reverse pickup is not enabled on Optiwar"}), 503
+        return None
+
+    def _rp_error(exc):
+        return jsonify({"ok": False, "error": exc.code, "message": str(exc)}), exc.status
+
+    def _rp_notify(db, event, row):
+        try:
+            reverse_pickup.notify(db, event, row, request.host)
+        except Exception as exc:  # noqa: BLE001 - the booking is already committed
+            current_app.logger.error("REVERSE_PICKUP_NOTIFY_ERROR event:%s pickup:%s %s"
+                                     % (event, row["pickup_uuid"], exc))
+
+    @bp.route("/ops/api/shipments/<order_id>/reverse-pickup", methods=["POST"])
+    def ops_reverse_pickup(order_id):
+        """Ops booked a Delhivery reverse waybill; record it and tell the
+        customer. The same AWB again returns the stored row, no message."""
+        denied = _rp_gate()
+        if denied:
+            return denied
+        body = _body()
+        db = get_db()
+        try:
+            row, created = reverse_pickup.book(db, order_id, body, _ops_operator(body))
+        except reverse_pickup.ReversePickupError as exc:
+            return _rp_error(exc)
+        if created:
+            _rp_notify(db, reverse_pickup.EV_BOOKED, row)
+        return jsonify({"ok": True, "created": created,
+                        "reverse_pickup": reverse_pickup.ops_view(db, row, reverse_pickup.EV_BOOKED)})
+
+    @bp.route("/ops/api/shipments/<order_id>/reverse-pickup/cancel", methods=["POST"])
+    def ops_reverse_pickup_cancel(order_id):
+        denied = _rp_gate()
+        if denied:
+            return denied
+        body = _body()
+        db = get_db()
+        try:
+            row, changed = reverse_pickup.cancel(db, order_id, body, _ops_operator(body))
+        except reverse_pickup.ReversePickupError as exc:
+            return _rp_error(exc)
+        if changed:
+            _rp_notify(db, reverse_pickup.EV_CANCELLED, row)
+        return jsonify({"ok": True, "changed": changed,
+                        "reverse_pickup": reverse_pickup.ops_view(db, row, reverse_pickup.EV_CANCELLED)})
 
 
 def _ops_row(row):

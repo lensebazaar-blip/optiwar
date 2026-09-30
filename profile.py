@@ -2,8 +2,8 @@ from flask import Blueprint, render_template, request, redirect, url_for, sessio
 from .db import get_db
 from .auth import login_required
 from .rx_powers import normalize_rows
-from .customer_orders import ORDER_LINES_SQL, customer_orders, attach_reship
-from . import reship
+from .customer_orders import ORDER_LINES_SQL, customer_orders, attach_reship, attach_reverse_pickup
+from . import reship, reverse_pickup
 from . import face_profiles, face_profiles_api, face_scan_groups, face_scan_invites_api
 
 bp = Blueprint('profile', __name__, url_prefix='/profile')
@@ -97,6 +97,14 @@ def profile_page():
         except Exception:  # noqa: BLE001 - the order list must still render
             reship_rows, shipments = {}, {}
     attach_reship(grouped_orders, reship_rows, request.host, shipments=shipments, now=reship_now)
+    pickup_rows = {}
+    if grouped_orders and cust_id and reverse_pickup.enabled():
+        try:
+            reverse_pickup.ensure_schema(db)
+            pickup_rows = reverse_pickup.latest_for_customer(db, cust_id)
+        except Exception:  # noqa: BLE001 - the order list must still render
+            pickup_rows = {}
+    attach_reverse_pickup(grouped_orders, pickup_rows)
 
     # Get face measurement data
     face_data = None
