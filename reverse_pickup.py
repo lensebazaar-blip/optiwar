@@ -21,6 +21,9 @@ except ImportError:  # pragma: no cover - flat import in scripts
 
 ENABLED_ENV = "REVERSE_PICKUP_ENABLED"
 WA_APPROVED_ENV = "REVERSE_PICKUP_WA_TEMPLATES_APPROVED"
+# Off: Ops can book and cancel, but the customer is not emailed, messaged or
+# shown the pickup in My Orders.
+CUSTOMER_ENV = "REVERSE_PICKUP_CUSTOMER_ENABLED"
 
 COURIER = "Delhivery"
 
@@ -118,6 +121,11 @@ def ensure_schema(db):
 def enabled(environ=None):
     env = os.environ if environ is None else environ
     return str(env.get(ENABLED_ENV, "")).strip().lower() in ("1", "true", "yes", "on")
+
+
+def customer_enabled(environ=None):
+    env = os.environ if environ is None else environ
+    return str(env.get(CUSTOMER_ENV, "")).strip().lower() in ("1", "true", "yes", "on")
 
 
 def _clip(value, n):
@@ -267,6 +275,8 @@ def notify(db, event_type, row, host, mailer=None, whatsapp=None, environ=None):
     The claim is a ``reverse_pickup.notified`` event keyed on (pickup,
     event, channel), so a replay sends nothing."""
     env = os.environ if environ is None else environ
+    if not customer_enabled(env):
+        return notification_state(db, row, event_type, environ=env)
     cur = db.cursor()
     acct = reship._account(cur, row.get("customer_id"))
     fields = {"name": (acct.get("customer_name") or "").strip() or "Customer",
@@ -330,6 +340,10 @@ def notification_state(db, row, event_type, environ=None):
     sent = [{"channel": ch, "at": at.isoformat() if hasattr(at, "isoformat") else str(at)}
             for ch, at in claimed.items() if ch not in failed]
     skipped = []
+    if not claimed and not customer_enabled(env):
+        return {"sent": sent, "failed": len(failed),
+                "skipped": [{"channel": ch, "reason": "customer_notifications_off"}
+                            for ch in ("email", "whatsapp")]}
     if "whatsapp" not in claimed:
         approved = str(env.get(WA_APPROVED_ENV, "")).strip().lower() in ("1", "true", "yes")
         skipped.append({"channel": "whatsapp",

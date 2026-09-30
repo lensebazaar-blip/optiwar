@@ -98,7 +98,7 @@ def profile_page():
             reship_rows, shipments = {}, {}
     attach_reship(grouped_orders, reship_rows, request.host, shipments=shipments, now=reship_now)
     pickup_rows = {}
-    if grouped_orders and cust_id and reverse_pickup.enabled():
+    if grouped_orders and cust_id and reverse_pickup.enabled() and reverse_pickup.customer_enabled():
         try:
             reverse_pickup.ensure_schema(db)
             pickup_rows = reverse_pickup.latest_for_customer(db, cust_id)
