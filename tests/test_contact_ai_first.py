@@ -92,6 +92,43 @@ class LegacyRoutes(unittest.TestCase):
         self.assertNotIn("OpenAI", bot[:bot.index("\n@bp.route")])
         self.assertNotIn("gpt-3.5", crm)
 
+    def test_a_legacy_hit_is_committed_with_route_and_method_only(self):
+        import types
+
+        class _Cur:
+            def __init__(self, rows):
+                self.rows = rows
+
+            def execute(self, sql, params):
+                self.rows.append(params)
+
+        class _Db:
+            def __init__(self):
+                self.rows, self.committed = [], 0
+
+            def cursor(self):
+                return _Cur(self.rows)
+
+            def commit(self):
+                self.committed += 1
+
+        fake = _Db()
+        dbmod = types.ModuleType("flaskr_crm_test.db")
+        dbmod.get_db = lambda: fake
+        saved = sys.modules.get(dbmod.__name__)
+        sys.modules[dbmod.__name__] = dbmod
+        try:
+            self.client.get("/contact_us")
+        finally:
+            if saved is None:
+                sys.modules.pop(dbmod.__name__, None)
+            else:
+                sys.modules[dbmod.__name__] = saved
+        self.assertEqual(fake.committed, 1)
+        (row,) = fake.rows
+        self.assertEqual(row[1], "LEGACY_SUPPORT_ROUTE")
+        self.assertEqual(json.loads(row[10]), {"route": "contact_us", "method": "GET"})
+
     def test_the_old_forms_are_gone_with_a_pointer(self):
         for method, url in (("get", "/contact_us/captcha"), ("post", "/contact_us/submit"),
                             ("post", "/contact_us/ai_submit")):
