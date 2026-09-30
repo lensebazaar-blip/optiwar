@@ -95,6 +95,7 @@ DEPLOY_SET = ("acr.py", "ai_api.py", "ai_client.py", "catalogue.py", "chat.py",
               "face_scan_done.py", "face_scan_groups.py", "face_scan_groups_api.py",
               "face_fit.py", "face_cart.py", "face_assistant.py", "favorites.py", "favorites_api.py",
               "reship.py", "reship_api.py", "reship_assistant.py", "templates/ops_reship.html",
+              "ai_language.py", "rx_lookup.py",
               "templates/face_scan_guest.html", "templates/favorites.html",
               "static/scripts.js",
               "static/tryon/js/tryon.js", "static/tryon/css/tryon.css", "templates/tryon.html",
@@ -111,7 +112,7 @@ DEPLOY_SET = ("acr.py", "ai_api.py", "ai_client.py", "catalogue.py", "chat.py",
 # new module; listing one here says the absence is expected and the file is to
 # be created. A rollback restores only what it replaced, so these stay behind —
 # harmless, because the code that imports them is reverted with them.
-NEW_IN_RELEASE = ("paid_orders.py", "razorpay_events.py", "rx_powers.py",
+NEW_IN_RELEASE = ("ai_language.py", "rx_lookup.py", "paid_orders.py", "razorpay_events.py", "rx_powers.py",
                   "razorpay_settlement.py", "razorpay_reconcile.py",
                   "refunds.py", "ops_refunds.py", "catalogue.py",
                   "contact_lens.py", "dev_defects.py", "lens_minimums.py",

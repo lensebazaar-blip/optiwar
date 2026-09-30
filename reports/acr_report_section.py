@@ -125,6 +125,26 @@ EV_ACTION_EXPIRED = "ACTION_EXPIRED"
 EV_PROMISE_WITHOUT_ACTION = "PROMISE_WITHOUT_ACTION"
 EV_UNSAFE_URL_REJECTED = "UNSAFE_URL_REJECTED"
 EV_RESHIP_RULE_BREACH = "RESHIP_RULE_BREACH"
+EV_TURN_UNDERSTOOD = "TURN_UNDERSTOOD"
+EV_TICKET_CLASSIFIED = "TICKET_CLASSIFIED"
+LOW_LANGUAGE_CONFIDENCE = 0.6
+LANGUAGE_BUCKETS = ("English", "Hindi", "Hinglish", "Other Indian", "Unknown")
+
+
+def _jv(key):
+    return "JSON_UNQUOTE(JSON_EXTRACT(payload, '$.%s'))" % key
+
+
+def language_bucket(code):
+    if code == "en":
+        return "English"
+    if code == "hi":
+        return "Hindi"
+    if code == "hi-Latn":
+        return "Hinglish"
+    if code in (None, "", "und", "null"):
+        return "Unknown"
+    return "Other Indian"
 EV_MODEL_CALL = "MODEL_CALL"
 EV_MODEL_TIMEOUT = "MODEL_TIMEOUT"
 EV_ADMISSION_503 = "ADMISSION_503"
@@ -318,6 +338,42 @@ def _collect():
     safe("promise_without_action", lambda: _event_count(EV_PROMISE_WITHOUT_ACTION))
     safe("unsafe_url_rejected", lambda: _event_count(EV_UNSAFE_URL_REJECTED))
     safe("reship_rule_breach", lambda: _event_count(EV_RESHIP_RULE_BREACH))
+
+    # ── multilingual understanding (non-PII payload fields only) ──
+    def language_sessions():
+        rows = run_sql(
+            "SELECT %s, COUNT(DISTINCT session_id) FROM ai_events WHERE event_type=%s "
+            "AND created_at >= %s GROUP BY 1" % (_jv("detected_language"),
+                                                 _q(EV_TURN_UNDERSTOOD), SINCE))
+        d = {b: 0 for b in LANGUAGE_BUCKETS}
+        for r in rows:
+            d[language_bucket(r[0])] += _to_int(r[1])
+        return d
+    safe("language_sessions", lambda: _gated(EV_TURN_UNDERSTOOD, language_sessions))
+    safe("low_language_confidence", lambda: _gated(EV_TURN_UNDERSTOOD, lambda: _event_count(
+        EV_TURN_UNDERSTOOD, "AND CAST(%s AS DECIMAL(4,2)) < %s"
+        % (_jv("language_confidence"), LOW_LANGUAGE_CONFIDENCE))))
+    safe("clarifications", lambda: _gated(EV_TURN_UNDERSTOOD, lambda: _event_count(
+        EV_TURN_UNDERSTOOD, "AND %s='true'" % _jv("clarification_used"))))
+
+    def escalation_reasons():
+        rows = run_sql(
+            "SELECT %s, COUNT(*) FROM ai_events WHERE event_type=%s AND created_at >= %s "
+            "GROUP BY 1" % (_jv("escalation_reason"), _q(EV_TICKET_CLASSIFIED), SINCE))
+        return {(r[0] or "UNCLASSIFIED"): _to_int(r[1]) for r in rows}
+    safe("escalation_reasons", lambda: _gated(EV_TICKET_CLASSIFIED, escalation_reasons))
+    safe("avoidable_language_escalations", lambda: _gated(
+        EV_TICKET_CLASSIFIED, lambda: _event_count(
+            EV_TICKET_CLASSIFIED, "AND %s='NLU_LANGUAGE_FAILURE'" % _jv("ai_failure_reason"))))
+
+    def misunderstood_intents():
+        rows = run_sql(
+            "SELECT %s, COUNT(*) n FROM ai_events WHERE event_type=%s AND created_at >= %s "
+            "AND %s='NLU_LANGUAGE_FAILURE' GROUP BY 1 ORDER BY n DESC LIMIT 3"
+            % (_jv("original_intent"), _q(EV_TICKET_CLASSIFIED), SINCE,
+               _jv("ai_failure_reason")))
+        return [(r[0], _to_int(r[1])) for r in rows]
+    safe("misunderstood_intents", lambda: _gated(EV_TICKET_CLASSIFIED, misunderstood_intents))
 
     # ── funnel (canonical JOURNEY_STAGE: distinct sessions per stage) ──
     def funnel():
@@ -837,6 +893,17 @@ def build():
     add("    Needs-review reasons (event counts):")
     add("      %s" % _fmt_dist(m.get("quality_reasons")))
     add("    Per-conversation QC scoring is the audited QC export, not this email.")
+    add("    Languages (sessions by detected language; payload fields, no text):")
+    add("      %s" % _fmt_dist(m.get("language_sessions"), LANGUAGE_BUCKETS))
+    add("      low-language-confidence turns %s | clarifications %s" % (
+        _val(m.get("low_language_confidence")), _val(m.get("clarifications"))))
+    reasons = m.get("escalation_reasons")
+    add("      language-related escalations %s | avoidable (AI misunderstood) %s" % (
+        _val(reasons.get("LANGUAGE_UNDERSTANDING_FAILED", 0)
+             if isinstance(reasons, dict) else reasons),
+        _val(m.get("avoidable_language_escalations"))))
+    add("      escalation reasons           %s" % _fmt_dist(reasons))
+    add("      top misunderstood intents    %s" % _fmt_top(m.get("misunderstood_intents")))
     add("")
 
     # ═══ LAYER 5 — ENGINEERING ═══

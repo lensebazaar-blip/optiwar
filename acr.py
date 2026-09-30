@@ -27,7 +27,11 @@ _CONFIRM_RE = re.compile(
     r"^\s*(yes|yeah|yep|yup|ya|sure|ok|okay|okey|k|"
     r"please do|do it|go|go ahead|proceed|continue|"
     r"take me( there)?|open( it| them| that| these| those)?|show me|"
-    r"lets go|let'?s go|sounds good|absolutely|definitely|of course)\b[\s!.,]*$",
+    r"lets go|let'?s go|sounds good|absolutely|definitely|of course|"
+    r"haan|haa|han|ha|ji|ji haan|haan ji|han ji|theek hai|thik hai|thik h|"
+    r"kar do|kardo|kar dijiye|kijiye|chalo|bilkul|"
+    r"\u0939\u093e\u0901|\u0939\u093e\u0902|\u091c\u0940|\u091c\u0940 \u0939\u093e\u0901|"
+    r"\u0920\u0940\u0915 \u0939\u0948|\u0915\u0930 \u0926\u094b)(?!\w)[\s!.,\u0964]*$",
     re.IGNORECASE,
 )
 
@@ -279,6 +283,18 @@ EV_FACE_ACTION_OFFERED = "FACE_ACTION_OFFERED"
 # called a paid parcel abandoned, quoted an AWB the ledger does not hold).
 # payload.codes names the rules; the reply itself is never stored.
 EV_RESHIP_RULE_BREACH = "RESHIP_RULE_BREACH"
+
+# What the server understood of a customer turn (ai_language.understand plus
+# the model's own META statement): language/script/code-mixing codes, intent,
+# confidences, whether the reply was a clarification. Codes only, never text.
+EV_TURN_UNDERSTOOD = "TURN_UNDERSTOOD"
+# LOOKUP_PRESCRIPTION ran for a turn: counts of cart/order prescriptions found
+# for the requester; never a power or an order id.
+EV_PRESCRIPTION_LOOKUP = "PRESCRIPTION_LOOKUP"
+# Why a conversation ended in a ticket, kept apart from what the customer last
+# clicked: original_intent, final_action, ticket_reason, escalation_reason,
+# ai_failure_reason and the language codes (ai_language.classify_ticket).
+EV_TICKET_CLASSIFIED = "TICKET_CLASSIFIED"
 
 # Journey stages (coarse, safe to store).
 STAGE_LANDING = "LANDING"

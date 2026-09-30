@@ -221,3 +221,30 @@ class TestInstrumentationCoverage(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestMultilingualSection(unittest.TestCase):
+    def setUp(self):
+        for k in ("ACR_REPORT_DB_HOST", "ACR_REPORT_DB_USER", "ACR_REPORT_DB_PASS",
+                  "ACR_REPORT_DB_NAME", "MYSQL_HOST", "MYSQL_USER", "MYSQL_PASSWORD",
+                  "MYSQL_DB", "MYSQL_DATABASE"):
+            os.environ.pop(k, None)
+
+    def test_language_lines_render_without_a_database(self):
+        out = acr_report_section.build()
+        for label in ("Languages (sessions by detected language", "low-language-confidence turns",
+                      "language-related escalations", "avoidable (AI misunderstood)",
+                      "top misunderstood intents"):
+            self.assertIn(label, out)
+
+    def test_buckets_are_the_reported_five(self):
+        b = acr_report_section.language_bucket
+        self.assertEqual([b("en"), b("hi"), b("hi-Latn"), b("ta"), b(None)],
+                         ["English", "Hindi", "Hinglish", "Other Indian", "Unknown"])
+
+    def test_the_queries_read_payload_fields_never_message_text(self):
+        with open(_PATH, encoding="utf-8") as fh:
+            src = fh.read()
+        block = src[src.index("# ── multilingual understanding"):src.index("# ── funnel")]
+        self.assertNotIn("chat_messages", block)
+        self.assertNotIn("content", block)

@@ -2,6 +2,9 @@ from flask import Flask, request, render_template, current_app, url_for, Bluepri
 import requests
 import logging
 from .mail import send_contact_email, create_ticket_in_db
+from . import acr
+from . import ai_language
+from . import rx_lookup
 from requests.auth import HTTPBasicAuth
 from .captcha import CaptchaGenerator
 from flask import current_app
@@ -551,19 +554,18 @@ def ai_chat():
             })
 
         # System prompt for the AI assistant
-        system_prompt = """You are a quick, efficient customer support assistant for Optiwar (online eyeglasses store, India). Collect these details to create a support ticket:
-- Name
-- Email
-- Phone (default +91)
-- Subject (pick closest: "I want to order frames with lenses", "Requesting callback before ordering", or "Others")
-- Description of their issue (1-2 sentences is enough)
+        system_prompt = """You are Optiwar's customer support assistant (online eyeglasses store). First understand and, where you can, answer the customer's question; create a support ticket only when it is needed.
 
-CRITICAL RULES:
-- The MOMENT you have name + email + phone + a clear issue/query, OUTPUT the ticket data immediately. Do NOT keep asking questions.
-- If user gives most info in one message, just confirm and output the ticket.
-- Maximum 3 exchanges before you MUST output the ticket with whatever info you have.
-- Keep responses to 1-2 sentences max. Be fast and efficient.
-- If only email is missing, ask ONLY for email. Never re-ask for info already given.
+LANGUAGE AND UNDERSTANDING:
+- Reply in the language AND script of the customer's latest meaningful message: Hinglish (Hindi in Roman letters) gets Hinglish, Hindi in Devanagari gets Devanagari, Tamil/Bengali/Punjabi/Marathi/any other Indian language gets that language. Never switch to English because of one English word. Spelling mistakes and voice typing are normal; read for meaning.
+- "chashma/chashme/chasma/specs/ainak" = spectacles; "chashme ka number", "aankh ka number", "power", "number" next to spectacles/eyes = the spectacle prescription; "number add kiya / daal diya / save kiya" = the customer already entered their prescription.
+- A prescription question (which power the glasses will be made with, whether the prescription was saved) is answered from PRESCRIPTIONS ON FILE when that section is present below: glasses are made with exactly the prescription attached to that cart line or order. Quote values exactly; never guess or invent one.
+- If you are unsure what the customer means, ask ONE short clarification in their language that restates what you think they asked. NEVER answer a question with a menu of subjects.
+
+TICKET (only when the customer asks for a person or a callback, when a clarification did not resolve the question, or when the issue needs the team):
+- Collect name, email and phone (default +91) if not already known, and a 1-2 sentence description in English that states the customer's actual question (and the language they wrote in).
+- Choose the subject yourself, never ask the customer to pick: "Prescription / power question", "Order status", "I want to order frames with lenses", "Requesting callback before ordering" (only when the customer asked for a call), or "Others".
+- Keep responses to 1-2 sentences. Never re-ask for info already given.
 
 When you have enough info, end your message with EXACTLY this format (no extra text after it):
 ```TICKET_DATA
@@ -584,8 +586,24 @@ When you have enough info, end your message with EXACTLY this format (no extra t
                 f"- Name: {known_name}\n"
                 f"- Email: {known_email}\n"
                 f"- Phone: {known_phone or '+91'}\n"
-                "Only clarify the subject and the issue, then output the ticket."
+                "Understand and answer their question first; output the ticket only "
+                "when one is needed."
             )
+
+        _asked = [h.get("content", "") for h in history[-10:]
+                  if h.get("role") == "user"] + [user_msg]
+        _turn = ai_language.understand(_asked)
+        system_prompt += ai_language.prompt_section(_turn)
+        if _turn["intent"] in ai_language.PRESCRIPTION_INTENTS or any(
+                ai_language.classify_intent(m)[0] in ai_language.PRESCRIPTION_INTENTS
+                for m in _asked[-4:]):
+            try:
+                from .db import get_db
+                _rx = rx_lookup.read_model(get_db().cursor(), session.get('cart') or [],
+                                           session.get('user_id'), _get_site_from())
+                system_prompt += rx_lookup.prompt_section(_rx, bool(session.get('user_id')))
+            except Exception as e:  # noqa: BLE001 - lookup is best-effort here
+                current_app.logger.error(f"[AI-CHAT] rx lookup failed: {e}")
 
         # Build messages array
         messages = [{"role": "system", "content": system_prompt}]
@@ -729,6 +747,15 @@ def ai_submit_ticket():
             ai_chat_log_id = cursor.lastrowid
             db.commit()
             cursor.close()
+            _asked = [h.get("content", "") for h in chat_history
+                      if isinstance(h, dict) and h.get("role") == "user"]
+            acr.log_event(db, acr.EV_TICKET_CLASSIFIED, journey_stage=acr.STAGE_SUPPORT,
+                          payload=dict(ai_language.classify_ticket(
+                              _asked, final_action="CREATE_TICKET",
+                              ticket_reason=ai_language.legacy_ticket_reason(subject)),
+                              route="contact_us", local_ticket_id=ticket_id,
+                              ai_chat_log_id=ai_chat_log_id))
+            db.commit()
         except Exception as e:
             current_app.logger.error(f"[AI-CHAT] Failed to log chat: {e}")
 
