@@ -295,6 +295,17 @@ EV_PRESCRIPTION_LOOKUP = "PRESCRIPTION_LOOKUP"
 # clicked: original_intent, final_action, ticket_reason, escalation_reason,
 # ai_failure_reason and the language codes (ai_language.classify_ticket).
 EV_TICKET_CLASSIFIED = "TICKET_CLASSIFIED"
+# The Contact Us funnel: every support entry opens the assistant; each turn
+# ends answered, clarified, offered a ticket, or filed one. Payloads carry
+# intents, capabilities and counts only.
+EV_CONTACT_AI_OPENED = "CONTACT_AI_OPENED"
+EV_TOOL_USED = "TOOL_USED"
+EV_ANSWERED_WITHOUT_ESCALATION = "ANSWERED_WITHOUT_ESCALATION"
+EV_CLARIFICATION_USED = "CLARIFICATION_USED"
+EV_ESCALATION_OFFERED = "ESCALATION_OFFERED"
+EV_TICKET_CREATED = "TICKET_CREATED"
+EV_MODEL_FALLBACK_USED = "MODEL_FALLBACK_USED"
+EV_LEGACY_SUPPORT_ROUTE = "LEGACY_SUPPORT_ROUTE"
 
 # Journey stages (coarse, safe to store).
 STAGE_LANDING = "LANDING"

@@ -253,8 +253,8 @@ class WiringTests(unittest.TestCase):
 
     def test_the_rules_and_the_turn_note_reach_the_model(self):
         self.assertIn("ai_language.LANGUAGE_RULES + ''.join(extra_sections)", self.gw)
-        self.assertIn("system_prompt += ai_language.prompt_section(understanding) + rx_section",
-                      self.gw)
+        self.assertIn("system_prompt += (ai_language.prompt_section(understanding) + rx_section"
+                      " + order_section", self.gw)
 
     def test_the_tag_is_removed_before_anything_reads_the_reply(self):
         strip = self.gw.index("ai_reply, turn_meta = ai_language.extract_meta(ai_reply)")
@@ -264,27 +264,30 @@ class WiringTests(unittest.TestCase):
     def test_every_turn_and_every_ticket_is_classified(self):
         self.assertIn("acr.EV_TURN_UNDERSTOOD", self.gw)
         self.assertIn("acr.EV_TICKET_CLASSIFIED", self.gw)
-        self.assertIn("acr.EV_TICKET_CLASSIFIED", self.crm)
+        self.assertIn("acr.EV_LEGACY_SUPPORT_ROUTE", self.crm)
         self.assertIn("acr.EV_PRESCRIPTION_LOOKUP", self.gw)
 
-    def test_contact_us_opens_the_assistant_before_the_ticket_bot(self):
+    def test_contact_us_opens_the_assistant_and_no_ticket_form(self):
         html = _read("templates/base.html")
-        fn = html[html.index("function openContactChoice(){"):]
-        fn = fn[:fn.index("}}") + 2]
-        self.assertLess(fn.index("owChatOpen"), fn.index("openAiChat"))
-        self.assertLess(fn.index("openAiChat"), fn.index("openContactModal"))
+        self.assertIn('window.owChatOpen("text",entry||"contact_us")', html)
+        self.assertIn('function openContactChoice(entry){owSupportOpen(', html)
+        self.assertIn('function openContactModal(){owSupportOpen("order_support");}', html)
+        for form in ('id="contactModal"', 'id="contactForm"', 'id="cSubject"', "Select a subject",
+                     "Requesting callback", "Submit Ticket", "/contact_us/ai_chat",
+                     "/contact_us/submit", "/contact_us/captcha"):
+            self.assertNotIn(form, html, form)
 
     def test_the_fallback_bot_no_longer_forces_a_subject_menu(self):
         body = self._body(self.crm, "ai_chat")
         self.assertNotIn("pick closest", body)
-        self.assertNotIn("Maximum 3 exchanges", body)
-        self.assertIn("NEVER answer a question with a menu of subjects", body)
-        self.assertIn("rx_lookup.prompt_section(", body)
-        self.assertIn("session.get('user_id')", body)
+        self.assertNotIn("OpenAI", body)
+        self.assertNotIn("gpt-3.5", self.crm)
+        self.assertIn("_legacy_support_route('contact_us/ai_chat')", body)
+        self.assertIn('"ticket_data": None', body)
 
     def test_deployable(self):
         manifest = _read(os.path.join("deploy", "deploy.py"))
-        for name in ("ai_language.py", "rx_lookup.py"):
+        for name in ("ai_language.py", "rx_lookup.py", "order_lookup.py"):
             self.assertEqual(manifest.count('"%s"' % name), 2, name)
 
 

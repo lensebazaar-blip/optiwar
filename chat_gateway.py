@@ -27,6 +27,8 @@ from . import lens_config
 from . import lens_prompt
 from . import lens_order
 from . import lens_rx
+from . import order_lookup
+from . import reship
 from . import reship_assistant
 from . import rx_lookup
 from .mail import create_ticket_in_db
@@ -792,8 +794,8 @@ RULES:
 5. NEVER recommend out-of-stock products (qty:0). Skip them entirely from your recommendations. Only show in-stock items (qty > 0).
 6. For prescription questions, refer to our guides at https://{domain}/ai-guide/prescription-reading
 7. For PD measurement questions, refer to https://{domain}/ai-guide/pd-measurement
-8. NEVER auto-escalate to a human. If the customer asks something you cannot answer OR explicitly asks for human support, first ASK: "Do you want me to connect you with my supervisor? Yes or No". Only add [ACTION:HUMAN_HANDOVER] if the customer explicitly says Yes. Do NOT escalate for informational questions you CAN answer (shipping, returns, policies, products).
-9. For order issues or complaints, ask the customer first: "Would you like me to create a support ticket for this? Yes or No". Only add [ACTION:CREATE_TICKET] if they confirm Yes.
+8. You are Optiwar's support desk: there is no separate form, menu or phone line to send the customer to. Answer from the sections below (ORDERS ON FILE, PRESCRIPTIONS ON FILE, RETURNED PARCELS, the catalogue, the policies) whenever they hold the answer; never offer a ticket for a question you can answer, and never answer with a menu of subjects. A request for a call back or for a person is handled by the server before you see it.
+9. Offer a support ticket only when the matter genuinely needs a person (a payment that must be traced, a damaged or wrong item, a refund dispute) or a lookup below says it is unavailable, or one clarification did not resolve it. Ask first: "Would you like me to create a support ticket for this? Yes or No". Only add [ACTION:CREATE_TICKET] if they confirm Yes.
 10. Keep responses under 50 words unless customer explicitly asks for details. Never dump paragraphs of info unprompted.
 11. Format product recommendations as numbered lists with name, color, size, and price. No URLs in the text. End with 'Would you like me to take you to these frames?' and add [ACTION:NAVIGATE:...] with the appropriate filters.
 12. If the customer mentions a specific SPH/CYL power, note that all frames include complimentary prescription lenses and recommend the appropriate lens thickness from LENS RECOMMENDATIONS BY POWER.
@@ -913,6 +915,10 @@ def _rx_context(db, understanding, user_msgs, page_url, session_id):
                       journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
                       action_type='LOOKUP_PRESCRIPTION', success=False,
                       failure_code='lookup_failed')
+        acr.log_event(db, acr.EV_TOOL_USED, session_id=session_id,
+                      journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
+                      action_type='LOOKUP_PRESCRIPTION', success=False,
+                      failure_code='lookup_failed')
         return ('\nPRESCRIPTIONS ON FILE: the lookup is unavailable right now; do not '
                 'quote any value. Say you cannot read it this moment and offer a support '
                 'ticket (esc=TOOL_UNAVAILABLE).\n'), {'unavailable': True}
@@ -921,7 +927,163 @@ def _rx_context(db, understanding, user_msgs, page_url, session_id):
                   action_type='LOOKUP_PRESCRIPTION', success=rx_lookup.found(model),
                   failure_code=None if rx_lookup.found(model) else 'nothing_on_file',
                   payload=rx_lookup.event_payload(model, bool(customer_id)))
+    acr.log_event(db, acr.EV_TOOL_USED, session_id=session_id,
+                  journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
+                  action_type='LOOKUP_PRESCRIPTION', success=rx_lookup.found(model),
+                  payload={'found': rx_lookup.found(model)})
     return rx_lookup.prompt_section(model, bool(customer_id)), model
+
+
+def _site_of(page_url):
+    is_india = 'in.optiwar.com' in (page_url or '') or 'optiwar.in' in (page_url or '')
+    return 'in.optiwar.com' if is_india else 'optiwar.com'
+
+
+def _turn_intent(understanding, content):
+    """The intent of this message, or of the conversation when this message
+    alone ("yes", "ok", a number) names none."""
+    intent = ai_language.classify_intent(content)[0]
+    if intent in (ai_language.INTENT_OTHER, ai_language.INTENT_GREETING):
+        intent = understanding.get('intent') or ai_language.INTENT_OTHER
+    return intent
+
+
+def _order_context(db, turn_intent, page_url, session_id):
+    """LOOKUP_ORDER for an order or payment turn of a signed-in browser:
+    ``(section, model)``; ``('', None)`` otherwise. The account is the Flask
+    login, never an id the widget sent."""
+    customer_id = flask_session.get('user_id')
+    if turn_intent not in ai_language.ORDER_LOOKUP_INTENTS or not customer_id:
+        return '', None
+    try:
+        model = order_lookup.read_model(db, customer_id, _site_of(page_url),
+                                        shipments=reship.shipments_for_orders)
+    except Exception as e:  # noqa: BLE001 - the chat must still answer
+        current_app.logger.warning('[Chat] order lookup unavailable: %s', e)
+        acr.log_event(db, acr.EV_TOOL_USED, session_id=session_id,
+                      journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
+                      action_type='LOOKUP_ORDER', success=False,
+                      failure_code='lookup_failed')
+        return ('\nORDERS ON FILE: the lookup is unavailable right now; do not quote any '
+                'order, stage or payment. Say you cannot read it this moment, point to My '
+                'Orders (/profile/?tab=orders), and offer a support ticket only if they need '
+                'a person now (esc=TOOL_UNAVAILABLE).\n'), {'unavailable': True}
+    found = order_lookup.found(model)
+    acr.log_event(db, acr.EV_TOOL_USED, session_id=session_id,
+                  journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
+                  action_type='LOOKUP_ORDER', success=found,
+                  failure_code=None if found else 'nothing_on_file',
+                  payload=order_lookup.event_payload(model))
+    return order_lookup.prompt_section(model), model
+
+
+def _with_link(reply, label, url):
+    """A reply with one action button under it (the widget's ▶ link)."""
+    return "%s\n\n[\u25b6 %s](%s)" % ((reply or '').rstrip(), label, url)
+
+
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+_PHONE_RE = re.compile(r"(?<!\d)\+?\d[\d \-]{8,15}\d(?!\d)")
+_PERSON_INTENTS = (ai_language.INTENT_CALLBACK_REQUEST, ai_language.INTENT_HUMAN_REQUEST)
+
+
+def _contact_in(text):
+    """``(email, phone digits)`` typed in one message; '' for either absent."""
+    m = _EMAIL_RE.search(text or '')
+    email = m.group(0) if m else ''
+    phone = ''
+    for p in _PHONE_RE.finditer(text or ''):
+        digits = re.sub(r'\D', '', p.group(0))
+        if 10 <= len(digits) <= 13:
+            phone = digits
+            break
+    return email, phone
+
+
+def _awaiting_contact(db, session_id):
+    """``(reason, phone, email)`` when the assistant's latest reply asked for
+    the contact details a callback/person request needs, else ``(None, '', '')``."""
+    cur = db.cursor()
+    cur.execute("SELECT metadata FROM chat_messages WHERE session_id = %s "
+                "AND role = 'assistant' ORDER BY id DESC LIMIT 1", (session_id,))
+    row = cur.fetchone()
+    raw = row and (row['metadata'] if isinstance(row, dict) else row[0])
+    try:
+        meta = json.loads(raw) if raw else {}
+    except (ValueError, TypeError):
+        meta = {}
+    reason = meta.get('await_contact') if isinstance(meta, dict) else None
+    if reason not in _PERSON_INTENTS:
+        return None, '', ''
+    return reason, str(meta.get('phone') or ''), str(meta.get('email') or '')
+
+
+def _support_request(db, session_id, session, content):
+    """A call back or a person, asked for in any words or language, is a
+    server decision, not a model's: ``None`` when this turn is not one, else
+    ``{reason, ask, email, phone}`` where ``ask`` names the reply that asks
+    for a missing detail, or is None when the ticket can be filed now."""
+    msg_intent = ai_language.classify_intent(content)[0]
+    awaiting, held_phone, held_email = _awaiting_contact(db, session_id)
+    typed_email, typed_phone = _contact_in(content)
+    if msg_intent in _PERSON_INTENTS:
+        reason = msg_intent
+    elif awaiting and (typed_email or typed_phone):
+        reason = awaiting
+    else:
+        return None
+    email = (flask_session.get('user_email') or session.get('contact_email')
+             or typed_email or held_email or '')
+    phone = typed_phone or held_phone or re.sub(r'\D', '', flask_session.get('user_phone') or '')
+    # An anonymous chat stays anonymous (and cookie-owned): the address the
+    # customer typed rides on this turn's ticket, not on the session row.
+    if email and not session.get('contact_email'):
+        session['contact_email'] = email
+    callback = reason == ai_language.INTENT_CALLBACK_REQUEST
+    ask = None
+    if not email:
+        ask = 'ask_contact_callback' if callback else 'ask_contact_human'
+    elif callback and not phone:
+        ask = 'ask_phone'
+    return {'reason': reason, 'ask': ask, 'email': email, 'phone': phone}
+
+
+def _support_text(kind, language, session_id, **values):
+    """The server's own reply in the customer's language: written for
+    English/Hindi/Hinglish, translated by the model for the other languages,
+    English when the model cannot be reached."""
+    text, written = ai_language.support_reply(kind, language, **values)
+    if written == language or language in (None, '', 'und', 'en'):
+        return text
+    name = ai_language.LANGUAGE_NAMES.get(language)
+    if not name:
+        return text
+    translated, error = _call_deepseek(
+        "Translate the customer-support message the user sends into %s, in that "
+        "language's usual script. Keep numbers, names, 'Optiwar' and 'My Orders' "
+        "unchanged. Reply with the translation only." % name,
+        [], text, endpoint="chat_gateway.support_reply", gate_key=session_id)
+    if error or not translated or _has_tool_markup(translated):
+        return text
+    return translated.strip()
+
+
+def _model_down_reply(turn_intent, language, session_id):
+    """``(kind, reply)`` for a turn the model could not answer: where the
+    customer can see the answer themselves, never an invented one."""
+    signed_in = bool(flask_session.get('user_id'))
+    if turn_intent in ai_language.ACCOUNT_INTENTS:
+        if signed_in:
+            text, _ = ai_language.support_reply('model_down_orders', language)
+            return 'model_down_orders', _with_link(text, 'My Orders', order_lookup.MY_ORDERS_URL)
+        text, _ = ai_language.support_reply('sign_in_account', language)
+        return 'sign_in_account', _with_link(text, 'Sign in', order_lookup.SIGN_IN_ORDERS_URL)
+    if turn_intent == ai_language.INTENT_PRODUCT_SEARCH:
+        text, _ = ai_language.support_reply('model_down_products', language)
+        return 'model_down_products', _with_link(text, 'Browse frames',
+                                                 acr.FRAMES_LISTING_FALLBACK)
+    text, _ = ai_language.support_reply('model_down_retry', language)
+    return 'model_down_retry', text
 
 
 def _get_conversation_history(db, session_id, limit=20):
@@ -1638,7 +1800,20 @@ def chat_attachment_get(attachment_id):
     return resp
 
 
-def _forward_ticket_from_chat(db, session_id, session, page_url):
+def _ticket_context_text(classification, phone):
+    """The classification a person reads on the ticket: why it exists,
+    separately from what the customer came for."""
+    c = classification or {}
+    lines = ["Ticket classification:"]
+    for k in ("original_intent", "final_action", "ticket_reason", "escalation_reason",
+              "ai_failure_reason", "detected_language", "script", "code_mixed"):
+        lines.append(f"  {k}: {c.get(k)}")
+    if c.get("ticket_reason") == ai_language.INTENT_CALLBACK_REQUEST:
+        lines.append(f"  callback number: {phone or 'not given - see transcript'}")
+    return "\n".join(lines) + "\n"
+
+
+def _forward_ticket_from_chat(db, session_id, session, page_url, phone='', classification=None):
     """
     Create ticket from AI chat — mirrors contact form flow.
     1. Generate summary from chat transcript
@@ -1666,6 +1841,9 @@ def _forward_ticket_from_chat(db, session_id, session, page_url):
 
     contact_name = session.get('contact_name') or 'Visitor'
     contact_email = session.get('contact_email') or ''
+    context_note = _ticket_context_text(classification, phone) if classification else ''
+    callback = (classification or {}).get('ticket_reason') == ai_language.INTENT_CALLBACK_REQUEST
+    subject_tag = "[AI Chat][Callback]" if callback else "[AI Chat]"
 
     # STEP 1: Insert into local DB (same as contact form)
     local_ticket_id = None
@@ -1673,8 +1851,9 @@ def _forward_ticket_from_chat(db, session_id, session, page_url):
         local_ticket_id = create_ticket_in_db(
             name=contact_name,
             email=contact_email,
-            subject=f"[AI Chat] {summary[:100]}",
-            message=f"[AI-Assisted Ticket]\n\nSummary:\n{summary}\n{reship_note}\nFull Transcript:\n{transcript}"
+            subject=f"{subject_tag} {summary[:100]}",
+            message=(f"[AI-Assisted Ticket]\n\nSummary:\n{summary}\n{context_note}{reship_note}"
+                     f"\nFull Transcript:\n{transcript}")
         )
         current_app.logger.info(f"[Chat Ticket] Local DB ticket #{local_ticket_id} created")
     except Exception as e:
@@ -1696,9 +1875,9 @@ def _forward_ticket_from_chat(db, session_id, session, page_url):
         ket = _forward_to_ket(
             name=contact_name,
             email=contact_email,
-            phone='',
-            subject=f"[AI Chat] {summary[:100]}",
-            description=f"[AI-Assisted Ticket]\n\n{summary}\n{reship_note}",
+            phone=phone or '',
+            subject=f"{subject_tag} {summary[:100]}",
+            description=f"[AI-Assisted Ticket]\n\n{summary}\n{context_note}{reship_note}",
             source="ai_chat_handover",
             chat_transcript=json.dumps([{'role': m['role'], 'content': m['content']} for m in history]),
             session_id=session_id,
@@ -2077,29 +2256,61 @@ def acr_canary_toggle():
     return resp
 
 
+_ENTRY_RE = re.compile(r'^[a-z_]{1,32}$')
+
+
+def _entry_of(data):
+    entry = str((data or {}).get('entry') or '')
+    return entry if _ENTRY_RE.match(entry) else ('other' if entry else '')
+
+
+def _log_opened(db, session_id, page_url, entry, resumed):
+    if entry:
+        acr.log_event(db, acr.EV_CONTACT_AI_OPENED, session_id=session_id,
+                      journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
+                      consent_scope=acr.CONSENT_FUNCTIONAL,
+                      payload={'entry': entry, 'resumed': resumed,
+                               'authenticated': bool(flask_session.get('user_id'))})
+
+
 @bp.route('/start', methods=['POST'])
 def chat_start():
-    """Start a new chat session or resume active one."""
-    data = request.get_json(force=True, silent=True) or {}
-    email = data.get('email', '').strip()
-    name = data.get('name', '').strip()
-    page_url = data.get('page_url', '')
-    customer_id = data.get('customer_id')
+    """Start a new chat session or resume the active one.
 
-    if not email:
-        return jsonify({'error': 'email required'}), 400
+    A signed-in browser's identity is its login (never the email or id the
+    widget sent); a signed-out browser gets an anonymous session it alone
+    owns through the signed HttpOnly owner cookie."""
+    data = request.get_json(force=True, silent=True) or {}
+    email = (flask_session.get('user_email') or '').strip()
+    name = (flask_session.get('user_name') or data.get('name', '') if email else '').strip()
+    page_url = data.get('page_url', '')
+    customer_id = flask_session.get('user_id') if email else None
+    entry = _entry_of(data)
 
     db = _get_db()
     cur = db.cursor()
 
     # Check for existing active session
-    cur.execute(
-        """SELECT session_id, status, created_at FROM chat_sessions
-           WHERE contact_email = %s AND status IN ('active', 'ai_pending')
-           ORDER BY last_activity DESC LIMIT 1""",
-        (email,)
-    )
-    existing = cur.fetchone()
+    if email:
+        cur.execute(
+            """SELECT session_id, status, created_at FROM chat_sessions
+               WHERE contact_email = %s AND status IN ('active', 'ai_pending')
+               ORDER BY last_activity DESC LIMIT 1""",
+            (email,)
+        )
+        existing = cur.fetchone()
+    else:
+        existing = None
+        owned = acr.session_from_chat_cookie(
+            request.cookies, current_app.config.get("SECRET_KEY", ""))
+        if owned:
+            cur.execute(
+                """SELECT session_id, status, created_at FROM chat_sessions
+                   WHERE session_id = %s AND customer_id IS NULL
+                     AND status IN ('active', 'ai_pending')""",
+                (owned,)
+            )
+            existing = cur.fetchone()
 
     if existing:
         session_id = existing['session_id']
@@ -2115,6 +2326,7 @@ def chat_start():
                       payload={'authenticated': bool(customer_id),
                                'prior_status': existing['status']})
         _log_journey_stage(db, session_id, page_url)
+        _log_opened(db, session_id, page_url, entry, True)
         db.close()
         resp = make_response(jsonify({
             'session_id': session_id,
@@ -2129,7 +2341,7 @@ def chat_start():
         """INSERT INTO chat_sessions
            (session_id, customer_id, contact_email, contact_name, status, current_page_url, created_at, last_activity)
            VALUES (%s, %s, %s, %s, 'active', %s, NOW(), NOW())""",
-        (session_id, customer_id, email, name, page_url)
+        (session_id, customer_id, email, name or None, page_url)
     )
     _log_event(db, session_id, 'session_created', {
         'email': email, 'name': name, 'page_url': page_url
@@ -2140,6 +2352,7 @@ def chat_start():
                   consent_scope=acr.CONSENT_FUNCTIONAL,
                   payload={'authenticated': bool(customer_id)})
     _log_journey_stage(db, session_id, page_url)
+    _log_opened(db, session_id, page_url, entry, False)
 
     # Send welcome message
     welcome = f"Hi {name or 'there'}, I am here to help \u2013 ask me anything you need"
@@ -2154,6 +2367,20 @@ def chat_start():
         'resumed': False
     }))
     return _set_chat_owner_cookie(resp, session_id)
+
+
+@bp.route('/opened', methods=['POST'])
+def chat_opened():
+    """A support entry opened the assistant on an existing session."""
+    data = request.get_json(force=True, silent=True) or {}
+    session_id = str(data.get('session_id') or '').strip()
+    entry = _entry_of(data)
+    if not session_id or not entry or not _is_chat_owner(session_id):
+        return jsonify({'ok': False}), 403
+    db = _get_db()
+    _log_opened(db, session_id, data.get('page_url', ''), entry, True)
+    db.close()
+    return jsonify({'ok': True})
 
 
 @bp.route('/message', methods=['POST'])
@@ -2193,6 +2420,11 @@ def chat_message():
                       payload={'route': 'message'})
         db.close()
         return jsonify({'error': 'session not found'}), 404
+    # An anonymous session is only ever this browser's: its owner cookie.
+    if (not session.get('customer_id') and not session.get('contact_email')
+            and not _is_chat_owner(session_id)):
+        db.close()
+        return jsonify({'error': 'forbidden'}), 403
     _log_journey_stage(db, session_id, page_url)
     if session['status'] == 'human_open':
         # Human agent has taken over — store message, AI stays silent
@@ -2261,10 +2493,36 @@ def chat_message():
     history = _get_conversation_history(db, session_id)
     user_msgs = _customer_messages(history, content)
     understanding = ai_language.understand(user_msgs)
+    turn_intent = _turn_intent(understanding, content)
+    reply_language = ai_language.conversation_language(user_msgs)['language']
+    signed_in = bool(flask_session.get('user_id'))
     rx_section, rx_model = _rx_context(db, understanding, user_msgs, page_url, session_id)
-    system_prompt += ai_language.prompt_section(understanding) + rx_section
+    order_section, order_model = _order_context(db, turn_intent, page_url, session_id)
+    sign_in_needed = not signed_in and turn_intent in ai_language.ACCOUNT_INTENTS
+    system_prompt += (ai_language.prompt_section(understanding) + rx_section + order_section
+                      + (order_lookup.SIGNED_OUT_SECTION if sign_in_needed else ''))
+    if reship_model is not None and turn_intent == ai_language.INTENT_RESHIP_STATUS:
+        acr.log_event(db, acr.EV_TOOL_USED, session_id=session_id,
+                      journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
+                      action_type='LOOKUP_RESHIP_STATUS', success=True)
     turn_meta = {}
-    ai_reply = _confirmed_ask_reply(history, content, contact_name)
+    reply_meta = {}
+    support = _support_request(db, session_id, session, content)
+    ai_reply = None
+    if support:
+        lead = f"{contact_name}, " if contact_name and contact_name != 'Visitor' else ''
+        if support['ask']:
+            ai_reply = _support_text(support['ask'], reply_language, session_id)
+            reply_meta = {'await_contact': support['reason'], 'phone': support['phone'],
+                          'email': support['email']}
+        else:
+            kind = ('callback_ticket'
+                    if support['reason'] == ai_language.INTENT_CALLBACK_REQUEST
+                    else 'human_ticket')
+            ai_reply = _support_text(kind, reply_language, session_id, lead=lead,
+                                     last4=support['phone'][-4:]) + ' [ACTION:CREATE_TICKET]'
+    else:
+        ai_reply = _confirmed_ask_reply(history, content, contact_name)
     face_result = None
     if ai_reply is None and face_ctx:
         ai_reply, face_result = _face_confirmation(db, session_id, face_ctx,
@@ -2317,12 +2575,19 @@ def chat_message():
         return jsonify(body), status, headers
 
     if error:
-        # Non-retryable AI failure — insert failed message + event
-        fail_msg = 'Sorry, I\'m having trouble right now. Please try again.'
+        # Non-retryable AI failure: a deterministic reply that says where the
+        # answer can be seen, in the customer's language. Never a guess, and
+        # never a form.
+        fallback_kind, fail_msg = _model_down_reply(turn_intent, reply_language, session_id)
         _insert_message(db, session_id, 'ai', 'assistant', fail_msg,
                        status='failed',
                        metadata={'error': error[:500]})
         _log_event(db, session_id, 'ai_failed', {'error': error[:500]})
+        acr.log_event(db, acr.EV_MODEL_FALLBACK_USED, session_id=session_id,
+                      journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
+                      success=False, failure_code=ai_language.ESC_MODEL_UNAVAILABLE,
+                      payload=dict(understanding, turn_intent=turn_intent,
+                                   fallback=fallback_kind, authenticated=signed_in))
         dev_defects.record('CHAT_AI_REPLY_FAILED', where=str(error)[:60],
                            page=page_url)
         cur.execute(
@@ -2359,6 +2624,9 @@ def chat_message():
     # Clean AI reply (handle action tags)
     ai_reply, actions, navigate_url = _clean_ai_reply(ai_reply)
     ai_reply = _face_offer(db, session_id, face_ctx, ai_reply, page_url)
+    if (sign_in_needed and not support and not navigate_url
+            and order_lookup.SIGN_IN_ORDERS_URL not in ai_reply):
+        ai_reply = _with_link(ai_reply, 'Sign in', order_lookup.SIGN_IN_ORDERS_URL)
 
     # Deterministic product navigation: override the model's freelanced link
     # with the matched product's canonical catalog URL when applicable.
@@ -2457,8 +2725,9 @@ def chat_message():
     # duplicate submit can never store two AI replies for one customer turn. On a
     # duplicate the winning row id is returned; re-read it so both callers return the
     # single stored reply.
+    _ai_meta = dict(reply_meta, actions=actions) if actions else (reply_meta or None)
     ai_msg_id = _insert_message(db, session_id, 'ai', 'assistant', ai_reply, status='sent',
-                                metadata={'actions': actions} if actions else None,
+                                metadata=_ai_meta,
                                 client_message_id=client_message_id or None)
     if client_message_id:
         cur.execute("SELECT content, metadata FROM chat_messages WHERE id = %s", (ai_msg_id,))
@@ -2479,30 +2748,60 @@ def chat_message():
     })
 
     _escalated = bool({'human_handover', 'create_ticket'} & set(actions))
+    _clarified = bool(turn_meta.get('clarify'))
     acr.log_event(db, acr.EV_TURN_UNDERSTOOD, session_id=session_id,
                   journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
                   payload=dict(understanding,
+                               turn_intent=turn_intent,
                                model_intent=turn_meta.get('intent'),
-                               reply_language=turn_meta.get('lang'),
-                               clarification_used=bool(turn_meta.get('clarify')),
+                               reply_language=turn_meta.get('lang') or reply_language,
+                               clarification_used=_clarified,
                                escalated=_escalated,
-                               escalation_reason=turn_meta.get('esc')))
+                               escalation_reason=turn_meta.get('esc'),
+                               authenticated=signed_in,
+                               sign_in_offered=sign_in_needed,
+                               server_decided=bool(support)))
 
     # --- Ticket Creation ---
     if _escalated:
+        lookups = [m for m in (rx_model, order_model) if m is not None]
+        answered = [m for m in lookups if not m.get('unavailable')]
+        classification = ai_language.classify_ticket(
+            user_msgs,
+            final_action=('HUMAN_HANDOVER' if 'human_handover' in actions
+                          else 'CREATE_TICKET'),
+            ticket_reason=(support['reason'] if support
+                           else ai_language.ticket_reason(user_msgs)),
+            data_available=(None if not answered else
+                            any(rx_lookup.found(m) if m is rx_model else order_lookup.found(m)
+                                for m in answered)),
+            tool_available=not any(m.get('unavailable') for m in lookups),
+            model_reason=turn_meta.get('esc'))
         ai_reply = _ticket_for_actions(db, session_id, session, page_url,
-                                       ai_reply, ai_msg_id, actions)
+                                       ai_reply, ai_msg_id, actions,
+                                       classification=classification,
+                                       language=reply_language,
+                                       phone=(support or {}).get('phone', ''))
         acr.log_event(db, acr.EV_TICKET_CLASSIFIED, session_id=session_id,
                       journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
-                      payload=ai_language.classify_ticket(
-                          user_msgs,
-                          final_action=('HUMAN_HANDOVER' if 'human_handover' in actions
-                                        else 'CREATE_TICKET'),
-                          ticket_reason=understanding.get('intent'),
-                          data_available=(None if rx_model is None
-                                          else rx_lookup.found(rx_model)),
-                          tool_available=not (rx_model or {}).get('unavailable'),
-                          model_reason=turn_meta.get('esc')))
+                      payload=classification)
+    elif (support and support['ask']) or _pending_ask(
+            [{'role': 'assistant', 'content': ai_reply}]):
+        acr.log_event(db, acr.EV_ESCALATION_OFFERED, session_id=session_id,
+                      journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
+                      payload={'turn_intent': turn_intent,
+                               'offer': (support or {}).get('ask') or _pending_ask(
+                                   [{'role': 'assistant', 'content': ai_reply}])})
+    elif _clarified:
+        acr.log_event(db, acr.EV_CLARIFICATION_USED, session_id=session_id,
+                      journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
+                      payload={'turn_intent': turn_intent})
+    else:
+        acr.log_event(db, acr.EV_ANSWERED_WITHOUT_ESCALATION, session_id=session_id,
+                      journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
+                      payload={'turn_intent': turn_intent,
+                               'capability': ai_language.INTENT_CAPABILITY.get(turn_intent),
+                               'sign_in_offered': sign_in_needed})
     # --- End Ticket Creation ---
 
     # Update session status — AI keeps chatting even after handover
@@ -2533,14 +2832,16 @@ def chat_message():
     return jsonify(resp)
 
 
-def _ticket_for_actions(db, session_id, session, page_url, ai_reply, ai_msg_id, actions):
+def _ticket_for_actions(db, session_id, session, page_url, ai_reply, ai_msg_id, actions,
+                        classification=None, language='en', phone=''):
     """The ticket flow behind a HUMAN_HANDOVER / CREATE_TICKET action: local
     ticket + KET (with the chat's photos) + fallback email, the canonical
     events, and the reference appended to the stored reply. Returns the reply
     as the customer sees it."""
     cur = db.cursor()
     # STEP 1: Create ticket via solid 3-step flow (DB + KET + fallback email)
-    local_ticket_id, ket_ticket_id = _forward_ticket_from_chat(db, session_id, session, page_url)
+    local_ticket_id, ket_ticket_id = _forward_ticket_from_chat(
+        db, session_id, session, page_url, phone=phone, classification=classification)
 
     # Canonical escalation/ticket events (authoritative point: right after
     # the ticket flow completes). HANDOVER_ESCALATED marks the human-handover
@@ -2554,6 +2855,13 @@ def _ticket_for_actions(db, session_id, session, page_url, ai_reply, ai_msg_id, 
                       journey_stage=acr.STAGE_SUPPORT, success=bool(ket_ticket_id),
                       payload={'ket_ticket_id': ket_ticket_id,
                                'local_ticket_id': local_ticket_id})
+    reason = (classification or {}).get('ticket_reason')
+    acr.log_event(db, acr.EV_TICKET_CREATED, session_id=session_id,
+                  journey_stage=acr.STAGE_SUPPORT, action_type='CREATE_TICKET',
+                  success=bool(local_ticket_id or ket_ticket_id),
+                  payload={'ticket_reason': reason,
+                           'escalation_reason': (classification or {}).get('escalation_reason'),
+                           'ket_forwarded': bool(ket_ticket_id)})
 
     # Build ticket reference for customer
     ticket_ref = ""
@@ -2565,6 +2873,9 @@ def _ticket_for_actions(db, session_id, session, page_url, ai_reply, ai_msg_id, 
     if 'human_handover' in actions:
         ticket_msg = f"\n\nNow my supervisor will take over further answers. Ticket {ticket_ref}."
         ai_reply += ticket_msg
+    elif reason in _PERSON_INTENTS and ticket_ref:
+        ref_text, _ = ai_language.support_reply('ticket_ref', language, ref=ticket_ref)
+        ai_reply = f"{ai_reply.rstrip()} {ref_text}"
     else:
         ticket_msg = f"Your support ticket {ticket_ref} has been created. Our team will review and get back to you shortly."
         if not ai_reply.strip():
@@ -2806,19 +3117,30 @@ def dev_defect():
 
 @bp.route('/status', methods=['GET'])
 def chat_status():
-    """Check session status for a user (used by widget on load)."""
-    email = request.args.get('email', '').strip()
-    if not email:
+    """This browser's open session (used by widget on load): the signed-in
+    account's latest, or the anonymous session its owner cookie names."""
+    email = (flask_session.get('user_email') or '').strip()
+    owned = None if email else acr.session_from_chat_cookie(
+        request.cookies, current_app.config.get("SECRET_KEY", ""))
+    if not email and not owned:
         return jsonify({'has_active': False}), 200
 
     db = _get_db()
     cur = db.cursor()
-    cur.execute(
-        """SELECT session_id, status, created_at, last_activity FROM chat_sessions
-           WHERE contact_email = %s AND status IN ('active', 'ai_pending', 'human_pending', 'human_open')
-           ORDER BY last_activity DESC LIMIT 1""",
-        (email,)
-    )
+    if email:
+        cur.execute(
+            """SELECT session_id, status, created_at, last_activity FROM chat_sessions
+               WHERE contact_email = %s AND status IN ('active', 'ai_pending', 'human_pending', 'human_open')
+               ORDER BY last_activity DESC LIMIT 1""",
+            (email,)
+        )
+    else:
+        cur.execute(
+            """SELECT session_id, status, created_at, last_activity FROM chat_sessions
+               WHERE session_id = %s AND customer_id IS NULL
+                 AND status IN ('active', 'ai_pending', 'human_pending', 'human_open')""",
+            (owned,)
+        )
     active = cur.fetchone()
     db.close()
 
