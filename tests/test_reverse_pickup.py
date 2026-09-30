@@ -49,6 +49,7 @@ class ReversePickupTest(unittest.TestCase):
         self._get_db = reship_api.get_db
         reship_api.get_db = lambda: self.db
         os.environ[rp.ENABLED_ENV] = "true"
+        os.environ[rp.CUSTOMER_ENV] = "true"
         os.environ.pop(rp.WA_APPROVED_ENV, None)
         self.mails, self.wa = [], []
         self._mail, self._wa = reship._default_mailer, reship._default_whatsapp
@@ -63,6 +64,7 @@ class ReversePickupTest(unittest.TestCase):
         reship._default_mailer, reship._default_whatsapp = self._mail, self._wa
         reship_api.get_db = self._get_db
         os.environ.pop(rp.ENABLED_ENV, None)
+        os.environ.pop(rp.CUSTOMER_ENV, None)
         os.environ.pop(rp.WA_APPROVED_ENV, None)
         self.db.rollback()
         cur = self.db.cursor()
@@ -222,6 +224,25 @@ class ReversePickupTest(unittest.TestCase):
         r = self._post(oid, self._body())
         self.assertEqual((r.status_code, r.get_json()["error"]), (503, "disabled"))
         self.cur.execute("SELECT COUNT(*) AS n FROM order_reverse_pickups WHERE order_id=%s", (oid,))
+        self.assertEqual(self.cur.fetchone()["n"], 0)
+
+    def test_ops_only_mode_records_but_tells_the_customer_nothing(self):
+        os.environ.pop(rp.CUSTOMER_ENV, None)
+        os.environ[rp.WA_APPROVED_ENV] = "1"
+        _cid, oid = self._order()
+        r = self._post(oid, self._body())
+        self.assertEqual(r.status_code, 200, r.get_json())
+        state = r.get_json()["reverse_pickup"]["notification_state"]
+        self.assertEqual(state["sent"], [])
+        self.assertEqual(state["skipped"],
+                         [{"channel": "email", "reason": "customer_notifications_off"},
+                          {"channel": "whatsapp", "reason": "customer_notifications_off"}])
+        self.assertTrue(any("Reverse pickup booked with Delhivery" in h for h in self._history(oid)))
+        c = self._post(oid, {"awb": AWB}, path="/cancel")
+        self.assertEqual(c.get_json()["reverse_pickup"]["status"], "CANCELLED")
+        self.assertEqual((self.mails, self.wa), ([], []))
+        self.cur.execute("SELECT COUNT(*) AS n FROM reship_events WHERE order_id=%s "
+                         "AND event_type=%s", (oid, rp.EV_NOTIFIED))
         self.assertEqual(self.cur.fetchone()["n"], 0)
 
     def test_my_orders_card(self):
