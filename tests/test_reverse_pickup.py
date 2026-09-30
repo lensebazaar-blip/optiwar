@@ -134,6 +134,7 @@ class ReversePickupTest(unittest.TestCase):
         self.assertNotIn("evil.example", text)
         self.assertIn("do not hand it to any other courier", text)
         self.assertIn("clause 9B", text)
+        self.assertIn("reschedule, reply to this email or write to admin@optiwar.com", text)
         self.assertNotIn("Wrong power", text)
         self.assertEqual(self.wa, [])
         self.assertTrue(any("Reverse pickup booked with Delhivery, AWB %s" % AWB in h
@@ -156,7 +157,7 @@ class ReversePickupTest(unittest.TestCase):
                          ["email", "whatsapp"])
         self.assertEqual(len(self.wa), 1)
         phone, tpl, comps = self.wa[0]
-        self.assertEqual(tpl, "reverse_pickup_booked")
+        self.assertEqual(tpl, "reverse_pickup_booked_v2")
         self.assertEqual(phone, "919999900000")
         self.assertEqual(comps["body_2"]["value"], AWB)
 
