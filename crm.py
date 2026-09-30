@@ -355,6 +355,7 @@ def _legacy_support_route(route):
         db = get_db()
         acr.log_event(db, acr.EV_LEGACY_SUPPORT_ROUTE, journey_stage=acr.STAGE_SUPPORT,
                       payload={'route': route, 'method': request.method})
+        db.commit()
     except Exception as e:  # noqa: BLE001 - a retired route still answers
         logging.warning("legacy support route event not stored: %s", e)
 
