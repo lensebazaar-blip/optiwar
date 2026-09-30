@@ -32,6 +32,10 @@ def _app(enforce=True):
         # with an unsigned body is refuse it, so a 400 here means "reached".
         return jsonify(reached=True), 400
 
+    @bp.route("/ops/api/shipments/<order_id>/reverse-pickup", methods=["POST"])
+    def ops_reverse_pickup(order_id):
+        return jsonify(reached=True), 401
+
     @bp.route("/razorpay/verify", methods=["POST"])
     def razorpay_verify():
         return jsonify(reached=True), 200
@@ -68,6 +72,26 @@ class WebhookReachabilityTests(unittest.TestCase):
                        content_type="application/json", base_url=BASE)
         self.assertEqual(r.status_code, 403)
         self.assertNotIn("main.razorpay_verify", CSRF_EXEMPT_ENDPOINTS)
+
+    def test_an_ops_bearer_call_with_no_origin_reaches_the_view(self):
+        # Ops posts from its own server with the shared token; the view does
+        # the authentication, so a 401 here means "reached".
+        with _app().test_client() as c:
+            r = c.post("/ops/api/shipments/X/reverse-pickup", data="{}",
+                       content_type="application/json", base_url=BASE,
+                       headers={"Authorization": "Bearer t"})
+        self.assertEqual(r.status_code, 401)
+        self.assertTrue(r.get_json()["reached"])
+
+    def test_the_same_ops_route_without_a_bearer_is_still_guarded(self):
+        # The admin session cookie also authorises it, so a cross-site form
+        # post (which cannot carry an Authorization header) must stay blocked.
+        with _app().test_client() as c:
+            r = c.post("/ops/api/shipments/X/reverse-pickup", data="{}",
+                       content_type="application/json", base_url=BASE,
+                       headers={"Origin": "https://evil.example"})
+        self.assertEqual(r.status_code, 403)
+        self.assertNotIn("main.ops_reverse_pickup", CSRF_EXEMPT_ENDPOINTS)
 
     def test_the_guard_still_rejects_a_missing_origin_in_general(self):
         # The exemption is per-endpoint, not a weakening of the decision.

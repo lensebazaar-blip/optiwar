@@ -57,6 +57,19 @@ CSRF_EXEMPT_ENDPOINTS = {
     "main.face_scan_guest_save",          # remote face-scan guest (same binding + secret, X-Face-Scan-Csrf header)
 }
 
+# Ops server-to-server endpoints that also accept an admin session cookie. A
+# request carrying an Authorization header cannot be forged cross-site (a
+# browser only sends one after a CORS preflight this app never grants), so
+# only those skip the origin check; the cookie path stays guarded.
+BEARER_EXEMPT_ENDPOINTS = {
+    "main.ops_return_received",
+    "main.ops_reship_ship",
+    "main.ops_reship_hold",
+    "main.ops_reship_release_hold",
+    "main.ops_reverse_pickup",
+    "main.ops_reverse_pickup_cancel",
+}
+
 
 def _host(url):
     if not url:
@@ -91,8 +104,13 @@ def evaluate(origin, referer, request_host, trusted_hosts):
     return "cross-origin", True
 
 
-def _is_exempt(endpoint):
-    return bool(endpoint) and endpoint in CSRF_EXEMPT_ENDPOINTS
+def _is_exempt(endpoint, authorization=None):
+    if not endpoint:
+        return False
+    if endpoint in CSRF_EXEMPT_ENDPOINTS:
+        return True
+    return (endpoint in BEARER_EXEMPT_ENDPOINTS
+            and (authorization or "").startswith("Bearer "))
 
 
 def _ctype_category(ct):
@@ -143,7 +161,7 @@ def init_csrf_guard(app):
         if request.method not in CSRF_METHODS:
             return None
         endpoint = request.endpoint or ""
-        if _is_exempt(endpoint):
+        if _is_exempt(endpoint, request.headers.get("Authorization")):
             return None
 
         decision, would_block = evaluate(
