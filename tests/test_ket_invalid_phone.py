@@ -1,14 +1,12 @@
 """A KET lifecycle notice whose phone can never be a WhatsApp number.
 
 OPTIWA-1020/1021/1027 arrived with phone "+91". The send was refused locally
-as invalid_phone, retried five times and marked dead; the customer was told
-nothing. These prove the rule that replaces that:
+as invalid_phone, retried five times and marked dead. These prove the rule:
 
   - invalid_phone is permanent: the job is 'skipped' at once, never retried;
-  - the notice is emailed instead when the event carried an email, and the
-    lifecycle ends as a success ('notified_email');
-  - without an email the lifecycle records 'skipped_invalid_phone';
-  - a transient failure still retries and sends no email.
+  - no email is sent in its place: KET emails resolved/reopened itself (K12),
+    and the lifecycle records 'skipped_invalid_phone';
+  - a transient failure still retries.
 
     python3 -m unittest tests.test_ket_invalid_phone
 """
@@ -135,24 +133,18 @@ class InvalidPhoneTests(unittest.TestCase):
         crm._finalize_whatsapp_job("ket:e1:whatsapp", "e1", result, attempt, "optiwar.in")
         return DB["db"]
 
-    def test_invalid_phone_is_skipped_at_once_and_emailed(self):
+    def test_invalid_phone_is_skipped_at_once_and_not_emailed(self):
         db = self._finalize(INVALID)
         self.assertEqual(len(db.outbox_updates), 1)
         sql, params = db.outbox_updates[0]
         self.assertIn("status='skipped'", sql)
         self.assertNotIn("next_attempt_at", sql)
         self.assertEqual(params[0], "invalid_phone")
-        self.assertEqual(len(SENT), 1)
-        to, subject, body = SENT[0]
-        self.assertEqual(to, "asha@example.com")
-        self.assertIn("OPTIWA-1020", subject)
-        self.assertIn("Resolved", subject)
-        self.assertIn("https://optiwar.in/search", body)
-        self.assertEqual(db.lifecycle_status, ["notified_email"])
+        self.assertEqual(SENT, [])
+        self.assertEqual(db.lifecycle_status, ["skipped_invalid_phone"])
         kinds = [a[0] for a in db.audits]
-        self.assertEqual(kinds, ["whatsapp_result", "email_fallback"])
+        self.assertEqual(kinds, ["whatsapp_result"])
         self.assertEqual(db.audits[0][7], "skipped")
-        self.assertEqual(db.audits[1][7], "skipped_invalid_phone")
 
     def test_skipped_job_is_never_claimed_again(self):
         with open(os.path.join(REPO, "crm.py")) as fh:
@@ -163,27 +155,18 @@ class InvalidPhoneTests(unittest.TestCase):
             self.assertIn("status='pending' OR status='failed'", body)
             self.assertNotIn("skipped", body)
 
-    def test_reopened_event_gets_the_reopened_email(self):
-        self._finalize(INVALID, event=dict(EVENT, event="reopened"))
-        self.assertIn("Reopened", SENT[0][1])
-
-    def test_no_email_records_skipped_invalid_phone(self):
-        db = self._finalize(INVALID, event=dict(EVENT, email=""))
+    def test_reopened_with_invalid_phone_is_not_emailed_either(self):
+        db = self._finalize(INVALID, event=dict(EVENT, event="reopened"))
         self.assertEqual(SENT, [])
         self.assertEqual(db.lifecycle_status, ["skipped_invalid_phone"])
-        self.assertEqual(db.audits[-1][-1], "no_email")
 
-    def test_email_failure_is_recorded_as_notify_failed(self):
-        SEND_OK["ok"] = False
-        db = self._finalize(INVALID)
-        self.assertEqual(len(SENT), 1)
-        self.assertEqual(db.lifecycle_status, ["notify_failed"])
-        self.assertEqual(db.audits[-1][-1], "email_failed")
+    def test_no_email_fallback_remains(self):
+        self.assertFalse(hasattr(crm, "_email_lifecycle_fallback"))
 
     def test_invalid_phone_on_last_attempt_is_still_skipped_not_dead(self):
         db = self._finalize(INVALID, attempt=crm.WA_MAX_ATTEMPTS)
         self.assertIn("status='skipped'", db.outbox_updates[0][0])
-        self.assertEqual(db.lifecycle_status, ["notified_email"])
+        self.assertEqual(db.lifecycle_status, ["skipped_invalid_phone"])
 
     def test_transient_failure_retries_and_sends_no_email(self):
         db = self._finalize({"ok": False, "request_id": "", "status": "failed",
