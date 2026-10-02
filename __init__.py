@@ -268,10 +268,7 @@ def create_app(test_config=None):
     file_handler.setFormatter(logging.Formatter(
         '[%(asctime)s] %(levelname)s in %(module)s: %(message)s'
     ))
-    file_handler.setLevel(logging.DEBUG)
-
     app.logger.addHandler(file_handler)
-    app.logger.setLevel(logging.DEBUG)
     app.logger.propagate = False
 
     # 🛡️ Log IP, UA, session info before every request
@@ -388,8 +385,11 @@ def create_app(test_config=None):
     from . import ai_api
     app.register_blueprint(ai_api.bp)
 
-    from . import face_scan
-    app.register_blueprint(face_scan.bp)
+    # Its face_scan_requests table is not on production; My Faces links
+    # (face_scan_invites) are the live path.
+    if os.environ.get('FACE_SCAN_LINK_ENABLED', '').strip().lower() in ('1', 'true', 'yes'):
+        from . import face_scan
+        app.register_blueprint(face_scan.bp)
     app.config.setdefault('FACE_SCAN_TOKEN_HOURS',
                           os.environ.get('FACE_SCAN_TOKEN_HOURS', 72))
     app.config.setdefault('FACE_SCAN_RETENTION_DAYS',
@@ -427,5 +427,8 @@ def create_app(test_config=None):
     @app.route('/hello')
     def hello():
         return ' Hello everyone - Optiwar2 is back'
+
+    from . import log_hygiene
+    log_hygiene.install(app)
 
     return app

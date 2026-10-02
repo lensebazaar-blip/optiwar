@@ -3024,7 +3024,7 @@ def checkout_page():
     user_id = session.get('user_id')
     user_email = session.get('user_email')
     user_name_sess = session.get('user_name', '')
-    print(f"[PREFILL] user_id={user_id}, user_email={user_email}, user_name={user_name_sess}")
+    print(f"[PREFILL] user_id={user_id}")
 
     # Use a fresh cursor to avoid any state issues from previous queries
     prefill_cursor = db.cursor()
@@ -3044,7 +3044,7 @@ def checkout_page():
                 prefill['name'] = cust.get('customer_name', '') or ''
                 prefill['email'] = cust.get('customer_email', '') or ''
                 prefill['phone'] = cust.get('customer_phone', '') or ''
-                print(f"[PREFILL] Found customer: {prefill.get('name')}, phone: {prefill.get('phone')}, email: {prefill.get('email')}")
+                print(f"[PREFILL] Found customer for user_id={user_id}")
 
             # Session-based fallbacks (always override email with authenticated email)
             if not prefill.get('name') and user_name_sess:
@@ -3077,9 +3077,9 @@ def checkout_page():
                 prefill['state'] = addr.get('state', '') or ''
                 prefill['zipcode'] = addr.get('zipcode', '') or ''
                 prefill['country'] = addr.get('country', '') or ''
-                print(f"[PREFILL] Found address: {prefill.get('address')}")
+                print(f"[PREFILL] Found address for user_id={user_id}")
             else:
-                print(f"[PREFILL] No address found for user_id={user_id}, email={user_email}")
+                print(f"[PREFILL] No address found for user_id={user_id}")
         except Exception as e:
             import traceback
             print(f"[PREFILL] Error: {e}")
@@ -3104,7 +3104,7 @@ def checkout_page():
             print(f"[SAVED_ADDR] Error: {e}")
 
     prefill_cursor.close()
-    print(f"[PREFILL] Final prefill dict: {prefill}")
+    print(f"[PREFILL] Filled fields: {sorted(k for k, v in prefill.items() if v)}")
     # Filter out India addresses on optiwar.com (global/EUR site)
     if saved_addresses and not _req_is_india():
         saved_addresses = [a for a in saved_addresses if (a.get('country') or '').strip().lower() != 'india']

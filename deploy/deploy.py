@@ -74,7 +74,7 @@ RELEASES = os.environ.get("OPTIWAR_RELEASES", "/root/deploy_releases")
 # eligibility rule is only true if every read surface applies it, so shipping
 # models.py without chat.py, ai_api.py or orders.py would leave a lens visible
 # on .in through the chat, the fitting API or the favourites list.
-DEPLOY_SET = ("acr.py", "ai_api.py", "ai_client.py", "catalogue.py", "chat.py",
+DEPLOY_SET = ("__init__.py", "log_hygiene.py", "acr.py", "ai_api.py", "ai_client.py", "catalogue.py", "chat.py",
               "chat_gateway.py", "contact_lens.py", "dev_defects.py",
               "lens_minimums.py",
               "lens_rx.py", "lens_documents.py", "lens_upload.py",
@@ -112,7 +112,7 @@ DEPLOY_SET = ("acr.py", "ai_api.py", "ai_client.py", "catalogue.py", "chat.py",
 # new module; listing one here says the absence is expected and the file is to
 # be created. A rollback restores only what it replaced, so these stay behind —
 # harmless, because the code that imports them is reverted with them.
-NEW_IN_RELEASE = ("ai_language.py", "rx_lookup.py", "order_lookup.py", "paid_orders.py", "razorpay_events.py", "rx_powers.py",
+NEW_IN_RELEASE = ("log_hygiene.py", "ai_language.py", "rx_lookup.py", "order_lookup.py", "paid_orders.py", "razorpay_events.py", "rx_powers.py",
                   "razorpay_settlement.py", "razorpay_reconcile.py",
                   "refunds.py", "ops_refunds.py", "catalogue.py",
                   "contact_lens.py", "dev_defects.py", "lens_minimums.py",
@@ -141,6 +141,13 @@ NEW_IN_RELEASE = ("ai_language.py", "rx_lookup.py", "order_lookup.py", "paid_ord
 # deploy destroying the only copy of an edit; when the whole of that edit is
 # known and deliberately not being kept, recording it here is the audit trail.
 REVIEWED_DRIFT = {
+    # Reviewed 2026-10-02 against origin/main: the running file has no line
+    # main lacks (one blank line and a shorter GCR comment). main adds the
+    # RAZORPAY_WEBHOOK_SECRET config read and face_scan, which stays
+    # unregistered unless FACE_SCAN_LINK_ENABLED, so production's routes are
+    # unchanged.
+    "__init__.py": {"3e79347f3b9366bcefae0b3c8c38d2b2":
+                    "older copy of main; no production-only content"},
     # Reviewed 2026-08-25 against origin/main: main is ahead on every hunk
     # (append-only status writes, the paid-order pipeline, the .com lens
     # localisation) and the file's only production-unique content is a Google
