@@ -135,6 +135,17 @@ def main():
         reship_summary = {'error': str(exc)[:160]}
     summary['reship'] = reship_summary
 
+    # Reverse-pickup events Ops has not yet answered 2xx for.
+    try:
+        from flaskr import reverse_pickup
+        with app.test_request_context(base_url='https://optiwar.in/'):
+            db = get_db()
+            reverse_pickup.ensure_schema(db)
+            summary['reverse_pickup_ops'] = reverse_pickup.deliver_ops_events(db, logger=app.logger)
+    except Exception as exc:  # noqa: BLE001 - must never stop the order reconcile
+        app.logger.error('REVERSE_PICKUP_OPS_SYNC_FAILED %s' % exc)
+        summary['reverse_pickup_ops'] = {'error': str(exc)[:160]}
+
     summary['mode'] = mode
     text = summary_json(summary, started)
     try:

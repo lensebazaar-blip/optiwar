@@ -17,6 +17,10 @@ Ops (``ops._require_ops_auth``: admin session or Bearer OPS_API_TOKEN):
     POST /ops/api/reshipments/<uuid>/release-hold       resume it; deadline moves out
     POST /ops/api/shipments/<order_id>/reverse-pickup   record a Delhivery reverse waybill
     POST /ops/api/shipments/<order_id>/reverse-pickup/cancel
+    GET  /ops/api/shipments/<order_id>/reverse-pickup   authoritative return + fee state
+    GET  /ops/api/reverse-pickup/queue                  open cases, order ref + states only
+    POST /ops/api/shipments/<order_id>/reverse-pickup/fee/waive
+    POST /ops/api/shipments/<order_id>/reverse-pickup/reason
 
 Routes attach to the main blueprint; ``__init__.py`` and ``ops.py`` are not in
 the deployment set.
@@ -271,6 +275,62 @@ def register(bp):
             current_app.logger.error("REVERSE_PICKUP_NOTIFY_ERROR event:%s pickup:%s %s"
                                      % (event, row["pickup_uuid"], exc))
 
+    def _rp_deliver(db):
+        try:
+            reverse_pickup.deliver_ops_events(db, logger=current_app.logger)
+        except Exception as exc:  # noqa: BLE001 - the outbox keeps it for the next attempt
+            current_app.logger.error("REVERSE_PICKUP_OPS_SYNC_ERROR %s" % exc)
+
+    @bp.route("/ops/api/shipments/<order_id>/reverse-pickup", methods=["GET"])
+    def ops_reverse_pickup_state(order_id):
+        denied = _rp_gate()
+        if denied:
+            return denied
+        view = reverse_pickup.state_view(get_db(), order_id)
+        if view is None:
+            return jsonify({"ok": False, "error": "not_found"}), 404
+        return jsonify(dict(view, ok=True))
+
+    @bp.route("/ops/api/reverse-pickup/queue", methods=["GET"])
+    def ops_reverse_pickup_queue():
+        denied = _rp_gate()
+        if denied:
+            return denied
+        items = reverse_pickup.ops_queue(get_db())
+        return jsonify({"ok": True, "count": len(items), "items": items})
+
+    @bp.route("/ops/api/shipments/<order_id>/reverse-pickup/fee/waive", methods=["POST"])
+    def ops_reverse_pickup_waive(order_id):
+        """Ops waives the fee; the customer is asked for nothing."""
+        denied = _rp_gate()
+        if denied:
+            return denied
+        body = _body()
+        db = get_db()
+        try:
+            case, changed = reverse_pickup.waive(db, order_id, body, _ops_operator(body))
+        except reverse_pickup.ReversePickupError as exc:
+            return _rp_error(exc)
+        if changed:
+            _rp_deliver(db)
+        return jsonify({"ok": True, "changed": changed, "case_id": case["case_uuid"],
+                        "fee": reverse_pickup.fee_view(case)})
+
+    @bp.route("/ops/api/shipments/<order_id>/reverse-pickup/reason", methods=["POST"])
+    def ops_reverse_pickup_reason(order_id):
+        """Correct Optiwar's return reason; the courier booking is unchanged."""
+        denied = _rp_gate()
+        if denied:
+            return denied
+        body = _body()
+        try:
+            row, changed, old = reverse_pickup.correct_reason(get_db(), order_id, body,
+                                                              _ops_operator(body))
+        except reverse_pickup.ReversePickupError as exc:
+            return _rp_error(exc)
+        return jsonify({"ok": True, "changed": changed, "awb": row["awb"],
+                        "old_reason": old or None, "reason": row.get("reason")})
+
     @bp.route("/ops/api/shipments/<order_id>/reverse-pickup", methods=["POST"])
     def ops_reverse_pickup(order_id):
         """Ops booked a Delhivery reverse waybill; record it and tell the
@@ -286,7 +346,9 @@ def register(bp):
             return _rp_error(exc)
         if created:
             _rp_notify(db, reverse_pickup.EV_BOOKED, row)
+            _rp_deliver(db)
         return jsonify({"ok": True, "created": created,
+                        "fee": reverse_pickup.fee_view(reverse_pickup.case_for_order(db, row["order_id"])),
                         "reverse_pickup": reverse_pickup.ops_view(db, row, reverse_pickup.EV_BOOKED)})
 
     @bp.route("/ops/api/shipments/<order_id>/reverse-pickup/cancel", methods=["POST"])
@@ -302,6 +364,7 @@ def register(bp):
             return _rp_error(exc)
         if changed:
             _rp_notify(db, reverse_pickup.EV_CANCELLED, row)
+            _rp_deliver(db)
         return jsonify({"ok": True, "changed": changed,
                         "reverse_pickup": reverse_pickup.ops_view(db, row, reverse_pickup.EV_CANCELLED)})
 

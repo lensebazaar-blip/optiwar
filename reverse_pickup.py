@@ -1,6 +1,13 @@
 """India reverse pickup: Ops books a Delhivery reverse waybill, Optiwar
 records it against the order and tells the customer.
 
+Optiwar is the authority for the ₹250 reverse-pickup fee: one
+``reverse_pickup_cases`` row per return holds its state (DUE / PAID / WAIVED /
+REFUNDED / PARTIALLY_REFUNDED), and a waybill is recorded only once that fee is
+PAID or WAIVED. Every transition Ops must know about is written to
+``reverse_pickup_ops_outbox`` in the same transaction and delivered, signed,
+until Ops answers 2xx.
+
 Ops owns the courier booking; this module owns the customer's side of it:
 one ``order_reverse_pickups`` row per waybill, an order-history line, the
 email / WhatsApp notice (once per channel, claimed in ``reship_events``),
@@ -8,6 +15,8 @@ and the My Orders card. The forward AWB is never rewritten, the customer
 tracking link is built here from the AWB (never taken from the request), and
 a replay of the same AWB returns the stored row without a second message.
 """
+import hashlib
+import hmac
 import json
 import os
 import uuid
@@ -36,6 +45,30 @@ EV_BOOKED = "reverse_pickup.booked"
 EV_CANCELLED = "reverse_pickup.cancelled"
 EV_NOTIFIED = "reverse_pickup.notified"
 EV_NOTIFY_FAILED = "reverse_pickup.notification_failed"
+EV_FEE_WAIVED = "reverse_pickup.fee_waived"
+# Internal audit only; not an Ops event.
+EV_REASON_CORRECTED = "reverse_pickup.reason_corrected"
+
+FEE_DUE = "DUE"
+FEE_PAID = "PAID"
+FEE_WAIVED = "WAIVED"
+FEE_REFUNDED = "REFUNDED"
+FEE_PARTIALLY_REFUNDED = "PARTIALLY_REFUNDED"
+FEE_SETTLED = (FEE_PAID, FEE_WAIVED)
+FEE_MINOR = reship.FEE_MINOR
+FEE_CURRENCY = reship.CURRENCY
+
+WAIVER_REASONS = ("OWNER_DECISION", "GOODWILL", "DEFECT_EVIDENT_PRE_PICKUP",
+                  "PRE_EXISTING_CASE", "BOOKED_BEFORE_FEE_FLOW", "OTHER")
+
+QUEUE_LABELS = {"AWAITING_FEE": "AWAITING ₹250",
+                "READY_TO_BOOK": "READY TO BOOK PICKUP",
+                "PICKUP_BOOKED": "PICKUP BOOKED",
+                "FEE_NOT_RECORDED": "FEE NOT RECORDED"}
+
+OUT_PENDING = "PENDING"
+OUT_SENT = "SENT"
+OUT_FAILED = "FAILED"
 
 TABLE_DDL = """CREATE TABLE IF NOT EXISTS order_reverse_pickups (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -65,7 +98,74 @@ TABLE_DDL = """CREATE TABLE IF NOT EXISTS order_reverse_pickups (
     KEY idx_rp_customer (customer_id, booked_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
 
-TABLES = [("order_reverse_pickups", TABLE_DDL)]
+CASE_DDL = """CREATE TABLE IF NOT EXISTS reverse_pickup_cases (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    case_uuid           CHAR(36) NOT NULL,
+    order_id            VARCHAR(64) NOT NULL,
+    case_no             SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+    customer_id         BIGINT NULL,
+    site_from           VARCHAR(64) NULL,
+    source              VARCHAR(24) NOT NULL,
+    return_reason       VARCHAR(255) NULL,
+    fee_state           VARCHAR(24) NOT NULL,
+    fee_amount_minor    INT NOT NULL,
+    fee_currency        CHAR(3) NOT NULL,
+    fee_refunded_minor  INT NOT NULL DEFAULT 0,
+    fee_paid_at         DATETIME NULL,
+    razorpay_order_id   VARCHAR(64) NULL,
+    razorpay_payment_id VARCHAR(64) NULL,
+    waiver_reason_code  VARCHAR(32) NULL,
+    waiver_note         VARCHAR(500) NULL,
+    waived_by           VARCHAR(191) NULL,
+    waived_at           DATETIME NULL,
+    received_by         VARCHAR(191) NULL,
+    received_at         DATETIME NULL,
+    received_awb        VARCHAR(32) NULL,
+    received_condition  VARCHAR(32) NULL,
+    received_notes      VARCHAR(500) NULL,
+    inspection_defect   TINYINT(1) NULL,
+    inspection_remarks  VARCHAR(1000) NULL,
+    inspected_by        VARCHAR(191) NULL,
+    inspected_at        DATETIME NULL,
+    consent_recorded_by VARCHAR(191) NULL,
+    consent_at          DATETIME NULL,
+    consent_message_id  VARCHAR(255) NULL,
+    completed_outcome   VARCHAR(32) NULL,
+    completed_note      VARCHAR(500) NULL,
+    completed_by        VARCHAR(191) NULL,
+    completed_at        DATETIME NULL,
+    created_by          VARCHAR(191) NOT NULL,
+    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                        ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_rpc_uuid (case_uuid),
+    UNIQUE KEY uq_rpc_order_no (order_id, case_no),
+    UNIQUE KEY uq_rpc_payment (razorpay_payment_id),
+    KEY idx_rpc_fee (fee_state, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
+
+OUTBOX_DDL = """CREATE TABLE IF NOT EXISTS reverse_pickup_ops_outbox (
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    event_id    CHAR(36) NOT NULL,
+    event       VARCHAR(64) NOT NULL,
+    order_id    VARCHAR(64) NOT NULL,
+    case_uuid   CHAR(36) NULL,
+    body        MEDIUMTEXT NOT NULL,
+    status      VARCHAR(12) NOT NULL,
+    attempts    INT NOT NULL DEFAULT 0,
+    last_status INT NULL,
+    last_error  VARCHAR(255) NULL,
+    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    sent_at     DATETIME NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_rpo_event (event_id),
+    KEY idx_rpo_status (status, id),
+    KEY idx_rpo_order (order_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
+
+TABLES = [("order_reverse_pickups", TABLE_DDL), ("reverse_pickup_cases", CASE_DDL),
+          ("reverse_pickup_ops_outbox", OUTBOX_DDL)]
 
 _WA_TEMPLATES = {EV_BOOKED: "reverse_pickup_booked_v2", EV_CANCELLED: "reverse_pickup_cancelled_v2"}
 CHANGE_EMAIL = "admin@optiwar.com"
@@ -205,6 +305,13 @@ def book(db, order_id, body, operator):
         db.rollback()
         raise ReversePickupError("active_pickup_exists",
                                  "order already has an active reverse pickup (AWB %s)" % active["awb"], 409)
+    case = case_for_order(db, oid, for_update=True)
+    if not case or case["fee_state"] not in FEE_SETTLED:
+        db.rollback()
+        raise ReversePickupError(
+            "fee_not_settled",
+            "reverse-pickup fee is %s; a pickup is booked only when it is PAID or WAIVED"
+            % (case["fee_state"] if case else "not recorded"), 409)
 
     forward = _clip(body.get("forward_awb"), 64).upper()
     on_record = reship.shipments_for_orders(db, [oid]).get(oid)
@@ -228,8 +335,14 @@ def book(db, order_id, body, operator):
                    forward or "n/a", _clip(operator, 120)), head.get("site_from"))
     reship.emit(db, EV_BOOKED, oid, row_uuid, head.get("customer_id"),
                 {"awb": awb, "operator": _clip(operator, 120)}, key=row_uuid, commit=False)
+    row = by_awb(db, awb)
+    queue_ops_event(db, EV_BOOKED, oid,
+                    {"courier": COURIER, "awb": awb, "reference": row.get("reference") or None,
+                     "forward_awb": forward or None, "booked_by": _clip(operator, 191),
+                     "booked_at": _iso(row.get("booked_at"))},
+                    case=case, pickup=row, key=row_uuid, commit=False)
     db.commit()
-    return by_awb(db, awb), True
+    return row, True
 
 
 def cancel(db, order_id, body, operator):
@@ -254,8 +367,13 @@ def cancel(db, order_id, body, operator):
                 % (row["awb"], _clip(operator, 120)), row.get("site_from"))
     reship.emit(db, EV_CANCELLED, oid, row["pickup_uuid"], row.get("customer_id"),
                 {"awb": row["awb"], "operator": _clip(operator, 120)}, key=row["pickup_uuid"], commit=False)
+    row = by_awb(db, row["awb"])
+    queue_ops_event(db, EV_CANCELLED, oid,
+                    {"awb": row["awb"], "cancelled_by": _clip(operator, 191),
+                     "cancelled_at": _iso(row.get("cancelled_at"))},
+                    case=case_for_order(db, oid), pickup=row, key=row["pickup_uuid"], commit=False)
     db.commit()
-    return by_awb(db, row["awb"]), True
+    return row, True
 
 
 def _host_url(host, path):
@@ -296,10 +414,17 @@ def notify(db, event_type, row, host, mailer=None, whatsapp=None, environ=None):
                            {"event": event_type, "channel": channel}, key=key,
                            suffix="%s:%s" % (event_type, channel))
 
+    def tell_ops(ev, channel, extra=None):
+        data = {"notified_event": event_type, "channel": channel}
+        data.update(extra or {})
+        queue_ops_event(db, ev, row["order_id"], data, case=case_for_order(db, row["order_id"]),
+                        pickup=row, key=key, suffix="%s:%s" % (event_type, channel))
+
     def failed(channel, exc):
         reship.emit(db, EV_NOTIFY_FAILED, row["order_id"], key, row.get("customer_id"),
                     {"event": event_type, "channel": channel, "error": str(exc)[:160]},
                     key=key, suffix="%s:%s:fail" % (event_type, channel))
+        tell_ops(EV_NOTIFY_FAILED, channel, {"error": str(exc)[:160]})
 
     email = (acct.get("customer_email") or "").strip()
     if email and "@" in email and claim("email"):
@@ -308,6 +433,8 @@ def notify(db, event_type, row, host, mailer=None, whatsapp=None, environ=None):
             (mailer or reship._default_mailer)(email, subject.format(**fields), text.format(**fields))
         except Exception as exc:  # noqa: BLE001
             failed("email", exc)
+        else:
+            tell_ops(EV_NOTIFIED, "email")
 
     phone = (acct.get("customer_phone") or "").strip()
     approved = str(env.get(WA_APPROVED_ENV, "")).strip().lower() in ("1", "true", "yes")
@@ -319,6 +446,8 @@ def notify(db, event_type, row, host, mailer=None, whatsapp=None, environ=None):
                 _wa_components(event_type, fields)) or {}
             if not r.get("ok"):
                 failed("whatsapp", r.get("error") or "not accepted")
+            else:
+                tell_ops(EV_NOTIFIED, "whatsapp")
         except Exception as exc:  # noqa: BLE001
             failed("whatsapp", exc)
     return notification_state(db, row, event_type, environ=env)
@@ -374,3 +503,318 @@ def public_view(row):
     return {"state": row["status"], "awb": row["awb"], "courier": row["courier"],
             "track_url": reship.tracking_url(COURIER, row["awb"]),
             "booked_at": row.get("booked_at"), "cancelled_at": row.get("cancelled_at")}
+
+
+# --------------------------------------------------------------------------
+# the return case and its fee: Optiwar is the authority
+# --------------------------------------------------------------------------
+
+def _iso(value):
+    return value.isoformat() if hasattr(value, "isoformat") else (str(value) if value else None)
+
+
+def _is_duplicate_key(exc):
+    return bool(exc.args and exc.args[0] in (1062, 1586)) or "Duplicate entry" in str(exc)
+
+
+def case_for_order(db, order_id, for_update=False):
+    """The order's latest return case, or None."""
+    cur = db.cursor()
+    cur.execute("SELECT * FROM reverse_pickup_cases WHERE order_id=%s ORDER BY case_no DESC LIMIT 1"
+                + (" FOR UPDATE" if for_update else ""), (order_id,))
+    return cur.fetchone()
+
+
+def case_by_uuid(db, case_uuid):
+    cur = db.cursor()
+    cur.execute("SELECT * FROM reverse_pickup_cases WHERE case_uuid=%s", (case_uuid,))
+    return cur.fetchone()
+
+
+def latest_for_order(db, order_id, for_update=False):
+    cur = db.cursor()
+    cur.execute("SELECT * FROM order_reverse_pickups WHERE order_id=%s ORDER BY id DESC LIMIT 1"
+                + (" FOR UPDATE" if for_update else ""), (order_id,))
+    return cur.fetchone()
+
+
+def fee_summary(case):
+    """The financial state every Ops event carries."""
+    if not case:
+        return {"state": None, "amount_minor": FEE_MINOR, "refunded_minor": 0,
+                "currency": FEE_CURRENCY}
+    return {"state": case["fee_state"], "amount_minor": int(case["fee_amount_minor"]),
+            "refunded_minor": int(case.get("fee_refunded_minor") or 0),
+            "currency": case["fee_currency"]}
+
+
+def fee_view(case):
+    out = fee_summary(case)
+    out["paid_at"] = _iso(case.get("fee_paid_at")) if case else None
+    out["waiver"] = ({"reason_code": case["waiver_reason_code"],
+                      "note": case.get("waiver_note") or None,
+                      "waived_by": case.get("waived_by"),
+                      "waived_at": _iso(case.get("waived_at"))}
+                     if case and case.get("waived_at") else None)
+    out["refunds"] = []
+    return out
+
+
+def queue_ops_event(db, event, order_id, data, case=None, pickup=None, key=None, suffix="",
+                    commit=True):
+    """Write one Ops event to the outbox. The body is stored as the exact bytes
+    later signed and sent; the same (event, key, suffix) is written once."""
+    eid = reship.event_id_for(event, key or (case or {}).get("case_uuid")
+                              or (pickup or {}).get("pickup_uuid") or order_id, "ops:" + suffix)
+    payload = {"event_id": eid, "event": event, "occurred_at": _iso(reship.db_now(db)),
+               "order_ref": order_id,
+               "case_id": case.get("case_uuid") if case else None,
+               "reverse_pickup_id": pickup.get("pickup_uuid") if pickup else None,
+               "awb": pickup.get("awb") if pickup else None,
+               "fee": fee_summary(case), "data": data or {}}
+    body = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    cur = db.cursor()
+    cur.execute("INSERT IGNORE INTO reverse_pickup_ops_outbox (event_id, event, order_id, case_uuid, "
+                "body, status) VALUES (%s,%s,%s,%s,%s,%s)",
+                (eid, event, order_id, payload["case_id"], body, OUT_PENDING))
+    if commit:
+        db.commit()
+    return eid
+
+
+def deliver_ops_events(db, environ=None, http_post=None, limit=50, logger=None):
+    """POST undelivered outbox events to ``RESHIP_OPS_WEBHOOK_URL`` in the
+    order they were written, signed with ``RESHIP_OPS_WEBHOOK_SECRET`` over
+    the exact body. A 2xx marks one SENT; anything else marks it FAILED and
+    stops the batch, so Ops never receives a later event before an earlier
+    one. The next call (or the reconcile cron) retries."""
+    env = os.environ if environ is None else environ
+    summary = {"sent": 0, "failed": 0}
+    url = str(env.get(reship.OPS_WEBHOOK_URL_ENV, "")).strip()
+    if not url:
+        summary["skipped"] = "no_webhook_url"
+        return summary
+    secret = str(env.get(reship.OPS_WEBHOOK_SECRET_ENV, "")).strip().encode("utf-8")
+    cur = db.cursor()
+    cur.execute("SELECT id, event_id, event, body FROM reverse_pickup_ops_outbox "
+                "WHERE status IN (%s,%s) ORDER BY id LIMIT %s", (OUT_PENDING, OUT_FAILED, int(limit)))
+    rows = cur.fetchall()
+    db.commit()
+    for r in rows:
+        body = r["body"].encode("utf-8")
+        headers = {"Content-Type": "application/json", "X-Optiwar-Event": r["event"],
+                   "X-Optiwar-Event-Id": r["event_id"]}
+        status = None
+        if not secret:
+            ok, err = False, "%s not configured; event not sent" % reship.OPS_WEBHOOK_SECRET_ENV
+        else:
+            headers["X-Optiwar-Signature"] = "sha256=" + hmac.new(secret, body, hashlib.sha256).hexdigest()
+            try:
+                status = int((http_post or reship._default_http_post)(url, body, headers) or 0)
+                ok = 200 <= status < 300
+                err = None if ok else "http %s" % status
+            except Exception as exc:  # noqa: BLE001
+                ok, err = False, str(exc)[:160]
+        cur.execute("UPDATE reverse_pickup_ops_outbox SET status=%s, attempts=attempts+1, "
+                    "last_status=%s, last_error=%s, sent_at=IF(%s, NOW(), sent_at) WHERE id=%s",
+                    (OUT_SENT if ok else OUT_FAILED, status, err, ok, r["id"]))
+        db.commit()
+        if not ok:
+            summary["failed"] += 1
+            if logger:
+                logger.warning("REVERSE_PICKUP_OPS_SYNC_FAILED event:%s %s %s"
+                               % (r["event_id"], r["event"], err))
+            break
+        summary["sent"] += 1
+    return summary
+
+
+def waive(db, order_id, body, operator):
+    """Ops waives the fee. Works when no case exists yet (a pickup booked
+    before the fee flow); never asks the customer for anything. Returns
+    ``(case, changed)``: the same waiver again is ``changed`` False, a
+    different one is refused."""
+    ensure_schema(db)
+    oid = resolve_order_id(db, order_id)
+    if not oid:
+        raise ReversePickupError("not_found", "order not found", 404)
+    code = str(body.get("reason_code") or "").strip().upper()
+    if code not in WAIVER_REASONS:
+        raise ReversePickupError("invalid_reason_code",
+                                 "reason_code must be one of %s" % ", ".join(WAIVER_REASONS))
+    note = _clip(body.get("note"), 500)
+    if code == "OTHER" and not note:
+        raise ReversePickupError("note_required", "reason_code OTHER requires a note")
+    cur = db.cursor()
+    head = reship._order_head(cur, oid)
+    if not reship.is_india_host(head.get("site_from")):
+        raise ReversePickupError("not_india_order", "reverse pickup is only for India orders")
+    who = _clip(operator, 191)
+    for attempt in (1, 2):
+        case = case_for_order(db, oid, for_update=True)
+        if case:
+            if case["fee_state"] == FEE_WAIVED:
+                db.rollback()
+                if case["waiver_reason_code"] == code and (case.get("waiver_note") or "") == note:
+                    return case, False
+                raise ReversePickupError("waiver_exists", "the fee is already waived (%s)"
+                                         % case["waiver_reason_code"], 409)
+            if case["fee_state"] != FEE_DUE:
+                db.rollback()
+                raise ReversePickupError("fee_not_waivable", "the fee is %s; only a DUE fee can be waived"
+                                         % case["fee_state"], 409)
+            cur.execute("UPDATE reverse_pickup_cases SET fee_state=%s, waiver_reason_code=%s, "
+                        "waiver_note=%s, waived_by=%s, waived_at=NOW() WHERE id=%s AND fee_state=%s",
+                        (FEE_WAIVED, code, note or None, who, case["id"], FEE_DUE))
+            case_uuid = case["case_uuid"]
+            break
+        case_uuid = str(uuid.uuid4())
+        try:
+            cur.execute(
+                "INSERT INTO reverse_pickup_cases (case_uuid, order_id, case_no, customer_id, site_from, "
+                "source, fee_state, fee_amount_minor, fee_currency, waiver_reason_code, waiver_note, "
+                "waived_by, waived_at, created_by) VALUES (%s,%s,1,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),%s)",
+                (case_uuid, oid, head.get("customer_id"), head.get("site_from"), "ops_waiver",
+                 FEE_WAIVED, FEE_MINOR, FEE_CURRENCY, code, note or None, who, who))
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            if attempt == 1 and _is_duplicate_key(exc):
+                continue
+            raise
+        break
+    case = case_by_uuid(db, case_uuid)
+    add_history(cur, oid, "Reverse-pickup fee INR %d waived by %s, reason %s%s"
+                % (FEE_MINOR // 100, _clip(operator, 120), code, " (%s)" % note if note else ""),
+                head.get("site_from"))
+    reship.emit(db, EV_FEE_WAIVED, oid, case_uuid, head.get("customer_id"),
+                {"reason_code": code, "note": note or None, "operator": who},
+                key=case_uuid, commit=False)
+    queue_ops_event(db, EV_FEE_WAIVED, oid,
+                    {"reason_code": code, "note": note or None, "waived_by": who,
+                     "waived_at": _iso(case.get("waived_at"))},
+                    case=case, pickup=latest_for_order(db, oid), key=case_uuid, commit=False)
+    db.commit()
+    return case, True
+
+
+def correct_reason(db, order_id, body, operator):
+    """Correct the return reason on Optiwar's record. The courier booking is
+    not touched. Returns ``(row, changed, old_reason)``."""
+    ensure_schema(db)
+    oid = resolve_order_id(db, order_id)
+    if not oid:
+        raise ReversePickupError("not_found", "order not found", 404)
+    reason = _clip(body.get("reason"), 255)
+    if not reason:
+        raise ReversePickupError("reason_required", "reason required")
+    awb = _normal_awb(body.get("awb"))
+    row = by_awb(db, awb, for_update=True) if awb else latest_for_order(db, oid, for_update=True)
+    if not row or row["order_id"] != oid:
+        db.rollback()
+        raise ReversePickupError("not_found", "no reverse pickup with this AWB on this order", 404)
+    old = row.get("reason") or ""
+    if old == reason:
+        db.rollback()
+        return row, False, old
+    cur = db.cursor()
+    cur.execute("UPDATE order_reverse_pickups SET reason=%s WHERE id=%s", (reason, row["id"]))
+    case = case_for_order(db, oid, for_update=True)
+    if case:
+        cur.execute("UPDATE reverse_pickup_cases SET return_reason=%s WHERE id=%s", (reason, case["id"]))
+    at = reship.db_now(db)
+    who = _clip(operator, 191)
+    add_history(cur, oid, 'Return reason for reverse pickup AWB %s corrected from "%s" to "%s" by %s'
+                % (row["awb"], old or "-", reason, _clip(operator, 120)), row.get("site_from"))
+    reship.emit(db, EV_REASON_CORRECTED, oid, row["pickup_uuid"], row.get("customer_id"),
+                {"awb": row["awb"], "operator": who, "old_reason": old or None,
+                 "new_reason": reason, "at": _iso(at)},
+                key=row["pickup_uuid"], suffix=str(uuid.uuid4()), commit=False)
+    db.commit()
+    return by_awb(db, row["awb"]), True, old
+
+
+def _queue_state(case, pickup):
+    if pickup and pickup["status"] == ST_BOOKED:
+        return "PICKUP_BOOKED"
+    if not case:
+        return "FEE_NOT_RECORDED"
+    if case["fee_state"] == FEE_DUE:
+        return "AWAITING_FEE"
+    if case["fee_state"] in FEE_SETTLED:
+        return "READY_TO_BOOK"
+    return case["fee_state"]
+
+
+def state_view(db, order_id):
+    """Everything Ops needs about one order's return, financial state
+    included, so nothing has to be reconstructed. None for an unknown order."""
+    ensure_schema(db)
+    oid = resolve_order_id(db, order_id)
+    if not oid:
+        return None
+    case = case_for_order(db, oid)
+    cur = db.cursor()
+    cur.execute("SELECT * FROM order_reverse_pickups WHERE order_id=%s ORDER BY id", (oid,))
+    pickups = cur.fetchall()
+    db.commit()
+    latest = pickups[-1] if pickups else None
+    original = reship.shipments_for_orders(db, [oid]).get(oid)
+    queue_state = _queue_state(case, latest)
+    return {
+        "order_ref": oid,
+        "case_id": case["case_uuid"] if case else None,
+        "queue_state": queue_state,
+        "label": QUEUE_LABELS.get(queue_state, queue_state.replace("_", " ")),
+        "booking_allowed": bool(case and case["fee_state"] in FEE_SETTLED
+                                and not (latest and latest["status"] == ST_BOOKED)),
+        "request": ({"source": case["source"],
+                     "reason": case.get("return_reason") or (latest or {}).get("reason") or None,
+                     "requested_at": _iso(case.get("created_at")),
+                     "declarations": None} if case else None),
+        "fee": fee_view(case),
+        "reverse_pickup": (ops_view(db, latest, EV_BOOKED if latest["status"] == ST_BOOKED else EV_CANCELLED)
+                           if latest else None),
+        "reverse_pickups": [{"id": p["pickup_uuid"], "awb": p["awb"], "status": p["status"],
+                             "reason": p.get("reason") or None, "booked_at": _iso(p.get("booked_at")),
+                             "cancelled_at": _iso(p.get("cancelled_at"))} for p in pickups],
+        "received": None,
+        "inspection": None,
+        "consent": None,
+        "forward_shipment": {"original": ({"awb": original[0], "courier": original[1]}
+                                          if original and original[0] else None),
+                             "replacement": None},
+    }
+
+
+def ops_queue(db, limit=200):
+    """Open return cases, and booked pickups that pre-date the fee flow, for
+    the Ops queue. Order reference and states only."""
+    ensure_schema(db)
+    cur = db.cursor()
+    cur.execute("SELECT * FROM reverse_pickup_cases WHERE completed_at IS NULL "
+                "ORDER BY id DESC LIMIT %s", (int(limit),))
+    cases = cur.fetchall()
+    cur.execute("SELECT p.* FROM order_reverse_pickups p JOIN (SELECT MAX(id) AS id "
+                "FROM order_reverse_pickups GROUP BY order_id) l ON l.id=p.id")
+    latest = {p["order_id"]: p for p in cur.fetchall()}
+    db.commit()
+    items, seen = [], set()
+
+    def item(case, pickup, oid):
+        state = _queue_state(case, pickup)
+        return {"order_ref": oid, "case_id": case["case_uuid"] if case else None,
+                "queue_state": state, "label": QUEUE_LABELS.get(state, state.replace("_", " ")),
+                "fee": fee_summary(case),
+                "awb": pickup["awb"] if pickup else None,
+                "pickup_status": pickup["status"] if pickup else None,
+                "updated_at": _iso(max(x for x in ((case or {}).get("updated_at"),
+                                                   (pickup or {}).get("updated_at")) if x))}
+
+    for c in cases:
+        seen.add(c["order_id"])
+        items.append(item(c, latest.get(c["order_id"]), c["order_id"]))
+    for oid, p in latest.items():
+        if oid not in seen and p["status"] == ST_BOOKED:
+            items.append(item(None, p, oid))
+    items.sort(key=lambda i: i["updated_at"] or "", reverse=True)
+    return items
