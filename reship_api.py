@@ -300,7 +300,7 @@ def register(bp):
         if denied:
             return denied
         items = reverse_pickup.ops_queue(get_db())
-        return jsonify({"ok": True, "count": len(items), "items": items})
+        return jsonify({"ok": True, "count": len(items), "requests": items, "items": items})
 
     @bp.route("/ops/api/shipments/<order_id>/reverse-pickup/fee/waive", methods=["POST"])
     def ops_reverse_pickup_waive(order_id):
