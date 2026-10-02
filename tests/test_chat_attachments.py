@@ -1,7 +1,7 @@
 """KET-IMG: a customer's photo goes widget -> Optiwar -> KET, never widget -> KET.
 
-The bytes decide the type (not the name, not the declared MIME), 8 MB is the
-ceiling, the file lives outside the web root under a name that carries nothing
+The bytes decide the type (not the name, not the declared MIME), 12 MB is the
+intake ceiling, every photo is re-encoded as a JPEG of at most 5 MB, the file lives outside the web root under a name that carries nothing
 of the customer, and the transcript holds only a marker. On the ticket's create
 call the first four photos ride as KET's ``images[]`` (Option A); anything
 after the ticket exists goes to ``/{ticket_uid}/attachments`` (Option B). The
@@ -22,6 +22,8 @@ import tempfile
 import types
 import unittest
 import uuid
+
+from PIL import Image
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
@@ -62,10 +64,17 @@ def _load(name, filename):
 
 ca = _load("chat_attachments_under_test", "chat_attachments.py")
 
-JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 200
-PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 200
-GIF = b"GIF89a" + b"\x00" * 200
-WEBP = b"RIFF\x00\x00\x00\x00WEBPVP8 " + b"\x00" * 200
+def _image(fmt, size=(48, 32)):
+    buf = io.BytesIO()
+    Image.effect_noise(size, 60).convert("RGB").save(buf, fmt)
+    return buf.getvalue()
+
+
+JPEG = _image("JPEG")
+PNG = _image("PNG")
+GIF = _image("GIF")
+WEBP = _image("WEBP")
+FAKE_JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 200      # the magic bytes, not a photo
 PDF = b"%PDF-1.4\n" + b"\x00" * 200
 
 
@@ -93,8 +102,9 @@ class Validation(unittest.TestCase):
         with self.assertRaises(ca.Rejected) as ctx:
             ca.validate(JPEG[:4] + b"\x00" * ca.MAX_BYTES, "a.jpg")
         self.assertEqual(ctx.exception.code, "ATTACHMENT_TOO_LARGE")
-        self.assertEqual(ca.MAX_BYTES, 8 * 1024 * 1024)
-        ca.validate(JPEG[:4] + b"\x00" * (ca.MAX_BYTES - 4), "exactly-8mb.jpg")
+        self.assertEqual(ca.MAX_BYTES, 12 * 1024 * 1024)
+        self.assertEqual(ca.SEND_MAX_BYTES, 5 * 1024 * 1024)
+        ca.validate(JPEG[:4] + b"\x00" * (ca.MAX_BYTES - 4), "exactly-12mb.jpg")
 
     def test_the_filename_is_a_label_stripped_of_paths_and_the_stored_name_is_not_it(self):
         info = ca.validate(JPEG, "../../etc/passwd")
@@ -120,6 +130,70 @@ class Validation(unittest.TestCase):
         self.assertEqual(ca.SESSION_COLUMNS[0][0], "chat_sessions")
         self.assertEqual([n for n, _ in ca.SESSION_COLUMNS[0][1]],
                          ["ket_ticket_uid", "ket_ticket_ref"])
+
+
+ci = _load("chat_image_under_test", "chat_image.py")
+
+
+class Shrinking(unittest.TestCase):
+    """Every photo is re-encoded: small, upright, without its EXIF, never over 5 MB."""
+
+    def _decode(self, data):
+        img = Image.open(io.BytesIO(data))
+        img.load()
+        return img
+
+    def test_a_large_phone_photo_comes_out_a_compact_jpeg_at_most_2048px(self):
+        buf = io.BytesIO()
+        Image.effect_noise((4000, 3000), 80).convert("RGB").save(buf, "PNG")
+        big = buf.getvalue()
+        out = ci.shrink(big)
+        img = self._decode(out)
+        self.assertEqual(img.format, "JPEG")
+        self.assertEqual(max(img.size), ci.MAX_EDGE)
+        self.assertEqual(img.size, (2048, 1536))
+        self.assertLess(len(out), len(big))
+        self.assertLessEqual(len(out), ci.SEND_MAX_BYTES)
+
+    def test_exif_location_is_dropped_and_the_photo_is_turned_upright(self):
+        img = Image.effect_noise((60, 40), 50).convert("RGB")
+        exif = Image.Exif()
+        exif[0x0112] = 6                      # camera held on its side
+        exif[0x8825] = {2: (28.0, 36.0, 0.0)}  # GPS latitude
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", exif=exif.tobytes())
+        out = self._decode(ci.shrink(buf.getvalue()))
+        self.assertEqual(out.size, (40, 60))
+        self.assertEqual(dict(out.getexif()), {})
+
+    def test_transparency_is_flattened_on_white_and_every_format_becomes_jpeg(self):
+        rgba = Image.new("RGBA", (20, 20), (0, 0, 0, 0))
+        buf = io.BytesIO()
+        rgba.save(buf, "PNG")
+        out = self._decode(ci.shrink(buf.getvalue()))
+        self.assertEqual(out.mode, "RGB")
+        self.assertGreater(min(out.getpixel((10, 10))), 245)
+        for data in (JPEG, PNG, GIF, WEBP):
+            self.assertEqual(self._decode(ci.shrink(data)).format, "JPEG")
+
+    def test_bytes_that_only_look_like_a_photo_are_unreadable(self):
+        for data in (FAKE_JPEG, PDF, b"GIF89a" + b"\x00" * 200):
+            with self.assertRaises(ci.Unreadable):
+                ci.shrink(data)
+
+    def test_an_output_over_5_mb_is_refused_not_sent(self):
+        real = ci.SEND_MAX_BYTES
+        ci.SEND_MAX_BYTES = 10
+        try:
+            with self.assertRaises(ci.TooLarge):
+                ci.shrink(JPEG)
+        finally:
+            ci.SEND_MAX_BYTES = real
+
+    def test_the_jpeg_label_keeps_the_customers_name(self):
+        self.assertEqual(ca.jpeg_name("crack.png"), "crack.jpg")
+        self.assertEqual(ca.jpeg_name("passwd.jpg"), "passwd.jpg")
+        self.assertEqual(ca.jpeg_name(""), "photo.jpg")
 
 
 # --------------------------------------------------------------------------
@@ -239,12 +313,29 @@ class KetForwarding(unittest.TestCase):
         self.assertIsNone(self.crm._forward_to_ket("J", "j@example.com", "", "s", "d",
                                                    images=self._images()))
         self.assertEqual(len(self.calls), 1)
-        self.answers[:] = []
+
+    def test_a_refused_image_creates_the_ticket_once_without_photos(self):
+        for status in (413, 415, 422):
+            self.calls[:] = []
+            self.answers += [_Resp(status, {"error": "x"}), _Resp(201, {"ticket_id": "K", "ticket_uid": "u"})]
+            out = self.crm._forward_to_ket("J", "j@example.com", "", "s", "d", images=self._images())
+            self.assertTrue(out["images_rejected"], status)
+            self.assertEqual(out["ticket_uid"], "u")
+            self.assertEqual(len(self.calls), 2)
+            self.assertIn("images", self.calls[0][1]["json"])
+            self.assertNotIn("images", self.calls[1][1]["json"])
+            self.assertEqual(self.calls[1][1]["timeout"], 15)
+        # without images a 4xx is final, and a 5xx after the drop is never retried
         self.calls[:] = []
-        self.answers.append(_Resp(413, {"error": "too large"}))
+        self.answers += [_Resp(422, {"error": "x"})]
+        self.assertIsNone(self.crm._forward_to_ket("J", "j@example.com", "", "s", "d"))
+        self.assertEqual(len(self.calls), 1)
+        self.calls[:] = []
+        self.answers += [_Resp(415, {"error": "x"}), _Resp(503), _Resp(201, {"ticket_id": "K"})]
         self.assertIsNone(self.crm._forward_to_ket("J", "j@example.com", "", "s", "d",
                                                    images=self._images()))
-        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(len(self.calls), 2)
+        self.answers[:] = []
 
     def test_option_b_posts_multipart_file_to_the_ticket_uid(self):
         self.answers.append(_Resp(201, {"attachment_id": 77}))
@@ -404,6 +495,9 @@ class OnMariaDB(unittest.TestCase):
             frame={"colour": "black", "shape": "rectangular"}, pd="", proposal=None,
             confidence=0.9, unreadable=False)
         self.seen = []
+        cg._ATTACH_BURST = cg.face_scan_invites.IpLimiter(max_hits=20, window_seconds=600)
+        cg._ATTACH_DAILY = cg.face_scan_invites.IpLimiter(max_hits=60, window_seconds=86400)
+        cg._ATTACH_BLOCK_LOGGED = cg.face_scan_invites.IpLimiter(max_hits=1, window_seconds=600)
 
         def fake_describe(data, mime_type, endpoint="/api/chat/attachment"):
             self.seen.append((mime_type, data))
@@ -451,22 +545,24 @@ class OnMariaDB(unittest.TestCase):
         r = self._post(PNG, name="../secret/photo one.png", mime="image/jpeg")
         self.assertEqual(r.status_code, 200, r.get_json())
         j = r.get_json()
-        self.assertEqual(j["mime_type"], "image/png")        # bytes, not declared MIME
-        self.assertEqual(j["filename"], "photo one.png")
+        self.assertEqual(j["mime_type"], "image/jpeg")       # re-encoded, whatever came in
+        self.assertEqual(j["filename"], "photo one.jpg")
         self.assertEqual(j["ket_status"], "pending")
         rows = self._rows()
         self.assertEqual(len(rows), 1)
         row = rows[0]
-        self.assertEqual(row["stored_name"], "chatimg-%d.png" % j["attachment_id"])
+        self.assertEqual(row["stored_name"], "chatimg-%d.jpg" % j["attachment_id"])
         path = os.path.join(self.tmp, "secure_uploads", "chat", row["stored_name"])
         self.assertTrue(os.path.exists(path))
         self.assertNotIn("static", path)
         with open(path, "rb") as fh:
-            self.assertEqual(fh.read(), PNG)
+            stored = fh.read()
+        self.assertEqual(stored[:3], b"\xff\xd8\xff")
+        self.assertEqual(row["byte_size"], len(stored))
         cur = self.db.cursor()
         cur.execute("SELECT content, metadata, source FROM chat_messages WHERE id=%s", (j["message_id"],))
         m = cur.fetchone()
-        self.assertEqual(m["content"], "[Photo attached: photo one.png]")
+        self.assertEqual(m["content"], "[Photo attached: photo one.jpg]")
         self.assertEqual(json.loads(m["metadata"]), {"attachment_id": j["attachment_id"]})
         self.assertEqual(m["source"], "customer")
         self.assertEqual(self.uploads, [])   # no ticket yet -> nothing sent
@@ -475,8 +571,8 @@ class OnMariaDB(unittest.TestCase):
         self.assertEqual(listing["messages"][0]["attachment_url"], "/api/chat/attachment/%d" % j["attachment_id"])
         got = self.client.get(j["url"])
         self.assertEqual(got.status_code, 200)
-        self.assertEqual(got.data, PNG)
-        self.assertEqual(got.mimetype, "image/png")
+        self.assertEqual(got.data, stored)
+        self.assertEqual(got.mimetype, "image/jpeg")
         self.assertEqual(got.headers["X-Content-Type-Options"], "nosniff")
         self.client.delete_cookie("ow_chat_token")
         self.assertEqual(self.client.get(j["url"]).status_code, 403)
@@ -486,6 +582,8 @@ class OnMariaDB(unittest.TestCase):
         self._as_owner()
         r = self._post(PDF, name="photo.jpg")
         self.assertEqual((r.status_code, r.get_json()["error"]["code"]), (400, "ATTACHMENT_TYPE"))
+        r = self._post(FAKE_JPEG, name="photo.jpg")
+        self.assertEqual((r.status_code, r.get_json()["error"]["code"]), (400, "ATTACHMENT_UNREADABLE"))
         r = self._post(JPEG[:4] + b"\x00" * ca.MAX_BYTES)
         self.assertEqual((r.status_code, r.get_json()["error"]["code"]), (400, "ATTACHMENT_TOO_LARGE"))
         r = self.client.post("/api/chat/attachment", data={"session_id": self.sid},
@@ -505,7 +603,8 @@ class OnMariaDB(unittest.TestCase):
         self._as_owner()
         r = self._post(WEBP, name="later.webp", mime="image/webp")
         self.assertEqual(r.get_json()["ket_status"], "sent")
-        self.assertEqual(self.uploads, [("uid-xyz", "later.webp", "image/webp", WEBP)])
+        self.assertEqual([u[:3] for u in self.uploads], [("uid-xyz", "later.jpg", "image/jpeg")])
+        self.assertEqual(self.uploads[0][3][:3], b"\xff\xd8\xff")
         row = self._rows()[0]
         self.assertEqual((row["ket_status"], row["ket_via"], row["ket_ticket_uid"]),
                          ("sent", "attachments", "uid-xyz"))
@@ -549,7 +648,8 @@ class OnMariaDB(unittest.TestCase):
         self.assertEqual(len(forwarded), 1)
         images = forwarded[0]["images"]
         self.assertEqual([i["filename"] for i in images], ["p0.jpg", "p1.jpg", "p2.jpg", "p3.jpg"])
-        self.assertEqual(images[0]["data_base64"], base64.b64encode(JPEG).decode("ascii"))
+        self.assertTrue(all(base64.b64decode(i["data_base64"])[:3] == b"\xff\xd8\xff" for i in images))
+        self.assertTrue(all(len(base64.b64decode(i["data_base64"])) <= ca.SEND_MAX_BYTES for i in images))
         self.assertEqual([u[1] for u in self.uploads], ["p4.jpg", "p5.jpg"])
         self.assertTrue(all(u[0] == "uid-77" for u in self.uploads))
         rows = self._rows()
@@ -560,6 +660,33 @@ class OnMariaDB(unittest.TestCase):
         self.assertEqual(cur.fetchone(), {"ket_ticket_uid": "uid-77", "ket_ticket_ref": "KET-77"})
         transcript = json.loads(forwarded[0]["chat_transcript"])
         self.assertIn({"role": "user", "content": "[Photo attached: p0.jpg]"}, transcript)
+
+    def test_photos_ket_refused_on_create_follow_one_by_one_to_the_new_ticket(self):
+        self._as_owner()
+        for i in range(2):
+            self.assertEqual(self._post(JPEG, name="r%d.jpg" % i).status_code, 200)
+        cg = self.cg
+        out = {"ticket_id": "KET-9", "ticket_ref": "KET-9", "ticket_uid": "uid-9",
+               "images_rejected": True}
+        self.crm._forward_to_ket, real_fwd = (lambda **kw: out), self.crm._forward_to_ket
+        self.crm.persist_ticket_mapping, real_map = (lambda *a, **k: None), self.crm.persist_ticket_mapping
+        cg._generate_chat_summary, real_sum = (lambda db, sid: "summary"), cg._generate_chat_summary
+        cg._send_fallback_email, real_mail = (lambda *a, **k: True), cg._send_fallback_email
+        try:
+            with self.app.test_request_context():
+                db = _connect()
+                cur = db.cursor()
+                cur.execute("SELECT * FROM chat_sessions WHERE session_id=%s", (self.sid,))
+                _local, ref = cg._forward_ticket_from_chat(db, self.sid, cur.fetchone(), "/x")
+        finally:
+            self.crm._forward_to_ket = real_fwd
+            self.crm.persist_ticket_mapping = real_map
+            cg._generate_chat_summary = real_sum
+            cg._send_fallback_email = real_mail
+        self.assertEqual(ref, "KET-9")
+        self.assertEqual([u[1] for u in self.uploads], ["r0.jpg", "r1.jpg"])
+        self.assertEqual([(r["ket_status"], r["ket_via"]) for r in self._rows()],
+                         [("sent", "attachments")] * 2)
 
     def test_a_create_without_a_uid_still_tells_the_ref_and_a_failed_create_marks_photos_failed(self):
         self._as_owner()
@@ -627,7 +754,8 @@ class OnMariaDB(unittest.TestCase):
         forwarded = self._ticket_flow()
         r = self._post(JPEG, name="mine.jpg")
         j = r.get_json()
-        self.assertEqual(self.seen, [("image/jpeg", JPEG)])       # the bytes went to the model
+        self.assertEqual([m for m, _ in self.seen], ["image/jpeg"])  # the photo went to the model
+        self.assertEqual(self.seen[0][1][:3], b"\xff\xd8\xff")
         self.assertIn("This looks like a black rectangular frame", j["reply"])
         self.assertNotIn("Tell me what I", j["reply"])
         self.assertEqual(j["actions"], [])
@@ -679,8 +807,9 @@ class OnMariaDB(unittest.TestCase):
         self.assertIn("passed it \u2014 photo included \u2014 to our support team", j["reply"])
         self.assertIn("Your support ticket KET-31 has been created", j["reply"])
         self.assertEqual(len(forwarded), 1)
-        self.assertEqual([i["filename"] for i in forwarded[0]["images"]], ["blur.gif"])  # Option A
-        self.assertEqual(forwarded[0]["images"][0]["data_base64"], base64.b64encode(GIF).decode("ascii"))
+        self.assertEqual([i["filename"] for i in forwarded[0]["images"]], ["blur.jpg"])  # Option A
+        self.assertEqual(forwarded[0]["images"][0]["mime_type"], "image/jpeg")
+        self.assertEqual(base64.b64decode(forwarded[0]["images"][0]["data_base64"])[:3], b"\xff\xd8\xff")
         self.assertEqual(j["ket_status"], "sent")
         row = self._rows()[0]
         self.assertEqual((row["ket_status"], row["ket_via"], row["ket_ticket_uid"]), ("sent", "create", "uid-31"))
@@ -705,7 +834,7 @@ class OnMariaDB(unittest.TestCase):
         self.assertEqual(j2["actions"], [])
         self.assertIn("couldn't make out the values clearly, and it's on your open ticket", j2["reply"])
         self.assertEqual(len(forwarded), 1)
-        self.assertEqual([u[:2] for u in self.uploads], [("uid-31", "rx2.png")])
+        self.assertEqual([u[:2] for u in self.uploads], [("uid-31", "rx2.jpg")])
         self.assertEqual(j2["ket_status"], "sent")
 
     def test_a_provider_failure_is_not_a_500_does_not_invent_a_description_and_escalates(self):
@@ -739,6 +868,65 @@ class OnMariaDB(unittest.TestCase):
         cur = self.db.cursor()
         cur.execute("SELECT status FROM chat_sessions WHERE session_id=%s", (self.sid,))
         self.assertEqual(cur.fetchone()["status"], "human_open")
+
+
+    # ── per-IP brakes and the 5 MB ceiling ────────────────────────────────
+
+    def test_an_ip_over_its_limit_gets_429_before_anything_is_read_or_stored(self):
+        cg = self.cg
+        cg._ATTACH_BURST = cg.face_scan_invites.IpLimiter(max_hits=2, window_seconds=600)
+        self._as_owner()
+        hdr = {"X-Real-IP": "203.0.113.9"}
+        for _ in range(2):
+            r = self.client.post("/api/chat/attachment", headers=hdr, content_type="multipart/form-data",
+                                 data={"session_id": self.sid, "file": (io.BytesIO(JPEG), "a.jpg", "image/jpeg")})
+            self.assertEqual(r.status_code, 200)
+        with self.assertLogs(level="WARNING") as logs:
+            r = self.client.post("/api/chat/attachment", headers=hdr, content_type="multipart/form-data",
+                                 data={"session_id": self.sid, "file": (io.BytesIO(JPEG), "a.jpg", "image/jpeg")})
+            self.client.post("/api/chat/attachment", headers=hdr, data={})   # a bot without a session
+        self.assertEqual(r.status_code, 429)
+        self.assertEqual(r.get_json()["error"]["code"], "ATTACHMENT_RATE_LIMITED")
+        self.assertEqual(r.headers["Retry-After"], "600")
+        lines = [m for m in logs.output if "ACTIVITY:ATTACHMENT event=rate_limited" in m]
+        self.assertEqual(len(lines), 1)                      # one line per IP per window
+        self.assertIn("ip=203.0.113.9", lines[0])
+        self.assertEqual(len(self._rows()), 2)
+        other = {"X-Real-IP": "198.51.100.4"}                # another customer is unaffected
+        r = self.client.post("/api/chat/attachment", headers=other, content_type="multipart/form-data",
+                             data={"session_id": self.sid, "file": (io.BytesIO(JPEG), "b.jpg", "image/jpeg")})
+        self.assertEqual(r.status_code, 200)
+
+    def test_the_forwarded_header_cannot_dodge_the_limit(self):
+        cg = self.cg
+        cg._ATTACH_BURST = cg.face_scan_invites.IpLimiter(max_hits=1, window_seconds=600)
+        self._as_owner()
+        self.assertEqual(self._post().status_code, 200)
+        r = self.client.post("/api/chat/attachment", headers={"X-Forwarded-For": "10.9.9.9"},
+                             content_type="multipart/form-data",
+                             data={"session_id": self.sid, "file": (io.BytesIO(JPEG), "a.jpg", "image/jpeg")})
+        self.assertEqual(r.status_code, 429)
+
+    def test_a_photo_stored_before_shrinking_is_shrunk_before_ket_sees_it(self):
+        self._as_owner()
+        j = self._post().get_json()
+        row = self._rows()[0]
+        path = os.path.join(self.tmp, "secure_uploads", "chat", row["stored_name"])
+        buf = io.BytesIO()
+        Image.effect_noise((2600, 2600), 120).convert("RGB").save(buf, "PNG")
+        legacy = buf.getvalue()
+        self.assertGreater(len(legacy), ca.SEND_MAX_BYTES)
+        with open(path, "wb") as fh:
+            fh.write(legacy)
+        self.db.cursor().execute("UPDATE chat_attachments SET mime_type='image/png', filename='old.png' "
+                                 "WHERE id=%s", (j["attachment_id"],))
+        with self.app.test_request_context():
+            pending = self.cg._pending_attachments(_connect(), self.sid)
+        self.assertEqual(len(pending), 1)
+        prow, data = pending[0]
+        self.assertLessEqual(len(data), ca.SEND_MAX_BYTES)
+        self.assertEqual((prow["mime_type"], prow["filename"]), ("image/jpeg", "old.jpg"))
+        self.assertEqual(Image.open(io.BytesIO(data)).size, (2048, 2048))
 
 
 class VisionReading(unittest.TestCase):

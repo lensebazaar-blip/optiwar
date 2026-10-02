@@ -19,6 +19,7 @@ from . import acr
 from . import ai_language
 from . import catalogue
 from . import chat_attachments
+from . import chat_image
 from . import chat_vision
 from . import dev_defects
 from . import face_assistant
@@ -1509,7 +1510,9 @@ def _read_attachment_bytes(row):
 
 
 def _pending_attachments(db, session_id):
-    """``[(row, bytes), ...]`` for the session's photos KET has not seen, oldest first."""
+    """``[(row, bytes), ...]`` for the session's photos KET has not seen, oldest first.
+    A photo stored before uploads were shrunk is shrunk here, so KET never
+    receives one over ``SEND_MAX_BYTES``."""
     cur = db.cursor()
     cur.execute(
         """SELECT id, filename, mime_type, byte_size, stored_name FROM chat_attachments
@@ -1518,9 +1521,19 @@ def _pending_attachments(db, session_id):
     out = []
     for row in cur.fetchall():
         try:
-            out.append((row, _read_attachment_bytes(row)))
+            data = _read_attachment_bytes(row)
         except OSError as e:
             current_app.logger.error(f"[ChatAttach] unreadable id={row['id']}: {e}")
+            continue
+        if len(data) > chat_attachments.SEND_MAX_BYTES:
+            try:
+                data = chat_image.shrink(data)
+            except (chat_image.Unreadable, chat_image.TooLarge) as e:
+                current_app.logger.error(f"[ChatAttach] not shrinkable id={row['id']}: {e}")
+                continue
+            row = dict(row, mime_type=chat_image.MIME,
+                       filename=chat_attachments.jpeg_name(row['filename']))
+        out.append((row, data))
     return out
 
 
@@ -1535,6 +1548,7 @@ def _forward_attachment_to_ket(db, row, data, ticket_uid):
             "ket_ticket_uid = %s, ket_error = NULL, ket_sent_at = NOW() WHERE id = %s",
             (chat_attachments.KET_SENT, ticket_uid, row['id']))
     else:
+        _attach_activity('ket_refused', code=str(detail)[:40], bytes_in=len(data))
         cur.execute(
             "UPDATE chat_attachments SET ket_status = %s, ket_via = 'attachments', "
             "ket_ticket_uid = %s, ket_error = %s WHERE id = %s",
@@ -1543,12 +1557,45 @@ def _forward_attachment_to_ket(db, row, data, ticket_uid):
     return ok
 
 
+# Per-IP brakes on the photo endpoint, per worker process: a person attaches a
+# few photos; a bot posting files is stopped before its body is read.
+_ATTACH_BURST = face_scan_invites.IpLimiter(max_hits=20, window_seconds=600)
+_ATTACH_DAILY = face_scan_invites.IpLimiter(max_hits=60, window_seconds=86400)
+_ATTACH_BLOCK_LOGGED = face_scan_invites.IpLimiter(max_hits=1, window_seconds=600)
+
+
+def _attach_client_ip():
+    """nginx sets X-Real-IP from the socket, so the client cannot choose it."""
+    return (request.headers.get('X-Real-IP') or request.remote_addr or '').strip()[:64]
+
+
+def _attach_activity(event, code='', ip=None, bytes_in=0, bytes_out=0, level='warning'):
+    """One ``ACTIVITY:ATTACHMENT`` line for the daily report's abuse section."""
+    try:
+        if ip is None:
+            ip = _attach_client_ip()
+        getattr(current_app.logger, level)(
+            "ACTIVITY:ATTACHMENT event=%s code=%s ip=%s bytes_in=%d bytes_out=%d",
+            event, re.sub(r"\s+", "_", code or "-"), ip or "-", int(bytes_in), int(bytes_out))
+    except Exception:  # noqa: BLE001 - a log line must not break an upload
+        pass
+
+
 @bp.route('/attachment', methods=['POST'])
 def chat_attachment_upload():
     """A photo from the customer: validated from its bytes, stored outside the
     web root, written into the transcript, and forwarded to KET now if the
     conversation is already a ticket (otherwise on the ticket's create call).
     Owner-gated like the transcript: only the browser that started the session."""
+    ip = _attach_client_ip()
+    if not (_ATTACH_BURST.allow(ip) and _ATTACH_DAILY.allow(ip)):
+        if _ATTACH_BLOCK_LOGGED.allow(ip):
+            _attach_activity('rate_limited', code='ATTACHMENT_RATE_LIMITED', ip=ip)
+        resp = jsonify({'error': {'code': 'ATTACHMENT_RATE_LIMITED',
+                                  'message': 'Too many photos have been sent from this connection. '
+                                             'Please wait a few minutes and try again.'}})
+        resp.headers['Retry-After'] = '600'
+        return resp, 429
     session_id = (request.form.get('session_id') or '').strip()
     if not session_id:
         return jsonify({'error': {'code': 'SESSION_REQUIRED', 'message': 'session_id required'}}), 400
@@ -1560,9 +1607,22 @@ def chat_attachment_upload():
                                   'message': 'Choose a photo to attach.'}}), 400
     data = upload.read(chat_attachments.MAX_BYTES + 1)
     try:
+        chat_attachments.validate(data, upload.filename)
+        bytes_in = len(data)
+        try:
+            data = chat_image.shrink(data)
+        except chat_image.Unreadable:
+            raise chat_attachments.Rejected(
+                'ATTACHMENT_UNREADABLE', 'That photo could not be opened. Please send another one.')
+        except chat_image.TooLarge:
+            raise chat_attachments.Rejected(
+                'ATTACHMENT_TOO_LARGE', 'That photo is too large. Please send a smaller one.')
         info = chat_attachments.validate(data, upload.filename)
+        info['filename'] = chat_attachments.jpeg_name(info['filename'])
     except chat_attachments.Rejected as e:
+        _attach_activity('refused', code=e.code, bytes_in=len(data or b''))
         return jsonify({'error': {'code': e.code, 'message': e.message}}), 400
+    _attach_activity('shrunk', bytes_in=bytes_in, bytes_out=len(data), level='info')
 
     page_url = (request.form.get('page_url') or '').strip()
     page_state = None
@@ -1867,7 +1927,7 @@ def _forward_ticket_from_chat(db, session_id, session, page_url, phone='', class
     all_pending = _pending_attachments(db, session_id)
     # Only the first VISION_ANALYSED photos ride on the create call (those are
     # the ones KET describes); the rest follow by Option B so the JSON body
-    # stays bounded (4 x 8 MB base64 ~ 43 MB, not 8 x).
+    # stays bounded (4 x 5 MB base64 ~ 27 MB, not 8 x).
     pending = all_pending[:chat_attachments.VISION_ANALYSED]
     overflow = all_pending[chat_attachments.VISION_ANALYSED:]
     try:
@@ -1885,6 +1945,8 @@ def _forward_ticket_from_chat(db, session_id, session, page_url, phone='', class
                 [(row, data) for row, data in pending]) or None,
         )
         if ket:
+            if ket.get('images_rejected'):
+                pending, overflow = [], all_pending
             ket_ticket_id = ket.get('ticket_ref') or ket.get('ticket_id') or ket.get('ticket_uid')
             ket_uid = ket.get('ticket_uid') or ''
             current_app.logger.info(
