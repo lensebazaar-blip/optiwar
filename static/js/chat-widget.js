@@ -156,7 +156,7 @@
     <button class="ow-reset-no" id="ow-reset-no">Cancel</button>
   </div>
 </div>
-<div class="ow-chat-input"><input type="file" id="ow-file" accept="image/jpeg,image/png,image/gif,image/webp"><button id="ow-attach" class="ow-attach" type="button" aria-label="Attach a photo" title="Attach a photo (JPEG, PNG, GIF, WebP, up to 8 MB)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button><input type="text" id="ow-input" placeholder="Type a message..." autocomplete="off"><button id="ow-send" aria-label="Send"><svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg></button></div>
+<div class="ow-chat-input"><input type="file" id="ow-file" accept="image/jpeg,image/png,image/gif,image/webp"><button id="ow-attach" class="ow-attach" type="button" aria-label="Attach a photo" title="Attach a photo (JPEG, PNG, GIF, WebP, up to 12 MB)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button><input type="text" id="ow-input" placeholder="Type a message..." autocomplete="off"><button id="ow-send" aria-label="Send"><svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg></button></div>
 `;
 
   document.body.appendChild(btn);
@@ -261,10 +261,12 @@
   // ─── Photo attachments ───
   // The file goes to Optiwar (/api/chat/attachment), never to KET from here:
   // the server validates the bytes, keeps the photo with the conversation and
-  // forwards it to the support ticket. Same limits KET applies, checked first
-  // so the customer hears about a 9 MB or HEIC photo before it uploads.
+  // forwards it to the support ticket. The server's limits, checked first so
+  // the customer hears about a 13 MB or HEIC photo before it uploads; a photo
+  // is shrunk here first so a phone's full-size image is not sent whole.
   var ATTACH_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-  var ATTACH_MAX_BYTES = 8 * 1024 * 1024;
+  var ATTACH_MAX_BYTES = 12 * 1024 * 1024;
+  var ATTACH_EDGE = 2048;
   var fileInput = document.getElementById('ow-file');
   var attachBtn = document.getElementById('ow-attach');
   var attachBusy = false;
@@ -293,7 +295,7 @@
 
   function attachProblem(f) {
     if (ATTACH_TYPES.indexOf(f.type) < 0) return 'Only JPEG, PNG, GIF or WebP photos can be attached.';
-    if (f.size > ATTACH_MAX_BYTES) return 'That photo is over 8 MB. Please send a smaller one.';
+    if (f.size > ATTACH_MAX_BYTES) return 'That photo is over 12 MB. Please send a smaller one.';
     if (f.size === 0) return 'That file is empty. Please choose a photo.';
     return '';
   }
@@ -307,10 +309,37 @@
     }).then(function(data) { return data.session_id === sessionId; });
   }
 
+  // A JPEG no larger than ATTACH_EDGE px, or the original file when the
+  // browser cannot draw it or the result would not be smaller.
+  function shrinkPhoto(f) {
+    return new Promise(function(resolve) {
+      try {
+        if (f.type === 'image/gif' || !window.createImageBitmap || !window.File) { resolve(f); return; }
+        createImageBitmap(f).then(function(bmp) {
+          var s = Math.min(1, ATTACH_EDGE / Math.max(bmp.width, bmp.height));
+          var c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(bmp.width * s));
+          c.height = Math.max(1, Math.round(bmp.height * s));
+          var ctx = c.getContext('2d');
+          ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+          ctx.drawImage(bmp, 0, 0, c.width, c.height);
+          c.toBlob(function(b) {
+            if (!b || b.size >= f.size) { resolve(f); return; }
+            resolve(new File([b], (f.name || 'photo').replace(/\.[^.]*$/, '') + '.jpg', { type: 'image/jpeg' }));
+          }, 'image/jpeg', 0.82);
+        }).catch(function() { resolve(f); });
+      } catch (e) { resolve(f); }
+    });
+  }
+
   function uploadAttachment(f, isRetry) {
     var problem = attachProblem(f);
     if (problem) { renderSystemMsg(problem); return; }
     attachBusy = true; attachBtn.disabled = true;
+    shrinkPhoto(f).then(function(small) { sendAttachment(small, isRetry); });
+  }
+
+  function sendAttachment(f, isRetry) {
     var localUrl = URL.createObjectURL(f);
     var pending = renderPhotoMsg('user', localUrl, f.name, new Date().toISOString(), true);
     var form = new FormData();
@@ -344,7 +373,7 @@
           if (pending && pending.parentNode) pending.parentNode.removeChild(pending);
           var err = res.data && res.data.error;
           renderSystemMsg((err && err.message) || 'That photo could not be attached. Please try again.');
-          reportDefect('CHAT_ATTACHMENT_HTTP_' + res.status, err && err.code);
+          if (res.status !== 429) reportDefect('CHAT_ATTACHMENT_HTTP_' + res.status, err && err.code);
           return;
         }
         var d = res.data;

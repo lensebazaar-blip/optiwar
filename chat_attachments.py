@@ -25,7 +25,8 @@ ACCEPTED = {
     "webp": "image/webp",
 }
 ACCEPTED_MIME = frozenset(ACCEPTED.values())
-MAX_BYTES = 8 * 1024 * 1024          # KET: 8 MB per image
+MAX_BYTES = 12 * 1024 * 1024         # accepted from the browser (nginx allows 13 MB)
+SEND_MAX_BYTES = 5 * 1024 * 1024     # kept and forwarded, after chat_image.shrink
 MIN_BYTES = 64
 MAX_PER_SESSION = 8                  # stored; KET describes the first 4
 VISION_ANALYSED = 4
@@ -131,7 +132,7 @@ def validate(data, filename=""):
         raise Rejected("ATTACHMENT_EMPTY", "That file is empty. Please choose a photo.")
     if size > MAX_BYTES:
         raise Rejected("ATTACHMENT_TOO_LARGE",
-                       "That photo is over 8 MB. Please send a smaller one.")
+                       "That photo is over 12 MB. Please send a smaller one.")
     kind = kind_of(data)
     if kind is None:
         raise Rejected("ATTACHMENT_TYPE",
@@ -141,6 +142,12 @@ def validate(data, filename=""):
         name = "%s.%s" % (name, "jpg" if kind == "jpeg" else kind)
     return {"kind": kind, "mime_type": ACCEPTED[kind], "filename": name,
             "sha256": hashlib.sha256(data).hexdigest(), "byte_size": size}
+
+
+def jpeg_name(name):
+    """The label of a photo once it has been re-encoded as a JPEG."""
+    base = os.path.splitext(name or "")[0]
+    return (base or "photo") + ".jpg"
 
 
 def stored_name(attachment_id, kind):
