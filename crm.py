@@ -429,6 +429,8 @@ _KET_EVENT_TEMPLATES = {
     'resolved': 'support_ticket_resolved',
     'reopened': 'support_ticket_reopened',
 }
+# Recorded and mapped to the chat session, never messaged to the customer.
+_KET_LIFECYCLE_ONLY_EVENTS = ('accepted',)
 
 # Durable WhatsApp delivery policy (restart-safe outbox worker).
 KET_MAX_BODY_BYTES = 64 * 1024      # reject oversized payloads with 413
@@ -807,7 +809,7 @@ def _process_session_lifecycle(event, ticket_id, ticket_ref, request_id, event_i
     if event == 'accepted':
         _audit('session_accept', event=event, ticket_ref=ticket_ref, ticket_id=ticket_id,
                event_id=event_id, request_id=request_id, sig_verified=True,
-               detail='lifecycle only; KET reopened with no earlier resolved')
+               detail='lifecycle only; no customer message')
         return 'accepted_lifecycle_only'
 
     # reopened: lifecycle state only, transcript preserved, no session mutation.
@@ -1257,7 +1259,7 @@ def ket_ticket_event():
     if not event:
         return jsonify({"error": "event required"}), 400
 
-    if event not in _KET_EVENT_TEMPLATES:
+    if event not in _KET_EVENT_TEMPLATES and event not in _KET_LIFECYCLE_ONLY_EVENTS:
         # Future lifecycle stages: ack without action so KET can expand freely.
         current_app.logger.info(f"[KET-EVENT] ignored (unhandled) event={event} ticket_ref={ticket_ref} rid={rid}")
         _audit('ignored', event=event, ticket_ref=ticket_ref, ticket_id=ticket_id,
@@ -1288,18 +1290,21 @@ def ket_ticket_event():
 
     app_obj = current_app._get_current_object()
 
-    if event == 'reopened' and not _was_resolved(ticket_id, ticket_ref, event_id):
+    first_reopen = event == 'reopened' and not _was_resolved(ticket_id, ticket_ref, event_id)
+    if event == 'accepted' or first_reopen:
         try:
             _process_session_lifecycle('accepted', ticket_id, ticket_ref, request_id, event_id)
         except Exception as e:  # noqa: BLE001
             current_app.logger.error(f"[KET-MAP] session lifecycle error event_id={event_id}: {e}")
-        _set_lifecycle_status(event_id, 'treated_as_accepted')
+        _set_lifecycle_status(event_id, 'treated_as_accepted' if first_reopen else 'accepted')
         _audit('accepted', event=event, ticket_ref=ticket_ref, ticket_id=ticket_id,
                event_id=event_id, request_id=request_id, sig_verified=True,
-               whatsapp_status='not_sent_never_resolved')
-        return jsonify({"status": "accepted", "event": event, "treated_as": "accepted",
-                        "ticket_ref": ticket_ref, "event_id": event_id,
-                        "whatsapp": "not_sent"}), 200
+               whatsapp_status='not_sent_never_resolved' if first_reopen else 'not_sent_lifecycle_only')
+        out = {"status": "accepted", "event": event, "ticket_ref": ticket_ref,
+               "event_id": event_id, "whatsapp": "not_sent"}
+        if first_reopen:
+            out["treated_as"] = "accepted"
+        return jsonify(out), 200
 
     # Optiwar-owned chat-session side-effects (Option A close / Option B reopen).
     # Best-effort and idempotent: a mapping miss is an operational alert, never a
