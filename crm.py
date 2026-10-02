@@ -430,6 +430,9 @@ WA_LOCK_TIMEOUT = 120               # seconds; reclaim a stuck 'sending' row
 WA_BACKOFF_BASE = 60                # seconds; exponential retry backoff base
 WA_BACKOFF_CAP = 3600               # seconds; backoff ceiling
 WA_SCAN_INTERVAL = 30              # seconds between outbox scans
+# A send error no retry can change: the job stops at once and the notice is
+# emailed instead, when the lifecycle event carried an email.
+WA_PERMANENT_ERRORS = frozenset({'invalid_phone'})
 
 _KET_SCHEMA_READY = False
 
@@ -921,8 +924,8 @@ def _claim_due_whatsapp_job(dedupe_key):
     }
 
 
-def _finalize_whatsapp_job(dedupe_key, event_id, result, attempt_count):
-    """Record the send outcome + set the next state (sent / failed+retry / dead)."""
+def _finalize_whatsapp_job(dedupe_key, event_id, result, attempt_count, site_host=''):
+    """Record the send outcome + set the next state (sent / skipped / failed+retry / dead)."""
     from .db import get_db
     db = get_db()
     cur = db.cursor()
@@ -935,6 +938,13 @@ def _finalize_whatsapp_job(dedupe_key, event_id, result, attempt_count):
             (result.get("request_id", ""), dedupe_key),
         )
         _set_lifecycle_status(event_id, 'notified')
+    elif result.get("error") in WA_PERMANENT_ERRORS:
+        cur.execute(
+            """UPDATE whatsapp_delivery_log
+                 SET status='skipped', last_error=%s, locked_at=NULL
+               WHERE dedupe_key=%s""",
+            (result.get("error", "")[:250], dedupe_key),
+        )
     elif attempt_count >= WA_MAX_ATTEMPTS:
         cur.execute(
             """UPDATE whatsapp_delivery_log
@@ -954,9 +964,56 @@ def _finalize_whatsapp_job(dedupe_key, event_id, result, attempt_count):
         )
     db.commit()
     cur.close()
-    final = 'sent' if result.get("ok") else ('dead' if attempt_count >= WA_MAX_ATTEMPTS else 'failed')
+    if result.get("ok"):
+        final = 'sent'
+    elif result.get("error") in WA_PERMANENT_ERRORS:
+        final = 'skipped'
+    else:
+        final = 'dead' if attempt_count >= WA_MAX_ATTEMPTS else 'failed'
     _audit('whatsapp_result', event_id=event_id, whatsapp_status=final,
            detail=(result.get("request_id", "") or result.get("error", ""))[:255])
+    if final == 'skipped':
+        _email_lifecycle_fallback(event_id, site_host, result.get("error", ""))
+
+
+def _email_lifecycle_fallback(event_id, site_host, wa_error):
+    """Email the lifecycle notice a WhatsApp could never deliver.
+
+    Runs once per event: the outbox job that reaches it is claimed by exactly
+    one worker and is never retried after a permanent error. The lifecycle
+    stays a success either way; only how the customer was told differs.
+    """
+    from .db import get_db
+    from .notifications import send_email, support_lifecycle_email
+    wa_status = f"skipped_{wa_error}"
+    row = None
+    try:
+        db = get_db()
+        cur = db.cursor()
+        cur.execute(
+            """SELECT event, ticket_ref, name, email
+                 FROM ket_lifecycle_events WHERE event_id=%s""",
+            (event_id,),
+        )
+        row = cur.fetchone()
+        cur.close()
+    except Exception as e:  # noqa: BLE001
+        current_app.logger.error(f"[KET-EVENT] fallback read failed event_id={event_id}: {e}")
+    email = ((row or {}).get("email") or "").strip()
+    if not row or not email:
+        _set_lifecycle_status(event_id, wa_status)
+        _audit('email_fallback', event_id=event_id, whatsapp_status=wa_status,
+               detail='no_email')
+        return False
+    subject, body_html = support_lifecycle_email(
+        row["event"], row.get("name") or "", row["ticket_ref"],
+        site_host or "optiwar.in")
+    sent = bool(send_email(email, subject, body_html))
+    _set_lifecycle_status(event_id, 'notified_email' if sent else 'notify_failed')
+    _audit('email_fallback', event=row["event"], ticket_ref=row["ticket_ref"],
+           event_id=event_id, whatsapp_status=wa_status,
+           detail='email_sent' if sent else 'email_failed')
+    return sent
 
 
 def _attempt_whatsapp_job(app, dedupe_key):
@@ -973,7 +1030,8 @@ def _attempt_whatsapp_job(app, dedupe_key):
                 "body_3": {"type": "text", "value": job["site_host"]},
             }
             result = send_whatsapp_tracked(job["recipient"], job["template_name"], components)
-            _finalize_whatsapp_job(dedupe_key, job["event_id"], result, job["attempt_count"])
+            _finalize_whatsapp_job(dedupe_key, job["event_id"], result, job["attempt_count"],
+                                   job["site_host"])
             app.logger.info(
                 f"[KET-EVENT] whatsapp attempt key={dedupe_key} n={job['attempt_count']} "
                 f"ok={result.get('ok')} rid={result.get('request_id') or '-'}"
