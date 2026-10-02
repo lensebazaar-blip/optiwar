@@ -6,6 +6,8 @@ import hmac
 import json
 import os
 import sys
+import threading
+import time
 import unittest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -76,6 +78,7 @@ class ReversePickupTest(unittest.TestCase):
                                ("order_reverse_pickups", "order_id"), ("reship_events", "order_id"),
                                ("reverse_pickup_cases", "order_id"),
                                ("reverse_pickup_ops_outbox", "order_id"),
+                               ("reverse_pickup_notifications", "order_id"),
                                ("ops_shipping_awb", "ow_order_id")):
                 cur.execute("DELETE FROM %s WHERE %s=%%s" % (table, col), (oid,))
         for cid in self._customers:
@@ -551,7 +554,7 @@ class ReversePickupTest(unittest.TestCase):
         self.cur.execute("SELECT COUNT(*) AS n FROM order_reshipments WHERE order_id=%s", (oid,))
         self.assertEqual(self.cur.fetchone()["n"], 0)
         r = self._post(oid, {"awb": awb}, path="/cancel")
-        self.assertEqual((r.status_code, r.get_json()["error"]), (409, "already_received"))
+        self.assertEqual((r.status_code, r.get_json()["error"]), (409, "pickup_already_received"))
         self.assertIn("reverse_pickup.received", self._events(oid))
         received = [json.loads(o["body"]) for o in self._outbox(oid) if o["event"] == "reverse_pickup.received"]
         self.assertEqual(received[0]["fee"]["state"], "PAID")
@@ -559,6 +562,152 @@ class ReversePickupTest(unittest.TestCase):
         _c, bare = self._order(fee=None)
         r = self._post(bare, {"awb": awb, "condition": "Intact"}, path="/received")
         self.assertEqual((r.status_code, r.get_json()["error"]), (409, "no_case"))
+
+    def _race(self, first, second):
+        """Run ``first`` on its own connection and hold its transaction open,
+        locks taken, until ``second`` has started on another connection.
+        Returns each call's result or the ReversePickupError it raised."""
+        holder = threading.current_thread
+        held, out = threading.Event(), {}
+        real = rp.queue_ops_event
+
+        def slow_queue(*a, **kw):
+            if holder().name == "first":
+                held.set()
+                time.sleep(0.8)
+            return real(*a, **kw)
+
+        def run(name, fn):
+            db = _connect()
+            try:
+                out[name] = fn(db)
+            except rp.ReversePickupError as exc:
+                out[name] = exc
+                db.rollback()
+            finally:
+                db.close()
+
+        rp.queue_ops_event = slow_queue
+        try:
+            t1 = threading.Thread(target=run, args=("first", first), name="first")
+            t1.start()
+            self.assertTrue(held.wait(10))
+            t2 = threading.Thread(target=run, args=("second", second), name="second")
+            t2.start()
+            t1.join(30)
+            t2.join(30)
+        finally:
+            rp.queue_ops_event = real
+        return out["first"], out["second"]
+
+    def test_a_receipt_and_a_cancel_at_the_same_moment_cannot_both_commit(self):
+        oid, awb = self._booked()
+        receive = lambda db: rp.mark_received(db, oid, {"awb": awb, "condition": "Intact"}, "ops-a")
+        cancel = lambda db: rp.cancel(db, oid, {"awb": awb}, "ops-b")
+        got_received, got_cancel = self._race(receive, cancel)
+        self.assertTrue(got_received[1])
+        self.assertIsInstance(got_cancel, rp.ReversePickupError)
+        self.assertEqual((got_cancel.status, got_cancel.code), (409, "pickup_already_received"))
+        self.db.commit()
+        self.assertEqual(rp.by_awb(self.db, awb)["status"], rp.ST_BOOKED)
+        self.assertIsNotNone(rp.case_for_order(self.db, oid)["received_at"])
+        self.assertNotIn("reverse_pickup.cancelled", self._events(oid))
+        self.assertFalse([h for h in self._history(oid) if "cancelled" in h])
+
+        oid, awb = self._booked()
+        receive = lambda db: rp.mark_received(db, oid, {"awb": awb, "condition": "Intact"}, "ops-a")
+        cancel = lambda db: rp.cancel(db, oid, {"awb": awb}, "ops-b")
+        got_cancel, got_received = self._race(cancel, receive)
+        self.assertTrue(got_cancel[1])
+        self.assertIsInstance(got_received, rp.ReversePickupError)
+        self.assertEqual((got_received.status, got_received.code), (409, "pickup_cancelled"))
+        self.db.commit()
+        self.assertEqual(rp.by_awb(self.db, awb)["status"], rp.ST_CANCELLED)
+        case = rp.case_for_order(self.db, oid)
+        self.assertIsNone(case["received_at"])
+        self.assertEqual(rp.notice_view(self.db, case["case_uuid"]), [])
+        self.assertNotIn("reverse_pickup.received", self._events(oid))
+
+    def _age_notices(self, oid, minutes=16):
+        self.cur.execute("UPDATE reverse_pickup_notifications SET last_attempt_at=NOW() - INTERVAL %s MINUTE "
+                         "WHERE order_id=%s AND last_attempt_at IS NOT NULL", (minutes, oid))
+        self.db.commit()
+
+    def _notice(self, oid):
+        self.cur.execute("SELECT * FROM reverse_pickup_notifications WHERE order_id=%s", (oid,))
+        rows = self.cur.fetchall()
+        self.db.commit()
+        self.assertEqual(len(rows), 1)
+        return rows[0]
+
+    def test_a_failed_customer_email_is_retried_until_sent_and_the_step_is_never_repeated(self):
+        oid, awb = self._booked()
+
+        def down(to, subj, text):
+            raise OSError("smtp unavailable")
+
+        reship._default_mailer = down
+        r = self._received(oid, awb)
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(r.get_json()["customer_notice"]["result"], "failed")
+        self.assertEqual([(n["notification_type"], n["status"], n["attempt_count"])
+                          for n in r.get_json()["notifications"]],
+                         [("reverse_pickup.received", "FAILED", 1)])
+        self.assertEqual(rp.retry_notices(self.db, mailer=down)["due"], 0)
+        self._age_notices(oid)
+        self.assertEqual(rp.retry_notices(self.db, mailer=down)["failed"], 1)
+        n = self._notice(oid)
+        self.assertEqual((n["status"], n["attempt_count"], n["last_error"]), ("FAILED", 2, "smtp unavailable"))
+        self.assertEqual(self._events(oid).count("reverse_pickup.notification_failed"), 1)
+
+        self._age_notices(oid)
+        sent = []
+        mailer = lambda to, subj, text: sent.append((to, subj))
+        self.assertEqual(rp.retry_notices(self.db, mailer=mailer)["sent"], 1)
+        self.assertEqual(sent, [("rp@example.in", "Optiwar Return Received")])
+        n = self._notice(oid)
+        self.assertEqual((n["status"], n["attempt_count"]), ("SENT", 3))
+        self.assertIsNotNone(n["sent_at"])
+        notified = [json.loads(o["body"]) for o in self._outbox(oid) if o["event"] == "reverse_pickup.notified"
+                    and json.loads(o["body"])["data"]["for_event"] == "reverse_pickup.received"]
+        self.assertEqual(len(notified), 1)
+
+        self._age_notices(oid, minutes=120)
+        self.assertEqual(rp.retry_notices(self.db, mailer=mailer)["due"], 0)
+        again = self._received(oid, awb)
+        self.assertEqual((again.status_code, again.get_json()["changed"]), (200, False))
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(self._history(oid).count(
+            [h for h in self._history(oid) if "received by" in h][0]), 1)
+
+    def test_a_notice_owed_by_a_committed_step_is_sent_by_the_retry_even_if_the_first_send_never_ran(self):
+        oid, awb = self._booked()
+        self._received(oid, awb)
+        real = rp.notify_case
+        rp.notify_case = lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("worker died"))
+        try:
+            r = self._post(oid, {"manufacturing_defect": False}, path="/inspection")
+        finally:
+            rp.notify_case = real
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(r.get_json()["customer_notice"]["result"], "failed")
+        pending = [n for n in r.get_json()["notifications"] if n["notification_type"] == "inspection_no_defect"]
+        self.assertEqual([(n["status"], n["attempt_count"]) for n in pending], [("PENDING", 0)])
+        del self.mails[:]
+        self.assertEqual(rp.retry_notices(self.db)["sent"], 1)
+        self.assertEqual([m[1] for m in self.mails], ["Optiwar Return Inspection Update"])
+        self.assertEqual(rp.retry_notices(self.db)["due"], 0)
+
+    def test_no_notice_is_owed_or_retried_while_customer_notices_are_off(self):
+        oid, awb = self._booked()
+        os.environ[rp.CUSTOMER_ENV] = "false"
+        r = self._received(oid, awb)
+        self.assertEqual((r.status_code, r.get_json()["customer_notice"]["result"]), (200, "off"))
+        self.assertEqual(r.get_json()["notifications"], [])
+        self.assertTrue(rp.retry_notices(self.db)["off"])
+        os.environ[rp.CUSTOMER_ENV] = "true"
+        self.assertEqual(rp.retry_notices(self.db)["due"], 0)
+        self.assertEqual(self.mails, [])
 
     def test_inspection_is_a_recorded_human_decision_with_one_notice_per_path(self):
         no_defect_paid, awb1 = self._booked("PAID")

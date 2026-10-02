@@ -351,6 +351,16 @@ On the release that carries the 60-day holding period (`reship.py`
    API). `RESHIP_WA_REMINDER_TEMPLATES_APPROVED` stays unset until Meta
    approves the three holding-period templates.
 
+On the release that adds `reverse_pickup_notifications` (created by
+`reverse_pickup.ensure_schema` at first boot):
+
+1. `GRANT SELECT ON optiwar2.reverse_pickup_notifications TO 'optiwar_ro'@'localhost';`
+   so the reship section can alert on customer notices that are not going out.
+2. Copy `reports/reship_report_section.py` to `/root/reports/reports/` again.
+3. Failed notices are retried by the existing `*/10` reconcile cron once their
+   last attempt is `REVERSE_PICKUP_NOTICE_RETRY_MINUTES` (default 15) old; no
+   new cron entry.
+
 The clock starts only at `POST /ops/api/shipments/<order_id>/return-received`;
 rows confirmed before this release are backfilled from
 `ops_return_confirmed_at` once, by `ensure_schema`.

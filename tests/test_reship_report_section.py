@@ -49,6 +49,27 @@ class ReshipReportSectionTests(unittest.TestCase):
         self.assertEqual(sev["Inside the final 5 days before abandonment"], WARNING)
         self.assertEqual(sev["RESHIP_PAID for more than 48h and not shipped"], WARNING)
 
+    def test_reverse_pickup_notices_that_are_not_going_out_are_surfaced(self):
+        sql = _sql_with([
+            ("FROM reverse_pickup_notifications WHERE status IN ('PENDING','FAILED') AND attempt_count >= 3",
+             [("RP-1", "reverse_pickup.received attempts=4 last=2026-10-02 10:00:00 smtp down")]),
+            ("status='SENDING'", []),
+            ("status='NO_EMAIL'", []),
+            ("SELECT order_id", []),
+            ("SELECT r.order_id", []),
+        ])
+        metrics, alerts, errors = rrs.collect(sql)
+        self.assertEqual(rrs.status_of(metrics, alerts), rrs.AMBER)
+        text = rrs.build(metrics, alerts, errors)
+        self.assertIn("Reverse-pickup customer email unsent after 3+ attempts (1)", text)
+        self.assertIn("RP-1", text)
+        sev = {f.message.split(":")[0]: f.severity for f in rrs.findings(metrics, alerts, errors)}
+        self.assertEqual(sev["Reverse-pickup customer email unsent after 3+ attempts"], WARNING)
+        alerts["rp_notice_interrupted"] = [("RP-2", "inspection_no_defect")]
+        self.assertEqual(rrs.status_of(metrics, alerts), rrs.RED)
+        sev = {f.message.split(":")[0]: f.severity for f in rrs.findings(metrics, alerts, errors)}
+        self.assertEqual(sev["Reverse-pickup customer email interrupted mid-send - check by hand"], ACTION)
+
     def test_green_when_nothing_is_wrong(self):
         metrics, alerts, errors = rrs.collect(lambda q: [] if "SELECT order_id" in q
                                              or "SELECT r.order_id" in q else [("0",)])

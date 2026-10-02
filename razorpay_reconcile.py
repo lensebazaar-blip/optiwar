@@ -135,6 +135,18 @@ def main():
         reship_summary = {'error': str(exc)[:160]}
     summary['reship'] = reship_summary
 
+    # Reverse-pickup customer notices whose send failed: retried on their own;
+    # the Ops step that caused them is never repeated.
+    try:
+        from flaskr import reverse_pickup
+        with app.test_request_context(base_url='https://optiwar.in/'):
+            db = get_db()
+            reverse_pickup.ensure_schema(db)
+            summary['reverse_pickup_notices'] = reverse_pickup.retry_notices(db, logger=app.logger)
+    except Exception as exc:  # noqa: BLE001 - must never stop the order reconcile
+        app.logger.error('REVERSE_PICKUP_NOTICE_RETRY_FAILED %s' % exc)
+        summary['reverse_pickup_notices'] = {'error': str(exc)[:160]}
+
     # Reverse-pickup events Ops has not yet answered 2xx for.
     try:
         from flaskr import reverse_pickup

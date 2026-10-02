@@ -181,8 +181,38 @@ OUTBOX_DDL = """CREATE TABLE IF NOT EXISTS reverse_pickup_ops_outbox (
     KEY idx_rpo_order (order_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
 
+# One row per customer notice (case, notice, channel): the step that causes it
+# is recorded once; the notice is retried on its own until it is sent.
+NOTICE_DDL = """CREATE TABLE IF NOT EXISTS reverse_pickup_notifications (
+    id                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    event_id          CHAR(36) NOT NULL,
+    case_uuid         CHAR(36) NOT NULL,
+    order_id          VARCHAR(64) NOT NULL,
+    notification_type VARCHAR(64) NOT NULL,
+    channel           VARCHAR(16) NOT NULL,
+    status            VARCHAR(12) NOT NULL,
+    attempt_count     INT NOT NULL DEFAULT 0,
+    last_attempt_at   DATETIME NULL,
+    last_error        VARCHAR(255) NULL,
+    sent_at           DATETIME NULL,
+    created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_rpn_event (event_id),
+    UNIQUE KEY uq_rpn_notice (case_uuid, notification_type, channel),
+    KEY idx_rpn_status (status, last_attempt_at),
+    KEY idx_rpn_order (order_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
+
 TABLES = [("order_reverse_pickups", TABLE_DDL), ("reverse_pickup_cases", CASE_DDL),
-          ("reverse_pickup_ops_outbox", OUTBOX_DDL)]
+          ("reverse_pickup_ops_outbox", OUTBOX_DDL), ("reverse_pickup_notifications", NOTICE_DDL)]
+
+NOTICE_PENDING = "PENDING"
+NOTICE_SENDING = "SENDING"
+NOTICE_SENT = "SENT"
+NOTICE_FAILED = "FAILED"
+NOTICE_NO_EMAIL = "NO_EMAIL"
+NOTICE_RETRY_MINUTES_ENV = "REVERSE_PICKUP_NOTICE_RETRY_MINUTES"
+NOTICE_RETRY_MINUTES = 15
 
 _WA_TEMPLATES = {EV_BOOKED: "reverse_pickup_booked_v2", EV_CANCELLED: "reverse_pickup_cancelled_v2"}
 CHANGE_EMAIL = "admin@optiwar.com"
@@ -396,6 +426,9 @@ def cancel(db, order_id, body, operator):
     if not oid:
         raise ReversePickupError("not_found", "order not found", 404)
     awb = _normal_awb(body.get("awb"))
+    # Case row first, then pickup row: the same order mark_received locks
+    # them in, so a receipt and a cancel of one parcel serialize.
+    case = case_for_order(db, oid, for_update=True)
     row = by_awb(db, awb, for_update=True) if awb else active_for_order(db, oid, for_update=True)
     if not row or row["order_id"] != oid:
         db.rollback()
@@ -403,10 +436,9 @@ def cancel(db, order_id, body, operator):
     if row["status"] == ST_CANCELLED:
         db.rollback()
         return row, False
-    case = case_for_order(db, oid)
     if case and case.get("received_at") and case.get("received_awb") == row["awb"]:
         db.rollback()
-        raise ReversePickupError("already_received",
+        raise ReversePickupError("pickup_already_received",
                                  "the parcel for AWB %s has been received; it cannot be cancelled"
                                  % row["awb"], 409)
     cur = db.cursor()
@@ -857,6 +889,7 @@ def state_view(db, order_id):
         "received": received_view(case),
         "inspection": inspection_view(case),
         "consent": consent_view(case),
+        "notifications": notice_view(db, case["case_uuid"]) if case else [],
         "forward_shipment": {"original": ({"awb": original[0], "courier": original[1]}
                                           if original and original[0] else None),
                              "replacement": None},
@@ -974,7 +1007,7 @@ def mark_received(db, order_id, body, operator):
     at = _parse_at(body.get("received_at"), "received_at")
     notes = _clip(body.get("notes"), 500)
     oid, case = _case_for_action(db, order_id)
-    pickup = by_awb(db, awb)
+    pickup = by_awb(db, awb, for_update=True)
     if not pickup or pickup["order_id"] != oid:
         db.rollback()
         raise ReversePickupError("awb_mismatch", "AWB %s is not a reverse pickup of this order" % awb, 409)
@@ -1002,6 +1035,7 @@ def mark_received(db, order_id, body, operator):
     _audit(db, EV_RECEIVED, case, data)
     queue_ops_event(db, EV_RECEIVED, oid, data, case=case, pickup=pickup, key=case["case_uuid"],
                     commit=False)
+    enqueue_notice(db, case, EV_RECEIVED)
     db.commit()
     return case, True
 
@@ -1039,6 +1073,9 @@ def record_inspection(db, order_id, body, operator):
     _audit(db, EV_INSPECTED, case, data)
     queue_ops_event(db, EV_INSPECTED, oid, data, case=case, pickup=latest_for_order(db, oid),
                     key=case["case_uuid"], commit=False)
+    notice = inspection_notice(case)
+    if notice:
+        enqueue_notice(db, case, notice)
     db.commit()
     return case, True
 
@@ -1090,25 +1127,74 @@ def record_consent(db, order_id, body, operator):
     return case, True
 
 
-def notify_case(db, notice, case, mailer=None, environ=None):
-    """Email the customer one case notice, once: the claim is a
-    ``reverse_pickup.notified`` event keyed on (case, notice). Returns
-    ``"sent"``, ``"replay"``, ``"failed"``, ``"no_email"`` or ``"off"``."""
-    env = os.environ if environ is None else environ
-    if not customer_enabled(env):
-        return "off"
+def _notice_suffix(notice, channel="email"):
+    return "case:%s:%s" % (notice, channel)
+
+
+def _notice_row(db, case_uuid, notice, channel="email", for_update=False):
     cur = db.cursor()
-    oid = case["order_id"]
+    cur.execute("SELECT * FROM reverse_pickup_notifications WHERE case_uuid=%s AND "
+                "notification_type=%s AND channel=%s" + (" FOR UPDATE" if for_update else ""),
+                (case_uuid, notice, channel))
+    return cur.fetchone()
+
+
+def enqueue_notice(db, case, notice, channel="email", environ=None):
+    """Record that the customer is owed ``notice`` for this case. Written in
+    the transaction of the step that causes it; a second call is a no-op.
+    Nothing is owed while customer notices are switched off, so turning
+    them on later never sends anything retroactively."""
+    if not customer_enabled(environ):
+        return False
+    key = case["case_uuid"]
+    suffix = _notice_suffix(notice, channel)
+    # A notice claimed in reship_events before this table existed keeps the
+    # outcome it had then.
+    claimed = reship.event_id_for(EV_NOTIFIED, key, suffix)
+    failed = reship.event_id_for(EV_NOTIFY_FAILED, key, suffix + ":fail")
+    cur = db.cursor()
+    cur.execute("SELECT event_id FROM reship_events WHERE event_id IN (%s,%s)", (claimed, failed))
+    legacy = {r["event_id"] for r in cur.fetchall()}
+    status = (NOTICE_FAILED if failed in legacy else NOTICE_SENT) if claimed in legacy else NOTICE_PENDING
+    cur.execute("INSERT IGNORE INTO reverse_pickup_notifications (event_id, case_uuid, order_id, "
+                "notification_type, channel, status, sent_at) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                (claimed, key, case["order_id"], notice, channel, status,
+                 reship.db_now(db) if status == NOTICE_SENT else None))
+    return cur.rowcount == 1
+
+
+def notice_view(db, case_uuid):
+    cur = db.cursor()
+    cur.execute("SELECT * FROM reverse_pickup_notifications WHERE case_uuid=%s ORDER BY id", (case_uuid,))
+    return [{"notification_type": n["notification_type"], "channel": n["channel"], "status": n["status"],
+             "attempt_count": int(n["attempt_count"]), "last_attempt_at": _iso(n.get("last_attempt_at")),
+             "last_error": n.get("last_error"), "sent_at": _iso(n.get("sent_at"))}
+            for n in cur.fetchall()]
+
+
+def _send_notice(db, n, case, mailer=None):
+    """One attempt at one owed notice. The row is claimed (SENDING) before
+    the mail is handed over, so two workers never both send it; a claim
+    that was interrupted mid-send stays SENDING for a person to check
+    rather than risk a second email."""
+    cur = db.cursor()
+    cur.execute("UPDATE reverse_pickup_notifications SET status=%s, attempt_count=attempt_count+1, "
+                "last_attempt_at=NOW() WHERE id=%s AND status IN (%s,%s)",
+                (NOTICE_SENDING, n["id"], NOTICE_PENDING, NOTICE_FAILED))
+    claimed = cur.rowcount == 1
+    db.commit()
+    if not claimed:
+        return "replay"
+    notice, oid, key = n["notification_type"], case["order_id"], case["case_uuid"]
+    suffix = _notice_suffix(notice, n["channel"])
     customer_id = case.get("customer_id") or reship._order_head(cur, oid).get("customer_id")
     acct = reship._account(cur, customer_id)
     email = (acct.get("customer_email") or "").strip()
     if not (email and "@" in email):
+        cur.execute("UPDATE reverse_pickup_notifications SET status=%s, last_error=%s WHERE id=%s",
+                    (NOTICE_NO_EMAIL, "no customer email on the account", n["id"]))
+        db.commit()
         return "no_email"
-    key = case["case_uuid"]
-    suffix = "case:%s:email" % notice
-    if not reship.emit(db, EV_NOTIFIED, oid, key, customer_id, {"event": notice, "channel": "email"},
-                       key=key, suffix=suffix):
-        return "replay"
     subject, lines = CASE_EMAILS[notice]
     fields = {"name": (acct.get("customer_name") or "").strip() or "Customer", "order_id": oid,
               "fee_line": FEE_RETAINED_LINE if case["fee_state"] != FEE_WAIVED else ""}
@@ -1116,15 +1202,71 @@ def notify_case(db, notice, case, mailer=None, environ=None):
     try:
         (mailer or reship._default_mailer)(email, subject, (CASE_EMAIL_FRAME % lines).format(**fields))
     except Exception as exc:  # noqa: BLE001
+        error = str(exc)[:160]
+        attempt = int(n["attempt_count"]) + 1
+        cur.execute("UPDATE reverse_pickup_notifications SET status=%s, last_error=%s WHERE id=%s",
+                    (NOTICE_FAILED, error, n["id"]))
         reship.emit(db, EV_NOTIFY_FAILED, oid, key, customer_id,
-                    {"event": notice, "channel": "email", "error": str(exc)[:160]},
-                    key=key, suffix=suffix + ":fail")
-        queue_ops_event(db, EV_NOTIFY_FAILED, oid, {"for_event": notice, "notified_event": notice,
-                                                   "channel": "email", "reason": str(exc)[:160],
-                                                   "error": str(exc)[:160]},
-                        case=case, pickup=pickup, key=key, suffix=suffix)
+                    {"event": notice, "channel": n["channel"], "error": error, "attempt": attempt},
+                    key=key, suffix=suffix + (":fail" if attempt == 1 else ":fail:%d" % attempt),
+                    commit=False)
+        if attempt == 1:
+            queue_ops_event(db, EV_NOTIFY_FAILED, oid, {"for_event": notice, "notified_event": notice,
+                                                       "channel": n["channel"], "reason": error,
+                                                       "error": error},
+                            case=case, pickup=pickup, key=key, suffix=suffix, commit=False)
+        db.commit()
         return "failed"
+    cur.execute("UPDATE reverse_pickup_notifications SET status=%s, sent_at=NOW(), last_error=NULL "
+                "WHERE id=%s", (NOTICE_SENT, n["id"]))
+    reship.emit(db, EV_NOTIFIED, oid, key, customer_id, {"event": notice, "channel": n["channel"]},
+                key=key, suffix=suffix, commit=False)
     queue_ops_event(db, EV_NOTIFIED, oid, {"for_event": notice, "notified_event": notice,
-                                               "channel": "email"},
-                    case=case, pickup=pickup, key=key, suffix=suffix)
+                                           "channel": n["channel"]},
+                    case=case, pickup=pickup, key=key, suffix=suffix, commit=False)
+    db.commit()
     return "sent"
+
+
+def notify_case(db, notice, case, mailer=None, environ=None):
+    """Email the customer one case notice now. The notice is owed once per
+    (case, notice); a send that fails is left FAILED for retry_notices.
+    Returns ``"sent"``, ``"replay"``, ``"failed"``, ``"no_email"`` or ``"off"``."""
+    if not customer_enabled(environ):
+        return "off"
+    enqueue_notice(db, case, notice, environ=environ)
+    db.commit()
+    n = _notice_row(db, case["case_uuid"], notice)
+    if not n or n["status"] not in (NOTICE_PENDING, NOTICE_FAILED) or int(n["attempt_count"]):
+        return "replay"
+    return _send_notice(db, n, case, mailer=mailer)
+
+
+def retry_notices(db, mailer=None, environ=None, limit=50, logger=None):
+    """Send every owed notice that is not yet sent and whose last attempt is
+    at least REVERSE_PICKUP_NOTICE_RETRY_MINUTES (15) old. The step that
+    caused it is never repeated. Returns a summary dict."""
+    env = os.environ if environ is None else environ
+    out = {"due": 0, "sent": 0, "failed": 0, "no_email": 0}
+    if not customer_enabled(env):
+        return dict(out, off=True)
+    ensure_schema(db)
+    minutes = int(env.get(NOTICE_RETRY_MINUTES_ENV) or NOTICE_RETRY_MINUTES)
+    cur = db.cursor()
+    cur.execute("SELECT * FROM reverse_pickup_notifications WHERE status IN (%s,%s) AND "
+                "(last_attempt_at IS NULL OR last_attempt_at <= NOW() - INTERVAL %s MINUTE) "
+                "ORDER BY id LIMIT %s", (NOTICE_PENDING, NOTICE_FAILED, minutes, int(limit)))
+    rows = cur.fetchall()
+    db.commit()
+    for n in rows:
+        case = case_by_uuid(db, n["case_uuid"])
+        if not case:
+            continue
+        out["due"] += 1
+        result = _send_notice(db, n, case, mailer=mailer)
+        if result in out:
+            out[result] += 1
+        if result == "failed" and logger:
+            logger.warning("REVERSE_PICKUP_NOTICE_RETRY_FAILED %s case:%s attempt:%d"
+                           % (n["notification_type"], n["case_uuid"], int(n["attempt_count"]) + 1))
+    return out

@@ -17,6 +17,9 @@ Alerts (findings) this section raises:
     RESHIP_PAID but not shipped within the operating threshold       WARNING
     parcel inside the final window before abandonment                WARNING
     ABANDONED but the Ops platform has not been told                 ACTION
+    reverse-pickup customer email unsent after 3+ attempts           WARNING
+    reverse-pickup customer email owed, account has no email         WARNING
+    reverse-pickup customer email interrupted mid-send               ACTION
 
     RESHIP_SHIP_THRESHOLD_HOURS   how long a PAID parcel may wait (default 48)
     RESHIP_FINAL_WINDOW_DAYS      the final window (default 5, same as the app)
@@ -36,6 +39,7 @@ GREEN, AMBER, RED = "GREEN", "AMBER", "RED"
 SHIP_THRESHOLD_HOURS = int(os.environ.get("RESHIP_SHIP_THRESHOLD_HOURS", "48"))
 FINAL_WINDOW_DAYS = int(os.environ.get("RESHIP_FINAL_WINDOW_DAYS", "5"))
 NOTIFY_GRACE_MINUTES = int(os.environ.get("RESHIP_NOTIFY_GRACE_MINUTES", "5"))
+RP_NOTICE_ALERT_ATTEMPTS = 3
 
 OPEN = "('RETURNED','PAYMENT_PENDING')"
 NA = "n/a"
@@ -92,6 +96,18 @@ ALERTS = (
      "JOIN reship_events e ON e.reship_uuid=r.reship_uuid "
      "AND e.event_type='reship.payment_refused' AND e.payload LIKE '%late_capture%' "
      "WHERE r.status='ABANDONED' GROUP BY r.order_id"),
+    ("rp_notice_failing", "Reverse-pickup customer email unsent after %d+ attempts"
+     % RP_NOTICE_ALERT_ATTEMPTS,
+     "SELECT order_id, CONCAT(notification_type, ' attempts=', attempt_count, ' last=', "
+     "COALESCE(last_attempt_at, ''), ' ', COALESCE(last_error, '')) "
+     "FROM reverse_pickup_notifications WHERE status IN ('PENDING','FAILED') "
+     "AND attempt_count >= %d ORDER BY id" % RP_NOTICE_ALERT_ATTEMPTS),
+    ("rp_notice_no_email", "Reverse-pickup customer email owed but the account has no email (7d)",
+     "SELECT order_id, notification_type FROM reverse_pickup_notifications "
+     "WHERE status='NO_EMAIL' AND created_at >= NOW() - INTERVAL 7 DAY ORDER BY id"),
+    ("rp_notice_interrupted", "Reverse-pickup customer email interrupted mid-send - check by hand",
+     "SELECT order_id, notification_type FROM reverse_pickup_notifications "
+     "WHERE status='SENDING' AND last_attempt_at < NOW() - INTERVAL 30 MINUTE ORDER BY id"),
 )
 
 
@@ -116,9 +132,10 @@ def collect(sql=run_sql):
 
 
 def status_of(metrics, alerts):
-    if alerts.get("unsynced") or alerts.get("late_capture"):
+    if alerts.get("unsynced") or alerts.get("late_capture") or alerts.get("rp_notice_interrupted"):
         return RED
-    if any(alerts.get(k) for k in ("unnotified", "paid_unshipped", "final_window")):
+    if any(alerts.get(k) for k in ("unnotified", "paid_unshipped", "final_window",
+                                   "rp_notice_failing", "rp_notice_no_email")):
         return AMBER
     if any(v is None for v in metrics.values()) or any(v is None for v in alerts.values()):
         return AMBER
@@ -170,7 +187,8 @@ def findings(metrics=None, alerts=None, errors=None):
     for e in errors or ():
         out.append(Finding(WARNING, "reship", "reship report: %s" % e, "reship"))
     sev = {"unnotified": WARNING, "paid_unshipped": WARNING, "final_window": WARNING,
-           "unsynced": ACTION, "late_capture": ACTION}
+           "unsynced": ACTION, "late_capture": ACTION, "rp_notice_failing": WARNING,
+           "rp_notice_no_email": WARNING, "rp_notice_interrupted": ACTION}
     for key, label, _q in ALERTS:
         rows = alerts.get(key)
         if not rows:
