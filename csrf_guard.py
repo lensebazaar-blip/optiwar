@@ -68,6 +68,11 @@ BEARER_EXEMPT_ENDPOINTS = {
     "main.ops_reship_release_hold",
     "main.ops_reverse_pickup",
     "main.ops_reverse_pickup_cancel",
+    "main.ops_reverse_pickup_waive",
+    "main.ops_reverse_pickup_reason",
+    "main.ops_reverse_pickup_received",
+    "main.ops_reverse_pickup_inspection",
+    "main.ops_reverse_pickup_consent",
 }
 
 
