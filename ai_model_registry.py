@@ -87,6 +87,14 @@ REGISTRY = {
         "cost_basis": UNDECLARED,
         "declared_on": "2026-09-08",
     },
+    "openai_search": {
+        "purpose": "Turns a /search query into keywords and exact catalogue "
+                   "filters (models.extract_search_intent).",
+        "fallback": "The query's own words as keywords, no filters.",
+        "timeout_env": "AI_DEADLINE_SEARCH",
+        "cost_basis": UNDECLARED,
+        "declared_on": "2026-10-02",
+    },
 }
 
 REQUIRED_FIELDS = ("purpose", "fallback", "timeout_env", "cost_basis",

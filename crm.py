@@ -88,15 +88,10 @@ _HEALTH_TTL = 60  # seconds
 
 
 def _check_ai_health():
-    """Cheap AI-provider liveness probe. Returns (ok: bool, detail: str)."""
-    key = os.environ.get('OPENAI_API_KEY', '')
-    if not key:
-        return False, "no_api_key"
+    """Liveness of the provider and model the assistant calls: (ok, detail)."""
     try:
-        from openai import OpenAI
-        client = OpenAI(api_key=key, timeout=4.0, max_retries=0)
-        client.models.list()
-        return True, "ok"
+        from .ai_client import provider_health
+        return provider_health()
     except Exception as e:  # noqa: BLE001 - health probe must never raise
         return False, type(e).__name__
 
