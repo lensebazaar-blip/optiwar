@@ -228,11 +228,18 @@ class KetForwarding(unittest.TestCase):
         self.assertEqual(self.calls[0][1]["timeout"], 15)
         self.assertIsNone(out["ticket_uid"])
 
-    def test_create_retries_once_on_5xx_and_not_on_4xx(self):
-        self.answers += [_Resp(503), _Resp(201, {"ticket_id": "K", "uid": "u2"})]
+    def test_create_retries_only_a_429(self):
+        self.answers += [_Resp(429), _Resp(201, {"ticket_id": "K", "uid": "u2"})]
         out = self.crm._forward_to_ket("J", "j@example.com", "", "s", "d", images=self._images())
         self.assertEqual(out["ticket_uid"], "u2")
         self.assertEqual(len(self.calls), 2)
+        self.calls[:] = []
+        # KET's create is not idempotent: a 5xx may already have made the ticket.
+        self.answers += [_Resp(503), _Resp(201, {"ticket_id": "K2"})]
+        self.assertIsNone(self.crm._forward_to_ket("J", "j@example.com", "", "s", "d",
+                                                   images=self._images()))
+        self.assertEqual(len(self.calls), 1)
+        self.answers[:] = []
         self.calls[:] = []
         self.answers.append(_Resp(413, {"error": "too large"}))
         self.assertIsNone(self.crm._forward_to_ket("J", "j@example.com", "", "s", "d",

@@ -257,9 +257,9 @@ def _forward_to_ket(name, email, phone, subject, description, source="web_form",
             except Exception as e:
                 logging.warning(f"KET transcript parse failed: {e}")
 
-        # Bounded retry: KET rate-limits at 120 req/min/key and can return 5xx.
-        # Retry only on 429/5xx with a short backoff (this runs in-request, so keep
-        # the total added latency tight); never retry other 4xx (bad payload/auth).
+        # KET's ticket create is not idempotent: a 5xx or timeout may already have
+        # created the ticket (and sent its acknowledgement email), so only a 429
+        # (not processed) is retried once, with a short in-request backoff.
         max_attempts = 2
         for attempt in range(1, max_attempts + 1):
             resp = requests.post(
@@ -284,16 +284,13 @@ def _forward_to_ket(name, email, phone, subject, description, source="web_form",
                     f"images={len(payload.get('images') or [])}"
                 )
                 return result
-            retryable = resp.status_code == 429 or 500 <= resp.status_code < 600
             logging.warning(f"KET push returned {resp.status_code}: {resp.text[:200]}")
-            if not retryable or attempt == max_attempts:
+            if resp.status_code != 429 or attempt == max_attempts:
                 break
-            backoff = 1.0
-            if resp.status_code == 429:
-                try:
-                    backoff = min(float(resp.headers.get('Retry-After', 1)), 2.0)
-                except (TypeError, ValueError):
-                    backoff = 1.0
+            try:
+                backoff = min(float(resp.headers.get('Retry-After', 1)), 2.0)
+            except (TypeError, ValueError):
+                backoff = 1.0
             time.sleep(backoff)
     except Exception as e:
         logging.error(f"KET push failed: {e}")
