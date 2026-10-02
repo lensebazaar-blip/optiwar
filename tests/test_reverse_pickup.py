@@ -355,7 +355,7 @@ class ReversePickupTest(unittest.TestCase):
         self.assertEqual((r.status_code, r.get_json()["error"]), (409, "waiver_exists"))
         _c, paid = self._order(fee="PAID")
         r = self._post(paid, {"reason_code": "GOODWILL"}, path="/fee/waive")
-        self.assertEqual((r.status_code, r.get_json()["error"]), (409, "fee_not_waivable"))
+        self.assertEqual((r.status_code, r.get_json()["error"]), (409, "fee_already_paid"))
         _c, com = self._order(site="optiwar.com", fee=None)
         self.assertEqual(self._post(com, {"reason_code": "GOODWILL"}, path="/fee/waive").get_json()["error"],
                          "not_india_order")
@@ -415,11 +415,11 @@ class ReversePickupTest(unittest.TestCase):
                     "forward_shipment"):
             self.assertIn(key, s)
         self.assertEqual(set(s["fee"]), {"state", "amount_minor", "refunded_minor", "currency",
-                                         "paid_at", "waiver", "refunds"})
+                                         "paid_at", "razorpay_payment_id", "waiver", "refunds"})
         self.assertEqual((s["fee"]["state"], s["queue_state"], s["label"], s["booking_allowed"]),
                          ("DUE", "AWAITING_FEE", "AWAITING ₹250", False))
         n = self._get("/ops/api/shipments/%s/reverse-pickup" % none).get_json()
-        self.assertEqual((n["fee"]["state"], n["case_id"], n["reverse_pickup"]), (None, None, None))
+        self.assertEqual((n["fee"], n["case_id"], n["reverse_pickup"]), (None, None, None))
         r = self._get("/ops/api/reverse-pickup/queue")
         text = r.get_data(as_text=True)
         items = {i["order_ref"]: i for i in r.get_json()["items"]}
@@ -428,6 +428,37 @@ class ReversePickupTest(unittest.TestCase):
         self.assertNotIn(none, items)
         for leak in ("rp@example.in", "919999900000", "Test Customer"):
             self.assertNotIn(leak, text)
+
+    def test_state_queue_and_events_carry_the_names_ops_maps(self):
+        _c, oid = self._order(fee=None)
+        self.assertEqual(self._post(oid, {"operator": "ops-user", "reason_code": "OWNER_DECISION"},
+                                    path="/fee/waive").status_code, 200)
+        self.assertEqual(self._post(oid, self._body()).status_code, 200)
+        s = self._get("/ops/api/shipments/%s/reverse-pickup" % oid).get_json()
+        self.assertEqual(s["order_id"], oid)
+        self.assertEqual(s["request"]["id"], s["case_id"])
+        self.assertEqual(s["request"]["declared_reason"], "Wrong power / Rx issue")
+        waiver = s["fee"]["waiver"]
+        self.assertEqual((waiver["operator"], waiver["at"]), (waiver["waived_by"], waiver["waived_at"]))
+        self.assertIsNone(s["fee"]["razorpay_payment_id"])
+        pickup = s["reverse_pickup"]
+        self.assertEqual(pickup["awb"], AWB)
+        self.assertEqual(pickup["reason"], "Wrong power / Rx issue")
+        self.assertEqual((pickup["received_at"], pickup["inspection"], pickup["consent_at"], pickup["forward"]),
+                         (None, None, None, None))
+        q = self._get("/ops/api/reverse-pickup/queue").get_json()
+        req = {r["order_id"]: r for r in q["requests"]}[oid]
+        self.assertEqual((req["request_id"], req["pickup_awb"], req["fee"]["state"]),
+                         (s["case_id"], AWB, "WAIVED"))
+        self.assertEqual(req["declared_reason"], "Wrong power / Rx issue")
+        self.assertIsNotNone(req["requested_at"])
+        events = {o["event"]: json.loads(o["body"]) for o in self._outbox(oid)}
+        booked = events["reverse_pickup.booked"]
+        self.assertEqual((booked["request_id"], booked["pickup_uuid"], booked["awb"]),
+                         (s["case_id"], pickup["id"], AWB))
+        self.assertEqual(booked["at"], booked["occurred_at"])
+        self.assertEqual(events["reverse_pickup.fee_waived"]["data"]["operator"], "ops-api-token:ops-user")
+        self.assertEqual(events["reverse_pickup.notified"]["data"]["for_event"], "reverse_pickup.booked")
 
     def test_ops_events_are_signed_over_the_exact_body_and_retried_until_2xx(self):
         _c, oid = self._order()
@@ -462,7 +493,8 @@ class ReversePickupTest(unittest.TestCase):
         self.assertEqual(payload["fee"]["state"], "WAIVED")
         self.assertEqual(payload["awb"], AWB)
         self.assertNotIn("rp@example.in", body.decode())
-        self.assertEqual(json.loads(posts[2][0])["data"], {"notified_event": "reverse_pickup.booked",
+        self.assertEqual(json.loads(posts[2][0])["data"], {"for_event": "reverse_pickup.booked",
+                                                           "notified_event": "reverse_pickup.booked",
                                                            "channel": "email"})
         self.assertEqual(rp.deliver_ops_events(self.db, environ=env, http_post=post)["sent"], 0)
 

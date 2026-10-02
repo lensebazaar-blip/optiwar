@@ -464,7 +464,7 @@ def notify(db, event_type, row, host, mailer=None, whatsapp=None, environ=None):
                            suffix="%s:%s" % (event_type, channel))
 
     def tell_ops(ev, channel, extra=None):
-        data = {"notified_event": event_type, "channel": channel}
+        data = {"for_event": event_type, "notified_event": event_type, "channel": channel}
         data.update(extra or {})
         queue_ops_event(db, ev, row["order_id"], data, case=case_for_order(db, row["order_id"]),
                         pickup=row, key=key, suffix="%s:%s" % (event_type, channel))
@@ -473,7 +473,7 @@ def notify(db, event_type, row, host, mailer=None, whatsapp=None, environ=None):
         reship.emit(db, EV_NOTIFY_FAILED, row["order_id"], key, row.get("customer_id"),
                     {"event": event_type, "channel": channel, "error": str(exc)[:160]},
                     key=key, suffix="%s:%s:fail" % (event_type, channel))
-        tell_ops(EV_NOTIFY_FAILED, channel, {"error": str(exc)[:160]})
+        tell_ops(EV_NOTIFY_FAILED, channel, {"reason": str(exc)[:160], "error": str(exc)[:160]})
 
     email = (acct.get("customer_email") or "").strip()
     if email and "@" in email and claim("email"):
@@ -600,8 +600,10 @@ def fee_summary(case):
 def fee_view(case):
     out = fee_summary(case)
     out["paid_at"] = _iso(case.get("fee_paid_at")) if case else None
+    out["razorpay_payment_id"] = case.get("razorpay_payment_id") if case else None
     out["waiver"] = ({"reason_code": case["waiver_reason_code"],
                       "note": case.get("waiver_note") or None,
+                      "operator": case.get("waived_by"), "at": _iso(case.get("waived_at")),
                       "waived_by": case.get("waived_by"),
                       "waived_at": _iso(case.get("waived_at"))}
                      if case and case.get("waived_at") else None)
@@ -615,10 +617,13 @@ def queue_ops_event(db, event, order_id, data, case=None, pickup=None, key=None,
     later signed and sent; the same (event, key, suffix) is written once."""
     eid = reship.event_id_for(event, key or (case or {}).get("case_uuid")
                               or (pickup or {}).get("pickup_uuid") or order_id, "ops:" + suffix)
-    payload = {"event_id": eid, "event": event, "occurred_at": _iso(reship.db_now(db)),
+    at = _iso(reship.db_now(db))
+    case_uuid = case.get("case_uuid") if case else None
+    pickup_uuid = pickup.get("pickup_uuid") if pickup else None
+    payload = {"event_id": eid, "event": event, "at": at, "occurred_at": at,
                "order_ref": order_id,
-               "case_id": case.get("case_uuid") if case else None,
-               "reverse_pickup_id": pickup.get("pickup_uuid") if pickup else None,
+               "request_id": case_uuid, "case_id": case_uuid,
+               "pickup_uuid": pickup_uuid, "reverse_pickup_id": pickup_uuid,
                "awb": pickup.get("awb") if pickup else None,
                "fee": fee_summary(case), "data": data or {}}
     body = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
@@ -708,6 +713,9 @@ def waive(db, order_id, body, operator):
                     return case, False
                 raise ReversePickupError("waiver_exists", "the fee is already waived (%s)"
                                          % case["waiver_reason_code"], 409)
+            if case["fee_state"] == FEE_PAID:
+                db.rollback()
+                raise ReversePickupError("fee_already_paid", "the fee is PAID; it cannot be waived", 409)
             if case["fee_state"] != FEE_DUE:
                 db.rollback()
                 raise ReversePickupError("fee_not_waivable", "the fee is %s; only a DUE fee can be waived"
@@ -739,7 +747,7 @@ def waive(db, order_id, body, operator):
                 {"reason_code": code, "note": note or None, "operator": who},
                 key=case_uuid, commit=False)
     queue_ops_event(db, EV_FEE_WAIVED, oid,
-                    {"reason_code": code, "note": note or None, "waived_by": who,
+                    {"reason_code": code, "note": note or None, "operator": who, "waived_by": who,
                      "waived_at": _iso(case.get("waived_at"))},
                     case=case, pickup=latest_for_order(db, oid), key=case_uuid, commit=False)
     db.commit()
@@ -817,20 +825,32 @@ def state_view(db, order_id):
     latest = pickups[-1] if pickups else None
     original = reship.shipments_for_orders(db, [oid]).get(oid)
     queue_state = _queue_state(case, latest)
+    reason = (case or {}).get("return_reason") or (latest or {}).get("reason") or None
+    rp = None
+    if latest:
+        rp = ops_view(db, latest, EV_BOOKED if latest["status"] == ST_BOOKED else EV_CANCELLED)
+        rp.update({"reason": latest.get("reason") or None,
+                   "received_at": _iso((case or {}).get("received_at")),
+                   "inspection": ({"manufacturing_defect": bool(case.get("inspection_defect")),
+                                   "at": _iso(case.get("inspected_at")),
+                                   "operator": case.get("inspected_by")}
+                                  if case and case.get("inspected_at") else None),
+                   "consent_at": _iso((case or {}).get("consent_at")),
+                   "forward": None})
     return {
+        "order_id": oid,
         "order_ref": oid,
         "case_id": case["case_uuid"] if case else None,
         "queue_state": queue_state,
         "label": QUEUE_LABELS.get(queue_state, queue_state.replace("_", " ")),
         "booking_allowed": bool(case and case["fee_state"] in FEE_SETTLED
                                 and not (latest and latest["status"] == ST_BOOKED)),
-        "request": ({"source": case["source"],
-                     "reason": case.get("return_reason") or (latest or {}).get("reason") or None,
+        "request": ({"id": case["case_uuid"], "source": case["source"],
+                     "declared_reason": reason, "reason": reason,
                      "requested_at": _iso(case.get("created_at")),
                      "declarations": None} if case else None),
-        "fee": fee_view(case),
-        "reverse_pickup": (ops_view(db, latest, EV_BOOKED if latest["status"] == ST_BOOKED else EV_CANCELLED)
-                           if latest else None),
+        "fee": fee_view(case) if case else None,
+        "reverse_pickup": rp,
         "reverse_pickups": [{"id": p["pickup_uuid"], "awb": p["awb"], "status": p["status"],
                              "reason": p.get("reason") or None, "booked_at": _iso(p.get("booked_at")),
                              "cancelled_at": _iso(p.get("cancelled_at"))} for p in pickups],
@@ -859,10 +879,16 @@ def ops_queue(db, limit=200):
 
     def item(case, pickup, oid):
         state = _queue_state(case, pickup)
-        return {"order_ref": oid, "case_id": case["case_uuid"] if case else None,
+        return {"order_id": oid, "order_ref": oid,
+                "request_id": case["case_uuid"] if case else None,
+                "case_id": case["case_uuid"] if case else None,
+                "requested_at": _iso(case.get("created_at")) if case else None,
+                "declared_reason": ((case or {}).get("return_reason")
+                                    or (pickup or {}).get("reason") or None),
                 "queue_state": state, "label": QUEUE_LABELS.get(state, state.replace("_", " ")),
                 "fee": fee_summary(case),
                 "awb": pickup["awb"] if pickup else None,
+                "pickup_awb": pickup["awb"] if pickup else None,
                 "pickup_status": pickup["status"] if pickup else None,
                 "updated_at": _iso(max(x for x in ((case or {}).get("updated_at"),
                                                    (pickup or {}).get("updated_at")) if x))}
@@ -1056,7 +1082,7 @@ def record_consent(db, order_id, body, operator):
     add_history(cur, oid, "%s: customer asked by email for the product back (Message-ID %s), recorded by %s"
                 % (CONSENT_RECORD, message_id, _clip(operator, 120)), case.get("site_from"))
     data = {"record": CONSENT_RECORD, "recorded_by": who, "consent_at": _iso(case["consent_at"]),
-            "message_id": message_id}
+            "channel": "email", "message_id": message_id}
     _audit(db, CONSENT_RECORD, case, data)
     queue_ops_event(db, EV_CONSENT, oid, data, case=case, pickup=latest_for_order(db, oid),
                     key=case["case_uuid"], commit=False)
@@ -1093,10 +1119,12 @@ def notify_case(db, notice, case, mailer=None, environ=None):
         reship.emit(db, EV_NOTIFY_FAILED, oid, key, customer_id,
                     {"event": notice, "channel": "email", "error": str(exc)[:160]},
                     key=key, suffix=suffix + ":fail")
-        queue_ops_event(db, EV_NOTIFY_FAILED, oid, {"notified_event": notice, "channel": "email",
+        queue_ops_event(db, EV_NOTIFY_FAILED, oid, {"for_event": notice, "notified_event": notice,
+                                                   "channel": "email", "reason": str(exc)[:160],
                                                    "error": str(exc)[:160]},
                         case=case, pickup=pickup, key=key, suffix=suffix)
         return "failed"
-    queue_ops_event(db, EV_NOTIFIED, oid, {"notified_event": notice, "channel": "email"},
+    queue_ops_event(db, EV_NOTIFIED, oid, {"for_event": notice, "notified_event": notice,
+                                               "channel": "email"},
                     case=case, pickup=pickup, key=key, suffix=suffix)
     return "sent"
