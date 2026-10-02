@@ -21,6 +21,9 @@ Ops (``ops._require_ops_auth``: admin session or Bearer OPS_API_TOKEN):
     GET  /ops/api/reverse-pickup/queue                  open cases, order ref + states only
     POST /ops/api/shipments/<order_id>/reverse-pickup/fee/waive
     POST /ops/api/shipments/<order_id>/reverse-pickup/reason
+    POST /ops/api/shipments/<order_id>/reverse-pickup/received
+    POST /ops/api/shipments/<order_id>/reverse-pickup/inspection
+    POST /ops/api/shipments/<order_id>/reverse-pickup/consent
 
 Routes attach to the main blueprint; ``__init__.py`` and ``ops.py`` are not in
 the deployment set.
@@ -330,6 +333,49 @@ def register(bp):
             return _rp_error(exc)
         return jsonify({"ok": True, "changed": changed, "awb": row["awb"],
                         "old_reason": old or None, "reason": row.get("reason")})
+
+    def _rp_case_step(order_id, action, notice_for):
+        denied = _rp_gate()
+        if denied:
+            return denied
+        body = _body()
+        db = get_db()
+        try:
+            case, changed = action(db, order_id, body, _ops_operator(body))
+        except reverse_pickup.ReversePickupError as exc:
+            return _rp_error(exc)
+        notice = notice_for(case) if changed else None
+        customer_notice = None
+        if notice:
+            try:
+                customer_notice = reverse_pickup.notify_case(db, notice, case)
+            except Exception as exc:  # noqa: BLE001 - the step is already committed
+                current_app.logger.error("REVERSE_PICKUP_NOTIFY_ERROR %s case:%s %s"
+                                         % (notice, case["case_uuid"], exc))
+                customer_notice = "failed"
+        if changed:
+            _rp_deliver(db)
+        view = reverse_pickup.state_view(db, case["order_id"])
+        return jsonify(dict(view, ok=True, changed=changed,
+                            customer_notice={"notice": notice, "result": customer_notice}
+                            if notice else None))
+
+    @bp.route("/ops/api/shipments/<order_id>/reverse-pickup/received", methods=["POST"])
+    def ops_reverse_pickup_received(order_id):
+        """Ops physically has the returned parcel."""
+        return _rp_case_step(order_id, reverse_pickup.mark_received,
+                             lambda case: reverse_pickup.EV_RECEIVED)
+
+    @bp.route("/ops/api/shipments/<order_id>/reverse-pickup/inspection", methods=["POST"])
+    def ops_reverse_pickup_inspection(order_id):
+        """A person's inspection result; never inferred."""
+        return _rp_case_step(order_id, reverse_pickup.record_inspection,
+                             reverse_pickup.inspection_notice)
+
+    @bp.route("/ops/api/shipments/<order_id>/reverse-pickup/consent", methods=["POST"])
+    def ops_reverse_pickup_consent(order_id):
+        """The customer's emailed request for the product back."""
+        return _rp_case_step(order_id, reverse_pickup.record_consent, lambda case: None)
 
     @bp.route("/ops/api/shipments/<order_id>/reverse-pickup", methods=["POST"])
     def ops_reverse_pickup(order_id):
