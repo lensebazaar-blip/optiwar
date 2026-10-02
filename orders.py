@@ -13,7 +13,6 @@ from . import favorites as fav
 
 bp = Blueprint('orders', __name__)
 
-logging.basicConfig(level=logging.DEBUG)
 
 # Generate a 4-digit OTP
 def generate_otp():
@@ -26,7 +25,7 @@ def my_order():
     if request.method == 'POST':
         contact = request.form.get('contact')
         otp_input = request.form.get('otp')  # To capture the OTP entered by the user
-        logging.debug(f"Received contact: {contact}")
+        logging.debug("Received contact form submission")
         captcha = request.form.get('captcha')
 
         if captcha:
