@@ -522,14 +522,18 @@ def notify_support_ticket_created(customer_email, customer_phone, customer_name,
     return results
 
 
-def notify_support_ticket_resolved(customer_email, customer_phone, customer_name, ticket_id, site_host, profile_email=None):
-    """Trigger EWS when a support ticket is resolved."""
-    _log(f"TRIGGER:TICKET_RESOLVED ticket={ticket_id} email={customer_email} phone={customer_phone}")
-
-    results = {'email': False, 'whatsapp': False, 'sms': False}
-
-    subject = f"Ticket #{ticket_id} Resolved ✅"
-    body_html = f"""
+def support_lifecycle_email(event, customer_name, ticket_id, site_host):
+    """(subject, html) of the customer email for a KET ticket lifecycle event."""
+    if event == 'reopened':
+        return (f"Ticket #{ticket_id} Reopened", f"""
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+        <h2 style="color:#d97706;">Your Ticket Has Been Reopened</h2>
+        <p>Hi {customer_name or 'there'},</p>
+        <p>Your support ticket <strong>#{ticket_id}</strong> has been reopened and our team is looking into it again.</p>
+        <p style="color:#64748b;font-size:13px;margin-top:30px;">&mdash; Optiwar Support</p>
+    </div>
+    """)
+    return (f"Ticket #{ticket_id} Resolved ✅", f"""
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
         <h2 style="color:#16a34a;">Your Ticket Has Been Resolved ✅</h2>
         <p>Hi {customer_name or 'there'},</p>
@@ -538,7 +542,16 @@ def notify_support_ticket_resolved(customer_email, customer_phone, customer_name
         <p style="margin-top:20px;"><a href="https://{site_host}/search" style="background:#4f46e5;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;">Chat With Us</a></p>
         <p style="color:#64748b;font-size:13px;margin-top:30px;">&mdash; Optiwar Support</p>
     </div>
-    """
+    """)
+
+
+def notify_support_ticket_resolved(customer_email, customer_phone, customer_name, ticket_id, site_host, profile_email=None):
+    """Trigger EWS when a support ticket is resolved."""
+    _log(f"TRIGGER:TICKET_RESOLVED ticket={ticket_id} email={customer_email} phone={customer_phone}")
+
+    results = {'email': False, 'whatsapp': False, 'sms': False}
+
+    subject, body_html = support_lifecycle_email('resolved', customer_name, ticket_id, site_host)
     # Support email is owned by KET (sole sender); Optiwar sends only WhatsApp for support.
     if current_app.config.get('SUPPORT_TICKET_EMAIL_ENABLED', False):
         results['email'] = send_email(customer_email, subject, body_html, cc_emails=[profile_email])
@@ -568,15 +581,7 @@ def notify_support_ticket_reopened(customer_email, customer_phone, customer_name
 
     results = {'email': False, 'whatsapp': False, 'sms': False}
 
-    subject = f"Ticket #{ticket_id} Reopened"
-    body_html = f"""
-    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
-        <h2 style="color:#d97706;">Your Ticket Has Been Reopened</h2>
-        <p>Hi {customer_name or 'there'},</p>
-        <p>Your support ticket <strong>#{ticket_id}</strong> has been reopened and our team is looking into it again.</p>
-        <p style="color:#64748b;font-size:13px;margin-top:30px;">&mdash; Optiwar Support</p>
-    </div>
-    """
+    subject, body_html = support_lifecycle_email('reopened', customer_name, ticket_id, site_host)
     # Support email is owned by KET (sole sender); Optiwar sends only WhatsApp for support.
     if current_app.config.get('SUPPORT_TICKET_EMAIL_ENABLED', False):
         results['email'] = send_email(customer_email, subject, body_html, cc_emails=[profile_email])
