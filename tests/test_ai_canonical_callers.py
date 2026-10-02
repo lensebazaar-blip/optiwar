@@ -14,6 +14,24 @@ from unittest import mock
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 
+
+
+def _stub_missing(name, **attrs):
+    """CI installs neither openai nor httpx; ai_client only needs the names."""
+    try:
+        __import__(name)
+    except ImportError:
+        m = types.ModuleType(name)
+        m.__dict__.update(attrs)
+        sys.modules[name] = m
+
+
+_stub_missing("httpx", Timeout=type("Timeout", (), {"__init__": lambda s, *a, **k: None}))
+_stub_missing("openai", OpenAI=type("OpenAI", (), {"__init__": lambda s, *a, **k: None}),
+              **{n: type(n, (Exception,), {}) for n in (
+                  "APIConnectionError", "APITimeoutError",
+                  "InternalServerError", "RateLimitError")})
+
 import ai_client  # noqa: E402
 
 
