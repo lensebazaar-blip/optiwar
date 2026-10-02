@@ -157,6 +157,28 @@ class ReceiverTests(unittest.TestCase):
         self.assertEqual(self.jobs[0][3], "support_ticket_reopened")
         self.assertEqual(self.sessions[0][0], "reopened")
 
+    def test_a_native_accepted_is_stored_and_mapped_with_no_whatsapp(self):
+        r = self._post(event="accepted", ticket_uid="uid-1")
+        self.assertEqual(r.status_code, 200)
+        j = r.get_json()
+        self.assertEqual((j["status"], j["whatsapp"]), ("accepted", "not_sent"))
+        self.assertNotIn("treated_as", j)
+        self.assertEqual(self.stored[0][2], "accepted")
+        self.assertEqual(self.jobs, [])
+        self.assertEqual(self.status, ["accepted"])
+        self.assertEqual(self.sessions[0][0], "accepted")
+
+    def test_a_null_phone_is_no_phone(self):
+        r = self._post(event="resolved", ticket_uid="uid-1", phone=None)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.get_json()["whatsapp"], "skipped_no_phone")
+        self.assertEqual(self.jobs, [])
+
+    def test_other_unknown_events_are_still_acked_and_ignored(self):
+        r = self._post(event="assigned", ticket_uid="uid-1")
+        self.assertEqual(r.get_json()["status"], "ignored")
+        self.assertEqual(self.stored, [])
+
 
 if __name__ == "__main__":
     unittest.main()
