@@ -15,6 +15,7 @@ and the My Orders card. The forward AWB is never rewritten, the customer
 tracking link is built here from the AWB (never taken from the request), and
 a replay of the same AWB returns the stored row without a second message.
 """
+import datetime
 import hashlib
 import hmac
 import json
@@ -46,6 +47,11 @@ EV_CANCELLED = "reverse_pickup.cancelled"
 EV_NOTIFIED = "reverse_pickup.notified"
 EV_NOTIFY_FAILED = "reverse_pickup.notification_failed"
 EV_FEE_WAIVED = "reverse_pickup.fee_waived"
+EV_RECEIVED = "reverse_pickup.received"
+EV_INSPECTED = "reverse_pickup.inspection_completed"
+EV_CONSENT = "reverse_pickup.customer_consent_received"
+# The order-history / audit name of a customer's emailed consent.
+CONSENT_RECORD = "CUSTOMER_RETURN_CONSENT_RECEIVED"
 # Internal audit only; not an Ops event.
 EV_REASON_CORRECTED = "reverse_pickup.reason_corrected"
 
@@ -61,7 +67,18 @@ FEE_CURRENCY = reship.CURRENCY
 WAIVER_REASONS = ("OWNER_DECISION", "GOODWILL", "DEFECT_EVIDENT_PRE_PICKUP",
                   "PRE_EXISTING_CASE", "BOOKED_BEFORE_FEE_FLOW", "OTHER")
 
+RECEIVED_CONDITIONS = ("Intact", "Damaged packaging", "Product damaged", "Wrong item",
+                       "Empty/missing")
+
+NOTICE_INSPECTION_NO_DEFECT = "inspection_no_defect"
+NOTICE_INSPECTION_DEFECT_WAIVED = "inspection_defect_waived"
+
 QUEUE_LABELS = {"AWAITING_FEE": "AWAITING ₹250",
+                "AWAITING_INSPECTION": "RECEIVED — AWAITING INSPECTION",
+                "AWAITING_CUSTOMER_CONSENT": "AWAITING CUSTOMER CONSENT",
+                "DEFECT_CONFIRMED": "DEFECT CONFIRMED",
+                "READY_TO_DISPATCH": "READY TO DISPATCH",
+                "COMPLETED": "COMPLETED",
                 "READY_TO_BOOK": "READY TO BOOK PICKUP",
                 "PICKUP_BOOKED": "PICKUP BOOKED",
                 "FEE_NOT_RECORDED": "FEE NOT RECORDED"}
@@ -197,6 +214,32 @@ EMAILS = {
         "My Orders: {url}\n\n"
         "Optiwar Support"),
 }
+
+# Customer notices sent once per return case (email only). The body lines are
+# the owner-approved copy, verbatim.
+CASE_EMAILS = {
+    EV_RECEIVED: (
+        "Optiwar Return Received",
+        "We have received your returned package at Optiwar.\n"
+        "Our team will now inspect the product and update you after the inspection is completed.\n"
+        "No further action is required from you at this stage."),
+    NOTICE_INSPECTION_NO_DEFECT: (
+        "Optiwar Return Inspection Update",
+        "We have completed the inspection of your returned product.\n"
+        "Our inspection did not confirm the manufacturing defect reported in the return request.\n"
+        "{fee_line}"
+        "Please reply to this email to confirm that you would like us to send the product back to you.\n"
+        "Your complete return and inspection history remains recorded against your order."),
+    NOTICE_INSPECTION_DEFECT_WAIVED: (
+        "Optiwar Return Inspection Update",
+        "We have completed the inspection of your returned product and confirmed the reported "
+        "manufacturing defect.\n"
+        "Your reverse-pickup fee had already been waived, so no fee refund is required.\n"
+        "We will now proceed with the applicable product-resolution / return-to-customer process "
+        "and update you with the next shipment details."),
+}
+FEE_RETAINED_LINE = "The ₹250 reverse-pickup fee therefore remains applicable.\n"
+CASE_EMAIL_FRAME = "Dear {name},\n\n%s\n\nOrder: {order_id}\n\nOptiwar Support"
 
 
 class ReversePickupError(Exception):
@@ -360,6 +403,12 @@ def cancel(db, order_id, body, operator):
     if row["status"] == ST_CANCELLED:
         db.rollback()
         return row, False
+    case = case_for_order(db, oid)
+    if case and case.get("received_at") and case.get("received_awb") == row["awb"]:
+        db.rollback()
+        raise ReversePickupError("already_received",
+                                 "the parcel for AWB %s has been received; it cannot be cancelled"
+                                 % row["awb"], 409)
     cur = db.cursor()
     cur.execute("UPDATE order_reverse_pickups SET status=%s, cancelled_by=%s, cancelled_at=NOW() "
                 "WHERE id=%s AND status=%s", (ST_CANCELLED, _clip(operator, 191), row["id"], ST_BOOKED))
@@ -734,6 +783,14 @@ def correct_reason(db, order_id, body, operator):
 
 
 def _queue_state(case, pickup):
+    if case and case.get("completed_at"):
+        return "COMPLETED"
+    if case and case.get("consent_at"):
+        return "READY_TO_DISPATCH"
+    if case and case.get("inspected_at"):
+        return "DEFECT_CONFIRMED" if case.get("inspection_defect") else "AWAITING_CUSTOMER_CONSENT"
+    if case and case.get("received_at"):
+        return "AWAITING_INSPECTION"
     if pickup and pickup["status"] == ST_BOOKED:
         return "PICKUP_BOOKED"
     if not case:
@@ -777,9 +834,9 @@ def state_view(db, order_id):
         "reverse_pickups": [{"id": p["pickup_uuid"], "awb": p["awb"], "status": p["status"],
                              "reason": p.get("reason") or None, "booked_at": _iso(p.get("booked_at")),
                              "cancelled_at": _iso(p.get("cancelled_at"))} for p in pickups],
-        "received": None,
-        "inspection": None,
-        "consent": None,
+        "received": received_view(case),
+        "inspection": inspection_view(case),
+        "consent": consent_view(case),
         "forward_shipment": {"original": ({"awb": original[0], "courier": original[1]}
                                           if original and original[0] else None),
                              "replacement": None},
@@ -818,3 +875,228 @@ def ops_queue(db, limit=200):
             items.append(item(None, p, oid))
     items.sort(key=lambda i: i["updated_at"] or "", reverse=True)
     return items
+
+
+# --------------------------------------------------------------------------
+# the parcel back at Optiwar: receipt, inspection, consent
+# --------------------------------------------------------------------------
+
+def _parse_at(value, field):
+    """An ISO-8601 time from Ops as a naive server-local datetime, or None
+    (meaning now)."""
+    if value in (None, ""):
+        return None
+    try:
+        at = datetime.datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+    except ValueError:
+        raise ReversePickupError("invalid_%s" % field, "%s must be an ISO-8601 time" % field)
+    return at.astimezone().replace(tzinfo=None) if at.tzinfo else at
+
+
+def received_view(case):
+    if not case or not case.get("received_at"):
+        return None
+    return {"awb": case.get("received_awb"), "condition": case.get("received_condition"),
+            "notes": case.get("received_notes") or None, "received_by": case.get("received_by"),
+            "received_at": _iso(case.get("received_at"))}
+
+
+def inspection_view(case):
+    if not case or not case.get("inspected_at"):
+        return None
+    return {"manufacturing_defect": bool(case.get("inspection_defect")),
+            "remarks": case.get("inspection_remarks") or None,
+            "inspected_by": case.get("inspected_by"), "inspected_at": _iso(case.get("inspected_at"))}
+
+
+def consent_view(case):
+    if not case or not case.get("consent_at"):
+        return None
+    return {"record": CONSENT_RECORD, "recorded_by": case.get("consent_recorded_by"),
+            "consent_at": _iso(case.get("consent_at")), "message_id": case.get("consent_message_id")}
+
+
+def _case_for_action(db, order_id):
+    ensure_schema(db)
+    oid = resolve_order_id(db, order_id)
+    if not oid:
+        raise ReversePickupError("not_found", "order not found", 404)
+    case = case_for_order(db, oid, for_update=True)
+    if not case:
+        db.rollback()
+        raise ReversePickupError("no_case", "this order has no reverse-pickup case", 409)
+    return oid, case
+
+
+def _audit(db, event_type, case, payload, suffix=""):
+    reship.emit(db, event_type, case["order_id"], case["case_uuid"], case.get("customer_id"),
+                payload, key=case["case_uuid"], suffix=suffix, commit=False)
+
+
+def mark_received(db, order_id, body, operator):
+    """Ops has the parcel. Records the receipt on the return case only; the
+    RTO / reship workflow is a different mechanism and is not touched.
+    Returns ``(case, changed)``."""
+    raw = str(body.get("condition") or "").strip().lower()
+    condition = next((c for c in RECEIVED_CONDITIONS if c.lower() == raw), None)
+    if not condition:
+        raise ReversePickupError("invalid_condition",
+                                 "condition must be one of %s" % ", ".join(RECEIVED_CONDITIONS))
+    awb = _normal_awb(body.get("awb"))
+    if not awb:
+        raise ReversePickupError("awb_required", "awb required")
+    at = _parse_at(body.get("received_at"), "received_at")
+    notes = _clip(body.get("notes"), 500)
+    oid, case = _case_for_action(db, order_id)
+    pickup = by_awb(db, awb)
+    if not pickup or pickup["order_id"] != oid:
+        db.rollback()
+        raise ReversePickupError("awb_mismatch", "AWB %s is not a reverse pickup of this order" % awb, 409)
+    if case.get("received_at"):
+        db.rollback()
+        if (case.get("received_awb"), case.get("received_condition"),
+                case.get("received_notes") or "") == (awb, condition, notes):
+            return case, False
+        raise ReversePickupError("received_exists", "the parcel was already recorded as received at %s"
+                                 % _iso(case["received_at"]), 409)
+    if pickup["status"] != ST_BOOKED:
+        db.rollback()
+        raise ReversePickupError("pickup_cancelled", "reverse pickup AWB %s is cancelled" % awb, 409)
+    who = _clip(operator, 191)
+    cur = db.cursor()
+    cur.execute("UPDATE reverse_pickup_cases SET received_by=%s, received_at=COALESCE(%s, NOW()), "
+                "received_awb=%s, received_condition=%s, received_notes=%s WHERE id=%s",
+                (who, at, awb, condition, notes or None, case["id"]))
+    case = case_by_uuid(db, case["case_uuid"])
+    add_history(cur, oid, "Reverse-pickup parcel AWB %s received by %s, condition: %s%s"
+                % (awb, _clip(operator, 120), condition, " (%s)" % notes if notes else ""),
+                case.get("site_from"))
+    data = {"awb": awb, "condition": condition, "notes": notes or None, "received_by": who,
+            "received_at": _iso(case["received_at"])}
+    _audit(db, EV_RECEIVED, case, data)
+    queue_ops_event(db, EV_RECEIVED, oid, data, case=case, pickup=pickup, key=case["case_uuid"],
+                    commit=False)
+    db.commit()
+    return case, True
+
+
+def record_inspection(db, order_id, body, operator):
+    """A person at Ops inspected the parcel. Only this endpoint sets the
+    result; nothing infers it. Returns ``(case, changed)``."""
+    defect = body.get("manufacturing_defect")
+    if not isinstance(defect, bool):
+        raise ReversePickupError("invalid_manufacturing_defect", "manufacturing_defect must be true or false")
+    remarks = _clip(body.get("remarks"), 1000)
+    at = _parse_at(body.get("inspected_at"), "inspected_at")
+    oid, case = _case_for_action(db, order_id)
+    if not case.get("received_at"):
+        db.rollback()
+        raise ReversePickupError("not_received", "the parcel has not been recorded as received", 409)
+    if case.get("inspected_at"):
+        db.rollback()
+        if (bool(case["inspection_defect"]), case.get("inspection_remarks") or "") == (defect, remarks):
+            return case, False
+        raise ReversePickupError("inspection_exists", "an inspection was already recorded at %s"
+                                 % _iso(case["inspected_at"]), 409)
+    who = _clip(operator, 191)
+    cur = db.cursor()
+    cur.execute("UPDATE reverse_pickup_cases SET inspection_defect=%s, inspection_remarks=%s, "
+                "inspected_by=%s, inspected_at=COALESCE(%s, NOW()) WHERE id=%s",
+                (1 if defect else 0, remarks or None, who, at, case["id"]))
+    case = case_by_uuid(db, case["case_uuid"])
+    add_history(cur, oid, "Reverse-pickup inspection by %s: manufacturing defect %s%s"
+                % (_clip(operator, 120), "CONFIRMED" if defect else "NOT CONFIRMED",
+                   " (%s)" % remarks if remarks else ""), case.get("site_from"))
+    data = {"manufacturing_defect": defect, "remarks": remarks or None, "inspected_by": who,
+            "inspected_at": _iso(case["inspected_at"]),
+            "refund_eligible": bool(defect and case["fee_state"] == FEE_PAID)}
+    _audit(db, EV_INSPECTED, case, data)
+    queue_ops_event(db, EV_INSPECTED, oid, data, case=case, pickup=latest_for_order(db, oid),
+                    key=case["case_uuid"], commit=False)
+    db.commit()
+    return case, True
+
+
+def inspection_notice(case):
+    """Which inspection notice the customer gets now, or None (a confirmed
+    defect on a PAID fee is told with the refund)."""
+    if not case or not case.get("inspected_at"):
+        return None
+    if not case.get("inspection_defect"):
+        return NOTICE_INSPECTION_NO_DEFECT
+    return NOTICE_INSPECTION_DEFECT_WAIVED if case["fee_state"] == FEE_WAIVED else None
+
+
+def record_consent(db, order_id, body, operator):
+    """The customer replied by email asking for the product back after an
+    inspection that did not confirm the defect. Returns ``(case, changed)``."""
+    message_id = _clip(body.get("message_id"), 255)
+    if not message_id:
+        raise ReversePickupError("message_id_required", "message_id (the email Message-ID) required")
+    at = _parse_at(body.get("consent_at"), "consent_at")
+    oid, case = _case_for_action(db, order_id)
+    if not case.get("inspected_at"):
+        db.rollback()
+        raise ReversePickupError("not_inspected", "no inspection has been recorded", 409)
+    if case.get("inspection_defect"):
+        db.rollback()
+        raise ReversePickupError("consent_not_applicable",
+                                 "the defect was confirmed; no customer consent is needed", 409)
+    if case.get("consent_at"):
+        db.rollback()
+        if case.get("consent_message_id") == message_id:
+            return case, False
+        raise ReversePickupError("consent_exists", "consent was already recorded at %s"
+                                 % _iso(case["consent_at"]), 409)
+    who = _clip(operator, 191)
+    cur = db.cursor()
+    cur.execute("UPDATE reverse_pickup_cases SET consent_recorded_by=%s, consent_at=COALESCE(%s, NOW()), "
+                "consent_message_id=%s WHERE id=%s", (who, at, message_id, case["id"]))
+    case = case_by_uuid(db, case["case_uuid"])
+    add_history(cur, oid, "%s: customer asked by email for the product back (Message-ID %s), recorded by %s"
+                % (CONSENT_RECORD, message_id, _clip(operator, 120)), case.get("site_from"))
+    data = {"record": CONSENT_RECORD, "recorded_by": who, "consent_at": _iso(case["consent_at"]),
+            "message_id": message_id}
+    _audit(db, CONSENT_RECORD, case, data)
+    queue_ops_event(db, EV_CONSENT, oid, data, case=case, pickup=latest_for_order(db, oid),
+                    key=case["case_uuid"], commit=False)
+    db.commit()
+    return case, True
+
+
+def notify_case(db, notice, case, mailer=None, environ=None):
+    """Email the customer one case notice, once: the claim is a
+    ``reverse_pickup.notified`` event keyed on (case, notice). Returns
+    ``"sent"``, ``"replay"``, ``"failed"``, ``"no_email"`` or ``"off"``."""
+    env = os.environ if environ is None else environ
+    if not customer_enabled(env):
+        return "off"
+    cur = db.cursor()
+    oid = case["order_id"]
+    customer_id = case.get("customer_id") or reship._order_head(cur, oid).get("customer_id")
+    acct = reship._account(cur, customer_id)
+    email = (acct.get("customer_email") or "").strip()
+    if not (email and "@" in email):
+        return "no_email"
+    key = case["case_uuid"]
+    suffix = "case:%s:email" % notice
+    if not reship.emit(db, EV_NOTIFIED, oid, key, customer_id, {"event": notice, "channel": "email"},
+                       key=key, suffix=suffix):
+        return "replay"
+    subject, lines = CASE_EMAILS[notice]
+    fields = {"name": (acct.get("customer_name") or "").strip() or "Customer", "order_id": oid,
+              "fee_line": FEE_RETAINED_LINE if case["fee_state"] != FEE_WAIVED else ""}
+    pickup = latest_for_order(db, oid)
+    try:
+        (mailer or reship._default_mailer)(email, subject, (CASE_EMAIL_FRAME % lines).format(**fields))
+    except Exception as exc:  # noqa: BLE001
+        reship.emit(db, EV_NOTIFY_FAILED, oid, key, customer_id,
+                    {"event": notice, "channel": "email", "error": str(exc)[:160]},
+                    key=key, suffix=suffix + ":fail")
+        queue_ops_event(db, EV_NOTIFY_FAILED, oid, {"notified_event": notice, "channel": "email",
+                                                   "error": str(exc)[:160]},
+                        case=case, pickup=pickup, key=key, suffix=suffix)
+        return "failed"
+    queue_ops_event(db, EV_NOTIFIED, oid, {"notified_event": notice, "channel": "email"},
+                    case=case, pickup=pickup, key=key, suffix=suffix)
+    return "sent"
