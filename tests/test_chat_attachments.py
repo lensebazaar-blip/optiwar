@@ -212,6 +212,15 @@ class KetForwarding(unittest.TestCase):
         self.assertEqual(kw["json"]["images"], self._images())
         self.assertEqual(kw["timeout"], 30)
 
+    def test_a_phone_without_a_full_number_is_not_sent(self):
+        for phone in ("", "+91", "91", "+91 ", "98100"):
+            self.answers.append(_Resp(201, {"ticket_id": "K"}))
+            self.crm._forward_to_ket("J", "j@example.com", phone, "s", "d")
+            self.assertNotIn("phone", self.calls[-1][1]["json"], phone)
+        self.answers.append(_Resp(201, {"ticket_id": "K"}))
+        self.crm._forward_to_ket("J", "j@example.com", "+91 98100 12345", "s", "d")
+        self.assertEqual(self.calls[-1][1]["json"]["phone"], "+91 98100 12345")
+
     def test_no_images_means_no_images_key_and_the_old_timeout(self):
         self.answers.append(_Resp(200, {"ticket_id": "KET-1"}))
         out = self.crm._forward_to_ket("J", "j@example.com", "", "s", "d", images=None)
@@ -240,11 +249,23 @@ class KetForwarding(unittest.TestCase):
         self.assertEqual(kw["files"]["file"], ("crack.jpg", JPEG, "image/jpeg"))
         self.assertNotIn("json", kw)
 
-    def test_option_b_retries_5xx_once_refuses_4xx_and_needs_a_uid(self):
-        self.answers += [_Resp(500), _Resp(200, {})]
+    def test_option_b_keeps_kets_attachment_uid(self):
+        self.answers.append(_Resp(200, {"success": True, "attachment_uid": "att-1",
+                                        "filename": "crack.jpg"}))
+        self.assertEqual(self.crm.ket_attachment_upload("u", "crack.jpg", "image/jpeg", JPEG),
+                         (True, "att-1"))
+
+    def test_option_b_retries_only_a_429_refuses_4xx_and_needs_a_uid(self):
+        self.answers += [_Resp(429), _Resp(200, {})]
         self.assertEqual(self.crm.ket_attachment_upload("u", "a.jpg", "image/jpeg", JPEG),
                          (True, ""))
         self.assertEqual(len(self.calls), 2)
+        self.calls[:] = []
+        # KET's upload is not idempotent: a 5xx may have stored the file.
+        self.answers.append(_Resp(500))
+        self.assertEqual(self.crm.ket_attachment_upload("u", "a.jpg", "image/jpeg", JPEG),
+                         (False, "http 500"))
+        self.assertEqual(len(self.calls), 1)
         self.calls[:] = []
         self.answers.append(_Resp(415))
         ok, why = self.crm.ket_attachment_upload("u", "a.jpg", "image/jpeg", JPEG)

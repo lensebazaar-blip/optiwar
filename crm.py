@@ -193,6 +193,13 @@ def _ket_api_key():
     return os.environ.get('KET_SUPPORT_KEY_OPTIWAR', '')
 
 
+def _ket_phone(phone):
+    """The phone as typed when it holds a full number (10+ digits), else ''.
+    A bare country code such as "+91" is never sent to KET."""
+    raw = str(phone or '').strip()
+    return raw if sum(ch.isdigit() for ch in raw) >= 10 else ''
+
+
 def _forward_to_ket(name, email, phone, subject, description, source="web_form", chat_transcript=None, session_id=None,
                     images=None):
     """
@@ -226,10 +233,11 @@ def _forward_to_ket(name, email, phone, subject, description, source="web_form",
             "category": category,
             "email": email,
             "name": name or "",
-            "phone": phone or "",
             "subject": subject or "Contact from Optiwar",
             "message": description or "",
         }
+        if _ket_phone(phone):
+            payload["phone"] = _ket_phone(phone)
         if session_id:
             payload["session_id"] = session_id
         if images:
@@ -296,9 +304,10 @@ def ket_attachment_upload(ticket_uid, filename, mime_type, data):
     """Option B: a photo attached after the KET ticket exists.
 
     ``POST {KET_API_URL}/{ticket_uid}/attachments``, multipart field ``file``,
-    same per-site key. Returns ``(ok, detail)`` where detail is KET's reference
-    on success or a short reason on failure; the bytes are never logged. One
-    retry on 429/5xx, none on other 4xx (a refusal is a fact about the file).
+    same per-site key. Returns ``(ok, detail)`` where detail is KET's
+    ``attachment_uid`` on success or a short reason on failure; the bytes are
+    never logged. KET's upload is not idempotent, so only a 429 (not processed)
+    is retried once: a network error or 5xx may already have stored the file.
     """
     if not ticket_uid:
         return False, "no ticket_uid"
@@ -315,19 +324,20 @@ def ket_attachment_upload(ticket_uid, filename, mime_type, data):
         except requests.RequestException as e:
             last = "network: %s" % type(e).__name__
             logging.warning(f"KET attachment upload failed uid={ticket_uid}: {last}")
-            continue
+            break
         if resp.status_code in (200, 201):
             ref = ""
             try:
                 j = resp.json()
-                ref = str(j.get("attachment_id") or j.get("id") or j.get("uid") or "")
+                ref = str(j.get("attachment_uid") or j.get("attachment_id")
+                          or j.get("id") or j.get("uid") or "")
             except ValueError:
                 pass
             logging.info(f"KET attachment stored uid={ticket_uid} ref={ref or '-'} bytes={len(data)}")
             return True, ref
         last = "http %d" % resp.status_code
         logging.warning(f"KET attachment upload uid={ticket_uid} returned {resp.status_code}: {resp.text[:200]}")
-        if not (resp.status_code == 429 or 500 <= resp.status_code < 600):
+        if resp.status_code != 429:
             break
         time.sleep(1.0)
     return False, last
@@ -430,8 +440,8 @@ WA_LOCK_TIMEOUT = 120               # seconds; reclaim a stuck 'sending' row
 WA_BACKOFF_BASE = 60                # seconds; exponential retry backoff base
 WA_BACKOFF_CAP = 3600               # seconds; backoff ceiling
 WA_SCAN_INTERVAL = 30              # seconds between outbox scans
-# A send error no retry can change: the job stops at once and the notice is
-# emailed instead, when the lifecycle event carried an email.
+# A send error no retry can change: the job stops at once. No email is sent in
+# its place: KET emails the customer on resolved/reopened itself.
 WA_PERMANENT_ERRORS = frozenset({'invalid_phone'})
 
 _KET_SCHEMA_READY = False
@@ -797,6 +807,12 @@ def _process_session_lifecycle(event, ticket_id, ticket_ref, request_id, event_i
         )
         return result
 
+    if event == 'accepted':
+        _audit('session_accept', event=event, ticket_ref=ticket_ref, ticket_id=ticket_id,
+               event_id=event_id, request_id=request_id, sig_verified=True,
+               detail='lifecycle only; KET reopened with no earlier resolved')
+        return 'accepted_lifecycle_only'
+
     # reopened: lifecycle state only, transcript preserved, no session mutation.
     _audit('session_reopen', event=event, ticket_ref=ticket_ref, ticket_id=ticket_id,
            event_id=event_id, request_id=request_id, sig_verified=True,
@@ -835,6 +851,34 @@ def _store_lifecycle_event(event_id, version, event, ticket_id, ticket_ref,
     except Exception as e:  # noqa: BLE001 - durable store failed
         current_app.logger.error(f"[KET-EVENT] store failed event_id={event_id}: {e}")
         return 'error'
+
+
+def _was_resolved(ticket_id, ticket_ref, event_id):
+    """Whether KET sent a resolved for this ticket before this event.
+
+    KET sends ``reopened`` when an agent first opens a new ticket; a reopened
+    with no earlier resolved is that acceptance, not a reopen. When the store
+    cannot be read the event keeps its meaning (True).
+    """
+    from .db import get_db
+    if not ticket_id and not ticket_ref:
+        return True
+    try:
+        db = get_db()
+        cur = db.cursor()
+        cur.execute(
+            """SELECT 1 FROM ket_lifecycle_events
+                WHERE event='resolved' AND event_id<>%s
+                  AND ((%s<>'' AND ticket_id=%s) OR (%s<>'' AND ticket_ref=%s))
+                LIMIT 1""",
+            (event_id, ticket_id, ticket_id, ticket_ref, ticket_ref),
+        )
+        found = cur.fetchone() is not None
+        cur.close()
+        return found
+    except Exception as e:  # noqa: BLE001
+        current_app.logger.error(f"[KET-EVENT] resolved lookup failed event_id={event_id}: {e}")
+        return True
 
 
 def _set_lifecycle_status(event_id, status):
@@ -973,47 +1017,7 @@ def _finalize_whatsapp_job(dedupe_key, event_id, result, attempt_count, site_hos
     _audit('whatsapp_result', event_id=event_id, whatsapp_status=final,
            detail=(result.get("request_id", "") or result.get("error", ""))[:255])
     if final == 'skipped':
-        _email_lifecycle_fallback(event_id, site_host, result.get("error", ""))
-
-
-def _email_lifecycle_fallback(event_id, site_host, wa_error):
-    """Email the lifecycle notice a WhatsApp could never deliver.
-
-    Runs once per event: the outbox job that reaches it is claimed by exactly
-    one worker and is never retried after a permanent error. The lifecycle
-    stays a success either way; only how the customer was told differs.
-    """
-    from .db import get_db
-    from .notifications import send_email, support_lifecycle_email
-    wa_status = f"skipped_{wa_error}"
-    row = None
-    try:
-        db = get_db()
-        cur = db.cursor()
-        cur.execute(
-            """SELECT event, ticket_ref, name, email
-                 FROM ket_lifecycle_events WHERE event_id=%s""",
-            (event_id,),
-        )
-        row = cur.fetchone()
-        cur.close()
-    except Exception as e:  # noqa: BLE001
-        current_app.logger.error(f"[KET-EVENT] fallback read failed event_id={event_id}: {e}")
-    email = ((row or {}).get("email") or "").strip()
-    if not row or not email:
-        _set_lifecycle_status(event_id, wa_status)
-        _audit('email_fallback', event_id=event_id, whatsapp_status=wa_status,
-               detail='no_email')
-        return False
-    subject, body_html = support_lifecycle_email(
-        row["event"], row.get("name") or "", row["ticket_ref"],
-        site_host or "optiwar.in")
-    sent = bool(send_email(email, subject, body_html))
-    _set_lifecycle_status(event_id, 'notified_email' if sent else 'notify_failed')
-    _audit('email_fallback', event=row["event"], ticket_ref=row["ticket_ref"],
-           event_id=event_id, whatsapp_status=wa_status,
-           detail='email_sent' if sent else 'email_failed')
-    return sent
+        _set_lifecycle_status(event_id, f"skipped_{result.get('error', '')}")
 
 
 def _attempt_whatsapp_job(app, dedupe_key):
@@ -1199,7 +1203,8 @@ def ket_ticket_event():
     own MSG91 number (Optiwar owns WhatsApp; KET owns only the support email).
 
     Auth: HMAC-SHA256 over "<X-KET-Timestamp>:<raw_body>" with OPTIWAR_WEBHOOK_SECRET.
-    JSON: {version?, event, event_id, ticket_ref, ticket_id?, request_id?, name, phone, email}
+    JSON: {version?, event, event_id, ticket_ref, ticket_uid? | ticket_id?, request_id?,
+           name, phone, email}. ticket_uid and ticket_id carry the same UUID.
 
     Flow: verify signature -> validate schema -> durably store lifecycle event +
     (if phone) enqueue a durable WhatsApp job -> ack -> a restart-safe background
@@ -1236,7 +1241,7 @@ def ket_ticket_event():
     event = (data.get('event') or '').strip().lower()
     event_id = str(data.get('event_id') or '').strip()
     ticket_ref = str(data.get('ticket_ref') or data.get('ticket_id') or '').strip()
-    ticket_id = str(data.get('ticket_id') or '').strip()
+    ticket_id = str(data.get('ticket_uid') or data.get('ticket_id') or '').strip()
     request_id = str(data.get('request_id') or '').strip()
     name = (data.get('name') or '').strip()
     phone = (data.get('phone') or '').strip()
@@ -1285,6 +1290,19 @@ def ket_ticket_event():
         return jsonify({"status": "duplicate", "event": event, "ticket_ref": ticket_ref})
 
     app_obj = current_app._get_current_object()
+
+    if event == 'reopened' and not _was_resolved(ticket_id, ticket_ref, event_id):
+        try:
+            _process_session_lifecycle('accepted', ticket_id, ticket_ref, request_id, event_id)
+        except Exception as e:  # noqa: BLE001
+            current_app.logger.error(f"[KET-MAP] session lifecycle error event_id={event_id}: {e}")
+        _set_lifecycle_status(event_id, 'treated_as_accepted')
+        _audit('accepted', event=event, ticket_ref=ticket_ref, ticket_id=ticket_id,
+               event_id=event_id, request_id=request_id, sig_verified=True,
+               whatsapp_status='not_sent_never_resolved')
+        return jsonify({"status": "accepted", "event": event, "treated_as": "accepted",
+                        "ticket_ref": ticket_ref, "event_id": event_id,
+                        "whatsapp": "not_sent"}), 200
 
     # Optiwar-owned chat-session side-effects (Option A close / Option B reopen).
     # Best-effort and idempotent: a mapping miss is an operational alert, never a
