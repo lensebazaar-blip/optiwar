@@ -302,17 +302,47 @@ class KetForwarding(unittest.TestCase):
         self.assertEqual(self.calls[0][1]["timeout"], 15)
         self.assertIsNone(out["ticket_uid"])
 
-    def test_create_retries_only_a_429(self):
-        self.answers += [_Resp(429), _Resp(201, {"ticket_id": "K", "uid": "u2"})]
-        out = self.crm._forward_to_ket("J", "j@example.com", "", "s", "d", images=self._images())
+    def _keys(self):
+        return [kw["headers"]["Idempotency-Key"] for _url, kw in self.calls]
+
+    def test_create_retries_429_5xx_timeout_and_in_progress_under_one_key(self):
+        crm = self.crm
+        timeout = crm.requests.Timeout("slow")
+
+        def post(url, **kw):
+            self.calls.append((url, kw))
+            a = self.answers.pop(0)
+            if isinstance(a, Exception):
+                raise a
+            return a
+        crm.requests.post = post
+        self.answers += [_Resp(503), timeout, _Resp(201, {"ticket_id": "K", "uid": "u2"})]
+        out = crm._forward_to_ket("J", "j@example.com", "", "s", "d", images=self._images())
         self.assertEqual(out["ticket_uid"], "u2")
-        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(len(self.calls), 3)
+        self.assertEqual(len(set(self._keys())), 1)
+        first = self._keys()[0]
         self.calls[:] = []
-        # KET's create is not idempotent: a 5xx may already have made the ticket.
-        self.answers += [_Resp(503), _Resp(201, {"ticket_id": "K2"})]
-        self.assertIsNone(self.crm._forward_to_ket("J", "j@example.com", "", "s", "d",
-                                                   images=self._images()))
+        self.answers += [_Resp(429), _Resp(409, {"error": "idempotency_in_progress"}),
+                         _Resp(200, {"ticket_id": "K"})]
+        self.assertEqual(crm._forward_to_ket("J", "j@example.com", "", "s", "d")["ticket_id"], "K")
+        self.assertEqual(len(set(self._keys())), 1)
+        self.assertNotEqual(self._keys()[0], first)       # a new ticket is a new key
+        self.calls[:] = []
+        self.answers += [_Resp(502), _Resp(502), _Resp(502), _Resp(201, {"ticket_id": "never"})]
+        self.assertIsNone(crm._forward_to_ket("J", "j@example.com", "", "s", "d"))
+        self.assertEqual(len(self.calls), crm.KET_MAX_ATTEMPTS)
+        self.answers[:] = []
+
+    def test_a_reused_key_or_a_plain_4xx_is_not_retried(self):
+        self.answers += [_Resp(409, {"error": "idempotency_key_reused"}), _Resp(201, {"ticket_id": "K"})]
+        self.assertIsNone(self.crm._forward_to_ket("J", "j@example.com", "", "s", "d"))
         self.assertEqual(len(self.calls), 1)
+        self.calls[:] = []
+        self.answers[:] = [_Resp(400, {"error": "x"}), _Resp(201, {"ticket_id": "K"})]
+        self.assertIsNone(self.crm._forward_to_ket("J", "j@example.com", "", "s", "d"))
+        self.assertEqual(len(self.calls), 1)
+        self.answers[:] = []
 
     def test_a_refused_image_creates_the_ticket_once_without_photos(self):
         for status in (413, 415, 422):
@@ -325,16 +355,18 @@ class KetForwarding(unittest.TestCase):
             self.assertIn("images", self.calls[0][1]["json"])
             self.assertNotIn("images", self.calls[1][1]["json"])
             self.assertEqual(self.calls[1][1]["timeout"], 15)
-        # without images a 4xx is final, and a 5xx after the drop is never retried
+            self.assertNotEqual(self._keys()[0], self._keys()[1])   # a different request
+        # without images a 4xx is final
         self.calls[:] = []
         self.answers += [_Resp(422, {"error": "x"})]
         self.assertIsNone(self.crm._forward_to_ket("J", "j@example.com", "", "s", "d"))
         self.assertEqual(len(self.calls), 1)
         self.calls[:] = []
         self.answers += [_Resp(415, {"error": "x"}), _Resp(503), _Resp(201, {"ticket_id": "K"})]
-        self.assertIsNone(self.crm._forward_to_ket("J", "j@example.com", "", "s", "d",
-                                                   images=self._images()))
-        self.assertEqual(len(self.calls), 2)
+        out = self.crm._forward_to_ket("J", "j@example.com", "", "s", "d", images=self._images())
+        self.assertEqual(out["ticket_id"], "K")
+        self.assertEqual(len(self.calls), 3)
+        self.assertEqual(self._keys()[1], self._keys()[2])
         self.answers[:] = []
 
     def test_option_b_posts_multipart_file_to_the_ticket_uid(self):
@@ -343,7 +375,8 @@ class KetForwarding(unittest.TestCase):
         self.assertEqual((ok, ref), (True, "77"))
         url, kw = self.calls[0]
         self.assertEqual(url, self.crm.KET_API_URL + "/uid-abc/attachments")
-        self.assertEqual(kw["headers"], {"X-API-Key": "SECRET-KEY-OPTIWAR"})
+        self.assertEqual(kw["headers"]["X-API-Key"], "SECRET-KEY-OPTIWAR")
+        self.assertTrue(kw["headers"]["Idempotency-Key"])
         self.assertEqual(kw["files"]["file"], ("crack.jpg", JPEG, "image/jpeg"))
         self.assertNotIn("json", kw)
 
@@ -353,17 +386,22 @@ class KetForwarding(unittest.TestCase):
         self.assertEqual(self.crm.ket_attachment_upload("u", "crack.jpg", "image/jpeg", JPEG),
                          (True, "att-1"))
 
-    def test_option_b_retries_only_a_429_refuses_4xx_and_needs_a_uid(self):
-        self.answers += [_Resp(429), _Resp(200, {})]
-        self.assertEqual(self.crm.ket_attachment_upload("u", "a.jpg", "image/jpeg", JPEG),
-                         (True, ""))
-        self.assertEqual(len(self.calls), 2)
+    def test_option_b_retries_under_its_key_refuses_4xx_and_needs_a_uid(self):
+        self.answers += [_Resp(429), _Resp(500), _Resp(200, {"attachment_uid": "att-9"})]
+        self.assertEqual(self.crm.ket_attachment_upload("u", "a.jpg", "image/jpeg", JPEG,
+                                                        idempotency_key="optiwar-att-7-u"),
+                         (True, "att-9"))
+        self.assertEqual(self._keys(), ["optiwar-att-7-u"] * 3)
         self.calls[:] = []
-        # KET's upload is not idempotent: a 5xx may have stored the file.
-        self.answers.append(_Resp(500))
+        self.answers += [_Resp(500), _Resp(502), _Resp(503)]
         self.assertEqual(self.crm.ket_attachment_upload("u", "a.jpg", "image/jpeg", JPEG),
-                         (False, "http 500"))
-        self.assertEqual(len(self.calls), 1)
+                         (False, "http 503"))
+        self.assertEqual(len(self.calls), 3)
+        self.assertEqual(len(set(self._keys())), 1)
+        self.calls[:] = []
+        self.answers.append(_Resp(409, {"error": "idempotency_key_reused"}))
+        self.assertEqual(self.crm.ket_attachment_upload("u", "a.jpg", "image/jpeg", JPEG),
+                         (False, "http 409"))
         self.calls[:] = []
         self.answers.append(_Resp(415))
         ok, why = self.crm.ket_attachment_upload("u", "a.jpg", "image/jpeg", JPEG)
@@ -375,7 +413,8 @@ class KetForwarding(unittest.TestCase):
         self.assertFalse(self.crm.ket_attachment_upload("u", "a.jpg", "image/jpeg", JPEG)[0])
 
     def test_neither_the_key_nor_the_bytes_reach_the_log(self):
-        self.answers += [_Resp(201, {"ticket_id": "K", "ticket_uid": "u"}), _Resp(500), _Resp(502)]
+        self.answers += [_Resp(201, {"ticket_id": "K", "ticket_uid": "u"}), _Resp(500), _Resp(502),
+                         _Resp(503)]
         self.crm._forward_to_ket("J", "j@example.com", "", "s", "d", images=self._images())
         self.crm.ket_attachment_upload("u", "crack.jpg", "image/jpeg", JPEG)
         text = self.log.getvalue()
@@ -479,10 +518,12 @@ class OnMariaDB(unittest.TestCase):
         self.answers = []
         cg = self.cg
 
-        def fake_upload(ticket_uid, filename, mime_type, data):
+        def fake_upload(ticket_uid, filename, mime_type, data, idempotency_key=None):
             self.uploads.append((ticket_uid, filename, mime_type, data))
+            self.upload_keys.append(idempotency_key)
             return self.answers.pop(0) if self.answers else (True, "ref-1")
 
+        self.upload_keys = []
         crm = sys.modules.get("flaskr.crm")
         if crm is None:
             crm = _load("flaskr.crm", "crm.py")
@@ -609,6 +650,7 @@ class OnMariaDB(unittest.TestCase):
         self.assertEqual((row["ket_status"], row["ket_via"], row["ket_ticket_uid"]),
                          ("sent", "attachments", "uid-xyz"))
         self.assertIsNotNone(row["ket_sent_at"])
+        self.assertEqual(self.upload_keys, ["optiwar-att-%s-uid-xyz" % row["id"]])
         self.answers.append((False, "http 503"))
         r = self._post(WEBP, name="fail.webp", mime="image/webp")
         self.assertEqual(r.status_code, 200)             # the customer's chat is not broken
