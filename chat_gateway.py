@@ -1540,7 +1540,9 @@ def _pending_attachments(db, session_id):
 def _forward_attachment_to_ket(db, row, data, ticket_uid):
     """Option B: the ticket already exists, so the photo goes to its attachments."""
     from .crm import ket_attachment_upload
-    ok, detail = ket_attachment_upload(ticket_uid, row['filename'], row['mime_type'], data)
+    key = "optiwar-att-%s-%s" % (row['id'], ticket_uid)
+    ok, detail = ket_attachment_upload(ticket_uid, row['filename'], row['mime_type'], data,
+                                       idempotency_key=key)
     cur = db.cursor()
     if ok:
         cur.execute(

@@ -15,6 +15,7 @@ import socket
 import hmac
 import hashlib
 import threading
+import uuid
 
 bp = Blueprint('crm', __name__)
 captcha_generator = CaptchaGenerator()
@@ -201,6 +202,28 @@ def _ket_phone(phone):
 
 
 KET_IMAGE_REJECT_STATUSES = (413, 415, 422)
+KET_MAX_ATTEMPTS = 3
+
+
+def _ket_retryable(resp):
+    """KET remembers an Idempotency-Key for 24h, so a retry with the same key
+    returns the first answer instead of a second ticket or file: a 429, a 5xx
+    and a request still in progress under that key are tried again."""
+    if resp.status_code == 429 or resp.status_code >= 500:
+        return True
+    if resp.status_code == 409:
+        try:
+            return (resp.json() or {}).get("error") == "idempotency_in_progress"
+        except ValueError:
+            return False
+    return False
+
+
+def _ket_backoff(resp, attempt):
+    try:
+        return min(float(resp.headers.get('Retry-After', attempt)), 4.0)
+    except (AttributeError, TypeError, ValueError):
+        return float(attempt)
 
 
 def _forward_to_ket(name, email, phone, subject, description, source="web_form", chat_transcript=None, session_id=None,
@@ -260,20 +283,28 @@ def _forward_to_ket(name, email, phone, subject, description, source="web_form",
             except Exception as e:
                 logging.warning(f"KET transcript parse failed: {e}")
 
-        # KET's ticket create is not idempotent: a 5xx or timeout may already have
-        # created the ticket (and sent its acknowledgement email), so only a 429
-        # (not processed) is retried once, with a short in-request backoff.
-        max_attempts = 2
+        # One Idempotency-Key per distinct request: every retry of it reuses the
+        # key, so a 5xx or timeout that did create the ticket is answered with
+        # that ticket and no second acknowledgement email.
+        key = str(uuid.uuid4())
         attempt = 0
         images_rejected = False
         while True:
             attempt += 1
-            resp = requests.post(
-                KET_API_URL,
-                headers={"X-API-Key": api_key, "Content-Type": "application/json"},
-                json=payload,
-                timeout=30 if payload.get("images") else 15,
-            )
+            try:
+                resp = requests.post(
+                    KET_API_URL,
+                    headers={"X-API-Key": api_key, "Content-Type": "application/json",
+                             "Idempotency-Key": key},
+                    json=payload,
+                    timeout=30 if payload.get("images") else 15,
+                )
+            except requests.RequestException as e:
+                logging.warning(f"KET push attempt {attempt} failed: {type(e).__name__}")
+                if attempt >= KET_MAX_ATTEMPTS:
+                    break
+                time.sleep(float(attempt))
+                continue
             if resp.status_code in (200, 201):
                 j = resp.json()
                 # KET is standardising on an immutable UUID as the join key. The
@@ -298,27 +329,25 @@ def _forward_to_ket(name, email, phone, subject, description, source="web_form",
             if resp.status_code in KET_IMAGE_REJECT_STATUSES and payload.get("images"):
                 payload = {k: v for k, v in payload.items() if k != "images"}
                 images_rejected = True
+                key = str(uuid.uuid4())
+                attempt = 0
                 continue
-            if resp.status_code != 429 or attempt >= max_attempts:
+            if not _ket_retryable(resp) or attempt >= KET_MAX_ATTEMPTS:
                 break
-            try:
-                backoff = min(float(resp.headers.get('Retry-After', 1)), 2.0)
-            except (TypeError, ValueError):
-                backoff = 1.0
-            time.sleep(backoff)
+            time.sleep(_ket_backoff(resp, attempt))
     except Exception as e:
         logging.error(f"KET push failed: {e}")
     return None
 
 
-def ket_attachment_upload(ticket_uid, filename, mime_type, data):
+def ket_attachment_upload(ticket_uid, filename, mime_type, data, idempotency_key=None):
     """Option B: a photo attached after the KET ticket exists.
 
     ``POST {KET_API_URL}/{ticket_uid}/attachments``, multipart field ``file``,
     same per-site key. Returns ``(ok, detail)`` where detail is KET's
     ``attachment_uid`` on success or a short reason on failure; the bytes are
-    never logged. KET's upload is not idempotent, so only a 429 (not processed)
-    is retried once: a network error or 5xx may already have stored the file.
+    never logged. Every attempt carries the same ``Idempotency-Key``, so a
+    network error, 5xx or 429 is retried without storing the file twice.
     """
     if not ticket_uid:
         return False, "no ticket_uid"
@@ -326,16 +355,19 @@ def ket_attachment_upload(ticket_uid, filename, mime_type, data):
     if not api_key:
         return False, "no API key configured for this site"
     url = "%s/%s/attachments" % (KET_API_URL.rstrip("/"), ticket_uid)
+    key = idempotency_key or str(uuid.uuid4())
     last = "unreachable"
-    for attempt in (1, 2):
+    for attempt in range(1, KET_MAX_ATTEMPTS + 1):
         try:
             resp = requests.post(
-                url, headers={"X-API-Key": api_key},
+                url, headers={"X-API-Key": api_key, "Idempotency-Key": key},
                 files={"file": (filename, data, mime_type)}, timeout=20)
         except requests.RequestException as e:
             last = "network: %s" % type(e).__name__
             logging.warning(f"KET attachment upload failed uid={ticket_uid}: {last}")
-            break
+            if attempt < KET_MAX_ATTEMPTS:
+                time.sleep(float(attempt))
+            continue
         if resp.status_code in (200, 201):
             ref = ""
             try:
@@ -348,9 +380,10 @@ def ket_attachment_upload(ticket_uid, filename, mime_type, data):
             return True, ref
         last = "http %d" % resp.status_code
         logging.warning(f"KET attachment upload uid={ticket_uid} returned {resp.status_code}: {resp.text[:200]}")
-        if resp.status_code != 429:
+        if not _ket_retryable(resp):
             break
-        time.sleep(1.0)
+        if attempt < KET_MAX_ATTEMPTS:
+            time.sleep(_ket_backoff(resp, attempt))
     return False, last
 
 
