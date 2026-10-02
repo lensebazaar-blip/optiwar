@@ -15,9 +15,11 @@ import uuid
 try:
     from . import reship
     from .paid_orders import add_history
+    from .policy_terms import TERMS_URL
 except ImportError:  # pragma: no cover - flat import in scripts
     import reship
     from paid_orders import add_history
+    from policy_terms import TERMS_URL
 
 ENABLED_ENV = "REVERSE_PICKUP_ENABLED"
 WA_APPROVED_ENV = "REVERSE_PICKUP_WA_TEMPLATES_APPROVED"
@@ -285,7 +287,7 @@ def notify(db, event_type, row, host, mailer=None, whatsapp=None, environ=None):
               "track_url": reship.tracking_url(COURIER, row["awb"]) or "",
               "support": reship.SUPPORT_EMAIL,
               "change_email": CHANGE_EMAIL,
-              "terms_url": _host_url(host, "/terms-and-conditions"),
+              "terms_url": _host_url(host, TERMS_URL),
               "url": reship.my_orders_url(host)}
     key = row["pickup_uuid"]
 
