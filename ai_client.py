@@ -148,6 +148,13 @@ _WORKLOADS = {
         "model": lambda: _cfg("OPENAI_VISION_MODEL", "gpt-4o"),
         "deadline": lambda: _cfg_int("AI_DEADLINE_VISION", 28),
     },
+    "openai_search": {
+        "provider": "openai",
+        "base_url": lambda: _cfg("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+        "api_key": lambda: _cfg("OPENAI_API_KEY", ""),
+        "model": lambda: _cfg("OPENAI_SEARCH_MODEL", "gpt-4"),
+        "deadline": lambda: _cfg_int("AI_DEADLINE_SEARCH", 8),
+    },
     # Same question, same answer shape as openai_vision (lens_documents.py);
     # selected by LENS_RX_VISION_PROVIDER. Not the default until its reading
     # has been compared against openai_vision on the same documents.
@@ -195,6 +202,7 @@ def _get_pools():
                     "deepseek_recommend": ds,
                     "openai_chat": oc,
                     "openai_vision": ov,
+                    "openai_search": oc,
                     "deepseek_vision": ov,
                 })
     return _pools
@@ -338,6 +346,30 @@ def _check_model_available(app, model):
             app.logger.info("ai-wrapper model check: %s available (of %s)", model, sorted(names))
     except Exception as e:
         app.logger.info("ai-wrapper model check skipped (%s)", type(e).__name__)
+
+
+def provider_health(workload=None):
+    """(ok, detail): does the provider a workload calls answer?
+
+    Defaults to AI_HEALTH_WORKLOAD (deepseek_chat, the customer assistant).
+    Never raises; one bounded /models request on the cached no-retry client.
+    The configured model is not required to be listed: DeepSeek serves
+    aliases (deepseek-v4-flash) its /models omits, so an unlisted model is
+    reported in the detail, never as an outage.
+    """
+    name = workload or _cfg("AI_HEALTH_WORKLOAD", "deepseek_chat")
+    wl = _WORKLOADS.get(name)
+    if wl is None:
+        return False, "unknown_workload"
+    api_key = wl["api_key"]()
+    if not api_key:
+        return False, "no_api_key"
+    try:
+        names = {m.id for m in _client(wl["base_url"](), api_key)
+                 .with_options(timeout=4.0).models.list().data}
+    except Exception as e:  # noqa: BLE001 - health probe must never raise
+        return False, type(e).__name__
+    return True, ("ok" if wl["model"]() in names else "ok_model_unlisted")
 
 
 def init_ai_client(app):

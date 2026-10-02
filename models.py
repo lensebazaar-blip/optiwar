@@ -41,7 +41,7 @@ from .country_iso import country_to_iso2
 import re
 import ast
 from datetime import datetime, timedelta
-from openai import OpenAI
+from .ai_client import call_model, pop_calls
 import redis
 import json as json_mod
 from datetime import datetime
@@ -216,7 +216,7 @@ def fetch_dict_rows(cursor):
 
 
 
-def extract_search_intent(query, client):
+def extract_search_intent(query):
     prompt = f"""
 You are a smart optician product search assistant for an e-commerce system.
 
@@ -287,9 +287,11 @@ Query: "{query}"
 Result:
 """
     try:
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}]
+        response = call_model(
+            workload="openai_search",
+            messages=[{"role": "user", "content": prompt}],
+            endpoint="models.search",
+            request_id=getattr(g, "request_id", "-"),
         )
         content = response.choices[0].message.content.strip()
         print("🧠 GPT Search Intent Response: %s" % content)
@@ -297,6 +299,10 @@ Result:
     except Exception as e:
         print("❌ GPT intent extraction failed: %s" % e)
         return {"keywords": query.lower().split(), "filters": {}}
+    finally:
+        # No assistant session owns a search; leaving its record on the thread
+        # would attribute it to the next chat turn this worker serves.
+        pop_calls()
 
 
 
@@ -344,8 +350,6 @@ def build_product_meta(product):
 
 
 
-client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY', ''))
-
 
 
 @bp.route('/search')
@@ -382,8 +386,7 @@ def search_products():
     print("🔍 Search query: %s", query)
 
     # === Extract intent via GPT ===
-    client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY', ''))  # ideally from env/config
-    intent = extract_search_intent(query, client)
+    intent = extract_search_intent(query)
     tokens = intent.get("keywords", [])
     filters = intent.get("filters", {})
 
@@ -500,15 +503,7 @@ def api_search():
     print("🔍 API Search query: %s" % query)
 
     # === Extract intent via GPT with timeout ===
-    try:
-        client_api = OpenAI(
-            api_key=os.environ.get('OPENAI_API_KEY', ''),
-            timeout=8.0
-        )
-        intent = extract_search_intent(query, client_api)
-    except Exception as e:
-        print("⚠️ GPT intent extraction failed/timed out: %s" % e)
-        intent = {"keywords": query.lower().split(), "filters": {}}
+    intent = extract_search_intent(query)
 
     tokens = intent.get("keywords", [])
     filters = intent.get("filters", {})

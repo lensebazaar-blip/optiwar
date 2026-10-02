@@ -80,14 +80,15 @@ class SupportFallbackTests(unittest.TestCase):
         self.assertIsInstance(detail, str)
 
     def test_ai_health_without_key(self):
-        prev = os.environ.pop("OPENAI_API_KEY", None)
+        # The health check follows the assistant's provider (deepseek_chat).
+        prev = os.environ.pop("DEEPSEEK_API_KEY", None)
         try:
             ok, detail = self.crm._check_ai_health()
             self.assertFalse(ok)
             self.assertEqual(detail, "no_api_key")
         finally:
             if prev is not None:
-                os.environ["OPENAI_API_KEY"] = prev
+                os.environ["DEEPSEEK_API_KEY"] = prev
 
     def test_ket_health_returns_tuple(self):
         ok, detail = self.crm._check_ket_health()

@@ -24,7 +24,7 @@ from . import lens_prompt
 from .catalogue import catalogue_site_filter
 from openai import OpenAI
 
-from .ai_client import call_model, wrapper_enabled_for, http_error_for, ModelError
+from .ai_client import call_model, pop_calls, wrapper_enabled_for, http_error_for, ModelError
 from .db import get_db
 from .mail import create_ticket_in_db, send_contact_email
 from .notifications import notify_support_ticket_created
@@ -199,31 +199,22 @@ def _get_deepseek_client():
     )
 
 
-def _get_openai_client():
-    return OpenAI(
-        api_key=OPENAI_API_KEY,
-        timeout=30.0
-    )
-
-
 def _vision_chat(messages, max_tokens, endpoint):
-    """Route a GPT-4o vision completion through the AI wrapper when gated for the
-    endpoint (capacity pooling + unified telemetry); otherwise use the direct
-    OpenAI client. Returns the raw completion response."""
-    _rid = getattr(g, "request_id", "-")
-    if wrapper_enabled_for(_rid, endpoint=endpoint):
+    """A vision completion through the canonical model layer. Returns the raw
+    completion response; raises ModelError."""
+    try:
         return call_model(
             workload="openai_vision",
             messages=messages,
             max_tokens=max_tokens,
             temperature=0,
             endpoint=endpoint,
-            request_id=_rid,
+            request_id=getattr(g, "request_id", "-"),
         )
-    client = _get_openai_client()
-    return client.chat.completions.create(
-        model="gpt-4o", messages=messages, max_tokens=max_tokens, temperature=0
-    )
+    finally:
+        # No assistant session owns this call; leaving its record on the thread
+        # would attribute it to the next chat turn this worker serves.
+        pop_calls()
 
 
 def _build_contact_lens_prompt(is_india):
