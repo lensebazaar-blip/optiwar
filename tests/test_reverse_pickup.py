@@ -466,6 +466,158 @@ class ReversePickupTest(unittest.TestCase):
                                                            "channel": "email"})
         self.assertEqual(rp.deliver_ops_events(self.db, environ=env, http_post=post)["sent"], 0)
 
+    # ------------------------------------------ receipt, inspection, consent
+
+    _awb_seq = [0]
+
+    def _booked(self, fee="PAID"):
+        _c, oid = self._order(fee=fee)
+        self._awb_seq[0] += 1
+        awb = "3612052%07d" % self._awb_seq[0]
+        r = self._post(oid, self._body(awb=awb))
+        self.assertEqual(r.status_code, 200, r.get_json())
+        del self.mails[:]
+        return oid, awb
+
+    def _received(self, oid, awb, **kw):
+        body = {"operator": "ops-user", "awb": awb, "condition": "Intact"}
+        body.update(kw)
+        return self._post(oid, body, path="/received")
+
+    def _events(self, oid):
+        return [o["event"] for o in self._outbox(oid)]
+
+    def test_receipt_is_recorded_once_and_starts_no_reship(self):
+        oid, awb = self._booked()
+        for body, status, code in (({"awb": awb, "condition": "Fine"}, 422, "invalid_condition"),
+                                   ({"condition": "Intact"}, 422, "awb_required"),
+                                   ({"awb": awb, "condition": "Intact", "received_at": "yesterday"},
+                                    422, "invalid_received_at"),
+                                   ({"awb": "36120529999999", "condition": "Intact"}, 409, "awb_mismatch")):
+            r = self._post(oid, body, path="/received")
+            self.assertEqual((r.status_code, r.get_json()["error"]), (status, code), body)
+        r = self._received(oid, awb, condition="damaged packaging", notes="box dented",
+                           received_at="2026-10-02T10:15:00")
+        self.assertEqual(r.status_code, 200, r.get_json())
+        j = r.get_json()
+        self.assertTrue(j["changed"])
+        self.assertEqual(j["received"], {"awb": awb, "condition": "Damaged packaging", "notes": "box dented",
+                                         "received_by": "ops-api-token:ops-user",
+                                         "received_at": "2026-10-02T10:15:00"})
+        self.assertEqual((j["queue_state"], j["customer_notice"]["result"]), ("AWAITING_INSPECTION", "sent"))
+        self.assertEqual(len(self.mails), 1)
+        to, subject, text = self.mails[0]
+        self.assertEqual((to, subject), ("rp@example.in", "Optiwar Return Received"))
+        self.assertIn("We have received your returned package at Optiwar.\n"
+                      "Our team will now inspect the product and update you after the inspection is completed.\n"
+                      "No further action is required from you at this stage.", text)
+        again = self._received(oid, awb, condition="Damaged packaging", notes="box dented")
+        self.assertEqual((again.status_code, again.get_json()["changed"]), (200, False))
+        other = self._received(oid, awb, condition="Product damaged")
+        self.assertEqual((other.status_code, other.get_json()["error"]), (409, "received_exists"))
+        self.assertEqual(len(self.mails), 1)
+        self.cur.execute("SELECT COUNT(*) AS n FROM order_reshipments WHERE order_id=%s", (oid,))
+        self.assertEqual(self.cur.fetchone()["n"], 0)
+        r = self._post(oid, {"awb": awb}, path="/cancel")
+        self.assertEqual((r.status_code, r.get_json()["error"]), (409, "already_received"))
+        self.assertIn("reverse_pickup.received", self._events(oid))
+        received = [json.loads(o["body"]) for o in self._outbox(oid) if o["event"] == "reverse_pickup.received"]
+        self.assertEqual(received[0]["fee"]["state"], "PAID")
+        self.assertEqual(received[0]["data"]["condition"], "Damaged packaging")
+        _c, bare = self._order(fee=None)
+        r = self._post(bare, {"awb": awb, "condition": "Intact"}, path="/received")
+        self.assertEqual((r.status_code, r.get_json()["error"]), (409, "no_case"))
+
+    def test_inspection_is_a_recorded_human_decision_with_one_notice_per_path(self):
+        no_defect_paid, awb1 = self._booked("PAID")
+        r = self._post(no_defect_paid, {"manufacturing_defect": False}, path="/inspection")
+        self.assertEqual((r.status_code, r.get_json()["error"]), (409, "not_received"))
+        self._received(no_defect_paid, awb1)
+        del self.mails[:]
+        for bad in ("false", 0, None):
+            r = self._post(no_defect_paid, {"manufacturing_defect": bad}, path="/inspection")
+            self.assertEqual(r.get_json()["error"], "invalid_manufacturing_defect", bad)
+        body = {"operator": "qc", "manufacturing_defect": False, "remarks": "lens intact, no defect"}
+        r = self._post(no_defect_paid, body, path="/inspection")
+        self.assertEqual(r.status_code, 200, r.get_json())
+        j = r.get_json()
+        self.assertEqual(j["inspection"]["manufacturing_defect"], False)
+        self.assertEqual(j["fee"]["state"], "PAID")
+        self.assertEqual(j["queue_state"], "AWAITING_CUSTOMER_CONSENT")
+        self.assertEqual([m[1] for m in self.mails], ["Optiwar Return Inspection Update"])
+        self.assertIn("Our inspection did not confirm the manufacturing defect reported in the return request.\n"
+                      "The ₹250 reverse-pickup fee therefore remains applicable.\n"
+                      "Please reply to this email to confirm that you would like us to send the product back "
+                      "to you.\n", self.mails[0][2])
+        same = self._post(no_defect_paid, body, path="/inspection")
+        self.assertEqual((same.status_code, same.get_json()["changed"]), (200, False))
+        flip = self._post(no_defect_paid, dict(body, manufacturing_defect=True), path="/inspection")
+        self.assertEqual((flip.status_code, flip.get_json()["error"]), (409, "inspection_exists"))
+        self.assertEqual(len(self.mails), 1)
+
+        defect_waived, awb2 = self._booked("WAIVED")
+        self._received(defect_waived, awb2)
+        del self.mails[:]
+        r = self._post(defect_waived, {"manufacturing_defect": True, "remarks": "hinge crack"},
+                       path="/inspection")
+        self.assertEqual(r.get_json()["queue_state"], "DEFECT_CONFIRMED")
+        self.assertEqual(len(self.mails), 1)
+        self.assertIn("confirmed the reported manufacturing defect.\n"
+                      "Your reverse-pickup fee had already been waived, so no fee refund is required.",
+                      self.mails[0][2])
+
+        defect_paid, awb3 = self._booked("PAID")
+        self._received(defect_paid, awb3)
+        del self.mails[:]
+        r = self._post(defect_paid, {"manufacturing_defect": True}, path="/inspection")
+        self.assertEqual((r.status_code, r.get_json()["customer_notice"]), (200, None))
+        self.assertEqual(self.mails, [])
+        ev = [json.loads(o["body"]) for o in self._outbox(defect_paid)
+              if o["event"] == "reverse_pickup.inspection_completed"]
+        self.assertEqual((ev[0]["data"]["manufacturing_defect"], ev[0]["data"]["refund_eligible"]), (True, True))
+
+        no_defect_waived, awb4 = self._booked("WAIVED")
+        self._received(no_defect_waived, awb4)
+        del self.mails[:]
+        self._post(no_defect_waived, {"manufacturing_defect": False}, path="/inspection")
+        self.assertEqual(len(self.mails), 1)
+        self.assertNotIn("₹250", self.mails[0][2])
+
+    def test_customer_consent_is_recorded_with_its_message_id(self):
+        defect, awb = self._booked("WAIVED")
+        self._received(defect, awb)
+        r = self._post(defect, {"message_id": "<a@mail>"}, path="/consent")
+        self.assertEqual((r.status_code, r.get_json()["error"]), (409, "not_inspected"))
+        self._post(defect, {"manufacturing_defect": True}, path="/inspection")
+        r = self._post(defect, {"message_id": "<a@mail>"}, path="/consent")
+        self.assertEqual((r.status_code, r.get_json()["error"]), (409, "consent_not_applicable"))
+
+        oid, awb = self._booked("PAID")
+        self._received(oid, awb)
+        self._post(oid, {"manufacturing_defect": False}, path="/inspection")
+        del self.mails[:]
+        self.assertEqual(self._post(oid, {}, path="/consent").get_json()["error"], "message_id_required")
+        body = {"operator": "support", "message_id": "<CAF123@mail.gmail.com>",
+                "consent_at": "2026-10-03T09:00:00+05:30"}
+        r = self._post(oid, body, path="/consent")
+        self.assertEqual(r.status_code, 200, r.get_json())
+        j = r.get_json()
+        self.assertEqual((j["consent"]["record"], j["consent"]["message_id"], j["consent"]["recorded_by"]),
+                         ("CUSTOMER_RETURN_CONSENT_RECEIVED", "<CAF123@mail.gmail.com>",
+                          "ops-api-token:support"))
+        self.assertTrue(j["consent"]["consent_at"])
+        self.assertEqual(j["queue_state"], "READY_TO_DISPATCH")
+        self.assertFalse(self._post(oid, body, path="/consent").get_json()["changed"])
+        r = self._post(oid, dict(body, message_id="<other@mail>"), path="/consent")
+        self.assertEqual((r.status_code, r.get_json()["error"]), (409, "consent_exists"))
+        self.assertEqual(self.mails, [])
+        self.assertEqual(self._events(oid).count("reverse_pickup.customer_consent_received"), 1)
+        self.assertTrue(any("CUSTOMER_RETURN_CONSENT_RECEIVED" in h for h in self._history(oid)))
+        state = self._get("/ops/api/shipments/%s/reverse-pickup" % oid).get_json()
+        self.assertEqual(state["received"]["condition"], "Intact")
+        self.assertEqual(state["inspection"]["manufacturing_defect"], False)
+        self.assertEqual(state["consent"]["message_id"], "<CAF123@mail.gmail.com>")
+
 
 if __name__ == "__main__":
     unittest.main()
