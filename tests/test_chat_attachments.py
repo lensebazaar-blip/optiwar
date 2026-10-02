@@ -239,12 +239,29 @@ class KetForwarding(unittest.TestCase):
         self.assertIsNone(self.crm._forward_to_ket("J", "j@example.com", "", "s", "d",
                                                    images=self._images()))
         self.assertEqual(len(self.calls), 1)
-        self.answers[:] = []
+
+    def test_a_refused_image_creates_the_ticket_once_without_photos(self):
+        for status in (413, 415, 422):
+            self.calls[:] = []
+            self.answers += [_Resp(status, {"error": "x"}), _Resp(201, {"ticket_id": "K", "ticket_uid": "u"})]
+            out = self.crm._forward_to_ket("J", "j@example.com", "", "s", "d", images=self._images())
+            self.assertTrue(out["images_rejected"], status)
+            self.assertEqual(out["ticket_uid"], "u")
+            self.assertEqual(len(self.calls), 2)
+            self.assertIn("images", self.calls[0][1]["json"])
+            self.assertNotIn("images", self.calls[1][1]["json"])
+            self.assertEqual(self.calls[1][1]["timeout"], 15)
+        # without images a 4xx is final, and a 5xx after the drop is never retried
         self.calls[:] = []
-        self.answers.append(_Resp(413, {"error": "too large"}))
+        self.answers += [_Resp(422, {"error": "x"})]
+        self.assertIsNone(self.crm._forward_to_ket("J", "j@example.com", "", "s", "d"))
+        self.assertEqual(len(self.calls), 1)
+        self.calls[:] = []
+        self.answers += [_Resp(415, {"error": "x"}), _Resp(503), _Resp(201, {"ticket_id": "K"})]
         self.assertIsNone(self.crm._forward_to_ket("J", "j@example.com", "", "s", "d",
                                                    images=self._images()))
-        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(len(self.calls), 2)
+        self.answers[:] = []
 
     def test_option_b_posts_multipart_file_to_the_ticket_uid(self):
         self.answers.append(_Resp(201, {"attachment_id": 77}))
@@ -560,6 +577,33 @@ class OnMariaDB(unittest.TestCase):
         self.assertEqual(cur.fetchone(), {"ket_ticket_uid": "uid-77", "ket_ticket_ref": "KET-77"})
         transcript = json.loads(forwarded[0]["chat_transcript"])
         self.assertIn({"role": "user", "content": "[Photo attached: p0.jpg]"}, transcript)
+
+    def test_photos_ket_refused_on_create_follow_one_by_one_to_the_new_ticket(self):
+        self._as_owner()
+        for i in range(2):
+            self.assertEqual(self._post(JPEG, name="r%d.jpg" % i).status_code, 200)
+        cg = self.cg
+        out = {"ticket_id": "KET-9", "ticket_ref": "KET-9", "ticket_uid": "uid-9",
+               "images_rejected": True}
+        self.crm._forward_to_ket, real_fwd = (lambda **kw: out), self.crm._forward_to_ket
+        self.crm.persist_ticket_mapping, real_map = (lambda *a, **k: None), self.crm.persist_ticket_mapping
+        cg._generate_chat_summary, real_sum = (lambda db, sid: "summary"), cg._generate_chat_summary
+        cg._send_fallback_email, real_mail = (lambda *a, **k: True), cg._send_fallback_email
+        try:
+            with self.app.test_request_context():
+                db = _connect()
+                cur = db.cursor()
+                cur.execute("SELECT * FROM chat_sessions WHERE session_id=%s", (self.sid,))
+                _local, ref = cg._forward_ticket_from_chat(db, self.sid, cur.fetchone(), "/x")
+        finally:
+            self.crm._forward_to_ket = real_fwd
+            self.crm.persist_ticket_mapping = real_map
+            cg._generate_chat_summary = real_sum
+            cg._send_fallback_email = real_mail
+        self.assertEqual(ref, "KET-9")
+        self.assertEqual([u[1] for u in self.uploads], ["r0.jpg", "r1.jpg"])
+        self.assertEqual([(r["ket_status"], r["ket_via"]) for r in self._rows()],
+                         [("sent", "attachments")] * 2)
 
     def test_a_create_without_a_uid_still_tells_the_ref_and_a_failed_create_marks_photos_failed(self):
         self._as_owner()

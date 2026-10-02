@@ -200,6 +200,9 @@ def _ket_phone(phone):
     return raw if sum(ch.isdigit() for ch in raw) >= 10 else ''
 
 
+KET_IMAGE_REJECT_STATUSES = (413, 415, 422)
+
+
 def _forward_to_ket(name, email, phone, subject, description, source="web_form", chat_transcript=None, session_id=None,
                     images=None):
     """
@@ -261,7 +264,10 @@ def _forward_to_ket(name, email, phone, subject, description, source="web_form",
         # created the ticket (and sent its acknowledgement email), so only a 429
         # (not processed) is retried once, with a short in-request backoff.
         max_attempts = 2
-        for attempt in range(1, max_attempts + 1):
+        attempt = 0
+        images_rejected = False
+        while True:
+            attempt += 1
             resp = requests.post(
                 KET_API_URL,
                 headers={"X-API-Key": api_key, "Content-Type": "application/json"},
@@ -283,9 +289,17 @@ def _forward_to_ket(name, email, phone, subject, description, source="web_form",
                     f"uid={result['ticket_uid'] or '-'} "
                     f"images={len(payload.get('images') or [])}"
                 )
+                if images_rejected:
+                    result["images_rejected"] = True
                 return result
             logging.warning(f"KET push returned {resp.status_code}: {resp.text[:200]}")
-            if resp.status_code != 429 or attempt == max_attempts:
+            # KET checks every image before it creates the ticket, so a refused
+            # image means no ticket exists: create it once without the photos.
+            if resp.status_code in KET_IMAGE_REJECT_STATUSES and payload.get("images"):
+                payload = {k: v for k, v in payload.items() if k != "images"}
+                images_rejected = True
+                continue
+            if resp.status_code != 429 or attempt >= max_attempts:
                 break
             try:
                 backoff = min(float(resp.headers.get('Retry-After', 1)), 2.0)

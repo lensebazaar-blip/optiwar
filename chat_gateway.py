@@ -1885,6 +1885,8 @@ def _forward_ticket_from_chat(db, session_id, session, page_url, phone='', class
                 [(row, data) for row, data in pending]) or None,
         )
         if ket:
+            if ket.get('images_rejected'):
+                pending, overflow = [], all_pending
             ket_ticket_id = ket.get('ticket_ref') or ket.get('ticket_id') or ket.get('ticket_uid')
             ket_uid = ket.get('ticket_uid') or ''
             current_app.logger.info(
