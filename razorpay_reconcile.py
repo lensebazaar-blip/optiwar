@@ -135,6 +135,18 @@ def main():
         reship_summary = {'error': str(exc)[:160]}
     summary['reship'] = reship_summary
 
+    # Reverse-pickup fees (optiwar.in): a captured ₹250 whose callback and
+    # webhook never arrived is applied here through return_fee.settle; its
+    # customer notice is then sent by the notice retry below.
+    try:
+        from flaskr import return_fee
+        with app.test_request_context(base_url='https://optiwar.in/'):
+            fees = return_fee.reconcile_pending(get_db(), order_payments, logger=app.logger)
+        summary['reverse_pickup_fees'] = dict(fees, settled=len(fees['settled']))
+    except Exception as exc:  # noqa: BLE001 - must never stop the order reconcile
+        app.logger.error('REVERSE_PICKUP_FEE_RECONCILE_FAILED %s' % exc)
+        summary['reverse_pickup_fees'] = {'error': str(exc)[:160]}
+
     # Reverse-pickup customer notices whose send failed: retried on their own;
     # the Ops step that caused them is never repeated.
     try:

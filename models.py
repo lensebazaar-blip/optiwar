@@ -12,7 +12,7 @@ from .razorpay_settlement import (resolve_order_reference, settle, notify_paid_o
 from .rx_powers import normalize_rows
 from . import ops_refunds
 from . import policy_terms
-from . import reship, reship_api
+from . import reship, reship_api, return_fee
 from flaskr.notifications import notify_payment_attempted, notify_payment_success, notify_payment_failed, notify_order_confirmed, notify_order_shipped
 import os
 import MySQLdb
@@ -3987,6 +3987,18 @@ def razorpay_webhook():
         if _res['outcome'] == reship.UNKNOWN_RESHIP:
             return jsonify({'status': 'error', 'message': 'unknown reship'}), 500
         return jsonify({'status': 'error', 'reason': 'reship_' + _res['outcome']}), 200
+
+    _cuuid = return_fee.case_for_payment(get_db(), _entity)
+    if _cuuid:
+        # A reverse-pickup fee: its own case, never merchandise settlement.
+        _res = reship_api.rp_fee_settle_and_notify(get_db(), _cuuid, _entity, 'razorpay-webhook')
+        if _res['outcome'] in (return_fee.APPLIED, return_fee.DUPLICATE):
+            return jsonify({'status': 'success', 'reverse_pickup_fee': _res['outcome']}), 200
+        if _res['outcome'] == return_fee.NOT_CAPTURED:
+            return jsonify({'status': 'ignored', 'reason': 'payment not captured'}), 200
+        if _res['outcome'] == return_fee.UNKNOWN_CASE:
+            return jsonify({'status': 'error', 'message': 'unknown reverse-pickup case'}), 500
+        return jsonify({'status': 'error', 'reason': 'reverse_pickup_fee_' + _res['outcome']}), 200
 
     payment, order_id, method = resolve_order_reference(
         event, fetch_order=fetch_razorpay_order, logger=current_app.logger)

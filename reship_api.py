@@ -38,7 +38,7 @@ import os
 
 from flask import current_app, jsonify, render_template, request, send_file, session
 
-from . import chat_attachments, reship, return_request, reverse_pickup
+from . import chat_attachments, reship, return_fee, return_request, reverse_pickup
 from .db import get_db
 from .notifications import notify_order_shipped
 from .payments import (create_reship_razorpay_order, fetch_razorpay_payment,
@@ -100,6 +100,24 @@ def settle_and_notify(db, reship_uuid, payment, source, host):
     res = reship.settle_payment(db, reship_uuid, payment, source, logger=current_app.logger)
     if res["outcome"] == reship.APPLIED:
         _notify(db, reship.EV_PAYMENT_COMPLETED, res["row"], host)
+    return res
+
+
+def rp_fee_settle_and_notify(db, case_uuid, payment, source):
+    """Apply a reverse-pickup fee payment; once applied, the customer is
+    emailed and Ops is pushed. A failed send is retried by the cron."""
+    res = return_fee.settle(db, case_uuid, payment, source, logger=current_app.logger)
+    if res["outcome"] != return_fee.APPLIED:
+        return res
+    try:
+        reverse_pickup.notify_case(db, reverse_pickup.NOTICE_FEE_PAID, res["case"])
+    except Exception as exc:  # noqa: BLE001 - the payment is committed; the retry job sends it
+        current_app.logger.error("REVERSE_PICKUP_NOTIFY_ERROR %s case:%s %s"
+                                 % (reverse_pickup.NOTICE_FEE_PAID, case_uuid, exc))
+    try:
+        reverse_pickup.deliver_ops_events(db, logger=current_app.logger)
+    except Exception as exc:  # noqa: BLE001 - the outbox keeps it for the next attempt
+        current_app.logger.error("REVERSE_PICKUP_OPS_SYNC_ERROR %s" % exc)
     return res
 
 
@@ -376,6 +394,69 @@ def register(bp):
         _rp_deliver(db)
         return jsonify({"ok": True, "state": return_request.CARD_SUBMITTED,
                         "order_id": case["order_id"]})
+
+    @bp.route("/api/orders/<order_id>/return/payment/create", methods=["POST"])
+    def customer_return_payment_create(order_id):
+        """The ₹250 fee of an approved return. The browser names the order and
+        nothing else; amount, currency, notes and receipt are the server's."""
+        cid = _customer()
+        if not cid:
+            return jsonify({"ok": False, "error": "login_required"}), 401
+        db = get_db()
+
+        def create_order(amount, currency, receipt, notes):
+            return create_reship_razorpay_order(amount, currency, receipt, notes)
+
+        try:
+            case, created = return_fee.begin_payment(db, cid, order_id, request.host, create_order,
+                                                     logger=current_app.logger)
+        except reverse_pickup.ReversePickupError as exc:
+            if exc.status == 404:
+                return jsonify({"ok": False, "error": "not_found"}), 404
+            return _rp_error(exc)
+        except Exception as exc:  # noqa: BLE001 - provider down
+            current_app.logger.error("REVERSE_PICKUP_RZP_ORDER_FAILED order:%s %s" % (order_id, exc))
+            return jsonify({"ok": False, "error": "provider_unavailable",
+                            "message": "Payment could not be started; please retry"}), 502
+        return jsonify({"ok": True, "created": created,
+                        "razorpay_order_id": case["razorpay_order_id"],
+                        "amount": int(case["fee_amount_minor"]), "currency": case["fee_currency"],
+                        "key_id": current_app.config.get("RAZORPAY_KEY_ID", ""),
+                        "order_id": case["order_id"]})
+
+    @bp.route("/api/orders/<order_id>/return/payment/verify", methods=["POST"])
+    def customer_return_payment_verify(order_id):
+        """Browser callback. The signature proves Razorpay signed these ids;
+        the payment is then fetched from Razorpay and applied by
+        ``return_fee.settle``. The browser's amount or state is never read."""
+        cid = _customer()
+        if not cid:
+            return jsonify({"ok": False, "error": "login_required"}), 401
+        db = get_db()
+        try:
+            _oid, case = return_fee.customer_case(db, cid, order_id, request.host)
+        except reverse_pickup.ReversePickupError:
+            return jsonify({"ok": False, "error": "not_found"}), 404
+        body = _body()
+        pid = (body.get("razorpay_payment_id") or "").strip()
+        oid = (body.get("razorpay_order_id") or "").strip()
+        sig = (body.get("razorpay_signature") or "").strip()
+        if not (pid and oid and sig) or oid != (case["razorpay_order_id"] or ""):
+            return jsonify({"ok": False, "error": "verification_failed"}), 400
+        if not verify_razorpay_payment(oid, pid, sig):
+            current_app.logger.warning("REVERSE_PICKUP_VERIFY_BAD_SIGNATURE case:%s payment:%s"
+                                       % (case["case_uuid"], pid))
+            return jsonify({"ok": False, "error": "verification_failed"}), 400
+        payment = fetch_razorpay_payment(pid)
+        if not payment or (payment.get("order_id") or "") != oid:
+            return jsonify({"ok": False, "error": "verification_failed"}), 400
+        res = rp_fee_settle_and_notify(db, case["case_uuid"], payment, "browser_callback")
+        if res["outcome"] in (return_fee.APPLIED, return_fee.DUPLICATE):
+            return jsonify({"ok": True, "order_id": case["order_id"], "fee_state": reverse_pickup.FEE_PAID})
+        if res["outcome"] == return_fee.NOT_CAPTURED:
+            return jsonify({"ok": False, "error": "not_captured",
+                            "message": "Payment not captured yet"}), 202
+        return jsonify({"ok": False, "error": "verification_failed"}), 400
 
     @bp.route("/ops/api/reverse-pickup/queue", methods=["GET"])
     def ops_reverse_pickup_queue():
