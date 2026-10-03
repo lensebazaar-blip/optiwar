@@ -283,6 +283,10 @@ EV_FACE_ACTION_OFFERED = "FACE_ACTION_OFFERED"
 # called a paid parcel abandoned, quoted an AWB the ledger does not hold).
 # payload.codes names the rules; the reply itself is never stored.
 EV_RESHIP_RULE_BREACH = "RESHIP_RULE_BREACH"
+# The same for a customer's return / reverse pickup (an AWB the return record
+# does not hold, a refund promised that was not made, a pickup called booked
+# while the fee is unsettled). payload.codes only; never the reply.
+EV_RETURN_RULE_BREACH = "RETURN_RULE_BREACH"
 
 # What the server understood of a customer turn (ai_language.understand plus
 # the model's own META statement): language/script/code-mixing codes, intent,

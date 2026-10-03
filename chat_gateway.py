@@ -31,6 +31,7 @@ from . import lens_rx
 from . import order_lookup
 from . import reship
 from . import reship_assistant
+from . import return_assistant
 from . import rx_lookup
 from .mail import create_ticket_in_db
 import smtplib
@@ -564,6 +565,24 @@ def _reship_model(db, page_url):
         current_app.logger.warning('[Chat] reship context unavailable: %s', e)
         dev_defects.record('CHAT_RESHIP_CONTEXT_UNAVAILABLE',
                            where='reship_assistant.read_model', page=page_url)
+        return None
+
+
+def _return_model(db, page_url):
+    """The customer's return facts (``return_assistant.read_model``) for a
+    signed-in customer on the India site; None where returns are not shown to
+    customers or the record could not be read (the reply must then not guess).
+    The customer is the browser's login, as for ``_reship_model``."""
+    customer_id = flask_session.get('user_id')
+    host = urlparse(page_url or '').netloc
+    if not customer_id or not return_assistant.enabled(host):
+        return None
+    try:
+        return return_assistant.read_model(db, customer_id, host)
+    except Exception as e:  # noqa: BLE001 - the chat must still answer
+        current_app.logger.warning('[Chat] return context unavailable: %s', e)
+        dev_defects.record('CHAT_RETURN_CONTEXT_UNAVAILABLE',
+                           where='return_assistant.read_model', page=page_url)
         return None
 
 
@@ -1900,6 +1919,9 @@ def _forward_ticket_from_chat(db, session_id, session, page_url, phone='', class
     reship_model = _reship_model(db, page_url)
     reship_note = reship_assistant.ket_context_text(
         reship_assistant.ket_context(db, reship_model)) if reship_model else ''
+    return_model = _return_model(db, page_url)
+    reship_note += return_assistant.ket_context_text(
+        return_assistant.ket_context(return_model)) if return_model else ''
 
     contact_name = session.get('contact_name') or 'Visitor'
     contact_email = session.get('contact_email') or ''
@@ -2550,6 +2572,9 @@ def chat_message():
     faces_section = face_ctx['section'] if face_ctx else ''
     reship_model = _reship_model(db, page_url)
     reship_section = reship_assistant.prompt_section(reship_model) if reship_model else ''
+    return_model = _return_model(db, page_url)
+    if return_model:
+        reship_section += return_assistant.prompt_section(return_model)
     system_prompt = _build_system_prompt(
         contact_name, is_india, content, customer_id=customer_id,
         extra_sections=tuple(s for s in (lens_section, photo_section, face_section,
@@ -2755,6 +2780,12 @@ def chat_message():
             _breach = reship_assistant.reply_violations(reship_model, ai_reply)
             if _breach:
                 acr.log_event(db, acr.EV_RESHIP_RULE_BREACH, session_id=session_id,
+                              journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
+                              payload={'codes': _breach})
+        if return_model and return_model.get('orders'):
+            _breach = return_assistant.reply_violations(return_model, ai_reply)
+            if _breach:
+                acr.log_event(db, acr.EV_RETURN_RULE_BREACH, session_id=session_id,
                               journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
                               payload={'codes': _breach})
 
