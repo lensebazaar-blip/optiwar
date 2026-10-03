@@ -411,6 +411,10 @@ def create_app(test_config=None):
     from .csrf_guard import init_csrf_guard
     init_csrf_guard(app)
 
+    # Before the AI startup probe: its HTTP client logs each request at DEBUG.
+    from . import log_hygiene
+    log_hygiene.install(app)
+
     # AI capacity/deadline wrapper: validate thinking config + log wrapper state
     from .ai_client import init_ai_client
     init_ai_client(app)
@@ -428,7 +432,6 @@ def create_app(test_config=None):
     def hello():
         return ' Hello everyone - Optiwar2 is back'
 
-    from . import log_hygiene
     log_hygiene.install(app)
 
     return app

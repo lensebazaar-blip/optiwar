@@ -144,6 +144,13 @@ class WiringTest(unittest.TestCase):
         self.assertLess(src.index("register_blueprint(chat_gateway_bp)"),
                         src.index("log_hygiene.install(app)"))
 
+    def test_hygiene_is_installed_before_the_ai_startup_probe(self):
+        src = _src("__init__.py")
+        self.assertLess(src.index("log_hygiene.install(app)"),
+                        src.index("init_ai_client(app)"))
+        self.assertGreater(src.rindex("log_hygiene.install(app)"),
+                           src.index("start_whatsapp_outbox_worker(app)"))
+
     def test_face_scan_blueprint_is_registered_only_behind_its_flag(self):
         src = _src("__init__.py")
         gate = src.index("FACE_SCAN_LINK_ENABLED")
