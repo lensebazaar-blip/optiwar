@@ -18,7 +18,9 @@ Stages, in the order a return moves through them:
                                   the customer is asked to reply by email
     INSPECTED_DEFECT_CONFIRMED    a person confirmed the defect
     CONSENT_RECEIVED              the customer's emailed reply is recorded
-    COMPLETED                     Ops closed the case
+    SHIPPED_TO_CUSTOMER           Ops shipped the product (replacement, repaired
+                                  original, or the original) back to the customer
+    COMPLETED                     Ops closed the case with its outcome
 """
 import re
 
@@ -40,6 +42,7 @@ ST_RECEIVED = "RECEIVED_AWAITING_INSPECTION"
 ST_NO_DEFECT = "INSPECTED_NO_DEFECT"
 ST_DEFECT = "INSPECTED_DEFECT_CONFIRMED"
 ST_CONSENT = "CONSENT_RECEIVED"
+ST_SHIPPED = "SHIPPED_TO_CUSTOMER"
 ST_COMPLETED = "COMPLETED"
 ST_REQUESTED = "RETURN_REQUESTED"
 ST_INFO = "RETURN_INFO_REQUESTED"
@@ -76,6 +79,12 @@ RULES = """RETURN / REVERSE-PICKUP RULES (India only; authoritative, from Optiwa
   resolution and the next shipment. Never promise a refund, an amount or a date.
 - CONSENT_RECEIVED: the customer's reply is recorded; the product will be sent back and the
   shipment details will follow. Never invent a forward AWB.
+- SHIPPED_TO_CUSTOMER: our team shipped the product back (shipped=REPLACEMENT, REPAIRED_ORIGINAL or
+  ORIGINAL_RETURNED, as listed); give the forward_awb, courier and track link listed below, and
+  nothing is payable for that shipment. Never invent a delivery date.
+- COMPLETED: the return is closed with the outcome listed (REPLACEMENT_SHIPPED,
+  REPAIRED_ORIGINAL_SHIPPED, ORIGINAL_RETURNED or PRODUCT_REFUNDED). Say a product refund was made
+  only when outcome=PRODUCT_REFUNDED; never quote its amount or date.
 - Say a fee was refunded only when fee_state is REFUNDED or PARTIALLY_REFUNDED below, with the
   amount listed.
 - You cannot book or cancel a pickup, mark a parcel received, record an inspection or a reply,
@@ -107,6 +116,8 @@ def stage(case, pickup):
         return ST_NOT_APPROVED
     if case.get("completed_at"):
         return ST_COMPLETED
+    if case.get("forward_shipped_at"):
+        return ST_SHIPPED
     if case.get("request_status") == rp.REQ_SUBMITTED:
         return ST_REQUESTED
     if case.get("request_status") == rp.REQ_INFO:
@@ -171,6 +182,9 @@ def _entry(order_id, case, pickup, shipment):
         return None
     case = case or {}
     pv = rp.public_view(pickup)
+    fv = rp.forward_view(case)
+    if pickup and pickup.get("forward_awb"):
+        shipment = (pickup["forward_awb"], shipment[1] if shipment else "")
     fee_state = case.get("fee_state")
     refunded = int(case.get("fee_refunded_minor") or 0) // 100
     return {
@@ -195,6 +209,13 @@ def _entry(order_id, case, pickup, shipment):
                                  if case.get("inspected_at") else None),
         "consent_at": case.get("consent_at"),
         "completed_at": case.get("completed_at"),
+        "completed_outcome": (case.get("completed_outcome")
+                              if case.get("completed_at") else None),
+        "shipped_type": fv["type"] if fv else None,
+        "forward_awb": fv["awb"] if fv else None,
+        "forward_courier": fv["courier"] if fv else None,
+        "forward_track_url": fv["track_url"] if fv else None,
+        "forward_shipped_at": case.get("forward_shipped_at") if fv else None,
         "original_awb": shipment[0] if shipment and shipment[0] else None,
         "original_courier": shipment[1] if shipment and shipment[0] else None,
     }
@@ -220,7 +241,13 @@ def get_return_case_status(model, order_id):
         return None
     return {"order_id": e["order_id"], "stage": e["stage"],
             "received": e["received_at"] is not None, "received_at": e["received_at"],
-            "completed": e["stage"] == ST_COMPLETED}
+            "completed": e["stage"] == ST_COMPLETED,
+            "completed_outcome": e["completed_outcome"],
+            "shipped_to_customer": ({"type": e["shipped_type"], "awb": e["forward_awb"],
+                                     "courier": e["forward_courier"],
+                                     "track_url": e["forward_track_url"],
+                                     "shipped_at": e["forward_shipped_at"]}
+                                    if e["forward_awb"] else None)}
 
 
 def get_reverse_pickup_tracking(model, order_id):
@@ -301,8 +328,15 @@ def _line(e, fee):
     if e["consent_at"]:
         parts.append("customer_reply_recorded=%s (product to be sent back; details to follow)"
                      % _fmt(e["consent_at"]))
+    if e["forward_awb"]:
+        parts.append("shipped=%s forward_awb=%s (%s)" % (e["shipped_type"], e["forward_awb"],
+                                                         e["forward_courier"]))
+        if e["forward_track_url"]:
+            parts.append("track=%s" % e["forward_track_url"])
+        if e["forward_shipped_at"]:
+            parts.append("shipped_on=%s" % _fmt(e["forward_shipped_at"]))
     if e["completed_at"]:
-        parts.append("completed_on=%s" % _fmt(e["completed_at"]))
+        parts.append("completed_on=%s outcome=%s" % (_fmt(e["completed_at"]), e["completed_outcome"]))
     return "  " + " ".join(parts)
 
 
@@ -357,7 +391,7 @@ def reply_violations(model, reply):
     out = []
     if _AWB_CONTEXT.search(text):
         known = {str(e[k]).upper() for e in orders
-                 for k in ("pickup_awb", "original_awb", "order_id") if e.get(k)}
+                 for k in ("pickup_awb", "original_awb", "forward_awb", "order_id") if e.get(k)}
         known |= {"OW-" + str(e["order_id"]).upper() for e in orders}
         for tok in _AWB_LIKE.findall(text.upper()):
             if tok not in known and tok not in {"OPTIWAR", "TRACKING", "DELHIVERY"}:
@@ -376,7 +410,7 @@ def reply_violations(model, reply):
 
 KET_FIELDS = ("order_id", "stage", "fee_state", "fee_refunded", "case_uuid", "pickup_status",
               "pickup_awb", "received_at", "inspected_at", "manufacturing_defect", "consent_at",
-              "completed_at")
+              "forward_awb", "completed_at", "completed_outcome")
 
 
 def ket_context(model):
@@ -391,7 +425,8 @@ def ket_context(model):
             "received_at": _fmt(e["received_at"]), "inspected_at": _fmt(e["inspected_at"]),
             "manufacturing_defect": ({True: "confirmed", False: "not confirmed"}
                                      .get(e["manufacturing_defect"])),
-            "consent_at": _fmt(e["consent_at"]), "completed_at": _fmt(e["completed_at"]),
+            "consent_at": _fmt(e["consent_at"]), "forward_awb": e["forward_awb"],
+            "completed_at": _fmt(e["completed_at"]), "completed_outcome": e["completed_outcome"],
         })
     return out
 

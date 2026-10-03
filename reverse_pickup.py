@@ -59,6 +59,29 @@ EV_REQUEST_DECIDED = "reverse_pickup.request_decided"
 EV_FEE_PAID = "reverse_pickup.fee_paid"
 EV_FEE_REFUNDED = "reverse_pickup.fee_refunded"
 EV_FEE_REFUND_FAILED = "reverse_pickup.fee_refund_failed"
+EV_FORWARD_SHIPPED = "reverse_pickup.forward_shipped"
+EV_COMPLETED = "reverse_pickup.completed"
+
+# What Ops ships back to the customer after the inspection. A confirmed defect
+# is resolved with a REPLACEMENT or the REPAIRED_ORIGINAL (or a product refund
+# through the return-refund console, with no shipment); a defect not confirmed
+# sends the ORIGINAL back once the customer asked for it. The ₹250 fee that
+# Optiwar kept covers that shipment; nothing more is charged.
+SHIP_REPLACEMENT = "REPLACEMENT"
+SHIP_REPAIRED = "REPAIRED_ORIGINAL"
+SHIP_ORIGINAL = "ORIGINAL_RETURNED"
+SHIPMENT_TYPES = (SHIP_REPLACEMENT, SHIP_REPAIRED, SHIP_ORIGINAL)
+DEFECT_SHIPMENT_TYPES = (SHIP_REPLACEMENT, SHIP_REPAIRED)
+
+OUTCOME_REPLACEMENT_SHIPPED = "REPLACEMENT_SHIPPED"
+OUTCOME_REPAIRED_SHIPPED = "REPAIRED_ORIGINAL_SHIPPED"
+OUTCOME_ORIGINAL_RETURNED = "ORIGINAL_RETURNED"
+OUTCOME_PRODUCT_REFUNDED = "PRODUCT_REFUNDED"
+# The completion outcome each shipment type leads to.
+SHIPPED_OUTCOMES = {SHIP_REPLACEMENT: OUTCOME_REPLACEMENT_SHIPPED,
+                    SHIP_REPAIRED: OUTCOME_REPAIRED_SHIPPED,
+                    SHIP_ORIGINAL: OUTCOME_ORIGINAL_RETURNED}
+COMPLETION_OUTCOMES = tuple(SHIPPED_OUTCOMES.values()) + (OUTCOME_PRODUCT_REFUNDED,)
 
 FEE_DUE = "DUE"
 FEE_PAID = "PAID"
@@ -84,6 +107,8 @@ NOTICE_REQUEST_INFO = "request_information_needed"
 NOTICE_REQUEST_DECLINED = "request_not_approved"
 NOTICE_FEE_PAID = "fee_paid"
 NOTICE_FEE_REFUNDED = "fee_refunded"
+NOTICE_FORWARD_SHIPPED = "forward_shipped"
+NOTICE_COMPLETED = "completed"
 
 # The automatic refund of a PAID fee once Ops confirmed the defect.
 REFUND_PENDING = "PENDING"
@@ -111,6 +136,7 @@ QUEUE_LABELS = {"AWAITING_FEE": "AWAITING ₹250",
                 "FEE_REFUNDED": "FEE REFUNDED",
                 "REFUND_EXCEPTION": "REFUND EXCEPTION — CHECK BY HAND",
                 "READY_TO_DISPATCH": "READY TO DISPATCH",
+                "FORWARD_SHIPPED": "SHIPPED TO CUSTOMER",
                 "COMPLETED": "COMPLETED",
                 "READY_TO_BOOK": "READY TO BOOK PICKUP",
                 "PICKUP_BOOKED": "PICKUP BOOKED",
@@ -257,6 +283,11 @@ CASE_ADDED_COLUMNS = (
     ("fee_refund_last_attempt_at", "DATETIME NULL"),
     ("fee_refund_error", "VARCHAR(255) NULL"),
     ("fee_refunded_at", "DATETIME NULL"),
+    ("forward_shipped_awb", "VARCHAR(64) NULL"),
+    ("forward_shipped_courier", "VARCHAR(64) NULL"),
+    ("forward_shipment_type", "VARCHAR(32) NULL"),
+    ("forward_shipped_by", "VARCHAR(191) NULL"),
+    ("forward_shipped_at", "DATETIME NULL"),
 )
 
 TABLES = [("order_reverse_pickups", TABLE_DDL), ("reverse_pickup_cases", CASE_DDL),
@@ -361,7 +392,32 @@ CASE_EMAILS.update({
         "reverse-pickup fee has been refunded to your original payment method (refund {refund_id}).\n"
         "Refunds normally reach your account within 5–7 working days.\n"
         "We will update you separately about the product."),
+    NOTICE_FORWARD_SHIPPED: (
+        "Optiwar Return: Shipment on Its Way to You",
+        "{shipment_line}\n"
+        "Courier: {courier}\n"
+        "AWB: {awb}\n"
+        "{track_line}"
+        "There is nothing to pay for this shipment.\n"
+        "You can also see it in My Orders: {url}"),
+    NOTICE_COMPLETED: (
+        "Optiwar Return Completed",
+        "Your return for order {order_id} is now complete.\n"
+        "{outcome_line}\n"
+        "Your complete return and inspection history remains recorded against your order."),
 })
+SHIPMENT_LINES = {
+    SHIP_REPLACEMENT: "A replacement product for your order is on its way to you.",
+    SHIP_REPAIRED: "Your repaired product is on its way back to you.",
+    SHIP_ORIGINAL: "As you requested, your product is on its way back to you.",
+}
+OUTCOME_LINES = {
+    OUTCOME_REPLACEMENT_SHIPPED: "A replacement product was shipped to you ({courier} AWB {awb}).",
+    OUTCOME_REPAIRED_SHIPPED: "Your repaired product was shipped back to you ({courier} AWB {awb}).",
+    OUTCOME_ORIGINAL_RETURNED: "Your product was shipped back to you ({courier} AWB {awb}).",
+    OUTCOME_PRODUCT_REFUNDED: ("The product refund has been processed to your original payment "
+                               "method; it normally reaches your account within 5–7 working days."),
+}
 FEE_RETAINED_LINE = "The ₹250 reverse-pickup fee therefore remains applicable.\n"
 CASE_EMAIL_FRAME = "Dear {name},\n\n%s\n\nOrder: {order_id}\n\nOptiwar Support"
 
@@ -954,16 +1010,16 @@ def _queue_state(case, pickup):
         return "REQUESTED"
     if case and case.get("request_status") == REQ_INFO:
         return "INFO_REQUESTED"
-    if case and case.get("consent_at"):
-        return "READY_TO_DISPATCH"
     if case and case.get("inspected_at"):
-        if not case.get("inspection_defect"):
-            return "AWAITING_CUSTOMER_CONSENT"
         refund = case.get("fee_refund_state")
         if refund in REFUND_OPEN:
             return "REFUND_PENDING"
         if refund == REFUND_EXCEPTION:
             return "REFUND_EXCEPTION"
+        if case.get("forward_shipped_at"):
+            return "FORWARD_SHIPPED"
+        if not case.get("inspection_defect"):
+            return "READY_TO_DISPATCH" if case.get("consent_at") else "AWAITING_CUSTOMER_CONSENT"
         return "FEE_REFUNDED" if case["fee_state"] == FEE_REFUNDED else "DEFECT_CONFIRMED"
     if case and case.get("received_at"):
         return "AWAITING_INSPECTION"
@@ -1014,7 +1070,7 @@ def state_view(db, order_id):
     pickups = cur.fetchall()
     db.commit()
     latest = pickups[-1] if pickups else None
-    original = reship.shipments_for_orders(db, [oid]).get(oid)
+    original = original_shipment(db, oid, latest)
     queue_state = _queue_state(case, latest)
     reason = (case or {}).get("return_reason") or (latest or {}).get("reason") or None
     rp = None
@@ -1027,7 +1083,7 @@ def state_view(db, order_id):
                                    "operator": case.get("inspected_by")}
                                   if case and case.get("inspected_at") else None),
                    "consent_at": _iso((case or {}).get("consent_at")),
-                   "forward": None})
+                   "forward": forward_view(case)})
     return {
         "order_id": oid,
         "order_ref": oid,
@@ -1047,10 +1103,56 @@ def state_view(db, order_id):
         "inspection": inspection_view(case),
         "consent": consent_view(case),
         "notifications": notice_view(db, case["case_uuid"]) if case else [],
+        "forward": forward_view(case),
+        "completion": completion_view(case),
         "forward_shipment": {"original": ({"awb": original[0], "courier": original[1]}
                                           if original and original[0] else None),
-                             "replacement": None},
+                             "replacement": forward_view(case),
+                             "to_customer": forward_view(case)},
     }
+
+
+def original_shipment(db, order_id, pickup=None):
+    """``(awb, courier)`` of the shipment the customer is returning: the
+    forward AWB recorded at booking, else the courier platform's first row
+    for the order (the latest row may be the shipment back to the customer)."""
+    if pickup and pickup.get("forward_awb"):
+        cur = db.cursor()
+        try:
+            cur.execute("SELECT courier FROM ops_shipping_awb WHERE ow_order_id=%s AND "
+                        "tracking_number=%s LIMIT 1", (order_id, pickup["forward_awb"]))
+            row = cur.fetchone()
+        except Exception:  # noqa: BLE001 - table belongs to the courier platform
+            row = None
+        return (pickup["forward_awb"], (row or {}).get("courier") or "")
+    cur = db.cursor()
+    try:
+        cur.execute("SELECT tracking_number, courier FROM ops_shipping_awb WHERE ow_order_id=%s "
+                    "ORDER BY id LIMIT 1", (order_id,))
+        row = cur.fetchone()
+    except Exception:  # noqa: BLE001
+        return None
+    return ((row.get("tracking_number") or "").strip(), (row.get("courier") or "").strip()) if row else None
+
+
+def forward_view(case):
+    """The shipment back to the customer, once Ops recorded it; None before.
+    The tracking link is built from the AWB, never taken from a request."""
+    if not case or not case.get("forward_shipped_at"):
+        return None
+    return {"type": case.get("forward_shipment_type"), "courier": case.get("forward_shipped_courier"),
+            "awb": case.get("forward_shipped_awb"),
+            "track_url": reship.tracking_url(case.get("forward_shipped_courier"),
+                                             case.get("forward_shipped_awb")),
+            "shipped_by": case.get("forward_shipped_by"),
+            "shipped_at": _iso(case.get("forward_shipped_at"))}
+
+
+def completion_view(case):
+    if not case or not case.get("completed_at"):
+        return None
+    return {"outcome": case.get("completed_outcome"), "note": case.get("completed_note") or None,
+            "completed_by": case.get("completed_by"), "completed_at": _iso(case.get("completed_at"))}
 
 
 def ops_queue(db, limit=200):
@@ -1293,6 +1395,184 @@ def record_consent(db, order_id, body, operator):
     return case, True
 
 
+# --------------------------------------------------------------------------
+# the product back to the customer, then completion (phase 4a)
+# --------------------------------------------------------------------------
+
+def _forward_awb_in_use(cur, awb, case):
+    cur.execute("SELECT order_id FROM reverse_pickup_cases WHERE forward_shipped_awb=%s AND id<>%s "
+                "LIMIT 1", (awb, case["id"]))
+    return cur.fetchone()
+
+
+def record_forward_shipment(db, order_id, body, operator):
+    """Ops shipped the product (replacement, repaired original, or the
+    original the customer asked back) to the customer: courier + AWB, checked
+    against the courier's format, never the original shipment's AWB nor a
+    reverse-pickup waybill. Returns ``(case, changed)``; the same shipment
+    again is a silent replay, a different one is refused."""
+    shipment_type = str(body.get("shipment_type") or "").strip().upper()
+    if shipment_type not in SHIPMENT_TYPES:
+        raise ReversePickupError("invalid_shipment_type",
+                                 "shipment_type must be one of %s" % ", ".join(SHIPMENT_TYPES))
+    courier = _clip(body.get("courier"), 64)
+    if not courier:
+        raise ReversePickupError("courier_required", "courier required")
+    awb = _normal_awb(body.get("awb"))
+    hint = reship.awb_format_error(courier, awb)
+    if not awb or hint:
+        raise ReversePickupError("invalid_awb", hint or "awb required")
+    at = _parse_at(body.get("shipped_at"), "shipped_at")
+    oid, case = _case_for_action(db, order_id)
+    if case.get("completed_at"):
+        db.rollback()
+        raise ReversePickupError("case_completed", "this return case is already completed", 409)
+    if not case.get("inspected_at"):
+        db.rollback()
+        raise ReversePickupError("not_inspected", "no inspection has been recorded", 409)
+    if case.get("inspection_defect"):
+        if shipment_type not in DEFECT_SHIPMENT_TYPES:
+            db.rollback()
+            raise ReversePickupError(
+                "shipment_type_mismatch",
+                "the defect was confirmed; ship a %s or the %s, or refund the product through the "
+                "return-refund console" % DEFECT_SHIPMENT_TYPES, 409)
+    else:
+        if shipment_type != SHIP_ORIGINAL:
+            db.rollback()
+            raise ReversePickupError("shipment_type_mismatch",
+                                     "the defect was not confirmed; only the %s goes back" % SHIP_ORIGINAL, 409)
+        if not case.get("consent_at"):
+            db.rollback()
+            raise ReversePickupError("consent_required",
+                                     "the customer has not asked for the product back yet", 409)
+    if case.get("forward_shipped_at"):
+        db.rollback()
+        if (case.get("forward_shipped_awb") == awb
+                and (case.get("forward_shipped_courier") or "").lower() == courier.lower()
+                and case.get("forward_shipment_type") == shipment_type):
+            return case, False
+        raise ReversePickupError("forward_shipment_exists", "a shipment to the customer was already "
+                                 "recorded (%s AWB %s)" % (case.get("forward_shipped_courier"),
+                                                           case.get("forward_shipped_awb")), 409)
+    cur = db.cursor()
+    pickup = latest_for_order(db, oid)
+    original = original_shipment(db, oid, pickup)
+    if original and original[0] and original[0].upper() == awb:
+        db.rollback()
+        raise ReversePickupError("awb_is_original_shipment",
+                                 "that is the AWB of the shipment the customer returned", 409)
+    if by_awb(db, awb):
+        db.rollback()
+        raise ReversePickupError("awb_is_reverse_pickup", "that AWB is a reverse-pickup waybill", 409)
+    if _forward_awb_in_use(cur, awb, case):
+        db.rollback()
+        raise ReversePickupError("awb_in_use", "this AWB is recorded on another return", 409)
+    who = _clip(operator, 191)
+    cur.execute("UPDATE reverse_pickup_cases SET forward_shipped_awb=%s, forward_shipped_courier=%s, "
+                "forward_shipment_type=%s, forward_shipped_by=%s, forward_shipped_at=COALESCE(%s, NOW()) "
+                "WHERE id=%s", (awb, courier, shipment_type, who, at, case["id"]))
+    if reship._has_table(cur, "ops_shipping_awb"):
+        cur.execute("SELECT 1 FROM ops_shipping_awb WHERE ow_order_id=%s AND tracking_number=%s LIMIT 1",
+                    (oid, awb))
+        if not cur.fetchone():
+            cur.execute("INSERT INTO ops_shipping_awb (ow_order_id, tracking_number, courier, awb_status, "
+                        "created_by) VALUES (%s,%s,%s,'created',%s)",
+                        (oid, awb, courier, ("reverse_pickup:" + who)[:100]))
+    case = case_by_uuid(db, case["case_uuid"])
+    add_history(cur, oid, "Return: %s shipped to customer via %s, AWB %s (original AWB %s unchanged) by %s"
+                % (shipment_type, courier, awb, (original or ("n/a",))[0] or "n/a", _clip(operator, 120)),
+                case.get("site_from"))
+    data = {"shipment_type": shipment_type, "courier": courier, "awb": awb, "shipped_by": who,
+            "shipped_at": _iso(case["forward_shipped_at"]), "original_awb": (original or (None,))[0] or None}
+    _audit(db, EV_FORWARD_SHIPPED, case, data)
+    queue_ops_event(db, EV_FORWARD_SHIPPED, oid, data, case=case, pickup=pickup, key=case["case_uuid"],
+                    commit=False)
+    enqueue_notice(db, case, NOTICE_FORWARD_SHIPPED)
+    db.commit()
+    return case, True
+
+
+def _product_refund_executed(cur, order_id):
+    if not reship._has_table(cur, "return_assessments"):
+        return False
+    cur.execute("SELECT 1 FROM return_assessments WHERE order_id=%s AND refund_id IS NOT NULL LIMIT 1",
+                (order_id,))
+    return bool(cur.fetchone())
+
+
+def complete(db, order_id, body, operator):
+    """A person closes the case with its outcome. A shipped outcome needs the
+    matching shipment on record; PRODUCT_REFUNDED needs the confirmed defect
+    and an executed return refund; an open or exceptional fee refund blocks
+    completion. Never inferred from a shipment. Returns ``(case, changed)``."""
+    outcome = str(body.get("outcome") or "").strip().upper()
+    if outcome not in COMPLETION_OUTCOMES:
+        raise ReversePickupError("invalid_outcome",
+                                 "outcome must be one of %s" % ", ".join(COMPLETION_OUTCOMES))
+    note = _clip(body.get("note"), 500)
+    at = _parse_at(body.get("completed_at"), "completed_at")
+    oid, case = _case_for_action(db, order_id)
+    if case.get("completed_at"):
+        db.rollback()
+        if case.get("completed_outcome") == outcome:
+            return case, False
+        raise ReversePickupError("completed_exists", "this case was already completed as %s at %s"
+                                 % (case["completed_outcome"], _iso(case["completed_at"])), 409)
+    if not case.get("inspected_at"):
+        db.rollback()
+        raise ReversePickupError("not_inspected", "no inspection has been recorded", 409)
+    refund = case.get("fee_refund_state")
+    if refund in REFUND_OPEN or refund == REFUND_EXCEPTION:
+        db.rollback()
+        raise ReversePickupError("fee_refund_open",
+                                 "the ₹250 fee refund is %s; the case is completed once it is settled"
+                                 % refund, 409)
+    cur = db.cursor()
+    shipped = case.get("forward_shipped_at")
+    if outcome == OUTCOME_PRODUCT_REFUNDED:
+        if shipped:
+            db.rollback()
+            raise ReversePickupError("outcome_mismatch", "a %s was shipped to the customer; complete as %s"
+                                     % (case["forward_shipment_type"],
+                                        SHIPPED_OUTCOMES[case["forward_shipment_type"]]), 409)
+        if not case.get("inspection_defect"):
+            db.rollback()
+            raise ReversePickupError("defect_not_confirmed",
+                                     "a product refund closes a confirmed-defect return only", 409)
+        if not _product_refund_executed(cur, oid):
+            db.rollback()
+            raise ReversePickupError("product_refund_not_executed",
+                                     "no executed return refund is on record for this order; "
+                                     "execute it in the return-refund console first", 409)
+    else:
+        if not shipped:
+            db.rollback()
+            raise ReversePickupError("forward_shipment_required",
+                                     "record the shipment to the customer first", 409)
+        if SHIPPED_OUTCOMES.get(case.get("forward_shipment_type")) != outcome:
+            db.rollback()
+            raise ReversePickupError("outcome_mismatch", "the shipment on record is %s; complete as %s"
+                                     % (case["forward_shipment_type"],
+                                        SHIPPED_OUTCOMES[case["forward_shipment_type"]]), 409)
+    who = _clip(operator, 191)
+    cur.execute("UPDATE reverse_pickup_cases SET completed_outcome=%s, completed_note=%s, completed_by=%s, "
+                "completed_at=COALESCE(%s, NOW()) WHERE id=%s", (outcome, note or None, who, at, case["id"]))
+    case = case_by_uuid(db, case["case_uuid"])
+    add_history(cur, oid, "Return completed: %s by %s%s" % (outcome, _clip(operator, 120),
+                                                           ": %s" % note if note else ""),
+                case.get("site_from"))
+    data = {"outcome": outcome, "note": note or None, "completed_by": who,
+            "completed_at": _iso(case["completed_at"]),
+            "forward_awb": case.get("forward_shipped_awb"), "fee_state": case["fee_state"]}
+    _audit(db, EV_COMPLETED, case, data)
+    queue_ops_event(db, EV_COMPLETED, oid, data, case=case, pickup=latest_for_order(db, oid),
+                    key=case["case_uuid"], commit=False)
+    enqueue_notice(db, case, NOTICE_COMPLETED)
+    db.commit()
+    return case, True
+
+
 def _notice_suffix(notice, channel="email"):
     return "case:%s:%s" % (notice, channel)
 
@@ -1366,7 +1646,13 @@ def _send_notice(db, n, case, mailer=None):
               "fee_line": FEE_RETAINED_LINE if case["fee_state"] != FEE_WAIVED else "",
               "reason": case.get("return_reason") or "-", "note": case.get("decision_note") or "",
               "url": MY_ORDERS_URL_IN, "payment_id": case.get("razorpay_payment_id") or "-",
-              "refund_id": case.get("fee_refund_id") or "-"}
+              "refund_id": case.get("fee_refund_id") or "-",
+              "courier": case.get("forward_shipped_courier") or "-",
+              "awb": case.get("forward_shipped_awb") or "-"}
+    track = reship.tracking_url(case.get("forward_shipped_courier"), case.get("forward_shipped_awb"))
+    fields["track_line"] = "Track: %s\n" % track if track else ""
+    fields["shipment_line"] = SHIPMENT_LINES.get(case.get("forward_shipment_type"), "")
+    fields["outcome_line"] = OUTCOME_LINES.get(case.get("completed_outcome"), "").format(**fields)
     pickup = latest_for_order(db, oid)
     try:
         (mailer or reship._default_mailer)(email, subject, (CASE_EMAIL_FRAME % lines).format(**fields))

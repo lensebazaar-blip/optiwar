@@ -1004,7 +1004,7 @@
 
             {% if order.return_request %}
             {% set rq = order.return_request %}
-            <div class="oh-reship oh-return{% if rq.state == 'NOT_APPROVED' %} oh-reship--abandoned{% elif rq.state in ('APPROVED', 'APPROVED_FEE_DUE') %} oh-reship--paid{% endif %}" data-return-order="{{ order.order_id }}" data-return-state="{{ rq.state }}" onclick="event.stopPropagation()">
+            <div class="oh-reship oh-return{% if rq.state == 'NOT_APPROVED' %} oh-reship--abandoned{% elif rq.state in ('APPROVED', 'APPROVED_FEE_DUE', 'SHIPPED_TO_CUSTOMER', 'COMPLETED') %} oh-reship--paid{% endif %}" data-return-order="{{ order.order_id }}" data-return-state="{{ rq.state }}" onclick="event.stopPropagation()">
               <span class="oh-reship-kicker">Return</span>
               {% if rq.state == 'SUBMITTED' %}
               <div class="oh-reship-title">Return request received</div>
@@ -1027,6 +1027,21 @@
               {% elif rq.state == 'FEE_REFUNDED' %}
               <div class="oh-reship-title">Reverse-pickup fee refunded</div>
               <p>Our inspection confirmed the manufacturing defect, so your &#8377;{{ rq.refunded }} reverse-pickup fee has been refunded to your original payment method{% if rq.refund_id %} (refund {{ rq.refund_id }}){% endif %}. It normally reaches your account within 5&ndash;7 working days.</p>
+              {% elif rq.state == 'SHIPPED_TO_CUSTOMER' %}
+              <div class="oh-reship-title">&#10003; {% if rq.shipment.type == 'REPLACEMENT' %}Replacement on its way to you{% elif rq.shipment.type == 'REPAIRED_ORIGINAL' %}Repaired product on its way to you{% else %}Your product is on its way back to you{% endif %}</div>
+              <p>{{ rq.shipment.courier }}<br><span class="oh-reship-awb">AWB {{ rq.shipment.awb }}</span>
+                {% if rq.shipment.track_url %}<a class="oh-reship-track" href="{{ rq.shipment.track_url }}" target="_blank" rel="noopener noreferrer">Track Shipment</a>{% endif %}</p>
+              <p>There is nothing to pay for this shipment.{% if rq.fee_refunded %} Your &#8377;{{ rq.fee }} reverse-pickup fee has been refunded.{% endif %}</p>
+              {% elif rq.state == 'COMPLETED' %}
+              <div class="oh-reship-title">&#10003; Return complete</div>
+              {% if rq.outcome == 'PRODUCT_REFUNDED' %}
+              <p>The product refund has been processed to your original payment method. It normally reaches your account within 5&ndash;7 working days.</p>
+              {% elif rq.shipment %}
+              <p>{% if rq.outcome == 'REPLACEMENT_SHIPPED' %}A replacement product was shipped to you.{% elif rq.outcome == 'REPAIRED_ORIGINAL_SHIPPED' %}Your repaired product was shipped back to you.{% else %}Your product was shipped back to you.{% endif %}
+                {{ rq.shipment.courier }} &middot; <span class="oh-reship-awb">AWB {{ rq.shipment.awb }}</span>
+                {% if rq.shipment.track_url %}<a class="oh-reship-track" href="{{ rq.shipment.track_url }}" target="_blank" rel="noopener noreferrer">Track</a>{% endif %}</p>
+              {% endif %}
+              {% if rq.fee_refunded %}<p>Your &#8377;{{ rq.fee }} reverse-pickup fee was refunded to your original payment method.</p>{% endif %}
               {% elif rq.state == 'NOT_APPROVED' %}
               <div class="oh-reship-title">Return not approved</div>
               {% if rq.note %}<p>{{ rq.note }}</p>{% endif %}
