@@ -54,6 +54,8 @@ EV_CONSENT = "reverse_pickup.customer_consent_received"
 CONSENT_RECORD = "CUSTOMER_RETURN_CONSENT_RECEIVED"
 # Internal audit only; not an Ops event.
 EV_REASON_CORRECTED = "reverse_pickup.reason_corrected"
+EV_REQUESTED = "reverse_pickup.requested"
+EV_REQUEST_DECIDED = "reverse_pickup.request_decided"
 
 FEE_DUE = "DUE"
 FEE_PAID = "PAID"
@@ -72,6 +74,21 @@ RECEIVED_CONDITIONS = ("Intact", "Damaged packaging", "Product damaged", "Wrong 
 
 NOTICE_INSPECTION_NO_DEFECT = "inspection_no_defect"
 NOTICE_INSPECTION_DEFECT_WAIVED = "inspection_defect_waived"
+NOTICE_REQUEST_RECEIVED = "request_received"
+NOTICE_REQUEST_APPROVED = "request_approved"
+NOTICE_REQUEST_APPROVED_WAIVED = "request_approved_fee_waived"
+NOTICE_REQUEST_INFO = "request_information_needed"
+NOTICE_REQUEST_DECLINED = "request_not_approved"
+
+# A customer's return request. Ops-created cases have no request status; a
+# customer-created case is booked only once Ops approved it.
+REQ_SUBMITTED = "SUBMITTED"
+REQ_APPROVED = "APPROVED_SUBJECT_TO_INSPECTION"
+REQ_INFO = "FURTHER_INFORMATION_REQUIRED"
+REQ_DECLINED = "NOT_APPROVED"
+REQ_OPEN = (REQ_SUBMITTED, REQ_INFO)
+OUTCOME_NOT_APPROVED = "REQUEST_NOT_APPROVED"
+MY_ORDERS_URL_IN = "https://optiwar.in/profile/?tab=orders"
 
 QUEUE_LABELS = {"AWAITING_FEE": "AWAITING ₹250",
                 "AWAITING_INSPECTION": "RECEIVED — AWAITING INSPECTION",
@@ -81,7 +98,10 @@ QUEUE_LABELS = {"AWAITING_FEE": "AWAITING ₹250",
                 "COMPLETED": "COMPLETED",
                 "READY_TO_BOOK": "READY TO BOOK PICKUP",
                 "PICKUP_BOOKED": "PICKUP BOOKED",
-                "FEE_NOT_RECORDED": "FEE NOT RECORDED"}
+                "FEE_NOT_RECORDED": "FEE NOT RECORDED",
+                "REQUESTED": "RETURN REQUESTED — AWAITING REVIEW",
+                "INFO_REQUESTED": "FURTHER INFORMATION REQUESTED",
+                "NOT_APPROVED": "RETURN NOT APPROVED"}
 
 OUT_PENDING = "PENDING"
 OUT_SENT = "SENT"
@@ -203,6 +223,19 @@ NOTICE_DDL = """CREATE TABLE IF NOT EXISTS reverse_pickup_notifications (
     KEY idx_rpn_order (order_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
 
+CASE_ADDED_COLUMNS = (
+    ("request_status", "VARCHAR(40) NULL"),
+    ("reason_code", "VARCHAR(32) NULL"),
+    ("defect_description", "VARCHAR(2000) NULL"),
+    ("declarations_version", "VARCHAR(40) NULL"),
+    ("declarations_sha256", "CHAR(64) NULL"),
+    ("declarations_accepted_at", "DATETIME NULL"),
+    ("declarations_ip", "VARCHAR(64) NULL"),
+    ("decision_note", "VARCHAR(1000) NULL"),
+    ("decided_by", "VARCHAR(191) NULL"),
+    ("decided_at", "DATETIME NULL"),
+)
+
 TABLES = [("order_reverse_pickups", TABLE_DDL), ("reverse_pickup_cases", CASE_DDL),
           ("reverse_pickup_ops_outbox", OUTBOX_DDL), ("reverse_pickup_notifications", NOTICE_DDL)]
 
@@ -268,6 +301,34 @@ CASE_EMAILS = {
         "We will now proceed with the applicable product-resolution / return-to-customer process "
         "and update you with the next shipment details."),
 }
+CASE_EMAILS.update({
+    NOTICE_REQUEST_RECEIVED: (
+        "Optiwar Return Request Received",
+        "We have received your return request for order {order_id} (reason: {reason}).\n"
+        "Our team will review it and reply within 2 working days. Please do not send the product "
+        "to us until we confirm the next step."),
+    NOTICE_REQUEST_APPROVED: (
+        "Optiwar Return Request Approved",
+        "Your return request has been approved, subject to inspection.\n"
+        "To arrange the Delhivery reverse pickup, please pay the ₹250 reverse-pickup fee in "
+        "My Orders: {url}\n"
+        "The fee is refunded if our inspection confirms a manufacturing defect."),
+    NOTICE_REQUEST_APPROVED_WAIVED: (
+        "Optiwar Return Request Approved",
+        "Your return request has been approved, subject to inspection.\n"
+        "The ₹250 reverse-pickup fee has been waived for this return, so nothing is due from you.\n"
+        "We will book the Delhivery reverse pickup and send you the pickup details."),
+    NOTICE_REQUEST_INFO: (
+        "Optiwar Return Request: Information Needed",
+        "We need a little more information before we can approve your return request:\n"
+        "{note}\n"
+        "Please reply to this email with the details or photos."),
+    NOTICE_REQUEST_DECLINED: (
+        "Optiwar Return Request Update",
+        "After reviewing your return request, we are unable to approve a return for this order.\n"
+        "{note}\n"
+        "No fee has been charged. If you have any questions, please reply to this email."),
+})
 FEE_RETAINED_LINE = "The ₹250 reverse-pickup fee therefore remains applicable.\n"
 CASE_EMAIL_FRAME = "Dear {name},\n\n%s\n\nOrder: {order_id}\n\nOptiwar Support"
 
@@ -290,6 +351,12 @@ def ensure_schema(db):
     cur = db.cursor()
     for _name, ddl in TABLES:
         cur.execute(ddl)
+    cur.execute("SELECT column_name AS column_name FROM information_schema.columns "
+                "WHERE table_schema=DATABASE() AND table_name='reverse_pickup_cases'")
+    have = {r["column_name"].lower() for r in cur.fetchall()}
+    for name, decl in CASE_ADDED_COLUMNS:
+        if name not in have:
+            cur.execute("ALTER TABLE reverse_pickup_cases ADD COLUMN %s %s" % (name, decl))
     db.commit()
     _SCHEMA_READY = True
 
@@ -379,6 +446,12 @@ def book(db, order_id, body, operator):
         raise ReversePickupError("active_pickup_exists",
                                  "order already has an active reverse pickup (AWB %s)" % active["awb"], 409)
     case = case_for_order(db, oid, for_update=True)
+    if request_blocks_booking(case):
+        db.rollback()
+        raise ReversePickupError(
+            "request_not_approved",
+            "the customer's return request is %s; a pickup is booked only once it is %s"
+            % (case["request_status"], REQ_APPROVED), 409)
     if not case or case["fee_state"] not in FEE_SETTLED:
         db.rollback()
         raise ReversePickupError(
@@ -822,9 +895,20 @@ def correct_reason(db, order_id, body, operator):
     return by_awb(db, row["awb"]), True, old
 
 
+def request_blocks_booking(case):
+    """A customer's request is booked only once Ops approved it."""
+    return bool(case and case.get("request_status") and case["request_status"] != REQ_APPROVED)
+
+
 def _queue_state(case, pickup):
+    if case and case.get("completed_outcome") == OUTCOME_NOT_APPROVED:
+        return "NOT_APPROVED"
     if case and case.get("completed_at"):
         return "COMPLETED"
+    if case and case.get("request_status") == REQ_SUBMITTED:
+        return "REQUESTED"
+    if case and case.get("request_status") == REQ_INFO:
+        return "INFO_REQUESTED"
     if case and case.get("consent_at"):
         return "READY_TO_DISPATCH"
     if case and case.get("inspected_at"):
@@ -840,6 +924,29 @@ def _queue_state(case, pickup):
     if case["fee_state"] in FEE_SETTLED:
         return "READY_TO_BOOK"
     return case["fee_state"]
+
+
+def request_view(case, reason=None):
+    """The return request as Ops sees it; the route adds signed photo links."""
+    if not case:
+        return None
+    return {"id": case["case_uuid"], "source": case["source"],
+            "declared_reason": reason or case.get("return_reason"),
+            "reason": reason or case.get("return_reason"),
+            "reason_code": case.get("reason_code"),
+            "description": case.get("defect_description") or None,
+            "status": case.get("request_status"),
+            "requested_at": _iso(case.get("created_at")),
+            "declarations": ({"version": case["declarations_version"],
+                              "sha256": case.get("declarations_sha256"),
+                              "accepted_at": _iso(case.get("declarations_accepted_at")),
+                              "ip": case.get("declarations_ip")}
+                             if case.get("declarations_version") else None),
+            "decision": ({"status": case["request_status"], "note": case.get("decision_note") or None,
+                          "decided_by": case.get("decided_by"),
+                          "decided_at": _iso(case.get("decided_at"))}
+                         if case.get("decided_at") else None),
+            "photos": []}
 
 
 def state_view(db, order_id):
@@ -876,11 +983,9 @@ def state_view(db, order_id):
         "queue_state": queue_state,
         "label": QUEUE_LABELS.get(queue_state, queue_state.replace("_", " ")),
         "booking_allowed": bool(case and case["fee_state"] in FEE_SETTLED
+                                and not request_blocks_booking(case)
                                 and not (latest and latest["status"] == ST_BOOKED)),
-        "request": ({"id": case["case_uuid"], "source": case["source"],
-                     "declared_reason": reason, "reason": reason,
-                     "requested_at": _iso(case.get("created_at")),
-                     "declarations": None} if case else None),
+        "request": request_view(case, reason),
         "fee": fee_view(case) if case else None,
         "reverse_pickup": rp,
         "reverse_pickups": [{"id": p["pickup_uuid"], "awb": p["awb"], "status": p["status"],
@@ -1197,7 +1302,9 @@ def _send_notice(db, n, case, mailer=None):
         return "no_email"
     subject, lines = CASE_EMAILS[notice]
     fields = {"name": (acct.get("customer_name") or "").strip() or "Customer", "order_id": oid,
-              "fee_line": FEE_RETAINED_LINE if case["fee_state"] != FEE_WAIVED else ""}
+              "fee_line": FEE_RETAINED_LINE if case["fee_state"] != FEE_WAIVED else "",
+              "reason": case.get("return_reason") or "-", "note": case.get("decision_note") or "",
+              "url": MY_ORDERS_URL_IN}
     pickup = latest_for_order(db, oid)
     try:
         (mailer or reship._default_mailer)(email, subject, (CASE_EMAIL_FRAME % lines).format(**fields))

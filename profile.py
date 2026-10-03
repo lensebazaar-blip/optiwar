@@ -3,7 +3,7 @@ from .db import get_db
 from .auth import login_required
 from .rx_powers import normalize_rows
 from .customer_orders import ORDER_LINES_SQL, customer_orders, attach_reship, attach_reverse_pickup
-from . import reship, reverse_pickup
+from . import reship, return_request, reverse_pickup
 from . import face_profiles, face_profiles_api, face_scan_groups, face_scan_invites_api
 
 bp = Blueprint('profile', __name__, url_prefix='/profile')
@@ -97,14 +97,21 @@ def profile_page():
         except Exception:  # noqa: BLE001 - the order list must still render
             reship_rows, shipments = {}, {}
     attach_reship(grouped_orders, reship_rows, request.host, shipments=shipments, now=reship_now)
-    pickup_rows = {}
+    pickup_rows, request_cards = {}, {}
     if grouped_orders and cust_id and reverse_pickup.enabled() and reverse_pickup.customer_enabled():
         try:
             reverse_pickup.ensure_schema(db)
             pickup_rows = reverse_pickup.latest_for_customer(db, cust_id)
         except Exception:  # noqa: BLE001 - the order list must still render
             pickup_rows = {}
-    attach_reverse_pickup(grouped_orders, pickup_rows)
+        if reship.is_india_host(request.host):
+            try:
+                request_cards = return_request.customer_cards(
+                    db, cust_id, [o['order_id'] for o in grouped_orders])
+            except Exception:  # noqa: BLE001 - the order list must still render
+                db.rollback()
+                request_cards = {}
+    attach_reverse_pickup(grouped_orders, pickup_rows, request_cards)
 
     # Get face measurement data
     face_data = None

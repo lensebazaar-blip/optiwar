@@ -41,6 +41,10 @@ ST_NO_DEFECT = "INSPECTED_NO_DEFECT"
 ST_DEFECT = "INSPECTED_DEFECT_CONFIRMED"
 ST_CONSENT = "CONSENT_RECEIVED"
 ST_COMPLETED = "COMPLETED"
+ST_REQUESTED = "RETURN_REQUESTED"
+ST_INFO = "RETURN_INFO_REQUESTED"
+ST_NOT_APPROVED = "RETURN_NOT_APPROVED"
+PRE_PICKUP = (ST_FEE_DUE, ST_TO_BOOK, ST_REQUESTED, ST_INFO, ST_NOT_APPROVED)
 
 FEE_REFUNDED_STATES = (rp.FEE_REFUNDED, rp.FEE_PARTIALLY_REFUNDED)
 
@@ -48,6 +52,12 @@ RULES = """RETURN / REVERSE-PICKUP RULES (India only; authoritative, from Optiwa
 - A return is collected by a Delhivery reverse pickup that our team books. The reverse-pickup fee is
   a fixed INR %(fee)s (clause 9B of the Terms). Never quote another amount, and never offer to
   waive, change or refund it: only our team decides that.
+- RETURN_REQUESTED: the customer's return request is with our team for review; they reply by
+  email within 2 working days. No fee is due yet and no pickup is booked; the customer must not
+  send the product. RETURN_INFO_REQUESTED: our team emailed asking for more details or photos;
+  the customer replies to that email. RETURN_NOT_APPROVED: our team did not approve the return
+  and emailed the reason; offer a support ticket for questions. Never approve, decline or promise
+  approval of a request yourself.
 - A pickup is booked only after the fee is PAID or WAIVED. If stage=FEE_DUE, say the INR %(fee)s fee
   must be settled before the pickup can be booked and that our team will share how to pay; give no
   payment link and do not say a pickup is booked.
@@ -92,8 +102,14 @@ def stage(case, pickup):
     """The customer-facing stage of one order's return, or None when the order
     has no return record."""
     case = case or {}
+    if case.get("completed_outcome") == rp.OUTCOME_NOT_APPROVED:
+        return ST_NOT_APPROVED
     if case.get("completed_at"):
         return ST_COMPLETED
+    if case.get("request_status") == rp.REQ_SUBMITTED:
+        return ST_REQUESTED
+    if case.get("request_status") == rp.REQ_INFO:
+        return ST_INFO
     if case.get("consent_at"):
         return ST_CONSENT
     if case.get("inspected_at"):
@@ -259,6 +275,12 @@ def _line(e, fee):
             parts.append("booked_on=%s" % _fmt(e["pickup_booked_at"]))
     if e["stage"] == ST_CANCELLED:
         parts.append("(the pickup booking was cancelled; no agent will come for it)")
+    if e["stage"] == ST_REQUESTED:
+        parts.append("(return request under review; no fee due yet; no pickup yet)")
+    if e["stage"] == ST_INFO:
+        parts.append("(our team emailed asking for more information; no pickup yet)")
+    if e["stage"] == ST_NOT_APPROVED:
+        parts.append("(return request not approved; the customer was emailed the reason)")
     if e["stage"] == ST_FEE_DUE:
         parts.append("(INR %s fee due before a pickup can be booked; no pickup yet)" % fee)
     if e["stage"] == ST_TO_BOOK:
@@ -339,7 +361,7 @@ def reply_violations(model, reply):
     refunded = any(e["fee_state"] in FEE_REFUNDED_STATES for e in orders)
     if not refunded and _claims(_REFUND_PROMISE, text):
         out.append(V_REFUND_PROMISED)
-    booked = any(e["stage"] not in (ST_FEE_DUE, ST_TO_BOOK) for e in orders)
+    booked = any(e["stage"] not in PRE_PICKUP for e in orders)
     if not booked and _claims(_PICKUP_BOOKED_CLAIM, text):
         out.append(V_PICKUP_BEFORE_FEE)
     return out

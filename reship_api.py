@@ -24,13 +24,21 @@ Ops (``ops._require_ops_auth``: admin session or Bearer OPS_API_TOKEN):
     POST /ops/api/shipments/<order_id>/reverse-pickup/received
     POST /ops/api/shipments/<order_id>/reverse-pickup/inspection
     POST /ops/api/shipments/<order_id>/reverse-pickup/consent
+    POST /ops/api/shipments/<order_id>/reverse-pickup/request/decision
+    GET  /ops/api/reverse-pickup/photos/<case_uuid>/<n>  signed, expiring, audited
+
+Customer return request (signed-in owner, India site, flags on; else 404):
+
+    POST /api/orders/<order_id>/return                  reason, photos, declarations
 
 Routes attach to the main blueprint; ``__init__.py`` and ``ops.py`` are not in
 the deployment set.
 """
-from flask import current_app, jsonify, render_template, request, session
+import os
 
-from . import reship, reverse_pickup
+from flask import current_app, jsonify, render_template, request, send_file, session
+
+from . import chat_attachments, reship, return_request, reverse_pickup
 from .db import get_db
 from .notifications import notify_order_shipped
 from .payments import (create_reship_razorpay_order, fetch_razorpay_payment,
@@ -60,6 +68,15 @@ def _ops_operator(body=None):
         return email
     who = str((body or {}).get("operator") or "").strip()[:80]
     return "ops-api-token:%s" % who if who else "ops-api-token"
+
+
+def _client_ip():
+    fwd = request.headers.get("X-Forwarded-For", "")
+    return (fwd.split(",")[0].strip() if fwd else request.remote_addr) or ""
+
+
+def _rp_upload_dir():
+    return os.path.join(os.path.dirname(current_app.root_path), "secure_uploads", "return_photos")
 
 
 def _ops_auth():
@@ -284,15 +301,81 @@ def register(bp):
         except Exception as exc:  # noqa: BLE001 - the outbox keeps it for the next attempt
             current_app.logger.error("REVERSE_PICKUP_OPS_SYNC_ERROR %s" % exc)
 
+    def _rp_with_photos(db, view):
+        req = view.get("request")
+        if req:
+            return_request.ensure_schema(db)
+            req["photos"] = return_request.photo_views(db, req["id"],
+                                                       current_app.config.get("SECRET_KEY"))
+        return view
+
     @bp.route("/ops/api/shipments/<order_id>/reverse-pickup", methods=["GET"])
     def ops_reverse_pickup_state(order_id):
         denied = _rp_gate()
         if denied:
             return denied
-        view = reverse_pickup.state_view(get_db(), order_id)
+        db = get_db()
+        view = reverse_pickup.state_view(db, order_id)
         if view is None:
             return jsonify({"ok": False, "error": "not_found"}), 404
-        return jsonify(dict(view, ok=True))
+        return jsonify(dict(_rp_with_photos(db, view), ok=True))
+
+    @bp.route("/ops/api/reverse-pickup/photos/<case_uuid>/<int:position>", methods=["GET"])
+    def ops_reverse_pickup_photo(case_uuid, position):
+        """One request photo, only through a signed link the state view issued."""
+        exp, sig = request.args.get("exp"), request.args.get("sig")
+        secret = current_app.config.get("SECRET_KEY")
+        if not (reverse_pickup.enabled()
+                and return_request.link_valid(secret, case_uuid, position, exp, sig)):
+            return jsonify({"ok": False, "error": "not_found"}), 404
+        db = get_db()
+        return_request.ensure_schema(db)
+        row = next((p for p in return_request.photos_for(db, case_uuid)
+                    if int(p["position"]) == position), None)
+        path = row and os.path.join(_rp_upload_dir(), row["stored_name"])
+        if not path or not os.path.isfile(path):
+            return jsonify({"ok": False, "error": "not_found"}), 404
+        return_request.record_photo_view(db, case_uuid, position, exp,
+                                         session.get("user_email") or "signed-link")
+        resp = send_file(path, mimetype="image/jpeg", max_age=0)
+        resp.headers["Cache-Control"] = "no-store"
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        resp.headers["Referrer-Policy"] = "no-referrer"
+        return resp
+
+    @bp.route("/api/orders/<order_id>/return", methods=["POST"])
+    def customer_return_request(order_id):
+        """The signed-in owner asks for a return; Ops decides before any fee."""
+        cid = _customer()
+        if not cid:
+            return jsonify({"ok": False, "error": "login_required",
+                            "message": "Please sign in to request a return."}), 401
+        if not (reverse_pickup.enabled() and reverse_pickup.customer_enabled()
+                and reship.is_india_host(request.host)):
+            return jsonify({"ok": False, "error": "not_found"}), 404
+        form = {"reason": request.form.get("reason"),
+                "description": request.form.get("description"),
+                "declarations_version": request.form.get("declarations_version"),
+                "declarations": request.form.getlist("declaration")}
+        files = [(f.filename, f.read(chat_attachments.MAX_BYTES + 1))
+                 for f in request.files.getlist("photos") if f and f.filename]
+        db = get_db()
+        try:
+            photos = return_request.prepare_photos(files)
+            case = return_request.submit(db, cid, order_id, form, photos, _client_ip(),
+                                         _rp_upload_dir())
+        except reverse_pickup.ReversePickupError as exc:
+            if exc.status == 404:
+                return jsonify({"ok": False, "error": "not_found"}), 404
+            return _rp_error(exc)
+        try:
+            reverse_pickup.notify_case(db, reverse_pickup.NOTICE_REQUEST_RECEIVED, case)
+        except Exception as exc:  # noqa: BLE001 - the request is committed; the retry job sends it
+            current_app.logger.error("REVERSE_PICKUP_NOTIFY_ERROR %s case:%s %s"
+                                     % (reverse_pickup.NOTICE_REQUEST_RECEIVED, case["case_uuid"], exc))
+        _rp_deliver(db)
+        return jsonify({"ok": True, "state": return_request.CARD_SUBMITTED,
+                        "order_id": case["order_id"]})
 
     @bp.route("/ops/api/reverse-pickup/queue", methods=["GET"])
     def ops_reverse_pickup_queue():
@@ -355,7 +438,7 @@ def register(bp):
                 customer_notice = "failed"
         if changed:
             _rp_deliver(db)
-        view = reverse_pickup.state_view(db, case["order_id"])
+        view = _rp_with_photos(db, reverse_pickup.state_view(db, case["order_id"]))
         return jsonify(dict(view, ok=True, changed=changed,
                             customer_notice={"notice": notice, "result": customer_notice}
                             if notice else None))
@@ -376,6 +459,11 @@ def register(bp):
     def ops_reverse_pickup_consent(order_id):
         """The customer's emailed request for the product back."""
         return _rp_case_step(order_id, reverse_pickup.record_consent, lambda case: None)
+
+    @bp.route("/ops/api/shipments/<order_id>/reverse-pickup/request/decision", methods=["POST"])
+    def ops_reverse_pickup_request_decision(order_id):
+        """Approve subject to inspection, ask for more information, or decline."""
+        return _rp_case_step(order_id, return_request.decide, return_request.decision_notice)
 
     @bp.route("/ops/api/shipments/<order_id>/reverse-pickup", methods=["POST"])
     def ops_reverse_pickup(order_id):
