@@ -25,6 +25,8 @@ Ops (``ops._require_ops_auth``: admin session or Bearer OPS_API_TOKEN):
     POST /ops/api/shipments/<order_id>/reverse-pickup/inspection
     POST /ops/api/shipments/<order_id>/reverse-pickup/consent
     POST /ops/api/shipments/<order_id>/reverse-pickup/request/decision
+    POST /ops/api/shipments/<order_id>/reverse-pickup/forward-shipped
+    POST /ops/api/shipments/<order_id>/reverse-pickup/complete
     GET  /ops/api/reverse-pickup/photos/<case_uuid>/<n>  signed, expiring, audited
 
 Customer return request (signed-in owner, India site, flags on; else 404):
@@ -576,6 +578,19 @@ def register(bp):
     def ops_reverse_pickup_consent(order_id):
         """The customer's emailed request for the product back."""
         return _rp_case_step(order_id, reverse_pickup.record_consent, lambda case: None)
+
+    @bp.route("/ops/api/shipments/<order_id>/reverse-pickup/forward-shipped", methods=["POST"])
+    def ops_reverse_pickup_forward_shipped(order_id):
+        """The product shipped back to the customer: courier + AWB, typed by a
+        person; the customer is told once, with the tracking link."""
+        return _rp_case_step(order_id, reverse_pickup.record_forward_shipment,
+                             lambda case: reverse_pickup.NOTICE_FORWARD_SHIPPED)
+
+    @bp.route("/ops/api/shipments/<order_id>/reverse-pickup/complete", methods=["POST"])
+    def ops_reverse_pickup_complete(order_id):
+        """A person closes the case with its outcome; never inferred."""
+        return _rp_case_step(order_id, reverse_pickup.complete,
+                             lambda case: reverse_pickup.NOTICE_COMPLETED)
 
     @bp.route("/ops/api/shipments/<order_id>/reverse-pickup/request/decision", methods=["POST"])
     def ops_reverse_pickup_request_decision(order_id):
