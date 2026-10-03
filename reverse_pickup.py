@@ -56,6 +56,7 @@ CONSENT_RECORD = "CUSTOMER_RETURN_CONSENT_RECEIVED"
 EV_REASON_CORRECTED = "reverse_pickup.reason_corrected"
 EV_REQUESTED = "reverse_pickup.requested"
 EV_REQUEST_DECIDED = "reverse_pickup.request_decided"
+EV_FEE_PAID = "reverse_pickup.fee_paid"
 
 FEE_DUE = "DUE"
 FEE_PAID = "PAID"
@@ -79,6 +80,7 @@ NOTICE_REQUEST_APPROVED = "request_approved"
 NOTICE_REQUEST_APPROVED_WAIVED = "request_approved_fee_waived"
 NOTICE_REQUEST_INFO = "request_information_needed"
 NOTICE_REQUEST_DECLINED = "request_not_approved"
+NOTICE_FEE_PAID = "fee_paid"
 
 # A customer's return request. Ops-created cases have no request status; a
 # customer-created case is booked only once Ops approved it.
@@ -328,6 +330,10 @@ CASE_EMAILS.update({
         "After reviewing your return request, we are unable to approve a return for this order.\n"
         "{note}\n"
         "No fee has been charged. If you have any questions, please reply to this email."),
+    NOTICE_FEE_PAID: (
+        "Optiwar Reverse-Pickup Fee Received",
+        "We have received your ₹250 reverse-pickup fee (payment {payment_id}).\n"
+        "We will now book the Delhivery pickup and send you the pickup details."),
 })
 FEE_RETAINED_LINE = "The ₹250 reverse-pickup fee therefore remains applicable.\n"
 CASE_EMAIL_FRAME = "Dear {name},\n\n%s\n\nOrder: {order_id}\n\nOptiwar Support"
@@ -682,6 +688,12 @@ def case_for_order(db, order_id, for_update=False):
 def case_by_uuid(db, case_uuid):
     cur = db.cursor()
     cur.execute("SELECT * FROM reverse_pickup_cases WHERE case_uuid=%s", (case_uuid,))
+    return cur.fetchone()
+
+
+def case_by_uuid_for_update(db, case_uuid):
+    cur = db.cursor()
+    cur.execute("SELECT * FROM reverse_pickup_cases WHERE case_uuid=%s FOR UPDATE", (case_uuid,))
     return cur.fetchone()
 
 
@@ -1304,7 +1316,7 @@ def _send_notice(db, n, case, mailer=None):
     fields = {"name": (acct.get("customer_name") or "").strip() or "Customer", "order_id": oid,
               "fee_line": FEE_RETAINED_LINE if case["fee_state"] != FEE_WAIVED else "",
               "reason": case.get("return_reason") or "-", "note": case.get("decision_note") or "",
-              "url": MY_ORDERS_URL_IN}
+              "url": MY_ORDERS_URL_IN, "payment_id": case.get("razorpay_payment_id") or "-"}
     pickup = latest_for_order(db, oid)
     try:
         (mailer or reship._default_mailer)(email, subject, (CASE_EMAIL_FRAME % lines).format(**fields))

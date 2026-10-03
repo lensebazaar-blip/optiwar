@@ -59,8 +59,9 @@ RULES = """RETURN / REVERSE-PICKUP RULES (India only; authoritative, from Optiwa
   and emailed the reason; offer a support ticket for questions. Never approve, decline or promise
   approval of a request yourself.
 - A pickup is booked only after the fee is PAID or WAIVED. If stage=FEE_DUE, say the INR %(fee)s fee
-  must be settled before the pickup can be booked and that our team will share how to pay; give no
-  payment link and do not say a pickup is booked.
+  must be settled before the pickup can be booked. If the line says pay_in_my_orders, the customer
+  pays it with the Pay button on the return card in My Orders; otherwise our team will share how to
+  pay. Give no payment link and do not say a pickup is booked.
 - Give a pickup AWB or tracking link only when stage=PICKUP_BOOKED and pickup_awb is listed below.
   Never invent an AWB, a pickup date or a delivery date. If stage=PICKUP_CANCELLED, say that
   booking was cancelled and offer a support ticket.
@@ -179,6 +180,8 @@ def _entry(order_id, case, pickup, shipment):
         "fee_state": fee_state,
         "fee": int(case.get("fee_amount_minor") or rp.FEE_MINOR) // 100,
         "fee_paid_at": case.get("fee_paid_at"),
+        "pay_in_my_orders": (st == ST_FEE_DUE
+                             and case.get("request_status") == rp.REQ_APPROVED),
         "fee_refunded": refunded if fee_state in FEE_REFUNDED_STATES else None,
         "pickup_status": pv["state"] if pv else None,
         "pickup_awb": pv["awb"] if pv else None,
@@ -283,6 +286,8 @@ def _line(e, fee):
         parts.append("(return request not approved; the customer was emailed the reason)")
     if e["stage"] == ST_FEE_DUE:
         parts.append("(INR %s fee due before a pickup can be booked; no pickup yet)" % fee)
+        if e.get("pay_in_my_orders"):
+            parts.append("pay_in_my_orders")
     if e["stage"] == ST_TO_BOOK:
         parts.append("(fee settled; our team books the pickup; no AWB yet)")
     if e["received_at"]:

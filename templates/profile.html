@@ -1016,8 +1016,13 @@
               {% elif rq.state == 'APPROVED_FEE_DUE' %}
               <div class="oh-reship-title">Return approved, subject to inspection</div>
               <p>The &#8377;{{ rq.fee }} reverse-pickup fee is due before we book the Delhivery pickup. It is refunded if our inspection confirms a manufacturing defect.</p>
+              {% if rq.can_pay %}
+              <button type="button" class="oh-reship-btn" onclick="owReturnPay(this)">Pay &#8377;{{ rq.fee }}</button>
+              <p class="oh-reship-err" hidden></p>
+              {% endif %}
               {% elif rq.state == 'APPROVED' %}
               <div class="oh-reship-title">Return approved, subject to inspection</div>
+              {% if rq.fee_paid %}<p>We have received your &#8377;{{ rq.fee }} reverse-pickup fee.</p>{% endif %}
               <p>We will book the Delhivery reverse pickup and send you the pickup details.</p>
               {% elif rq.state == 'NOT_APPROVED' %}
               <div class="oh-reship-title">Return not approved</div>
@@ -2254,6 +2259,37 @@ if (window.location.hash) {
       })
       .catch(function(){fail('Your request could not be sent. Please try again.');});
     return false;
+  };
+  // Reverse-pickup fee of an approved return: same shape as the reship fee.
+  window.owReturnPay = function(btn){
+    var card=btn.closest('.oh-return'), oid=card.getAttribute('data-return-order');
+    var base='/api/orders/'+encodeURIComponent(oid)+'/return/payment/';
+    var err=card.querySelector('.oh-reship-err'), label=btn.textContent;
+    function fail(m){btn.disabled=false;btn.textContent=label;if(err){err.textContent=m;err.hidden=false;}}
+    btn.disabled=true;btn.textContent='Starting payment\u2026';if(err){err.hidden=true;}
+    post(base+'create').then(function(o){
+      if(!o.ok){return fail(o.message||'Payment could not be started. Please try again.');}
+      loadRzp(function(e){
+        if(e){return fail('Payment could not be started. Please try again.');}
+        var rzp=new Razorpay({key:o.key_id,amount:o.amount,currency:o.currency,
+          name:'Optiwar',description:'Reverse-pickup fee \u2014 order #'+o.order_id,
+          order_id:o.razorpay_order_id,theme:{color:'#4f46e5'},
+          modal:{ondismiss:function(){fail('Payment not completed.');}},
+          handler:function(resp){
+            btn.textContent='Verifying\u2026';
+            post(base+'verify',{
+              razorpay_payment_id:resp.razorpay_payment_id,
+              razorpay_order_id:resp.razorpay_order_id,
+              razorpay_signature:resp.razorpay_signature
+            }).then(function(v){
+              if(v.ok||v.__status===202){window.location.href='/profile/?tab=orders';return;}
+              fail('We could not verify this payment yet. If money was deducted it is reconciled automatically; nothing is charged twice.');
+            }).catch(function(){fail('Network error while verifying. Please reload My Orders.');});
+          }});
+        rzp.on('payment.failed',function(){fail('Payment failed. You have not been charged.');});
+        rzp.open();
+      });
+    }).catch(function(){fail('Network error. Please try again.');});
   };
   window.owReshipPay = function(btn){
     var card=btn.closest('.oh-reship'), uuid=card.getAttribute('data-reship-uuid');

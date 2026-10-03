@@ -438,8 +438,9 @@ def _card(case, pickup, window, until):
         if status == rp.REQ_INFO:
             return dict(common, state=CARD_INFO, note=case.get("decision_note") or None)
         if status == rp.REQ_APPROVED and not case.get("received_at"):
-            return dict(common, state=CARD_APPROVED_FEE_DUE if case["fee_state"] == rp.FEE_DUE
-                        else CARD_APPROVED)
+            if case["fee_state"] == rp.FEE_DUE:
+                return dict(common, state=CARD_APPROVED_FEE_DUE, can_pay=True)
+            return dict(common, state=CARD_APPROVED, fee_paid=case["fee_state"] == rp.FEE_PAID)
         return None
     if not case and can:
         return dict(base, state=CARD_CAN_REQUEST, can_request=True, form=form_context())
