@@ -42,6 +42,8 @@ NOTIFY_GRACE_MINUTES = int(os.environ.get("RESHIP_NOTIFY_GRACE_MINUTES", "5"))
 RP_NOTICE_ALERT_ATTEMPTS = 3
 
 OPEN = "('RETURNED','PAYMENT_PENDING')"
+RP_HOLD_OPEN = ("abandon_at IS NOT NULL AND inspection_defect=0 AND consent_at IS NULL "
+                "AND forward_shipped_at IS NULL AND completed_at IS NULL")
 NA = "n/a"
 
 METRICS = (
@@ -69,9 +71,20 @@ METRICS = (
     ("rp_fee_refunded_24h", "Reverse-pickup fees refunded (last 24h)",
      "SELECT COUNT(*) FROM reverse_pickup_cases WHERE fee_refund_state='REFUNDED' "
      "AND fee_refunded_at >= NOW() - INTERVAL 24 HOUR"),
+    ("rp_hold_open", "Reverse-pickup products held for the customer's reply",
+     "SELECT COUNT(*) FROM reverse_pickup_cases WHERE %s" % RP_HOLD_OPEN),
+    ("rp_hold_final", "  of which within %d days of the deadline" % FINAL_WINDOW_DAYS,
+     "SELECT COUNT(*) FROM reverse_pickup_cases WHERE %s "
+     "AND abandon_at <= NOW() + INTERVAL %d DAY" % (RP_HOLD_OPEN, FINAL_WINDOW_DAYS)),
+    ("rp_abandoned_24h", "Reverse-pickup returns closed as unclaimed (last 24h)",
+     "SELECT COUNT(*) FROM reverse_pickup_cases WHERE completed_outcome='ABANDONED' "
+     "AND abandoned_at >= NOW() - INTERVAL 24 HOUR"),
 )
 
 ALERTS = (
+    ("rp_hold_overdue", "Reverse-pickup hold past its deadline by a day and still open - is the sweep running?",
+     "SELECT order_id, abandon_at FROM reverse_pickup_cases WHERE %s "
+     "AND abandon_at < NOW() - INTERVAL 1 DAY ORDER BY id" % RP_HOLD_OPEN),
     ("unnotified", "RETURNED_TO_OPS but the customer was not told",
      "SELECT r.order_id, r.ops_return_confirmed_at FROM order_reshipments r "
      "WHERE r.status IN %s AND r.ops_return_confirmed_at < NOW() - INTERVAL %d MINUTE "
@@ -149,7 +162,7 @@ def status_of(metrics, alerts):
         return RED
     if any(alerts.get(k) for k in ("unnotified", "paid_unshipped", "final_window",
                                    "rp_notice_failing", "rp_notice_no_email",
-                                   "rp_refund_pending")):
+                                   "rp_refund_pending", "rp_hold_overdue")):
         return AMBER
     if any(v is None for v in metrics.values()) or any(v is None for v in alerts.values()):
         return AMBER
@@ -203,7 +216,7 @@ def findings(metrics=None, alerts=None, errors=None):
     sev = {"unnotified": WARNING, "paid_unshipped": WARNING, "final_window": WARNING,
            "unsynced": ACTION, "late_capture": ACTION, "rp_notice_failing": WARNING,
            "rp_notice_no_email": WARNING, "rp_notice_interrupted": ACTION,
-           "rp_refund_pending": WARNING, "rp_refund_exception": ACTION}
+           "rp_refund_pending": WARNING, "rp_refund_exception": ACTION, "rp_hold_overdue": WARNING}
     for key, label, _q in ALERTS:
         rows = alerts.get(key)
         if not rows:

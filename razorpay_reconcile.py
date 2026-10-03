@@ -160,6 +160,18 @@ def main():
         app.logger.error('REVERSE_PICKUP_FEE_REFUND_RETRY_FAILED %s' % exc)
         summary['reverse_pickup_refunds'] = {'error': str(exc)[:160]}
 
+    # Reverse-pickup holding period: the reminders due today and the cases
+    # whose deadline for the customer's reply has passed.
+    try:
+        from flaskr import reverse_pickup
+        with app.test_request_context(base_url='https://optiwar.in/'):
+            db = get_db()
+            reverse_pickup.ensure_schema(db)
+            summary['reverse_pickup_holding'] = reverse_pickup.sweep_holding(db, logger=app.logger)
+    except Exception as exc:  # noqa: BLE001 - must never stop the order reconcile
+        app.logger.error('REVERSE_PICKUP_HOLDING_SWEEP_FAILED %s' % exc)
+        summary['reverse_pickup_holding'] = {'error': str(exc)[:160]}
+
     # Reverse-pickup customer notices whose send failed: retried on their own;
     # the Ops step that caused them is never repeated.
     try:
