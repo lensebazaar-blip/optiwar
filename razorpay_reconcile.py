@@ -147,6 +147,19 @@ def main():
         app.logger.error('REVERSE_PICKUP_FEE_RECONCILE_FAILED %s' % exc)
         summary['reverse_pickup_fees'] = {'error': str(exc)[:160]}
 
+    # Reverse-pickup fee refunds a confirmed defect owes and Razorpay has not
+    # accepted yet: retried with the case's one idempotency key. Their
+    # customer notices are sent by the notice retry below.
+    try:
+        from flaskr import return_refund
+        from flaskr.ops_refunds import _provider as refund_provider
+        with app.test_request_context(base_url='https://optiwar.in/'):
+            summary['reverse_pickup_refunds'] = return_refund.retry_pending(
+                get_db(), refund_provider, logger=app.logger)
+    except Exception as exc:  # noqa: BLE001 - must never stop the order reconcile
+        app.logger.error('REVERSE_PICKUP_FEE_REFUND_RETRY_FAILED %s' % exc)
+        summary['reverse_pickup_refunds'] = {'error': str(exc)[:160]}
+
     # Reverse-pickup customer notices whose send failed: retried on their own;
     # the Ops step that caused them is never repeated.
     try:

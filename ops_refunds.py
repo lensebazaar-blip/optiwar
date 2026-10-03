@@ -95,6 +95,9 @@ class RazorpayProvider:
             raise ProviderError(_provider_message(resp))
         return resp.json()
 
+    def existing_refund(self, payment_ref, idempotency_key):
+        return self._existing_refund(payment_ref, idempotency_key)
+
     def refund_status(self, provider_refund_id):
         return self._get('/refunds/%s' % provider_refund_id)
 

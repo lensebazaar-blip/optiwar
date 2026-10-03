@@ -68,6 +68,7 @@ CARD_INFO = "INFO_REQUESTED"
 CARD_APPROVED_FEE_DUE = "APPROVED_FEE_DUE"
 CARD_APPROVED = "APPROVED"
 CARD_NOT_APPROVED = "NOT_APPROVED"
+CARD_FEE_REFUNDED = "FEE_REFUNDED"
 
 PHOTOS_DDL = """CREATE TABLE IF NOT EXISTS reverse_pickup_photos (
     id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -426,6 +427,10 @@ def _card(case, pickup, window, until):
     carries)."""
     can = window is None and _case_allows_request(case)
     base = {"until": until, "window_days": RETURN_WINDOW_DAYS, "fee": rp.FEE_MINOR // 100}
+    if case and case["fee_state"] == rp.FEE_REFUNDED:
+        return dict(base, state=CARD_FEE_REFUNDED, can_request=False, form=None,
+                    refund_id=case.get("fee_refund_id"),
+                    refunded=int(case.get("fee_refunded_minor") or 0) // 100)
     if case and case.get("completed_outcome") == rp.OUTCOME_NOT_APPROVED:
         return dict(base, state=CARD_NOT_APPROVED, note=case.get("decision_note") or None,
                     can_request=can, form=form_context() if can else None)
