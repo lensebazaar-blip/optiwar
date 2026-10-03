@@ -1004,7 +1004,7 @@
 
             {% if order.return_request %}
             {% set rq = order.return_request %}
-            <div class="oh-reship oh-return{% if rq.state == 'NOT_APPROVED' %} oh-reship--abandoned{% elif rq.state in ('APPROVED', 'APPROVED_FEE_DUE', 'SHIPPED_TO_CUSTOMER', 'COMPLETED') %} oh-reship--paid{% endif %}" data-return-order="{{ order.order_id }}" data-return-state="{{ rq.state }}" onclick="event.stopPropagation()">
+            <div class="oh-reship oh-return{% if rq.state in ('NOT_APPROVED', 'ABANDONED') %} oh-reship--abandoned{% elif rq.state in ('APPROVED', 'APPROVED_FEE_DUE', 'SHIPPED_TO_CUSTOMER', 'COMPLETED') %} oh-reship--paid{% endif %}" data-return-order="{{ order.order_id }}" data-return-state="{{ rq.state }}" onclick="event.stopPropagation()">
               <span class="oh-reship-kicker">Return</span>
               {% if rq.state == 'SUBMITTED' %}
               <div class="oh-reship-title">Return request received</div>
@@ -1027,6 +1027,13 @@
               {% elif rq.state == 'FEE_REFUNDED' %}
               <div class="oh-reship-title">Reverse-pickup fee refunded</div>
               <p>Our inspection confirmed the manufacturing defect, so your &#8377;{{ rq.refunded }} reverse-pickup fee has been refunded to your original payment method{% if rq.refund_id %} (refund {{ rq.refund_id }}){% endif %}. It normally reaches your account within 5&ndash;7 working days.</p>
+              {% elif rq.state == 'AWAITING_REPLY' %}
+              <div class="oh-reship-title">{% if rq.hold.final_period %}Final days: your reply is needed{% else %}Your reply is needed{% endif %}</div>
+              <p>Our inspection on {{ rq.hold.inspected_at.strftime('%d %b %Y') }} did not confirm the reported manufacturing defect.{% if rq.fee_kept %} The &#8377;{{ rq.fee }} reverse-pickup fee therefore remains applicable.{% endif %} We are holding the product for you.</p>
+              <p>To have it sent back to you, reply to our inspection email by <strong>{{ rq.hold.abandon_at.strftime('%d %b %Y') }}</strong> ({{ rq.hold.days_remaining }} day{% if rq.hold.days_remaining != 1 %}s{% endif %} remaining). There is nothing to pay for that shipment. If we do not hear from you by then, the product is treated as unclaimed under section 12 of our <a href="/terms_and_conditions#returns-policy" target="_blank" rel="noopener noreferrer">Returns Policy</a>.</p>
+              {% elif rq.state == 'ABANDONED' %}
+              <div class="oh-reship-title">Return closed: product unclaimed</div>
+              <p>The {{ rq.hold.holding_days }}-day period to reply about the product you returned ended on {{ rq.hold.abandon_at.strftime('%d %b %Y') }} without a reply from you. The return is closed and the product is treated as unclaimed under section 12 of our <a href="/terms_and_conditions#returns-policy" target="_blank" rel="noopener noreferrer">Returns Policy</a>. If you believe this is a mistake, reply to our email quoting your order number.</p>
               {% elif rq.state == 'SHIPPED_TO_CUSTOMER' %}
               <div class="oh-reship-title">&#10003; {% if rq.shipment.type == 'REPLACEMENT' %}Replacement on its way to you{% elif rq.shipment.type == 'REPAIRED_ORIGINAL' %}Repaired product on its way to you{% else %}Your product is on its way back to you{% endif %}</div>
               <p>{{ rq.shipment.courier }}<br><span class="oh-reship-awb">AWB {{ rq.shipment.awb }}</span>

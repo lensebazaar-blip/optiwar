@@ -71,6 +71,8 @@ CARD_NOT_APPROVED = "NOT_APPROVED"
 CARD_FEE_REFUNDED = "FEE_REFUNDED"
 CARD_SHIPPED = "SHIPPED_TO_CUSTOMER"
 CARD_COMPLETED = "COMPLETED"
+CARD_AWAITING_REPLY = "AWAITING_REPLY"
+CARD_ABANDONED = "ABANDONED"
 
 PHOTOS_DDL = """CREATE TABLE IF NOT EXISTS reverse_pickup_photos (
     id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -430,6 +432,10 @@ def _card(case, pickup, window, until):
     carries)."""
     can = window is None and _case_allows_request(case)
     base = {"until": until, "window_days": RETURN_WINDOW_DAYS, "fee": rp.FEE_MINOR // 100}
+    hold = rp.hold_view(case)
+    if case and case.get("completed_outcome") == rp.OUTCOME_ABANDONED:
+        return dict(base, state=CARD_ABANDONED, hold=hold, completed_at=case["completed_at"],
+                    can_request=False, form=None)
     if case and case.get("completed_at") and case.get("completed_outcome") != rp.OUTCOME_NOT_APPROVED:
         return dict(base, state=CARD_COMPLETED, outcome=case["completed_outcome"],
                     shipment=rp.forward_view(case), completed_at=case["completed_at"],
@@ -445,6 +451,9 @@ def _card(case, pickup, window, until):
     if case and case.get("completed_outcome") == rp.OUTCOME_NOT_APPROVED:
         return dict(base, state=CARD_NOT_APPROVED, note=case.get("decision_note") or None,
                     can_request=can, form=form_context() if can else None)
+    if hold and hold["active"]:
+        return dict(base, state=CARD_AWAITING_REPLY, hold=hold,
+                    fee_kept=case["fee_state"] in (rp.FEE_PAID, rp.FEE_DUE), can_request=False, form=None)
     if case and not pickup:
         status = case.get("request_status")
         common = dict(base, reason=case.get("return_reason"),
@@ -479,7 +488,7 @@ def customer_cards(db, customer_id, order_ids, now=None):
     cases = {r["order_id"]: r for r in cur.fetchall()}
     cur.execute("SELECT * FROM order_reverse_pickups WHERE order_id IN (%s) ORDER BY id" % marks,
                 tuple(ids))
-    pickups = {r["order_id"]: r for r in cur.fetchall()}
+    pickups = {r["order_id"]: r for r in cur.fetchall() if r["status"] != rp.ST_CLOSED}
     out = {}
     for oid in ids:
         head = heads.get(oid)

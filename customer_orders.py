@@ -155,7 +155,8 @@ def attach_reship(orders, reship_rows, host, environ=None, shipments=None, now=N
 
 
 REQUEST_LABELS = ('SUBMITTED', 'INFO_REQUESTED', 'APPROVED_FEE_DUE', 'APPROVED')
-CLOSING_LABELS = {'SHIPPED_TO_CUSTOMER': 'Return: shipped to you', 'COMPLETED': 'Return complete'}
+CLOSING_LABELS = {'AWAITING_REPLY': 'Return: your reply needed', 'SHIPPED_TO_CUSTOMER': 'Return: shipped to you',
+                  'COMPLETED': 'Return complete', 'ABANDONED': 'Return closed: unclaimed'}
 
 
 def attach_reverse_pickup(orders, pickup_rows, request_cards=None):
@@ -171,7 +172,7 @@ def attach_reverse_pickup(orders, pickup_rows, request_cards=None):
         if card and card['state'] in REQUEST_LABELS:
             order['stage_label'], order['stage_tone'] = 'Return requested', 'returned'
         if card and card['state'] in CLOSING_LABELS:
-            # The pickup card is history once the product is on its way back.
+            # The pickup card is history once Optiwar holds the product.
             order['reverse_pickup'] = view = None
             order['stage_label'], order['stage_tone'] = CLOSING_LABELS[card['state']], 'returned'
         if view and view['state'] == reverse_pickup.ST_BOOKED:

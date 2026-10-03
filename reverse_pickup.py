@@ -41,6 +41,9 @@ COURIER = "Delhivery"
 
 ST_BOOKED = "BOOKED"
 ST_CANCELLED = "CANCELLED"
+# A pickup whose case was completed or abandoned: no longer active, so a
+# later return on the same order can book its own.
+ST_CLOSED = "CLOSED"
 
 EV_BOOKED = "reverse_pickup.booked"
 EV_CANCELLED = "reverse_pickup.cancelled"
@@ -61,6 +64,9 @@ EV_FEE_REFUNDED = "reverse_pickup.fee_refunded"
 EV_FEE_REFUND_FAILED = "reverse_pickup.fee_refund_failed"
 EV_FORWARD_SHIPPED = "reverse_pickup.forward_shipped"
 EV_COMPLETED = "reverse_pickup.completed"
+EV_HOLD_REMINDER = "reverse_pickup.hold_reminder"
+EV_HOLD_FINAL_WARNING = "reverse_pickup.hold_final_warning"
+EV_ABANDONED = "reverse_pickup.abandoned"
 
 # What Ops ships back to the customer after the inspection. A confirmed defect
 # is resolved with a REPLACEMENT or the REPAIRED_ORIGINAL (or a product refund
@@ -77,6 +83,10 @@ OUTCOME_REPLACEMENT_SHIPPED = "REPLACEMENT_SHIPPED"
 OUTCOME_REPAIRED_SHIPPED = "REPAIRED_ORIGINAL_SHIPPED"
 OUTCOME_ORIGINAL_RETURNED = "ORIGINAL_RETURNED"
 OUTCOME_PRODUCT_REFUNDED = "PRODUCT_REFUNDED"
+# Closed by the holding sweep, never by a person: no customer reply within
+# the holding period after an inspection that did not confirm the defect.
+OUTCOME_ABANDONED = "ABANDONED"
+ABANDON_OPERATOR = "system:holding-sweep"
 # The completion outcome each shipment type leads to.
 SHIPPED_OUTCOMES = {SHIP_REPLACEMENT: OUTCOME_REPLACEMENT_SHIPPED,
                     SHIP_REPAIRED: OUTCOME_REPAIRED_SHIPPED,
@@ -109,6 +119,9 @@ NOTICE_FEE_PAID = "fee_paid"
 NOTICE_FEE_REFUNDED = "fee_refunded"
 NOTICE_FORWARD_SHIPPED = "forward_shipped"
 NOTICE_COMPLETED = "completed"
+NOTICE_HOLD_REMINDER = "hold_reminder"
+NOTICE_HOLD_FINAL = "hold_final_warning"
+NOTICE_ABANDONED = "abandoned"
 
 # The automatic refund of a PAID fee once Ops confirmed the defect.
 REFUND_PENDING = "PENDING"
@@ -138,6 +151,8 @@ QUEUE_LABELS = {"AWAITING_FEE": "AWAITING ₹250",
                 "READY_TO_DISPATCH": "READY TO DISPATCH",
                 "FORWARD_SHIPPED": "SHIPPED TO CUSTOMER",
                 "COMPLETED": "COMPLETED",
+                "ABANDONMENT_PENDING": "AWAITING CUSTOMER CONSENT — FINAL DAYS",
+                "ABANDONED": "ABANDONED — NO CUSTOMER REPLY",
                 "READY_TO_BOOK": "READY TO BOOK PICKUP",
                 "PICKUP_BOOKED": "PICKUP BOOKED",
                 "FEE_NOT_RECORDED": "FEE NOT RECORDED",
@@ -288,6 +303,9 @@ CASE_ADDED_COLUMNS = (
     ("forward_shipment_type", "VARCHAR(32) NULL"),
     ("forward_shipped_by", "VARCHAR(191) NULL"),
     ("forward_shipped_at", "DATETIME NULL"),
+    ("abandon_at", "DATETIME NULL"),
+    ("abandoned_at", "DATETIME NULL"),
+    ("abandon_reason", "VARCHAR(255) NULL"),
 )
 
 TABLES = [("order_reverse_pickups", TABLE_DDL), ("reverse_pickup_cases", CASE_DDL),
@@ -298,6 +316,8 @@ NOTICE_SENDING = "SENDING"
 NOTICE_SENT = "SENT"
 NOTICE_FAILED = "FAILED"
 NOTICE_NO_EMAIL = "NO_EMAIL"
+# A holding reminder still owed when the hold ended (reply, shipment, close).
+NOTICE_STALE = "STALE"
 NOTICE_RETRY_MINUTES_ENV = "REVERSE_PICKUP_NOTICE_RETRY_MINUTES"
 NOTICE_RETRY_MINUTES = 15
 
@@ -346,7 +366,29 @@ CASE_EMAILS = {
         "Our inspection did not confirm the manufacturing defect reported in the return request.\n"
         "{fee_line}"
         "Please reply to this email to confirm that you would like us to send the product back to you.\n"
+        "{reply_by_line}"
         "Your complete return and inspection history remains recorded against your order."),
+    NOTICE_HOLD_REMINDER: (
+        "Optiwar Return: Your Reply Is Needed",
+        "Our inspection of the product you returned for order {order_id} did not confirm the reported "
+        "manufacturing defect, and we are holding the product for you.\n"
+        "To have it sent back to you, please reply to this email by {deadline} ({days_remaining} days "
+        "remaining). There is nothing to pay for that shipment.\n"
+        "{unclaimed_line}"),
+    NOTICE_HOLD_FINAL: (
+        "Optiwar Return: Final Notice Before the Product Is Treated as Unclaimed",
+        "This is our final notice about the product you returned for order {order_id}. Our inspection "
+        "did not confirm the reported manufacturing defect, and we are still holding the product for you.\n"
+        "To have it sent back to you, please reply to this email by {deadline} ({days_remaining} days "
+        "remaining). There is nothing to pay for that shipment.\n"
+        "{unclaimed_line}"),
+    NOTICE_ABANDONED: (
+        "Optiwar Return Closed: Product Unclaimed",
+        "The {holding_days}-day period for your reply about the product returned for order {order_id} "
+        "ended on {deadline} without a reply from you.\n"
+        "The return is now closed and the product is treated as unclaimed under section 12 of our Returns "
+        "Policy.\n"
+        "If you believe this is a mistake, please reply to this email quoting your order number."),
     NOTICE_INSPECTION_DEFECT_WAIVED: (
         "Optiwar Return Inspection Update",
         "We have completed the inspection of your returned product and confirmed the reported "
@@ -420,6 +462,11 @@ OUTCOME_LINES = {
 }
 FEE_RETAINED_LINE = "The ₹250 reverse-pickup fee therefore remains applicable.\n"
 CASE_EMAIL_FRAME = "Dear {name},\n\n%s\n\nOrder: {order_id}\n\nOptiwar Support"
+REPLY_BY_LINE = ("Please reply by {deadline} ({holding_days} days from the inspection). If we do not hear "
+                 "from you by then, the product is treated as unclaimed under section 12 of our Returns "
+                 "Policy.\n")
+UNCLAIMED_LINE = ("If we do not hear from you by then, the product is treated as unclaimed under section 12 "
+                  "of our Returns Policy.\n")
 
 
 class ReversePickupError(Exception):
@@ -446,6 +493,12 @@ def ensure_schema(db):
     for name, decl in CASE_ADDED_COLUMNS:
         if name not in have:
             cur.execute("ALTER TABLE reverse_pickup_cases ADD COLUMN %s %s" % (name, decl))
+    # A no-defect inspection recorded before the holding period existed: its
+    # clock starts at the inspection it already recorded, under the period
+    # configured now.
+    cur.execute("UPDATE reverse_pickup_cases SET abandon_at=inspected_at + INTERVAL %s DAY "
+                "WHERE abandon_at IS NULL AND inspected_at IS NOT NULL AND inspection_defect=0",
+                (reship.abandon_days(),))
     db.commit()
     _SCHEMA_READY = True
 
@@ -598,6 +651,9 @@ def cancel(db, order_id, body, operator):
     if row["status"] == ST_CANCELLED:
         db.rollback()
         return row, False
+    if row["status"] == ST_CLOSED:
+        db.rollback()
+        raise ReversePickupError("pickup_closed", "the return this pickup belonged to is closed", 409)
     if case and case.get("received_at") and case.get("received_awb") == row["awb"]:
         db.rollback()
         raise ReversePickupError("pickup_already_received",
@@ -1004,6 +1060,8 @@ def request_blocks_booking(case):
 def _queue_state(case, pickup):
     if case and case.get("completed_outcome") == OUTCOME_NOT_APPROVED:
         return "NOT_APPROVED"
+    if case and case.get("completed_outcome") == OUTCOME_ABANDONED:
+        return "ABANDONED"
     if case and case.get("completed_at"):
         return "COMPLETED"
     if case and case.get("request_status") == REQ_SUBMITTED:
@@ -1019,7 +1077,10 @@ def _queue_state(case, pickup):
         if case.get("forward_shipped_at"):
             return "FORWARD_SHIPPED"
         if not case.get("inspection_defect"):
-            return "READY_TO_DISPATCH" if case.get("consent_at") else "AWAITING_CUSTOMER_CONSENT"
+            if case.get("consent_at"):
+                return "READY_TO_DISPATCH"
+            hold = hold_view(case)
+            return "ABANDONMENT_PENDING" if hold and hold["final_period"] else "AWAITING_CUSTOMER_CONSENT"
         return "FEE_REFUNDED" if case["fee_state"] == FEE_REFUNDED else "DEFECT_CONFIRMED"
     if case and case.get("received_at"):
         return "AWAITING_INSPECTION"
@@ -1075,7 +1136,7 @@ def state_view(db, order_id):
     reason = (case or {}).get("return_reason") or (latest or {}).get("reason") or None
     rp = None
     if latest:
-        rp = ops_view(db, latest, EV_BOOKED if latest["status"] == ST_BOOKED else EV_CANCELLED)
+        rp = ops_view(db, latest, EV_CANCELLED if latest["status"] == ST_CANCELLED else EV_BOOKED)
         rp.update({"reason": latest.get("reason") or None,
                    "received_at": _iso((case or {}).get("received_at")),
                    "inspection": ({"manufacturing_defect": bool(case.get("inspection_defect")),
@@ -1102,6 +1163,7 @@ def state_view(db, order_id):
         "received": received_view(case),
         "inspection": inspection_view(case),
         "consent": consent_view(case),
+        "hold": hold_json(case),
         "notifications": notice_view(db, case["case_uuid"]) if case else [],
         "forward": forward_view(case),
         "completion": completion_view(case),
@@ -1114,8 +1176,10 @@ def state_view(db, order_id):
 
 def original_shipment(db, order_id, pickup=None):
     """``(awb, courier)`` of the shipment the customer is returning: the
-    forward AWB recorded at booking, else the courier platform's first row
-    for the order (the latest row may be the shipment back to the customer)."""
+    forward AWB recorded at booking, else the courier platform's last row
+    created before the pickup was booked (an order shipped twice, e.g. after
+    an RTO, was received on its later AWB; a row after the booking is the
+    shipment back to the customer)."""
     if pickup and pickup.get("forward_awb"):
         cur = db.cursor()
         try:
@@ -1126,9 +1190,11 @@ def original_shipment(db, order_id, pickup=None):
             row = None
         return (pickup["forward_awb"], (row or {}).get("courier") or "")
     cur = db.cursor()
+    booked_at = (pickup or {}).get("booked_at")
     try:
         cur.execute("SELECT tracking_number, courier FROM ops_shipping_awb WHERE ow_order_id=%s "
-                    "ORDER BY id LIMIT 1", (order_id,))
+                    "ORDER BY (created_at IS NULL OR %s IS NULL OR created_at <= %s) DESC, id DESC LIMIT 1",
+                    (order_id, booked_at, booked_at))
         row = cur.fetchone()
     except Exception:  # noqa: BLE001
         return None
@@ -1161,7 +1227,8 @@ def ops_queue(db, limit=200):
     ensure_schema(db)
     cur = db.cursor()
     cur.execute("SELECT * FROM reverse_pickup_cases WHERE completed_at IS NULL "
-                "ORDER BY id DESC LIMIT %s", (int(limit),))
+                "OR (completed_outcome=%s AND abandoned_at >= NOW() - INTERVAL 30 DAY) "
+                "ORDER BY id DESC LIMIT %s", (OUTCOME_ABANDONED, int(limit)))
     cases = cur.fetchall()
     cur.execute("SELECT p.* FROM order_reverse_pickups p JOIN (SELECT MAX(id) AS id "
                 "FROM order_reverse_pickups GROUP BY order_id) l ON l.id=p.id")
@@ -1179,6 +1246,7 @@ def ops_queue(db, limit=200):
                                     or (pickup or {}).get("reason") or None),
                 "queue_state": state, "label": QUEUE_LABELS.get(state, state.replace("_", " ")),
                 "fee": fee_summary(case),
+                "hold": hold_json(case) if case else None,
                 "awb": pickup["awb"] if pickup else None,
                 "pickup_awb": pickup["awb"] if pickup else None,
                 "pickup_status": pickup["status"] if pickup else None,
@@ -1320,12 +1388,16 @@ def record_inspection(db, order_id, body, operator):
     who = _clip(operator, 191)
     cur = db.cursor()
     refund = defect and case["fee_state"] == FEE_PAID
+    # The holding period runs from the inspection only when the defect was
+    # not confirmed: that is the one case where the customer must reply.
     cur.execute("UPDATE reverse_pickup_cases SET inspection_defect=%s, inspection_remarks=%s, "
                 "inspected_by=%s, inspected_at=COALESCE(%s, NOW()), fee_refund_state=%s, "
-                "fee_refund_key=%s WHERE id=%s",
+                "fee_refund_key=%s, abandon_at=IF(%s, NULL, COALESCE(%s, NOW()) + INTERVAL %s DAY) "
+                "WHERE id=%s",
                 (1 if defect else 0, remarks or None, who, at,
                  REFUND_PENDING if refund else None,
-                 refund_key(case) if refund else None, case["id"]))
+                 refund_key(case) if refund else None,
+                 1 if defect else 0, at, reship.abandon_days(), case["id"]))
     case = case_by_uuid(db, case["case_uuid"])
     add_history(cur, oid, "Reverse-pickup inspection by %s: manufacturing defect %s%s"
                 % (_clip(operator, 120), "CONFIRMED" if defect else "NOT CONFIRMED",
@@ -1369,6 +1441,11 @@ def record_consent(db, order_id, body, operator):
     if not case.get("inspected_at"):
         db.rollback()
         raise ReversePickupError("not_inspected", "no inspection has been recorded", 409)
+    if case.get("completed_at"):
+        db.rollback()
+        code = "case_abandoned" if case.get("completed_outcome") == OUTCOME_ABANDONED else "case_completed"
+        raise ReversePickupError(code, "the case was closed on %s (%s); a late reply is handled by hand"
+                                 % (_iso(case["completed_at"]), case.get("completed_outcome")), 409)
     if case.get("inspection_defect"):
         db.rollback()
         raise ReversePickupError("consent_not_applicable",
@@ -1493,12 +1570,20 @@ def record_forward_shipment(db, order_id, body, operator):
     return case, True
 
 
-def _product_refund_executed(cur, order_id):
+def _product_refund_executed(cur, case):
+    """An executed return refund for this case: one on its order, executed
+    after the case was opened (an earlier return's refund is not this one's)."""
     if not reship._has_table(cur, "return_assessments"):
         return False
-    cur.execute("SELECT 1 FROM return_assessments WHERE order_id=%s AND refund_id IS NOT NULL LIMIT 1",
-                (order_id,))
+    cur.execute("SELECT 1 FROM return_assessments WHERE order_id=%s AND refund_id IS NOT NULL "
+                "AND COALESCE(executed_at, assessed_at) >= %s LIMIT 1",
+                (case["order_id"], case["created_at"]))
     return bool(cur.fetchone())
+
+
+def _close_pickups(cur, order_id):
+    cur.execute("UPDATE order_reverse_pickups SET status=%s WHERE order_id=%s AND status=%s",
+                (ST_CLOSED, order_id, ST_BOOKED))
 
 
 def complete(db, order_id, body, operator):
@@ -1540,7 +1625,7 @@ def complete(db, order_id, body, operator):
             db.rollback()
             raise ReversePickupError("defect_not_confirmed",
                                      "a product refund closes a confirmed-defect return only", 409)
-        if not _product_refund_executed(cur, oid):
+        if not _product_refund_executed(cur, case):
             db.rollback()
             raise ReversePickupError("product_refund_not_executed",
                                      "no executed return refund is on record for this order; "
@@ -1558,6 +1643,7 @@ def complete(db, order_id, body, operator):
     who = _clip(operator, 191)
     cur.execute("UPDATE reverse_pickup_cases SET completed_outcome=%s, completed_note=%s, completed_by=%s, "
                 "completed_at=COALESCE(%s, NOW()) WHERE id=%s", (outcome, note or None, who, at, case["id"]))
+    _close_pickups(cur, oid)
     case = case_by_uuid(db, case["case_uuid"])
     add_history(cur, oid, "Return completed: %s by %s%s" % (outcome, _clip(operator, 120),
                                                            ": %s" % note if note else ""),
@@ -1573,8 +1659,170 @@ def complete(db, order_id, body, operator):
     return case, True
 
 
+# --------------------------------------------------------------------------
+# the holding period after a no-defect inspection (phase 4b)
+# --------------------------------------------------------------------------
+# After an inspection that did not confirm the defect, the product waits for
+# the customer's emailed reply for the same period, reminder days and final
+# window as a returned parcel in reship (RESHIP_ABANDON_DAYS and friends).
+# The deadline is written on the case at inspection and read back from
+# there; nothing recomputes it. A reply, a shipment or a completion ends the
+# hold; on the deadline the sweep closes the case as ABANDONED.
+
+def hold_view(case, now=None, environ=None):
+    """The holding period of one case, or None where none applies (not
+    inspected, defect confirmed, or no deadline on record)."""
+    if not case or not case.get("abandon_at") or not case.get("inspected_at") or case.get("inspection_defect"):
+        return None
+    now = now or datetime.datetime.now()
+    deadline = case["abandon_at"]
+    total = max(1, (deadline - case["inspected_at"]).days)
+    ended = bool(case.get("consent_at") or case.get("forward_shipped_at") or case.get("completed_at"))
+    left = (deadline - now).total_seconds()
+    remaining = int(-(-left // 86400)) if left > 0 else 0
+    return {"inspected_at": case["inspected_at"], "abandon_at": deadline, "holding_days": total,
+            "reminder_days": list(reship.reminder_days(environ)),
+            "days_held": (now - case["inspected_at"]).days,
+            "days_remaining": None if ended else remaining,
+            "final_period": (not ended) and remaining <= reship.final_window_days(environ),
+            "active": not ended,
+            "abandoned": case.get("completed_outcome") == OUTCOME_ABANDONED,
+            "abandoned_at": case.get("abandoned_at"), "abandon_reason": case.get("abandon_reason")}
+
+
+def hold_json(case, now=None, environ=None):
+    h = hold_view(case, now, environ)
+    if not h:
+        return None
+    for k in ("inspected_at", "abandon_at", "abandoned_at"):
+        h[k] = _iso(h[k])
+    return h
+
+
+def sweep_holding(db, now=None, mailer=None, environ=None, logger=None):
+    """Reminders on the configured days and abandonment on the deadline, for
+    every case still waiting for the customer's reply. ``now`` is injectable
+    for tests; production uses the database clock. Each reminder day is
+    claimed once per case in reship_events, and only the latest day reached
+    is emailed, so a sweep that was down for a week sends one reminder."""
+    ensure_schema(db)
+    summary = {"open": 0, "reminded": 0, "abandoned": 0, "skipped_test": 0}
+    now = now or reship.db_now(db)
+    days_cfg = reship.reminder_days(environ)
+    final = reship.final_window_days(environ)
+    cur = db.cursor()
+    cur.execute("SELECT case_uuid FROM reverse_pickup_cases WHERE abandon_at IS NOT NULL AND inspected_at "
+                "IS NOT NULL AND inspection_defect=0 AND consent_at IS NULL AND forward_shipped_at IS NULL "
+                "AND completed_at IS NULL ORDER BY id")
+    uuids = [r["case_uuid"] for r in cur.fetchall()]
+    db.commit()
+    for cu in uuids:
+        case = case_by_uuid(db, cu)
+        hold = hold_view(case, now, environ)
+        if not hold or not hold["active"]:
+            continue
+        oid = case["order_id"]
+        if reship._order_head(cur, oid).get("is_test"):
+            summary["skipped_test"] += 1
+            continue
+        summary["open"] += 1
+        if case["abandon_at"] <= now:
+            outcome, case = abandon(db, cu, now=now, environ=environ)
+            if outcome == "abandoned":
+                summary["abandoned"] += 1
+                notify_case(db, NOTICE_ABANDONED, case, mailer=mailer, environ=environ)
+                if logger:
+                    logger.info("reverse_pickup holding: %s abandoned", oid)
+            continue
+        reached = [d for d in days_cfg if hold["days_held"] >= d]
+        if not reached:
+            continue
+        latest = reached[-1]
+        for d in reached:
+            final_one = (hold["holding_days"] - d) <= final
+            ev = EV_HOLD_FINAL_WARNING if final_one else EV_HOLD_REMINDER
+            # The day's claim, its Ops event and the owed notice commit together.
+            if not reship.emit(db, ev, oid, cu, case.get("customer_id"),
+                               {"day": d, "days_remaining": hold["holding_days"] - d, "sent": d == latest,
+                                "abandon_at": _iso(case["abandon_at"])}, key=cu, suffix="day%d" % d,
+                               commit=False):
+                continue
+            if d != latest:
+                db.commit()
+                continue
+            kind = NOTICE_HOLD_FINAL if final_one else NOTICE_HOLD_REMINDER
+            queue_ops_event(db, ev, oid, {"day": d, "days_remaining": hold["holding_days"] - d,
+                                          "abandon_at": _iso(case["abandon_at"])},
+                            case=case, pickup=latest_for_order(db, oid), key=cu, suffix="day%d" % d,
+                            commit=False)
+            notice = "%s_day%d" % (kind, d)
+            enqueue_notice(db, case, notice, environ=environ)
+            db.commit()
+            result = notify_case(db, notice, case, mailer=mailer, environ=environ)
+            summary["reminded"] += 1
+            if logger:
+                logger.info("reverse_pickup holding: %s day %d reminder %s", oid, d, result)
+    return summary
+
+
+def abandon(db, case_uuid, now=None, environ=None):
+    """Close one case as ABANDONED once its deadline has passed. The row is
+    locked first; a reply, a shipment or a completion that landed before the
+    lock wins and nothing is written. Returns ``(outcome, case)`` with
+    outcome ``abandoned``, ``not_due`` or ``not_open``."""
+    db.commit()
+    case = case_by_uuid_for_update(db, case_uuid)
+    hold = hold_view(case, now, environ)
+    if not hold or not hold["active"]:
+        db.rollback()
+        return "not_open", case
+    now = now or reship.db_now(db)
+    if case["abandon_at"] > now:
+        db.rollback()
+        return "not_due", case
+    reason = ("No customer reply within %d days of the inspection on %s"
+              % (hold["holding_days"], _day(case["inspected_at"])))
+    cur = db.cursor()
+    cur.execute("UPDATE reverse_pickup_cases SET completed_outcome=%s, completed_note=%s, completed_by=%s, "
+                "completed_at=NOW(), abandoned_at=NOW(), abandon_reason=%s WHERE id=%s AND completed_at IS NULL "
+                "AND consent_at IS NULL AND forward_shipped_at IS NULL",
+                (OUTCOME_ABANDONED, reason, ABANDON_OPERATOR, reason, case["id"]))
+    if cur.rowcount != 1:
+        db.rollback()
+        return "not_open", case_by_uuid(db, case_uuid)
+    oid = case["order_id"]
+    _close_pickups(cur, oid)
+    case = case_by_uuid(db, case_uuid)
+    add_history(cur, oid, "Return closed as ABANDONED by the holding sweep: %s (deadline %s). The product "
+                "is treated as unclaimed under the Returns Policy; what is done with it is not recorded here."
+                % (reason, _day(case["abandon_at"])), case.get("site_from"))
+    data = {"outcome": OUTCOME_ABANDONED, "reason": reason, "inspected_at": _iso(case["inspected_at"]),
+            "abandon_at": _iso(case["abandon_at"]), "abandoned_at": _iso(case["abandoned_at"]),
+            "holding_days": hold["holding_days"], "fee_state": case["fee_state"]}
+    _audit(db, EV_ABANDONED, case, data)
+    queue_ops_event(db, EV_ABANDONED, oid, data, case=case, pickup=latest_for_order(db, oid),
+                    key=case_uuid, commit=False)
+    enqueue_notice(db, case, NOTICE_ABANDONED, environ=environ)
+    db.commit()
+    return "abandoned", case
+
+
+# --------------------------------------------------------------------------
+# customer notices
+# --------------------------------------------------------------------------
+
 def _notice_suffix(notice, channel="email"):
     return "case:%s:%s" % (notice, channel)
+
+
+def _notice_kind(notice):
+    """The email a notice uses: a holding reminder is owed once per day it
+    is sent on (``hold_reminder_day30``), all sharing one wording."""
+    return notice if notice in CASE_EMAILS else notice.rsplit("_day", 1)[0]
+
+
+def _day(d):
+    return d.strftime("%d %b %Y") if hasattr(d, "strftime") else (str(d) if d else "-")
 
 
 def _notice_row(db, case_uuid, notice, channel="email", for_update=False):
@@ -1632,6 +1880,13 @@ def _send_notice(db, n, case, mailer=None):
     if not claimed:
         return "replay"
     notice, oid, key = n["notification_type"], case["order_id"], case["case_uuid"]
+    if _notice_kind(notice) in (NOTICE_HOLD_REMINDER, NOTICE_HOLD_FINAL):
+        hold = hold_view(case_by_uuid(db, key), reship.db_now(db))
+        if not hold or not hold["active"]:
+            cur.execute("UPDATE reverse_pickup_notifications SET status=%s, last_error=%s WHERE id=%s",
+                        (NOTICE_STALE, "the holding period ended before it was sent", n["id"]))
+            db.commit()
+            return "stale"
     suffix = _notice_suffix(notice, n["channel"])
     customer_id = case.get("customer_id") or reship._order_head(cur, oid).get("customer_id")
     acct = reship._account(cur, customer_id)
@@ -1641,14 +1896,19 @@ def _send_notice(db, n, case, mailer=None):
                     (NOTICE_NO_EMAIL, "no customer email on the account", n["id"]))
         db.commit()
         return "no_email"
-    subject, lines = CASE_EMAILS[notice]
+    subject, lines = CASE_EMAILS[_notice_kind(notice)]
+    hold = hold_view(case, reship.db_now(db)) or {}
     fields = {"name": (acct.get("customer_name") or "").strip() or "Customer", "order_id": oid,
               "fee_line": FEE_RETAINED_LINE if case["fee_state"] != FEE_WAIVED else "",
               "reason": case.get("return_reason") or "-", "note": case.get("decision_note") or "",
               "url": MY_ORDERS_URL_IN, "payment_id": case.get("razorpay_payment_id") or "-",
               "refund_id": case.get("fee_refund_id") or "-",
               "courier": case.get("forward_shipped_courier") or "-",
-              "awb": case.get("forward_shipped_awb") or "-"}
+              "awb": case.get("forward_shipped_awb") or "-",
+              "deadline": _day(hold.get("abandon_at")), "holding_days": hold.get("holding_days") or "-",
+              "days_remaining": hold.get("days_remaining") if hold.get("days_remaining") is not None else "-",
+              "unclaimed_line": UNCLAIMED_LINE}
+    fields["reply_by_line"] = REPLY_BY_LINE.format(**fields) if hold.get("abandon_at") else ""
     track = reship.tracking_url(case.get("forward_shipped_courier"), case.get("forward_shipped_awb"))
     fields["track_line"] = "Track: %s\n" % track if track else ""
     fields["shipment_line"] = SHIPMENT_LINES.get(case.get("forward_shipment_type"), "")
@@ -1702,7 +1962,7 @@ def retry_notices(db, mailer=None, environ=None, limit=50, logger=None):
     at least REVERSE_PICKUP_NOTICE_RETRY_MINUTES (15) old. The step that
     caused it is never repeated. Returns a summary dict."""
     env = os.environ if environ is None else environ
-    out = {"due": 0, "sent": 0, "failed": 0, "no_email": 0}
+    out = {"due": 0, "sent": 0, "failed": 0, "no_email": 0, "stale": 0}
     if not customer_enabled(env):
         return dict(out, off=True)
     ensure_schema(db)
