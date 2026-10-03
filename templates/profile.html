@@ -773,6 +773,12 @@
     .oh-reship-btn{display:inline-flex;align-items:center;justify-content:center;margin-top:8px;padding:10px 18px;border-radius:10px;border:none;background:#4f46e5;color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
     .oh-reship-btn[disabled]{opacity:.6;cursor:wait;}
     .oh-reship-err{color:#b91c1c;font-size:12px;margin-top:6px;}
+    .oh-return-form label{display:block;margin:10px 0 0;font-size:13px;font-weight:600;color:#0f172a;}
+    .oh-return-form select,.oh-return-form textarea,.oh-return-form input[type=file]{display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;font-family:inherit;background:#fff;}
+    .oh-return-form textarea{min-height:84px;resize:vertical;}
+    .oh-return-hint{font-weight:400;color:#64748b;font-size:12px;}
+    .oh-return-form label.oh-return-decl{display:flex;gap:8px;align-items:flex-start;font-weight:400;color:#334155;line-height:1.45;}
+    .oh-return-decl input{margin-top:3px;flex:0 0 auto;}
     .oh-act--view:hover{background:#e0e7ff;}
     .oh-act--support{background:#fff;color:#64748b;border:1.5px solid #e2e8f0;flex:1;justify-content:center;}
     .oh-act--support:hover{background:#f8fafc;border-color:#cbd5e1;}
@@ -992,6 +998,57 @@
               {% else %}
               <div class="oh-reship-title">Reverse pickup cancelled</div>
               <p class="oh-reship-ship">Delhivery &middot; <span class="oh-reship-awb">AWB {{ rp.awb }}</span></p>
+              {% endif %}
+            </div>
+            {% endif %}
+
+            {% if order.return_request %}
+            {% set rq = order.return_request %}
+            <div class="oh-reship oh-return{% if rq.state == 'NOT_APPROVED' %} oh-reship--abandoned{% elif rq.state in ('APPROVED', 'APPROVED_FEE_DUE') %} oh-reship--paid{% endif %}" data-return-order="{{ order.order_id }}" data-return-state="{{ rq.state }}" onclick="event.stopPropagation()">
+              <span class="oh-reship-kicker">Return</span>
+              {% if rq.state == 'SUBMITTED' %}
+              <div class="oh-reship-title">Return request received</div>
+              <p>We are reviewing your request{% if rq.reason %} ({{ rq.reason }}){% endif %} and will reply by email within 2 working days. Please do not send the product until we confirm the next step.</p>
+              {% elif rq.state == 'INFO_REQUESTED' %}
+              <div class="oh-reship-title">We need more information</div>
+              {% if rq.note %}<p>{{ rq.note }}</p>{% endif %}
+              <p>Please reply to our email with the details or photos.</p>
+              {% elif rq.state == 'APPROVED_FEE_DUE' %}
+              <div class="oh-reship-title">Return approved, subject to inspection</div>
+              <p>The &#8377;{{ rq.fee }} reverse-pickup fee is due before we book the Delhivery pickup. It is refunded if our inspection confirms a manufacturing defect.</p>
+              {% elif rq.state == 'APPROVED' %}
+              <div class="oh-reship-title">Return approved, subject to inspection</div>
+              <p>We will book the Delhivery reverse pickup and send you the pickup details.</p>
+              {% elif rq.state == 'NOT_APPROVED' %}
+              <div class="oh-reship-title">Return not approved</div>
+              {% if rq.note %}<p>{{ rq.note }}</p>{% endif %}
+              {% else %}
+              <div class="oh-reship-title">Need to return this order?</div>
+              {% endif %}
+              {% if rq.can_request and rq.form %}
+              {% set f = rq.form %}
+              {% if rq.until %}<p>You can request a return until {{ rq.until.strftime('%d %b %Y') }} ({{ f.window_days }} days from delivery). Our team reviews every request before any fee is due.</p>{% endif %}
+              <button type="button" class="oh-reship-btn" onclick="owReturnOpen(this)">Request a return</button>
+              <form class="oh-return-form" hidden data-order-id="{{ order.order_id }}" onsubmit="return owReturnSubmit(event, this)">
+                <label>Reason
+                  <select name="reason" required>
+                    <option value="">Choose a reason</option>
+                    {% for r in f.reasons %}<option value="{{ r.code }}">{{ r.label }}</option>{% endfor %}
+                  </select>
+                </label>
+                <label>Describe the problem <span class="oh-return-hint">(at least {{ f.min_description }} characters)</span>
+                  <textarea name="description" minlength="{{ f.min_description }}" maxlength="2000" required></textarea>
+                </label>
+                <label>Photos <span class="oh-return-hint">(JPEG, PNG or WebP; up to {{ f.max_photos }}; at least 2 for a manufacturing defect)</span>
+                  <input type="file" name="photos" accept="image/jpeg,image/png,image/webp" multiple>
+                </label>
+                <input type="hidden" name="declarations_version" value="{{ f.declarations_version }}">
+                {% for d in f.declarations %}
+                <label class="oh-return-decl"><input type="checkbox" name="declaration" value="{{ loop.index }}" required> <span>{{ d }}</span></label>
+                {% endfor %}
+                <p class="oh-reship-err" hidden></p>
+                <button type="submit" class="oh-reship-btn">Submit return request</button>
+              </form>
               {% endif %}
             </div>
             {% endif %}
@@ -2174,6 +2231,30 @@ if (window.location.hash) {
       headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})})
       .then(function(r){return r.json().then(function(j){j.__status=r.status;return j;});});
   }
+  window.owReturnOpen = function(btn){
+    var form=btn.parentNode.querySelector('.oh-return-form');
+    if(form){form.hidden=false;btn.hidden=true;}
+  };
+  // The server checks every rule again; these checks only save a round trip.
+  window.owReturnSubmit = function(ev, form){
+    ev.preventDefault();
+    var err=form.querySelector('.oh-reship-err'), btn=form.querySelector('button[type=submit]');
+    var label=btn.textContent, files=form.querySelector('input[name=photos]').files;
+    function fail(m){btn.disabled=false;btn.textContent=label;err.textContent=m;err.hidden=false;}
+    if(files.length>6){fail('Please attach at most 6 photos.');return false;}
+    if(form.reason.value==='MANUFACTURING_DEFECT'&&files.length<2){
+      fail('Please attach at least 2 photos of the defect.');return false;}
+    btn.disabled=true;btn.textContent='Sending\u2026';err.hidden=true;
+    fetch('/api/orders/'+encodeURIComponent(form.getAttribute('data-order-id'))+'/return',
+      {method:'POST',credentials:'same-origin',body:new FormData(form)})
+      .then(function(r){return r.json();})
+      .then(function(j){
+        if(!j.ok){return fail(j.message||'Your request could not be sent. Please try again.');}
+        window.location.reload();
+      })
+      .catch(function(){fail('Your request could not be sent. Please try again.');});
+    return false;
+  };
   window.owReshipPay = function(btn){
     var card=btn.closest('.oh-reship'), uuid=card.getAttribute('data-reship-uuid');
     var err=card.querySelector('.oh-reship-err'), label=btn.textContent;

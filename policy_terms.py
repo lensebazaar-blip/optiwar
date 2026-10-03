@@ -177,7 +177,7 @@ After verification, Optiwar will determine the appropriate repair, replacement, 
 
 8. CUSTOMER MAY REQUEST A RETURN — BUT RETURN AUTHORIZATION IS REQUIRED
 
-A customer wishing to return a product should first submit a return request to Optiwar.
+A customer wishing to return a product should first submit a return request to Optiwar within 7 days of delivery of the order, from My Orders on optiwar.in, with a description of the problem and, where a manufacturing defect is reported, at least two photographs of the defect.
 
 Optiwar may respond:
 
@@ -387,7 +387,7 @@ This policy forms part of the terms upon which Optiwar accepts an order. The cus
 
 # .in 2026-09-27: clause 16 (failed delivery, returned packages, 60-day hold
 # from physical receipt, abandonment). Earlier versions stay sealed as accepted.
-RETURNS_VERSION_DATE = {SITE_IN: "2026-09-27", SITE_COM: "2026-09-15"}
+RETURNS_VERSION_DATE = {SITE_IN: "2026-10-03", SITE_COM: "2026-09-15"}
 RETURNS_TEXT = {SITE_IN: RETURNS_IN, SITE_COM: RETURNS_COM}
 
 # What the customer ticks, immediately before paying. Each is the concise form

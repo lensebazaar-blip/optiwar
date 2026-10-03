@@ -154,13 +154,21 @@ def attach_reship(orders, reship_rows, host, environ=None, shipments=None, now=N
     return orders
 
 
-def attach_reverse_pickup(orders, pickup_rows):
+REQUEST_LABELS = ('SUBMITTED', 'INFO_REQUESTED', 'APPROVED_FEE_DUE', 'APPROVED')
+
+
+def attach_reverse_pickup(orders, pickup_rows, request_cards=None):
     """Give each order its reverse-pickup card from ``reverse_pickup.
-    latest_for_customer``'s ``{order_id: row}``. A booked pickup sets the
-    header label; a cancelled one is shown but does not."""
+    latest_for_customer``'s ``{order_id: row}``, and its return-request card
+    from ``return_request.customer_cards``. A booked pickup or an open request
+    sets the header label; a cancelled pickup is shown but does not."""
     for order in orders:
         view = reverse_pickup.public_view((pickup_rows or {}).get(order['order_id']))
         order['reverse_pickup'] = view
+        card = (request_cards or {}).get(order['order_id'])
+        order['return_request'] = card
+        if card and card['state'] in REQUEST_LABELS:
+            order['stage_label'], order['stage_tone'] = 'Return requested', 'returned'
         if view and view['state'] == reverse_pickup.ST_BOOKED:
             order['stage_label'], order['stage_tone'] = 'Reverse pickup scheduled', 'returned'
     return orders

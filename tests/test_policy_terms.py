@@ -127,7 +127,7 @@ class SiteAwareText(unittest.TestCase):
 class ReturnedParcelClause(unittest.TestCase):
     def test_in_policy_is_a_new_version_with_the_holding_clause(self):
         ind = pt.current("in")
-        self.assertEqual(ind["returns"]["version"], "2026-09-27-in")
+        self.assertEqual(ind["returns"]["version"], "2026-10-03-in")
         text = pt.RETURNS_TEXT["in"]
         self.assertIn("FAILED DELIVERY, RETURNED PACKAGES AND UNCLAIMED PARCELS", text)
         self.assertIn("sixty (60) days", text)
