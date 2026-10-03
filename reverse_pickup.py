@@ -57,6 +57,8 @@ EV_REASON_CORRECTED = "reverse_pickup.reason_corrected"
 EV_REQUESTED = "reverse_pickup.requested"
 EV_REQUEST_DECIDED = "reverse_pickup.request_decided"
 EV_FEE_PAID = "reverse_pickup.fee_paid"
+EV_FEE_REFUNDED = "reverse_pickup.fee_refunded"
+EV_FEE_REFUND_FAILED = "reverse_pickup.fee_refund_failed"
 
 FEE_DUE = "DUE"
 FEE_PAID = "PAID"
@@ -81,6 +83,15 @@ NOTICE_REQUEST_APPROVED_WAIVED = "request_approved_fee_waived"
 NOTICE_REQUEST_INFO = "request_information_needed"
 NOTICE_REQUEST_DECLINED = "request_not_approved"
 NOTICE_FEE_PAID = "fee_paid"
+NOTICE_FEE_REFUNDED = "fee_refunded"
+
+# The automatic refund of a PAID fee once Ops confirmed the defect.
+REFUND_PENDING = "PENDING"
+REFUND_REQUESTING = "REQUESTING"
+REFUND_FAILED = "FAILED"
+REFUND_DONE = "REFUNDED"
+REFUND_EXCEPTION = "EXCEPTION"
+REFUND_OPEN = (REFUND_PENDING, REFUND_REQUESTING, REFUND_FAILED)
 
 # A customer's return request. Ops-created cases have no request status; a
 # customer-created case is booked only once Ops approved it.
@@ -96,6 +107,9 @@ QUEUE_LABELS = {"AWAITING_FEE": "AWAITING ₹250",
                 "AWAITING_INSPECTION": "RECEIVED — AWAITING INSPECTION",
                 "AWAITING_CUSTOMER_CONSENT": "AWAITING CUSTOMER CONSENT",
                 "DEFECT_CONFIRMED": "DEFECT CONFIRMED",
+                "REFUND_PENDING": "REFUND PENDING",
+                "FEE_REFUNDED": "FEE REFUNDED",
+                "REFUND_EXCEPTION": "REFUND EXCEPTION — CHECK BY HAND",
                 "READY_TO_DISPATCH": "READY TO DISPATCH",
                 "COMPLETED": "COMPLETED",
                 "READY_TO_BOOK": "READY TO BOOK PICKUP",
@@ -236,6 +250,13 @@ CASE_ADDED_COLUMNS = (
     ("decision_note", "VARCHAR(1000) NULL"),
     ("decided_by", "VARCHAR(191) NULL"),
     ("decided_at", "DATETIME NULL"),
+    ("fee_refund_state", "VARCHAR(16) NULL"),
+    ("fee_refund_key", "VARCHAR(64) NULL"),
+    ("fee_refund_id", "VARCHAR(64) NULL"),
+    ("fee_refund_attempts", "INT NOT NULL DEFAULT 0"),
+    ("fee_refund_last_attempt_at", "DATETIME NULL"),
+    ("fee_refund_error", "VARCHAR(255) NULL"),
+    ("fee_refunded_at", "DATETIME NULL"),
 )
 
 TABLES = [("order_reverse_pickups", TABLE_DDL), ("reverse_pickup_cases", CASE_DDL),
@@ -334,6 +355,12 @@ CASE_EMAILS.update({
         "Optiwar Reverse-Pickup Fee Received",
         "We have received your ₹250 reverse-pickup fee (payment {payment_id}).\n"
         "We will now book the Delhivery pickup and send you the pickup details."),
+    NOTICE_FEE_REFUNDED: (
+        "Optiwar Reverse-Pickup Fee Refunded",
+        "Our inspection confirmed the manufacturing defect you reported, so your ₹250 "
+        "reverse-pickup fee has been refunded to your original payment method (refund {refund_id}).\n"
+        "Refunds normally reach your account within 5–7 working days.\n"
+        "We will update you separately about the product."),
 })
 FEE_RETAINED_LINE = "The ₹250 reverse-pickup fee therefore remains applicable.\n"
 CASE_EMAIL_FRAME = "Dear {name},\n\n%s\n\nOrder: {order_id}\n\nOptiwar Support"
@@ -724,7 +751,13 @@ def fee_view(case):
                       "waived_by": case.get("waived_by"),
                       "waived_at": _iso(case.get("waived_at"))}
                      if case and case.get("waived_at") else None)
-    out["refunds"] = []
+    out["refunds"] = ([{"refund_id": case.get("fee_refund_id"), "state": case["fee_refund_state"],
+                        "amount_minor": int(case.get("fee_refunded_minor") or 0)
+                        or int(case["fee_amount_minor"]),
+                        "attempts": int(case.get("fee_refund_attempts") or 0),
+                        "error": case.get("fee_refund_error") or None,
+                        "refunded_at": _iso(case.get("fee_refunded_at"))}]
+                      if case and case.get("fee_refund_state") else [])
     return out
 
 
@@ -924,7 +957,14 @@ def _queue_state(case, pickup):
     if case and case.get("consent_at"):
         return "READY_TO_DISPATCH"
     if case and case.get("inspected_at"):
-        return "DEFECT_CONFIRMED" if case.get("inspection_defect") else "AWAITING_CUSTOMER_CONSENT"
+        if not case.get("inspection_defect"):
+            return "AWAITING_CUSTOMER_CONSENT"
+        refund = case.get("fee_refund_state")
+        if refund in REFUND_OPEN:
+            return "REFUND_PENDING"
+        if refund == REFUND_EXCEPTION:
+            return "REFUND_EXCEPTION"
+        return "FEE_REFUNDED" if case["fee_state"] == FEE_REFUNDED else "DEFECT_CONFIRMED"
     if case and case.get("received_at"):
         return "AWAITING_INSPECTION"
     if pickup and pickup["status"] == ST_BOOKED:
@@ -1177,9 +1217,13 @@ def record_inspection(db, order_id, body, operator):
                                  % _iso(case["inspected_at"]), 409)
     who = _clip(operator, 191)
     cur = db.cursor()
+    refund = defect and case["fee_state"] == FEE_PAID
     cur.execute("UPDATE reverse_pickup_cases SET inspection_defect=%s, inspection_remarks=%s, "
-                "inspected_by=%s, inspected_at=COALESCE(%s, NOW()) WHERE id=%s",
-                (1 if defect else 0, remarks or None, who, at, case["id"]))
+                "inspected_by=%s, inspected_at=COALESCE(%s, NOW()), fee_refund_state=%s, "
+                "fee_refund_key=%s WHERE id=%s",
+                (1 if defect else 0, remarks or None, who, at,
+                 REFUND_PENDING if refund else None,
+                 refund_key(case) if refund else None, case["id"]))
     case = case_by_uuid(db, case["case_uuid"])
     add_history(cur, oid, "Reverse-pickup inspection by %s: manufacturing defect %s%s"
                 % (_clip(operator, 120), "CONFIRMED" if defect else "NOT CONFIRMED",
@@ -1195,6 +1239,11 @@ def record_inspection(db, order_id, body, operator):
         enqueue_notice(db, case, notice)
     db.commit()
     return case, True
+
+
+def refund_key(case):
+    """The one idempotency key of a case's fee refund, for its whole life."""
+    return "rpfee-refund:" + case["case_uuid"]
 
 
 def inspection_notice(case):
@@ -1316,7 +1365,8 @@ def _send_notice(db, n, case, mailer=None):
     fields = {"name": (acct.get("customer_name") or "").strip() or "Customer", "order_id": oid,
               "fee_line": FEE_RETAINED_LINE if case["fee_state"] != FEE_WAIVED else "",
               "reason": case.get("return_reason") or "-", "note": case.get("decision_note") or "",
-              "url": MY_ORDERS_URL_IN, "payment_id": case.get("razorpay_payment_id") or "-"}
+              "url": MY_ORDERS_URL_IN, "payment_id": case.get("razorpay_payment_id") or "-",
+              "refund_id": case.get("fee_refund_id") or "-"}
     pickup = latest_for_order(db, oid)
     try:
         (mailer or reship._default_mailer)(email, subject, (CASE_EMAIL_FRAME % lines).format(**fields))

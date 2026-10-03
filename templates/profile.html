@@ -1024,6 +1024,9 @@
               <div class="oh-reship-title">Return approved, subject to inspection</div>
               {% if rq.fee_paid %}<p>We have received your &#8377;{{ rq.fee }} reverse-pickup fee.</p>{% endif %}
               <p>We will book the Delhivery reverse pickup and send you the pickup details.</p>
+              {% elif rq.state == 'FEE_REFUNDED' %}
+              <div class="oh-reship-title">Reverse-pickup fee refunded</div>
+              <p>Our inspection confirmed the manufacturing defect, so your &#8377;{{ rq.refunded }} reverse-pickup fee has been refunded to your original payment method{% if rq.refund_id %} (refund {{ rq.refund_id }}){% endif %}. It normally reaches your account within 5&ndash;7 working days.</p>
               {% elif rq.state == 'NOT_APPROVED' %}
               <div class="oh-reship-title">Return not approved</div>
               {% if rq.note %}<p>{{ rq.note }}</p>{% endif %}

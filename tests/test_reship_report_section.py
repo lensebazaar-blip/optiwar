@@ -70,6 +70,28 @@ class ReshipReportSectionTests(unittest.TestCase):
         sev = {f.message.split(":")[0]: f.severity for f in rrs.findings(metrics, alerts, errors)}
         self.assertEqual(sev["Reverse-pickup customer email interrupted mid-send - check by hand"], ACTION)
 
+    def test_reverse_pickup_fee_refunds_pending_or_in_exception_are_surfaced(self):
+        sql = _sql_with([
+            ("fee_refund_state IN ('PENDING','REQUESTING','FAILED')",
+             [("RP-3", "FAILED attempts=2 provider HTTP 502")]),
+            ("fee_refund_state='EXCEPTION'", []),
+            ("fee_refund_state='REFUNDED'", [("2",)]),
+            ("SELECT order_id", []),
+            ("SELECT r.order_id", []),
+        ])
+        metrics, alerts, errors = rrs.collect(sql)
+        self.assertEqual(metrics["rp_fee_refunded_24h"], 2)
+        self.assertEqual(rrs.status_of(metrics, alerts), rrs.AMBER)
+        text = rrs.build(metrics, alerts, errors)
+        self.assertIn("Reverse-pickup fees refunded (last 24h)", text)
+        self.assertIn("Reverse-pickup fee REFUND PENDING over 30 min (confirmed defect) (1)", text)
+        self.assertIn("RP-3", text)
+        alerts["rp_refund_exception"] = [("RP-4", "payment already refunded outside this case's refund")]
+        self.assertEqual(rrs.status_of(metrics, alerts), rrs.RED)
+        sev = {f.message.split(":")[0]: f.severity for f in rrs.findings(metrics, alerts, errors)}
+        self.assertEqual(sev["Reverse-pickup fee REFUND PENDING over 30 min (confirmed defect)"], WARNING)
+        self.assertEqual(sev["Reverse-pickup fee refund EXCEPTION - check Razorpay by hand"], ACTION)
+
     def test_green_when_nothing_is_wrong(self):
         metrics, alerts, errors = rrs.collect(lambda q: [] if "SELECT order_id" in q
                                              or "SELECT r.order_id" in q else [("0",)])

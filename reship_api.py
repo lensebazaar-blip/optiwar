@@ -38,7 +38,8 @@ import os
 
 from flask import current_app, jsonify, render_template, request, send_file, session
 
-from . import chat_attachments, reship, return_fee, return_request, reverse_pickup
+from . import (chat_attachments, ops_refunds, reship, return_fee, return_refund, return_request,
+               reverse_pickup)
 from .db import get_db
 from .notifications import notify_order_shipped
 from .payments import (create_reship_razorpay_order, fetch_razorpay_payment,
@@ -100,6 +101,24 @@ def settle_and_notify(db, reship_uuid, payment, source, host):
     res = reship.settle_payment(db, reship_uuid, payment, source, logger=current_app.logger)
     if res["outcome"] == reship.APPLIED:
         _notify(db, reship.EV_PAYMENT_COMPLETED, res["row"], host)
+    return res
+
+
+def refund_provider():
+    return ops_refunds._provider()
+
+
+def return_fee_refund(db, case_uuid, source):
+    """One attempt at a case's automatic fee refund; a refund recorded now
+    sends its customer notice at once (else the notice retry does)."""
+    res = return_refund.refund(db, case_uuid, refund_provider(), source,
+                               logger=current_app.logger)
+    if res["outcome"] == return_refund.REFUNDED:
+        try:
+            reverse_pickup.notify_case(db, reverse_pickup.NOTICE_FEE_REFUNDED, res["case"])
+        except Exception as exc:  # noqa: BLE001 - owed in the table; retried
+            current_app.logger.error("REVERSE_PICKUP_NOTIFY_ERROR %s case:%s %s"
+                                     % (reverse_pickup.NOTICE_FEE_REFUNDED, case_uuid, exc))
     return res
 
 
@@ -498,7 +517,20 @@ def register(bp):
         return jsonify({"ok": True, "changed": changed, "awb": row["awb"],
                         "old_reason": old or None, "reason": row.get("reason")})
 
-    def _rp_case_step(order_id, action, notice_for):
+    def _rp_fee_refund(db, case):
+        """The automatic fee refund a confirmed defect on a PAID fee owes,
+        attempted now; a failure is retried by the reconcile job."""
+        if (case or {}).get("fee_refund_state") != reverse_pickup.REFUND_PENDING:
+            return None
+        try:
+            res = return_fee_refund(db, case["case_uuid"], "inspection")
+        except Exception as exc:  # noqa: BLE001 - the inspection is committed; reconcile retries
+            current_app.logger.error("REVERSE_PICKUP_FEE_REFUND_ERROR case:%s %s"
+                                     % (case["case_uuid"], exc))
+            return "failed"
+        return res["outcome"]
+
+    def _rp_case_step(order_id, action, notice_for, after=None):
         denied = _rp_gate()
         if denied:
             return denied
@@ -517,12 +549,15 @@ def register(bp):
                 current_app.logger.error("REVERSE_PICKUP_NOTIFY_ERROR %s case:%s %s"
                                          % (notice, case["case_uuid"], exc))
                 customer_notice = "failed"
+        extra = {}
+        if changed and after:
+            extra = after(db, case)
         if changed:
             _rp_deliver(db)
         view = _rp_with_photos(db, reverse_pickup.state_view(db, case["order_id"]))
         return jsonify(dict(view, ok=True, changed=changed,
                             customer_notice={"notice": notice, "result": customer_notice}
-                            if notice else None))
+                            if notice else None, **extra))
 
     @bp.route("/ops/api/shipments/<order_id>/reverse-pickup/received", methods=["POST"])
     def ops_reverse_pickup_received(order_id):
@@ -534,7 +569,8 @@ def register(bp):
     def ops_reverse_pickup_inspection(order_id):
         """A person's inspection result; never inferred."""
         return _rp_case_step(order_id, reverse_pickup.record_inspection,
-                             reverse_pickup.inspection_notice)
+                             reverse_pickup.inspection_notice,
+                             after=lambda db, case: {"fee_refund": _rp_fee_refund(db, case)})
 
     @bp.route("/ops/api/shipments/<order_id>/reverse-pickup/consent", methods=["POST"])
     def ops_reverse_pickup_consent(order_id):

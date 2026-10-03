@@ -66,6 +66,9 @@ METRICS = (
     ("reshipped_24h", "Reshipped (last 24h)",
      "SELECT COUNT(*) FROM order_reshipments WHERE status='RESHIPPED' "
      "AND reshipped_at >= NOW() - INTERVAL 24 HOUR"),
+    ("rp_fee_refunded_24h", "Reverse-pickup fees refunded (last 24h)",
+     "SELECT COUNT(*) FROM reverse_pickup_cases WHERE fee_refund_state='REFUNDED' "
+     "AND fee_refunded_at >= NOW() - INTERVAL 24 HOUR"),
 )
 
 ALERTS = (
@@ -108,6 +111,15 @@ ALERTS = (
     ("rp_notice_interrupted", "Reverse-pickup customer email interrupted mid-send - check by hand",
      "SELECT order_id, notification_type FROM reverse_pickup_notifications "
      "WHERE status='SENDING' AND last_attempt_at < NOW() - INTERVAL 30 MINUTE ORDER BY id"),
+    ("rp_refund_pending", "Reverse-pickup fee REFUND PENDING over 30 min (confirmed defect)",
+     "SELECT order_id, CONCAT(fee_refund_state, ' attempts=', fee_refund_attempts, ' ', "
+     "COALESCE(fee_refund_error, '')) FROM reverse_pickup_cases "
+     "WHERE fee_refund_state IN ('PENDING','REQUESTING','FAILED') "
+     "AND COALESCE(fee_refund_last_attempt_at, inspected_at) < NOW() - INTERVAL 30 MINUTE "
+     "ORDER BY id"),
+    ("rp_refund_exception", "Reverse-pickup fee refund EXCEPTION - check Razorpay by hand",
+     "SELECT order_id, COALESCE(fee_refund_error, '') FROM reverse_pickup_cases "
+     "WHERE fee_refund_state='EXCEPTION' ORDER BY id"),
 )
 
 
@@ -132,10 +144,12 @@ def collect(sql=run_sql):
 
 
 def status_of(metrics, alerts):
-    if alerts.get("unsynced") or alerts.get("late_capture") or alerts.get("rp_notice_interrupted"):
+    if any(alerts.get(k) for k in ("unsynced", "late_capture", "rp_notice_interrupted",
+                                   "rp_refund_exception")):
         return RED
     if any(alerts.get(k) for k in ("unnotified", "paid_unshipped", "final_window",
-                                   "rp_notice_failing", "rp_notice_no_email")):
+                                   "rp_notice_failing", "rp_notice_no_email",
+                                   "rp_refund_pending")):
         return AMBER
     if any(v is None for v in metrics.values()) or any(v is None for v in alerts.values()):
         return AMBER
@@ -188,7 +202,8 @@ def findings(metrics=None, alerts=None, errors=None):
         out.append(Finding(WARNING, "reship", "reship report: %s" % e, "reship"))
     sev = {"unnotified": WARNING, "paid_unshipped": WARNING, "final_window": WARNING,
            "unsynced": ACTION, "late_capture": ACTION, "rp_notice_failing": WARNING,
-           "rp_notice_no_email": WARNING, "rp_notice_interrupted": ACTION}
+           "rp_notice_no_email": WARNING, "rp_notice_interrupted": ACTION,
+           "rp_refund_pending": WARNING, "rp_refund_exception": ACTION}
     for key, label, _q in ALERTS:
         rows = alerts.get(key)
         if not rows:
