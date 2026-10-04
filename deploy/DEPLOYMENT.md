@@ -384,3 +384,20 @@ rows confirmed before this release are backfilled from
    has been confirmed — those two only turn green through
    `optiwar_dr_confirm_offhost.sh` and a `last_drill.json` copied from the
    drill host; never by hand.
+
+### Daily report: AI chats section and transcript attachment
+
+`reports/ai_chats_section.py` writes every chat with a message in the report
+window, in full and unmasked (owner decision), to
+`/root/reports/ai_chats_<date>.html` (mode 0600) and prints a summary for the
+report body. It reads `chat_sessions` and `chat_messages`, both already granted
+to `optiwar_ro`. On the box, as root:
+
+1. Copy `reports/ai_chats_section.py` to `/root/reports/reports/`.
+2. In `run_daily_report.sh`, run `reports.ai_chats_section` (inside the
+   `ACR_REPORT_ENABLED` guard) before `report_executive`, appending its stdout
+   like the other sections, and delete `ai_chats_2*.html` older than
+   `OPTIWAR_DAILY_REPORT_RETENTION_DAYS` next to the `daily_2*.txt` cleanup.
+3. In `/root/reports/report_mailer.py`, send a `multipart/mixed` message (the
+   text/HTML body as its `alternative` part) and attach
+   `/root/reports/ai_chats_<date>.html` when it exists and is at most 10 MB.
