@@ -44,6 +44,7 @@ ST_DEFECT = "INSPECTED_DEFECT_CONFIRMED"
 ST_CONSENT = "CONSENT_RECEIVED"
 ST_SHIPPED = "SHIPPED_TO_CUSTOMER"
 ST_COMPLETED = "COMPLETED"
+ST_ABANDONED = "RETURN_ABANDONED"
 ST_REQUESTED = "RETURN_REQUESTED"
 ST_INFO = "RETURN_INFO_REQUESTED"
 ST_NOT_APPROVED = "RETURN_NOT_APPROVED"
@@ -74,7 +75,13 @@ RULES = """RETURN / REVERSE-PICKUP RULES (India only; authoritative, from Optiwa
   nothing is needed from the customer now.
 - INSPECTED_NO_DEFECT: the inspection did not confirm the reported manufacturing defect. Where
   fee_state is PAID or DUE, the INR %(fee)s fee remains applicable. The customer was emailed and
-  should reply to that email to have the product sent back; you cannot record that reply.
+  should reply to that email to have the product sent back; you cannot record that reply. Give the
+  reply_by date and days_remaining exactly as listed below; after that date the product is treated
+  as unclaimed under the Returns Policy. Never state a deadline that is not listed, and never extend
+  it.
+- RETURN_ABANDONED: the reply period ended without a reply and the return is closed; the product is
+  treated as unclaimed under the Returns Policy. Say so plainly, do not promise it will be sent back
+  or refunded, and offer a support ticket for the customer to ask our team.
 - INSPECTED_DEFECT_CONFIRMED: the defect was confirmed; our team will update the customer on the
   resolution and the next shipment. Never promise a refund, an amount or a date.
 - CONSENT_RECEIVED: the customer's reply is recorded; the product will be sent back and the
@@ -114,6 +121,8 @@ def stage(case, pickup):
     case = case or {}
     if case.get("completed_outcome") == rp.OUTCOME_NOT_APPROVED:
         return ST_NOT_APPROVED
+    if case.get("completed_outcome") == rp.OUTCOME_ABANDONED:
+        return ST_ABANDONED
     if case.get("completed_at"):
         return ST_COMPLETED
     if case.get("forward_shipped_at"):
@@ -128,7 +137,7 @@ def stage(case, pickup):
         return ST_DEFECT if case.get("inspection_defect") else ST_NO_DEFECT
     if case.get("received_at"):
         return ST_RECEIVED
-    if pickup:
+    if pickup and pickup["status"] != rp.ST_CLOSED:
         return ST_BOOKED if pickup["status"] == rp.ST_BOOKED else ST_CANCELLED
     if not case:
         return None
@@ -187,6 +196,7 @@ def _entry(order_id, case, pickup, shipment):
         shipment = (pickup["forward_awb"], shipment[1] if shipment else "")
     fee_state = case.get("fee_state")
     refunded = int(case.get("fee_refunded_minor") or 0) // 100
+    hold = rp.hold_view(case) or {}
     return {
         "order_id": order_id,
         "stage": st,
@@ -218,6 +228,10 @@ def _entry(order_id, case, pickup, shipment):
         "forward_shipped_at": case.get("forward_shipped_at") if fv else None,
         "original_awb": shipment[0] if shipment and shipment[0] else None,
         "original_courier": shipment[1] if shipment and shipment[0] else None,
+        "reply_by": hold.get("abandon_at"),
+        "reply_days_remaining": hold.get("days_remaining"),
+        "holding_days": hold.get("holding_days"),
+        "abandoned_at": hold.get("abandoned_at"),
     }
 
 
@@ -242,6 +256,9 @@ def get_return_case_status(model, order_id):
     return {"order_id": e["order_id"], "stage": e["stage"],
             "received": e["received_at"] is not None, "received_at": e["received_at"],
             "completed": e["stage"] == ST_COMPLETED,
+            "abandoned": e["stage"] == ST_ABANDONED,
+            "reply_by": e["reply_by"] if e["stage"] == ST_NO_DEFECT else None,
+            "reply_days_remaining": e["reply_days_remaining"] if e["stage"] == ST_NO_DEFECT else None,
             "completed_outcome": e["completed_outcome"],
             "shipped_to_customer": ({"type": e["shipped_type"], "awb": e["forward_awb"],
                                      "courier": e["forward_courier"],
@@ -325,6 +342,11 @@ def _line(e, fee):
                         else "not confirmed"))
     if e["stage"] == ST_NO_DEFECT:
         parts.append("(customer was emailed; they reply to that email to have it sent back)")
+        if e["reply_by"]:
+            parts.append("reply_by=%s days_remaining=%s" % (_fmt(e["reply_by"]), e["reply_days_remaining"]))
+    if e["stage"] == ST_ABANDONED:
+        parts.append("(no reply within %s days of the inspection; return closed on %s; the product is "
+                     "treated as unclaimed)" % (e["holding_days"], _fmt(e["abandoned_at"])))
     if e["consent_at"]:
         parts.append("customer_reply_recorded=%s (product to be sent back; details to follow)"
                      % _fmt(e["consent_at"]))
@@ -409,8 +431,8 @@ def reply_violations(model, reply):
 # ---------------------------------------------------------------- KET
 
 KET_FIELDS = ("order_id", "stage", "fee_state", "fee_refunded", "case_uuid", "pickup_status",
-              "pickup_awb", "received_at", "inspected_at", "manufacturing_defect", "consent_at",
-              "forward_awb", "completed_at", "completed_outcome")
+              "pickup_awb", "received_at", "inspected_at", "manufacturing_defect", "reply_by",
+              "consent_at", "forward_awb", "completed_at", "completed_outcome", "abandoned_at")
 
 
 def ket_context(model):
@@ -427,6 +449,8 @@ def ket_context(model):
                                      .get(e["manufacturing_defect"])),
             "consent_at": _fmt(e["consent_at"]), "forward_awb": e["forward_awb"],
             "completed_at": _fmt(e["completed_at"]), "completed_outcome": e["completed_outcome"],
+            "reply_by": _fmt(e["reply_by"]) if e["stage"] == ST_NO_DEFECT else None,
+            "abandoned_at": _fmt(e["abandoned_at"]),
         })
     return out
 
