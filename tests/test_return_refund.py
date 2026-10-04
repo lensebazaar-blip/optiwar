@@ -174,6 +174,20 @@ class ReturnRefundTest(unittest.TestCase):
         self.assertEqual((len(self.rzp.refunds), self.rzp.posts, len(self._refund_mails())), (1, 1, 1))
         self.assertEqual(self._outbox(oid).count(rp.EV_FEE_REFUNDED), 1)
 
+    def test_an_unsent_defect_confirmed_notice_is_not_retried_after_the_refund(self):
+        _c, oid, _p = self._received()
+        real = rp.notify_case
+        rp.notify_case = lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("worker died"))
+        try:
+            j = self._inspect(oid).get_json()
+        finally:
+            rp.notify_case = real
+        self.assertEqual((j["customer_notice"]["result"], j["fee_refund"]), ("failed", rrf.REFUNDED))
+        self.assertEqual(self.mails, [])
+        res = rp.retry_notices(self.db, environ=dict(os.environ, **{rp.NOTICE_RETRY_MINUTES_ENV: "0"}))
+        self.assertEqual((res["stale"], res["sent"]), (1, 1))
+        self.assertEqual([m[1] for m in self.mails], [SUBJECT])
+
     def test_no_refund_for_a_waived_fee_or_without_a_defect(self):
         _c, waived, _p = self._received(fee="WAIVED")
         j = self._inspect(waived).get_json()
