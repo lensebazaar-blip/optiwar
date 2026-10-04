@@ -301,7 +301,7 @@ class Phase4Test(unittest.TestCase):
         self._post(kept, {"message_id": "<ok@mail>"}, path="/consent")
         card = self._card(kept)
         self.assertEqual((card["return_request"]["state"], card["reverse_pickup"], card["stage_label"]),
-                         ("SENDING_BACK", None, "Return: on its way back"))
+                         ("SENDING_BACK", None, "Return: to be sent back"))
 
         self._ship(kept, shipment_type="ORIGINAL_RETURNED")
         self._complete(kept, "ORIGINAL_RETURNED")
