@@ -1896,6 +1896,12 @@ def _send_notice(db, n, case, mailer=None):
                         (NOTICE_STALE, "the holding period ended before it was sent", n["id"]))
             db.commit()
             return "stale"
+    if (_notice_kind(notice) == NOTICE_INSPECTION_DEFECT_PAID
+            and case_by_uuid(db, key)["fee_state"] != FEE_PAID):
+        cur.execute("UPDATE reverse_pickup_notifications SET status=%s, last_error=%s WHERE id=%s",
+                    (NOTICE_STALE, "the fee was no longer PAID when it was sent", n["id"]))
+        db.commit()
+        return "stale"
     suffix = _notice_suffix(notice, n["channel"])
     customer_id = case.get("customer_id") or reship._order_head(cur, oid).get("customer_id")
     acct = reship._account(cur, customer_id)
