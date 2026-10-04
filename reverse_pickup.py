@@ -110,6 +110,7 @@ RECEIVED_CONDITIONS = ("Intact", "Damaged packaging", "Product damaged", "Wrong 
 
 NOTICE_INSPECTION_NO_DEFECT = "inspection_no_defect"
 NOTICE_INSPECTION_DEFECT_WAIVED = "inspection_defect_waived"
+NOTICE_INSPECTION_DEFECT_PAID = "inspection_defect_paid"
 NOTICE_REQUEST_RECEIVED = "request_received"
 NOTICE_REQUEST_APPROVED = "request_approved"
 NOTICE_REQUEST_APPROVED_WAIVED = "request_approved_fee_waived"
@@ -394,6 +395,14 @@ CASE_EMAILS = {
         "We have completed the inspection of your returned product and confirmed the reported "
         "manufacturing defect.\n"
         "Your reverse-pickup fee had already been waived, so no fee refund is required.\n"
+        "We will now proceed with the applicable product-resolution / return-to-customer process "
+        "and update you with the next shipment details."),
+    NOTICE_INSPECTION_DEFECT_PAID: (
+        "Optiwar Return Inspection Update",
+        "We have completed the inspection of your returned product and confirmed the reported "
+        "manufacturing defect.\n"
+        "Your ₹250 reverse-pickup fee (payment {payment_id}) will be refunded to your original "
+        "payment method. We will email you again once the refund has been made.\n"
         "We will now proceed with the applicable product-resolution / return-to-customer process "
         "and update you with the next shipment details."),
 }
@@ -1421,13 +1430,13 @@ def refund_key(case):
 
 
 def inspection_notice(case):
-    """Which inspection notice the customer gets now, or None (a confirmed
-    defect on a PAID fee is told with the refund)."""
+    """Which inspection notice the customer gets now, or None."""
     if not case or not case.get("inspected_at"):
         return None
     if not case.get("inspection_defect"):
         return NOTICE_INSPECTION_NO_DEFECT
-    return NOTICE_INSPECTION_DEFECT_WAIVED if case["fee_state"] == FEE_WAIVED else None
+    return {FEE_WAIVED: NOTICE_INSPECTION_DEFECT_WAIVED,
+            FEE_PAID: NOTICE_INSPECTION_DEFECT_PAID}.get(case["fee_state"])
 
 
 def record_consent(db, order_id, body, operator):
