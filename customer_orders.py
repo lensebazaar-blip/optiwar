@@ -156,7 +156,7 @@ def attach_reship(orders, reship_rows, host, environ=None, shipments=None, now=N
 
 REQUEST_LABELS = ('SUBMITTED', 'INFO_REQUESTED', 'APPROVED_FEE_DUE', 'APPROVED')
 CLOSING_LABELS = {'RECEIVED': 'Return: parcel received', 'DEFECT_CONFIRMED': 'Return: defect confirmed',
-                  'FEE_REFUNDED': 'Return: fee refunded', 'SENDING_BACK': 'Return: on its way back',
+                  'FEE_REFUNDED': 'Return: fee refunded', 'SENDING_BACK': 'Return: to be sent back',
                   'AWAITING_REPLY': 'Return: your reply needed', 'SHIPPED_TO_CUSTOMER': 'Return: shipped to you',
                   'COMPLETED': 'Return complete', 'ABANDONED': 'Return closed: unclaimed'}
 

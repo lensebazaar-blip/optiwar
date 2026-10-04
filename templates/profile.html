@@ -1034,7 +1034,7 @@
               <div class="oh-reship-title">&#10003; Manufacturing defect confirmed</div>
               <p>Our inspection on {{ rq.inspected_at.strftime('%d %b %Y') }} confirmed the manufacturing defect.{% if rq.refund_pending %} Your &#8377;{{ rq.fee }} reverse-pickup fee is being refunded to your original payment method; we will email you once the refund is issued.{% elif rq.fee_waived %} No reverse-pickup fee was charged.{% endif %} We will email you the next step for the product.</p>
               {% elif rq.state == 'SENDING_BACK' %}
-              <div class="oh-reship-title">Your product is being sent back to you</div>
+              <div class="oh-reship-title">We will send your product back to you</div>
               <p>We have your reply of {{ rq.consent_at.strftime('%d %b %Y') }} asking for the product back. We will email you the tracking details once it is dispatched. There is nothing to pay for that shipment.</p>
               {% elif rq.state == 'AWAITING_REPLY' %}
               <div class="oh-reship-title">{% if rq.hold and rq.hold.final_period %}Final days: your reply is needed{% else %}Your reply is needed{% endif %}</div>
