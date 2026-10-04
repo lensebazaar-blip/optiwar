@@ -69,6 +69,9 @@ CARD_APPROVED_FEE_DUE = "APPROVED_FEE_DUE"
 CARD_APPROVED = "APPROVED"
 CARD_NOT_APPROVED = "NOT_APPROVED"
 CARD_FEE_REFUNDED = "FEE_REFUNDED"
+CARD_RECEIVED = "RECEIVED"
+CARD_DEFECT_CONFIRMED = "DEFECT_CONFIRMED"
+CARD_SENDING_BACK = "SENDING_BACK"
 CARD_SHIPPED = "SHIPPED_TO_CUSTOMER"
 CARD_COMPLETED = "COMPLETED"
 CARD_AWAITING_REPLY = "AWAITING_REPLY"
@@ -454,7 +457,18 @@ def _card(case, pickup, window, until):
     if hold and hold["active"]:
         return dict(base, state=CARD_AWAITING_REPLY, hold=hold,
                     fee_kept=case["fee_state"] in (rp.FEE_PAID, rp.FEE_DUE), can_request=False, form=None)
-    if case and not pickup:
+    if case and case.get("inspected_at"):
+        if case.get("inspection_defect"):
+            return dict(base, state=CARD_DEFECT_CONFIRMED, inspected_at=case["inspected_at"],
+                        refund_pending=case["fee_state"] == rp.FEE_PAID,
+                        fee_waived=case["fee_state"] == rp.FEE_WAIVED, can_request=False, form=None)
+        if case.get("consent_at"):
+            return dict(base, state=CARD_SENDING_BACK, consent_at=case["consent_at"], can_request=False, form=None)
+        return dict(base, state=CARD_AWAITING_REPLY, hold=None,
+                    fee_kept=case["fee_state"] in (rp.FEE_PAID, rp.FEE_DUE), can_request=False, form=None)
+    if case and case.get("received_at"):
+        return dict(base, state=CARD_RECEIVED, received_at=case["received_at"], can_request=False, form=None)
+    if case and not (pickup and pickup["status"] == rp.ST_BOOKED):
         status = case.get("request_status")
         common = dict(base, reason=case.get("return_reason"),
                       requested_at=case.get("created_at"), can_request=False, form=None)

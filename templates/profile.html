@@ -1004,7 +1004,7 @@
 
             {% if order.return_request %}
             {% set rq = order.return_request %}
-            <div class="oh-reship oh-return{% if rq.state in ('NOT_APPROVED', 'ABANDONED') %} oh-reship--abandoned{% elif rq.state in ('APPROVED', 'APPROVED_FEE_DUE', 'SHIPPED_TO_CUSTOMER', 'COMPLETED') %} oh-reship--paid{% endif %}" data-return-order="{{ order.order_id }}" data-return-state="{{ rq.state }}" onclick="event.stopPropagation()">
+            <div class="oh-reship oh-return{% if rq.state in ('NOT_APPROVED', 'ABANDONED') %} oh-reship--abandoned{% elif rq.state in ('APPROVED', 'APPROVED_FEE_DUE', 'DEFECT_CONFIRMED', 'FEE_REFUNDED', 'SENDING_BACK', 'SHIPPED_TO_CUSTOMER', 'COMPLETED') %} oh-reship--paid{% endif %}" data-return-order="{{ order.order_id }}" data-return-state="{{ rq.state }}" onclick="event.stopPropagation()">
               <span class="oh-reship-kicker">Return</span>
               {% if rq.state == 'SUBMITTED' %}
               <div class="oh-reship-title">Return request received</div>
@@ -1027,10 +1027,23 @@
               {% elif rq.state == 'FEE_REFUNDED' %}
               <div class="oh-reship-title">Reverse-pickup fee refunded</div>
               <p>Our inspection confirmed the manufacturing defect, so your &#8377;{{ rq.refunded }} reverse-pickup fee has been refunded to your original payment method{% if rq.refund_id %} (refund {{ rq.refund_id }}){% endif %}. It normally reaches your account within 5&ndash;7 working days.</p>
+              {% elif rq.state == 'RECEIVED' %}
+              <div class="oh-reship-title">We have received your parcel</div>
+              <p>Your return reached us on {{ rq.received_at.strftime('%d %b %Y') }}. Our team will inspect the product and email you the result.</p>
+              {% elif rq.state == 'DEFECT_CONFIRMED' %}
+              <div class="oh-reship-title">&#10003; Manufacturing defect confirmed</div>
+              <p>Our inspection on {{ rq.inspected_at.strftime('%d %b %Y') }} confirmed the manufacturing defect.{% if rq.refund_pending %} Your &#8377;{{ rq.fee }} reverse-pickup fee is being refunded to your original payment method; we will email you once the refund is issued.{% elif rq.fee_waived %} No reverse-pickup fee was charged.{% endif %} We will email you the next step for the product.</p>
+              {% elif rq.state == 'SENDING_BACK' %}
+              <div class="oh-reship-title">Your product is being sent back to you</div>
+              <p>We have your reply of {{ rq.consent_at.strftime('%d %b %Y') }} asking for the product back. We will email you the tracking details once it is dispatched. There is nothing to pay for that shipment.</p>
               {% elif rq.state == 'AWAITING_REPLY' %}
-              <div class="oh-reship-title">{% if rq.hold.final_period %}Final days: your reply is needed{% else %}Your reply is needed{% endif %}</div>
-              <p>Our inspection on {{ rq.hold.inspected_at.strftime('%d %b %Y') }} did not confirm the reported manufacturing defect.{% if rq.fee_kept %} The &#8377;{{ rq.fee }} reverse-pickup fee therefore remains applicable.{% endif %} We are holding the product for you.</p>
+              <div class="oh-reship-title">{% if rq.hold and rq.hold.final_period %}Final days: your reply is needed{% else %}Your reply is needed{% endif %}</div>
+              <p>Our inspection{% if rq.hold %} on {{ rq.hold.inspected_at.strftime('%d %b %Y') }}{% endif %} did not confirm the reported manufacturing defect.{% if rq.fee_kept %} The &#8377;{{ rq.fee }} reverse-pickup fee therefore remains applicable.{% endif %} We are holding the product for you.</p>
+              {% if rq.hold %}
               <p>To have it sent back to you, reply to our inspection email by <strong>{{ rq.hold.abandon_at.strftime('%d %b %Y') }}</strong> ({{ rq.hold.days_remaining }} day{% if rq.hold.days_remaining != 1 %}s{% endif %} remaining). There is nothing to pay for that shipment. If we do not hear from you by then, the product is treated as unclaimed under section 12 of our <a href="/terms_and_conditions#returns-policy" target="_blank" rel="noopener noreferrer">Returns Policy</a>.</p>
+              {% else %}
+              <p>To have it sent back to you, reply to our inspection email. There is nothing to pay for that shipment.</p>
+              {% endif %}
               {% elif rq.state == 'ABANDONED' %}
               <div class="oh-reship-title">Return closed: product unclaimed</div>
               <p>The {{ rq.hold.holding_days }}-day period to reply about the product you returned ended on {{ rq.hold.abandon_at.strftime('%d %b %Y') }} without a reply from you. The return is closed and the product is treated as unclaimed under section 12 of our <a href="/terms_and_conditions#returns-policy" target="_blank" rel="noopener noreferrer">Returns Policy</a>. If you believe this is a mistake, reply to our email quoting your order number.</p>

@@ -275,6 +275,43 @@ class Phase4Test(unittest.TestCase):
         self.assertEqual(rp.retry_notices(self.db)["due"], 0)
         self.assertEqual([m[1] for m in self.mails], ["Optiwar Return: Shipment on Its Way to You"])
 
+    def test_my_orders_follows_the_parcel_once_optiwar_has_it(self):
+        oid, awb = self._booked()
+        card = self._card(oid)
+        self.assertEqual((card["reverse_pickup"]["state"], card["return_request"]), ("BOOKED", None))
+        self.assertEqual(card["stage_label"], "Reverse pickup scheduled")
+        self.assertEqual(self._received(oid, awb).status_code, 200)
+        card = self._card(oid)
+        self.assertEqual((card["return_request"]["state"], card["reverse_pickup"]), ("RECEIVED", None))
+        self.assertEqual(card["stage_label"], "Return: parcel received")
+        self._post(oid, {"operator": "qc", "manufacturing_defect": True}, path="/inspection")
+        card = self._card(oid)
+        rq = card["return_request"]
+        self.assertEqual((rq["state"], rq["refund_pending"], rq["fee_waived"], rq["can_request"]),
+                         ("DEFECT_CONFIRMED", True, False, False))
+        self.assertEqual((card["reverse_pickup"], card["stage_label"]), (None, "Return: defect confirmed"))
+        for key in ("inspected_by", "inspection_remarks", "received_by", "received_notes"):
+            self.assertNotIn(key, rq)
+
+        waived, _ = self._inspected(defect=True, fee="WAIVED")
+        rq = self._card(waived)["return_request"]
+        self.assertEqual((rq["state"], rq["refund_pending"], rq["fee_waived"]), ("DEFECT_CONFIRMED", False, True))
+
+        kept, _ = self._inspected(defect=False)
+        self._post(kept, {"message_id": "<ok@mail>"}, path="/consent")
+        card = self._card(kept)
+        self.assertEqual((card["return_request"]["state"], card["reverse_pickup"], card["stage_label"]),
+                         ("SENDING_BACK", None, "Return: on its way back"))
+
+        self._ship(kept, shipment_type="ORIGINAL_RETURNED")
+        self._complete(kept, "ORIGINAL_RETURNED")
+        self.cur.execute("SELECT status FROM order_reverse_pickups WHERE order_id=%s", (kept,))
+        self.assertEqual({r["status"] for r in self.cur.fetchall()}, {rp.ST_CLOSED})
+        orders = [{"order_id": kept, "stage_label": "Delivered", "stage_tone": "shipped"}]
+        customer_orders.attach_reverse_pickup(orders, rp.latest_for_customer(self.db, self._cid(kept)),
+                                              request_cards={kept: {"state": "SUBMITTED"}})
+        self.assertEqual((orders[0]["reverse_pickup"], orders[0]["stage_label"]), (None, "Return requested"))
+
     def test_my_orders_and_the_assistant_show_the_shipment_only_once_recorded(self):
         oid, _ = self._inspected(defect=True, fee="WAIVED")
         card = self._card(oid)

@@ -207,7 +207,7 @@ class HoldingTest(unittest.TestCase):
         self.assertEqual(self.mails, [])
         for oid in [replied, shipped] + defects:
             self.assertNotEqual(self._row(oid)["completed_outcome"], "ABANDONED", oid)
-        self.assertEqual(self._card(replied)["return_request"], None)
+        self.assertEqual(self._card(replied)["return_request"]["state"], "SENDING_BACK")
 
     def test_a_reply_recorded_before_the_lock_wins(self):
         oid, _awb = self._held(61)

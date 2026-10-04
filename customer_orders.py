@@ -155,7 +155,9 @@ def attach_reship(orders, reship_rows, host, environ=None, shipments=None, now=N
 
 
 REQUEST_LABELS = ('SUBMITTED', 'INFO_REQUESTED', 'APPROVED_FEE_DUE', 'APPROVED')
-CLOSING_LABELS = {'AWAITING_REPLY': 'Return: your reply needed', 'SHIPPED_TO_CUSTOMER': 'Return: shipped to you',
+CLOSING_LABELS = {'RECEIVED': 'Return: parcel received', 'DEFECT_CONFIRMED': 'Return: defect confirmed',
+                  'FEE_REFUNDED': 'Return: fee refunded', 'SENDING_BACK': 'Return: on its way back',
+                  'AWAITING_REPLY': 'Return: your reply needed', 'SHIPPED_TO_CUSTOMER': 'Return: shipped to you',
                   'COMPLETED': 'Return complete', 'ABANDONED': 'Return closed: unclaimed'}
 
 
@@ -163,9 +165,12 @@ def attach_reverse_pickup(orders, pickup_rows, request_cards=None):
     """Give each order its reverse-pickup card from ``reverse_pickup.
     latest_for_customer``'s ``{order_id: row}``, and its return-request card
     from ``return_request.customer_cards``. A booked pickup or an open request
-    sets the header label; a cancelled pickup is shown but does not."""
+    sets the header label; a cancelled pickup is shown but does not, and a
+    pickup closed with its case is not shown at all."""
     for order in orders:
         view = reverse_pickup.public_view((pickup_rows or {}).get(order['order_id']))
+        if view and view['state'] == reverse_pickup.ST_CLOSED:
+            view = None
         order['reverse_pickup'] = view
         card = (request_cards or {}).get(order['order_id'])
         order['return_request'] = card
