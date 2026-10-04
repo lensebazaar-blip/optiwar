@@ -751,8 +751,12 @@ class ReversePickupTest(unittest.TestCase):
         self._received(defect_paid, awb3)
         del self.mails[:]
         r = self._post(defect_paid, {"manufacturing_defect": True}, path="/inspection")
-        self.assertEqual((r.status_code, r.get_json()["customer_notice"]), (200, None))
-        self.assertEqual(self.mails, [])
+        self.assertEqual((r.status_code, r.get_json()["customer_notice"]["result"]), (200, "sent"))
+        self.assertEqual([m[1] for m in self.mails], ["Optiwar Return Inspection Update"])
+        self.assertIn("confirmed the reported manufacturing defect.\n"
+                      "Your ₹250 reverse-pickup fee (payment ", self.mails[0][2])
+        self.assertIn("will be refunded to your original payment method. We will email you again "
+                      "once the refund has been made.", self.mails[0][2])
         ev = [json.loads(o["body"]) for o in self._outbox(defect_paid)
               if o["event"] == "reverse_pickup.inspection_completed"]
         self.assertEqual((ev[0]["data"]["manufacturing_defect"], ev[0]["data"]["refund_eligible"]), (True, True))
