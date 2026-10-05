@@ -198,6 +198,9 @@ class AiChatsSectionTests(unittest.TestCase):
         self.assertEqual(one(talk), acs.REAL)
         self.assertEqual(one(talk, events=start(True)), acs.CANARY)
         self.assertEqual(one(talk, email="ops@optiwar.com", cid="7"), acs.TEST)
+        heads = [("x", "", "", _hex("walkin@example.com"), "active", "", "")]
+        guest = acs.collect(_sql(heads=heads, rows=talk))[0][0]
+        self.assertEqual(dict(acs.identity(guest))["Email"], "walkin@example.com (CHAT_PROVIDED)")
         self.assertEqual(one(talk, actions=act), acs.CANARY)
         self.assertEqual(one(talk, events=start(False), actions=act), acs.REAL)
 

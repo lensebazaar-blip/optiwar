@@ -363,8 +363,9 @@ def identity(s):
                 ("Phone", phone + (" (ACCOUNT_VERIFIED)" if s.get("account_phone") else "")),
                 ("Signed in", "YES")]
     else:
-        rows = [("Customer", "Guest"), ("Email", "not known"), ("Phone", "not known"),
-                ("Signed in", "NO")]
+        rows = [("Customer", "Guest"),
+                ("Email", "%s (CHAT_PROVIDED)" % s["email"] if s.get("email") else "not known"),
+                ("Phone", "not known"), ("Signed in", "NO")]
     typed = []
     for m in s["messages"]:
         if m["source"] == "customer":
@@ -506,7 +507,7 @@ HEADLINE_ROWS = (("widget_sessions", "Widget sessions"),
                  ("ai_resolved", "AI-resolved (swept ANSWERED)"),
                  ("escalated", "Escalated to KET"),
                  ("model_replies", "Model-generated replies"),
-                 ("deterministic_replies", "Deterministic replies"),
+                 ("deterministic_replies", "Deterministic (excl. greeting)"),
                  ("tool_replies", "Tool-assisted replies"),
                  ("fallback_replies", "Fallback replies"),
                  ("actions_executed", "ACR actions executed"))

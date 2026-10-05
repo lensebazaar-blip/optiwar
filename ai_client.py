@@ -618,6 +618,13 @@ def call_model(*, workload, messages, model=None, deadline=None, max_tokens=None
                          duration_ms=int((time.monotonic() - provider_start) * 1000),
                          request_id=request_id)
             raise ModelProviderUnavailable(retry_after=_retry_after()) from e
+        except Exception as e:
+            _record_call(kind="model_call", provider=wl["provider"], model=model,
+                         workload=workload, success=False,
+                         failure_code=type(e).__name__,
+                         duration_ms=int((time.monotonic() - provider_start) * 1000),
+                         request_id=request_id)
+            raise
 
         usage = getattr(resp, "usage", None)
         try:
