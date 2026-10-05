@@ -168,7 +168,7 @@
   msgContainer.addEventListener('click', function(e) {
     var a = e.target && e.target.closest ? e.target.closest('a.ow-action-btn') : null;
     var id = a && a.getAttribute('data-ow-action-id');
-    if (id) stashActionForArrival({ action_id: id });
+    if (id) stashActionForArrival({ action_id: id }, a.getAttribute('href'));
   });
   var input = document.getElementById('ow-input');
   var sendBtn = document.getElementById('ow-send');
@@ -617,7 +617,7 @@
         // success up-front. The destination page confirms EXECUTED on load
         // (arrival == success); if navigation never lands, the action stays
         // CONFIRMED rather than being falsely recorded as executed.
-        stashActionForArrival(acrAction);
+        stashActionForArrival(acrAction, data.navigate_url);
         setTimeout(function() {
           window.location.href = data.navigate_url;
         }, 1500);
@@ -654,26 +654,38 @@
   // Remember the pending action so the NEXT page load (the destination) can
   // confirm it as executed. Carries the session id so the confirmation does not
   // depend on the widget having re-initialised its session yet.
-  function stashActionForArrival(action) {
+  function stashActionForArrival(action, target) {
     if (!action || !action.action_id) return;
     try {
       sessionStorage.setItem('ow_acr_pending', JSON.stringify({
-        session_id: sessionId, action_id: action.action_id
+        session_id: sessionId, action_id: action.action_id, target: target || ''
       }));
     } catch (e) {}
   }
 
-  // On load, if we arrived here from a navigation action, record it as EXECUTED.
-  // If navigation never lands (404/blocked/aborted), nothing fires and the
-  // action stays CONFIRMED — so a failed navigation is never counted as success.
+  function pathOf(target) {
+    try {
+      var u = new URL(target, window.location.href);
+      return u.origin === window.location.origin ? u.pathname : '';
+    } catch (e) { return ''; }
+  }
+
+  // On load, if this page is the action's own destination, record it EXECUTED.
+  // A sign-in page in between (the destination needs an account) keeps the
+  // action waiting for the page the customer lands on after signing in; any
+  // other page drops it unreported, so the action stays CONFIRMED and is never
+  // counted as executed where the customer did not arrive.
   function flushArrivedAction() {
     var raw;
     try { raw = sessionStorage.getItem('ow_acr_pending'); } catch (e) { return; }
     if (!raw) return;
-    try { sessionStorage.removeItem('ow_acr_pending'); } catch (e) {}
     var d;
-    try { d = JSON.parse(raw); } catch (e) { return; }
-    if (!d || !d.session_id || !d.action_id) return;
+    try { d = JSON.parse(raw); } catch (e) { d = null; }
+    var here = window.location.pathname;
+    var arrived = !!(d && d.target && pathOf(d.target) === here);
+    if (!arrived && d && d.target && here.indexOf('/auth/') === 0) return;
+    try { sessionStorage.removeItem('ow_acr_pending'); } catch (e) {}
+    if (!arrived || !d.session_id || !d.action_id) return;
     postActionResult(JSON.stringify({
       session_id: d.session_id, action_id: d.action_id,
       success: true, failure_code: null

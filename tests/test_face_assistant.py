@@ -440,7 +440,7 @@ class GatewayWiringTests(unittest.TestCase):
             js = fh.read()
         self.assertIn("data.face_action && data.face_action.ok && data.face_action.reload", js)
         with open(os.path.join(REPO, "templates", "base.html"), encoding="utf-8") as fh:
-            self.assertIn("chat-widget.js') + '?v=27'", fh.read())
+            self.assertIn("chat-widget.js') + '?v=28'", fh.read())
 
     def test_deployable(self):
         with open(os.path.join(REPO, "deploy", "deploy.py"), encoding="utf-8") as fh:
