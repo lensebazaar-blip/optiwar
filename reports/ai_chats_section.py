@@ -443,6 +443,83 @@ def support(s):
     return rows
 
 
+SHOPPING_STAGES = ("LISTING", "PRODUCT", "CART", "CHECKOUT")
+SAT_STATES = ("SATISFIED", "NOT_SATISFIED", "NO_RESPONSE", "NOT_ASKED")
+
+
+def satisfaction(s, traces=None):
+    """``(state, detail)``: the customer's answer to "Did this answer your
+    question?", NO_RESPONSE if it was asked and not answered, else NOT_ASKED
+    with the reason it was not."""
+    ev = s.get("events", ())
+    recorded = [e for e in ev if e["type"] == "SATISFACTION_RECORDED"]
+    asked = [e for e in ev if e["type"] == "SATISFACTION_ASKED"]
+    if recorded:
+        state = recorded[-1]["payload"].get("state") or "-"
+        intent = recorded[-1]["payload"].get("turn_intent") or "-"
+        if state == "NOT_SATISFIED":
+            ticket = s.get("ket_ref") or next(
+                (e["payload"].get("ket_ticket_id") for e in ev
+                 if e["type"] == "KET_TICKET_CREATED"), None)
+            offered = any(e["type"] == "ESCALATION_OFFERED" and e["at"] >= recorded[-1]["at"]
+                          for e in ev)
+            return state, "%s · one recovery answer · %s" % (
+                intent, "KET ticket %s" % ticket if ticket else
+                "ticket offered" if offered else "no ticket offered")
+        return state, intent
+    if asked:
+        return "NO_RESPONSE", "asked after %s, not answered" % (
+            asked[-1]["payload"].get("turn_intent") or "-")
+    traces = traces if traces is not None else [trace_for(s, i) for i in _ai_indexes(s)]
+    stages = {e["stage"] for e in ev if e["type"] == "JOURNEY_STAGE"}
+    if s.get("orders") or "PURCHASE" in stages:
+        return "NOT_ASKED", "purchase completed"
+    if (any(t.get("intent") == "PRODUCT_SEARCH" for t in traces)
+            or stages & set(SHOPPING_STAGES)):
+        return "NOT_ASKED", "shopping journey still active"
+    return "NOT_ASKED", "no terminal support answer"
+
+
+_AFTERCARE_TOOLS = {"LOOKUP_RESHIP_STATUS": "reship", "READ_RETURN": "return/refund",
+                    "LOOKUP_ORDER": "order"}
+
+
+def journey(s, traces):
+    """Need → AI action → page reached → cart → checkout → purchase →
+    aftercare → KET → satisfaction, for one session."""
+    ev = s.get("events", ())
+    stages = {e["stage"] for e in ev if e["type"] == "JOURNEY_STAGE" and e["stage"]}
+    intents = [t.get("intent") for t in traces if t.get("intent")]
+    recs = [e["payload"] for e in ev
+            if e["type"] == "RECOMMENDATION_GENERATED" and e["success"] == "1"]
+    acts = s.get("actions", ())
+    _, deepest, _ = outcome(s)
+    yes = lambda b: "YES" if b else "NO"  # noqa: E731
+    after = []
+    for t in traces:
+        for tool in t.get("tools") or ():
+            name = _AFTERCARE_TOOLS.get(tool.get("tool"))
+            if name and name not in after:
+                after.append(name)
+    ticket = s.get("ket_ref") or next((e["payload"].get("ket_ticket_id") for e in ev
+                                       if e["type"] == "KET_TICKET_CREATED"), None)
+    state, detail = satisfaction(s, traces)
+    return [("Need", ", ".join(dict.fromkeys(intents)) or "-"),
+            ("Recommendation", "%d frames" % (recs[-1].get("result_count") or 0)
+             if recs else "none"),
+            ("AI action", "; ".join("%s %s" % (a["type"], a["status"]) for a in acts)
+             or "none"),
+            ("Reached", deepest or "no page recorded after the chat"),
+            ("Product viewed", yes("PRODUCT" in stages)),
+            ("Cart", yes("CART" in stages)),
+            ("Checkout", yes("CHECKOUT" in stages)),
+            ("Purchase", yes(s.get("orders") or "PURCHASE" in stages)),
+            ("Order / return / refund / reship", ", ".join(after) + " answered"
+             if after else "not discussed"),
+            ("KET escalation", ticket or "NO"),
+            ("Satisfaction", "%s — %s" % (state, detail))]
+
+
 def action_rows(s):
     ev = {}
     for e in s.get("events", ()):
@@ -524,7 +601,9 @@ def headline(sessions):
             "tool_replies": src("MODEL + TOOL", "TOOL-ONLY"),
             "fallback_replies": src("FALLBACK"),
             "actions_executed": sum(1 for s in sessions for e in s.get("events", ())
-                                    if e["type"] == "ACTION_EXECUTED")}
+                                    if e["type"] == "ACTION_EXECUTED"),
+            **{"sat_" + st.lower(): sum(satisfaction(s)[0] == st for s in with_input)
+               for st in SAT_STATES}}
 
 
 HEADLINE_ROWS = (("widget_sessions", "Widget sessions"),
@@ -539,7 +618,11 @@ HEADLINE_ROWS = (("widget_sessions", "Widget sessions"),
                  ("deterministic_replies", "Deterministic (excl. greeting)"),
                  ("tool_replies", "Tool-assisted replies"),
                  ("fallback_replies", "Fallback replies"),
-                 ("actions_executed", "ACR actions executed"))
+                 ("actions_executed", "ACR actions executed"),
+                 ("sat_satisfied", "Satisfaction: satisfied"),
+                 ("sat_not_satisfied", "Satisfaction: not satisfied"),
+                 ("sat_no_response", "Satisfaction: no response"),
+                 ("sat_not_asked", "Satisfaction: not asked"))
 
 
 def _meta_line(raw):
@@ -592,8 +675,7 @@ def render_html(sessions, day, hours=WINDOW_HOURS, errors=()):
            % (hours, s["chats"], s["messages"], s["customer_messages"], s["signed_in"],
               s["escalated"]),
            "<h3>AI CHAT SUMMARY</h3>",
-           _table(e, [(label, str(h[k])) for k, label in HEADLINE_ROWS]
-                  + [("Customer satisfied / unresolved", "not collected yet")])]
+           _table(e, [(label, str(h[k])) for k, label in HEADLINE_ROWS])]
     for err in errors:
         out.append("<p style=\"color:#b00\">%s</p>" % e(err))
     for i, c in enumerate(sessions, 1):
@@ -644,7 +726,10 @@ def render_html(sessions, day, hours=WINDOW_HOURS, errors=()):
                 "<span class=\"t\">no action record</span>"))
             out.append("<h4>BUSINESS OUTCOME</h4>" + _table(e, outcome(c)[0]))
             out.append("<h4>SUPPORT / TICKET</h4>" + _table(e, support(c)))
-            out.append("<h4>SATISFACTION</h4><span class=\"t\">not collected yet</span>")
+            out.append("<h4>JOURNEY OUTCOME</h4>"
+                       + _table(e, journey(c, list(traces.values()))))
+            out.append("<h4>SATISFACTION</h4><span class=\"t\">%s</span>"
+                       % e("%s — %s" % satisfaction(c, list(traces.values()))))
         out.append("</div>")
     out.append("</body></html>")
     return "\n".join(out)
