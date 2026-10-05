@@ -1941,6 +1941,8 @@ def _forward_ticket_from_chat(db, session_id, session, page_url, phone='', class
     context_note = _ticket_context_text(classification, phone) if classification else ''
     callback = (classification or {}).get('ticket_reason') == ai_language.INTENT_CALLBACK_REQUEST
     subject_tag = "[AI Chat][Callback]" if callback else "[AI Chat]"
+    if test_identity.is_test_customer(db.cursor(), session.get('customer_id')):
+        subject_tag = "[TEST] " + subject_tag
 
     # STEP 1: Insert into local DB (same as contact form)
     local_ticket_id = None
@@ -2333,9 +2335,10 @@ def _turn_tools(rx_model, order_model, reship_model, return_model, face_ctx,
         tools.append({'tool': 'LOOKUP_PRESCRIPTION', 'found': bool(rx_lookup.found(rx_model))})
     if order_model is not None:
         tools.append({'tool': 'LOOKUP_ORDER', 'found': bool(order_lookup.found(order_model))})
-    if reship_model and reship_model.get('orders'):
-        tools.append({'tool': 'LOOKUP_RESHIP_STATUS',
-                      'asked': turn_intent == ai_language.INTENT_RESHIP_STATUS})
+    asked_reship = turn_intent == ai_language.INTENT_RESHIP_STATUS
+    if reship_model is not None and (reship_model.get('orders') or asked_reship):
+        tools.append({'tool': 'LOOKUP_RESHIP_STATUS', 'asked': asked_reship,
+                      'found': bool(reship_model.get('orders'))})
     if return_model and return_model.get('orders'):
         tools.append({'tool': 'READ_RETURN'})
     if face_ctx:
