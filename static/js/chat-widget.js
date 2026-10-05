@@ -24,6 +24,7 @@
   var isOpen = false;
   var isTyping = false;
   var lastPollTime = null;
+  var lastOffer = null;
   var initialLoaded = false;  // history rendered once; later polls reconcile, never wipe
   var currentMode = 'small'; // small | half | full
 
@@ -163,6 +164,14 @@
   document.body.appendChild(panel);
 
   var msgContainer = document.getElementById('ow-messages');
+  // Opening the live offer from its button is the customer's yes: the
+  // destination page reports the same action executed.
+  msgContainer.addEventListener('click', function(e) {
+    var a = e.target && e.target.closest ? e.target.closest('a.ow-action-btn') : null;
+    if (a && lastOffer && a.getAttribute('href') === lastOffer.target) {
+      stashActionForArrival(lastOffer);
+    }
+  });
   var input = document.getElementById('ow-input');
   var sendBtn = document.getElementById('ow-send');
   var closeBtn = document.getElementById('ow-close');
@@ -604,6 +613,7 @@
       if (data.face_action && data.face_action.ok && data.face_action.reload && !data.navigate_url) {
         setTimeout(function() { window.location.reload(); }, 1500);
       }
+      lastOffer = data.offer && data.offer.action_id ? data.offer : null;
       if (data.navigate_url) {
         var acrAction = data.action && data.action.action_id ? data.action : null;
         // ACR A1: stash the action across the navigation instead of reporting
