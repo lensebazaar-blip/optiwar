@@ -129,7 +129,7 @@ class AiChatsSectionTests(unittest.TestCase):
         sessions, errors = acs.collect(_sql(phones=[("42", _hex("+919810022222"))]))
         self.assertEqual(errors, [])
         a = dict(acs.identity(sessions[1]))
-        self.assertEqual(a["Phone"], "+919810022222 (ACCOUNT_VERIFIED)")
+        self.assertEqual((a["Phone"], a["Phone source"]), ("+919810022222", "ACCOUNT_VERIFIED"))
         self.assertEqual(a["Signed in"], "YES")
         self.assertEqual(a["Provided during chat"], "9810011111 (CHAT_PROVIDED)")
         g = dict(acs.identity(sessions[0]))
@@ -150,7 +150,8 @@ class AiChatsSectionTests(unittest.TestCase):
         self.assertIn("Source: AI + TOOL", page)
         self.assertIn("filters color=black, shape=round · matched 17 · returned 15", page)
         self.assertIn("ranking in_stock_qty_desc_v1", page)
-        self.assertIn("deepseek/deepseek-chat · 1 call(s) · tokens in 1200 / out 80", page)
+        self.assertIn("deepseek · requested deepseek-chat · returned NOT REPORTED · 1 call(s) · "
+                      "tokens in 1200 / out 80", page)
         self.assertIn("Action NAVIGATE OFFERED · act-1", page)
         self.assertNotIn("&quot;trace&quot;", page)
         h = acs.headline(sessions)
@@ -182,6 +183,33 @@ class AiChatsSectionTests(unittest.TestCase):
         self.assertEqual(second["source"], "DETERMINISTIC")
         out = dict(acs.outcome(s)[0])
         self.assertEqual((out["Actions executed"], out["Furthest page reached"]), ("1", "LISTING"))
+
+    def test_a_last_row_that_lost_its_trailing_empty_column_is_read(self):
+        heads = [("chat_a", "42", _hex("Asha Rao"), _hex("asha@example.com"), "resolved", "KET-9")]
+        rows = [("chat_a", "customer", _hex("hi"), "", "2026-10-03 10:00:00")]
+        sessions, errors = acs.collect(_sql(heads=heads, rows=rows, phones=[("42",)]))
+        self.assertEqual(errors, [])
+        a = dict(acs.identity(sessions[0]))
+        self.assertEqual((a["Phone"], a["Current page"]), ("not on the account", "-"))
+        self.assertNotIn("Phone source", a)
+
+    def test_a_reconstructed_offer_is_offered_on_its_turn_and_confirmed_on_the_yes(self):
+        rows = [("chat_e", "customer", _hex("aviators"), "", "2026-10-03 12:00:10"),
+                ("chat_e", "ai", _hex("Shall I open them?"), "", "2026-10-03 12:00:14"),
+                ("chat_e", "customer", _hex("yes"), "", "2026-10-03 12:00:30"),
+                ("chat_e", "ai", _hex("Opening."), "", "2026-10-03 12:00:31")]
+        events = [_ev("chat_e", "NAVIGATION_OFFERED", "2026-10-03 12:00:14", action_id="act-5",
+                      action_type="NAVIGATE"),
+                  _ev("chat_e", "ACTION_CONFIRMED", "2026-10-03 12:00:30", action_id="act-5",
+                      action_type="NAVIGATE"),
+                  _ev("chat_e", "ACTION_EXECUTED", "2026-10-03 12:00:31", action_id="act-5",
+                      action_type="NAVIGATE")]
+        heads = [("chat_e", "", "", "", "active", "", "")]
+        s = acs.collect(_sql(heads=heads, rows=rows, events=events))[0][0]
+        first, second = acs.trace_for(s, 1), acs.trace_for(s, 3)
+        self.assertEqual((first["action"]["state"], first["basis"]), ("OFFERED", acs.HISTORICAL))
+        self.assertEqual((second["action"]["id"], second["action"]["state"]), ("act-5", "EXECUTED"))
+        self.assertIn("HISTORICAL RECONSTRUCTION", acs.render_html([s], "2026-10-04"))
 
     def test_sessions_are_classified(self):
         def one(rows, email="", cid="", events=(), actions=()):
