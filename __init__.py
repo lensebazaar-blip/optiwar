@@ -305,7 +305,7 @@ def create_app(test_config=None):
             'site_from': get_site_from(),
             'currency_symbol': '\u20b9' if is_india else '\u20ac',
             'site_url': _site_url,
-            'test_pay_enabled': app.config.get('TEST_PAY_ENABLED', False) and datetime.now(timezone(timedelta(hours=5, minutes=30))).hour < 17,
+            'test_pay_enabled': bool(session.get('is_test_customer')) or (app.config.get('TEST_PAY_ENABLED', False) and datetime.now(timezone(timedelta(hours=5, minutes=30))).hour < 17),
         }
 
     #@app.after_request

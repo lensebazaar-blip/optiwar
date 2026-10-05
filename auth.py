@@ -3,6 +3,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from .captcha import CaptchaGenerator
 from .db import get_db
 from .cart_persist import load_cart_from_db, save_cart_to_db
+from .test_identity import is_test_customer
 from authlib.integrations.flask_client import OAuth
 import functools
 import logging
@@ -177,6 +178,7 @@ def login():
         session['user_name'] = user['customer_name']
         session['user_email'] = user['customer_email']
         session['user_phone'] = user.get('customer_phone', '')
+        session['is_test_customer'] = is_test_customer(cursor, user['customer_id'])
 
         # Restore persistent cart from DB (cross-device sync)
         load_cart_from_db()
