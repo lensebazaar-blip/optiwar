@@ -27,8 +27,14 @@ ROWS = [
 ]
 
 
-def _sql(heads=HEADS, rows=ROWS):
+def _sql(heads=HEADS, rows=ROWS, events=(), actions=(), orders=(), phones=()):
     def sql(query):
+        for table, data in (("FROM ai_events", events), ("FROM ai_actions", actions),
+                            ("FROM ai_session_commerce", orders), ("FROM customers", phones)):
+            if table in query:
+                if isinstance(data, Exception):
+                    raise data
+                return list(data)
         if "FROM chat_sessions" in query and "FROM chat_messages WHERE session_id" not in query:
             if isinstance(heads, Exception):
                 raise heads
@@ -37,6 +43,25 @@ def _sql(heads=HEADS, rows=ROWS):
             raise rows
         return rows
     return sql
+
+
+def _ev(sid, etype, at, payload=None, action_id="", action_type="", success="1", stage="",
+        provider="", model="", ms=""):
+    import json
+    return (sid, etype, at, action_id, action_type, success, "", stage, provider, model, ms,
+            _hex(json.dumps(payload)) if payload else "")
+
+
+TRACE = {"v": 1, "source": "MODEL + TOOL", "trigger": "customer_message", "language": "en",
+         "intent": "PRODUCT_SEARCH", "confidence": 0.9,
+         "tools": [{"tool": "search_products", "args": {"color": "black", "shape": "round"},
+                    "matched": 17, "returned": 15, "skus": ["SKU1", "SKU2"],
+                    "ranking": "in_stock_qty_desc_v1", "catalog_at": "2026-10-03 06:00:00"}],
+         "model_calls": [{"provider": "deepseek", "model": "deepseek-chat", "ok": True,
+                          "ms": 900, "in": 1200, "out": 80}],
+         "page": {"kind": "listing", "site": "optiwar.in", "facts_used": []},
+         "action": {"id": "act-1", "type": "NAVIGATE", "state": "OFFERED",
+                    "target": "/frames?color=black"}}
 
 
 class AiChatsSectionTests(unittest.TestCase):
@@ -98,6 +123,93 @@ class AiChatsSectionTests(unittest.TestCase):
                 self.assertFalse(os.path.exists(path))
             finally:
                 acs.REPORT_DIR, acs.collect = real_dir, real_collect
+
+
+    def test_a_signed_in_chat_shows_the_account_phone_as_verified(self):
+        sessions, errors = acs.collect(_sql(phones=[("42", _hex("+919810022222"))]))
+        self.assertEqual(errors, [])
+        a = dict(acs.identity(sessions[1]))
+        self.assertEqual(a["Phone"], "+919810022222 (ACCOUNT_VERIFIED)")
+        self.assertEqual(a["Signed in"], "YES")
+        self.assertEqual(a["Provided during chat"], "9810011111 (CHAT_PROVIDED)")
+        g = dict(acs.identity(sessions[0]))
+        self.assertEqual((g["Customer"], g["Phone"], g["Signed in"]), ("Guest", "not known", "NO"))
+
+    def test_without_the_customers_grant_the_phone_says_so(self):
+        sessions, errors = acs.collect(_sql(phones=SqlError("denied")))
+        self.assertEqual(errors, [])
+        self.assertIn("no grant", dict(acs.identity(sessions[1]))["Phone"])
+
+    def test_a_stored_trace_is_rendered_without_hidden_fields(self):
+        rows = [("chat_c", "customer", _hex("black round frames"), "", "2026-10-03 11:00:00"),
+                ("chat_c", "ai", _hex("Here are some."), _hex(__import__("json").dumps(
+                    {"trace": TRACE, "actions": ["navigate"]})), "2026-10-03 11:00:03")]
+        heads = [("chat_c", "", "", "", "active", "", _hex("https://optiwar.in/frames"))]
+        sessions, _ = acs.collect(_sql(heads=heads, rows=rows))
+        page = acs.render_html(sessions, "2026-10-04")
+        self.assertIn("Source: AI + TOOL", page)
+        self.assertIn("filters color=black, shape=round · matched 17 · returned 15", page)
+        self.assertIn("ranking in_stock_qty_desc_v1", page)
+        self.assertIn("deepseek/deepseek-chat · 1 call(s) · tokens in 1200 / out 80", page)
+        self.assertIn("Action NAVIGATE OFFERED · act-1", page)
+        self.assertNotIn("&quot;trace&quot;", page)
+        h = acs.headline(sessions)
+        self.assertEqual((h["model_replies"], h["tool_replies"], h["real"]), (1, 1, 1))
+
+    def test_a_turn_without_a_stored_trace_is_rebuilt_from_its_events(self):
+        rows = [("chat_d", "ai", _hex("Hi! How can I help?"), "", "2026-10-03 12:00:00"),
+                ("chat_d", "customer", _hex("blue frames"), "", "2026-10-03 12:00:10"),
+                ("chat_d", "ai", _hex("Sure."), "", "2026-10-03 12:00:14"),
+                ("chat_d", "customer", _hex("yes"), "", "2026-10-03 12:00:30"),
+                ("chat_d", "ai", _hex("Opening."), "", "2026-10-03 12:00:31")]
+        events = [_ev("chat_d", "SESSION_STARTED", "2026-10-03 12:00:00", {"authenticated": False}),
+                  _ev("chat_d", "TURN_UNDERSTOOD", "2026-10-03 12:00:10",
+                      {"detected_language": "en", "turn_intent": "PRODUCT_SEARCH"}),
+                  _ev("chat_d", "MODEL_CALL", "2026-10-03 12:00:13", {"input_tokens": 500,
+                      "output_tokens": 40}, provider="deepseek", model="deepseek-chat", ms="800"),
+                  _ev("chat_d", "RECOMMENDATION_GENERATED", "2026-10-03 12:00:14",
+                      {"result_count": 3, "skus": ["A", "B", "C"], "filters": {"color": "blue"}}),
+                  _ev("chat_d", "ACTION_EXECUTED", "2026-10-03 12:00:35", action_id="act-9"),
+                  _ev("chat_d", "JOURNEY_STAGE", "2026-10-03 12:00:36", stage="LISTING")]
+        heads = [("chat_d", "", "", "", "active", "", "")]
+        sessions, _ = acs.collect(_sql(heads=heads, rows=rows, events=events))
+        s = sessions[0]
+        greet, first, second = (acs.trace_for(s, i) for i in (0, 2, 4))
+        self.assertEqual(greet["basis"], "greeting")
+        self.assertEqual((first["source"], first["language"], first["intent"]),
+                         ("MODEL + TOOL", "en", "PRODUCT_SEARCH"))
+        self.assertEqual(first["tools"][0]["returned"], 3)
+        self.assertEqual(second["source"], "DETERMINISTIC")
+        out = dict(acs.outcome(s)[0])
+        self.assertEqual((out["Actions executed"], out["Furthest page reached"]), ("1", "LISTING"))
+
+    def test_sessions_are_classified(self):
+        def one(rows, email="", cid="", events=(), actions=()):
+            heads = [("x", cid, "", _hex(email) if email else "", "active", "", "")]
+            return acs.collect(_sql(heads=heads, rows=rows, events=events,
+                                    actions=actions))[0][0]["kind"]
+        greet = [("x", "ai", _hex("Hi"), "", "2026-10-03 12:00:00")]
+        talk = greet + [("x", "customer", _hex("hello"), "", "2026-10-03 12:00:05")]
+        start = lambda flag: [_ev("x", "SESSION_STARTED", "2026-10-03 12:00:00",  # noqa: E731
+                                  {"authenticated": False, "acr_canary": flag})]
+        act = [("x", "a1", "NAVIGATE", _hex("/frames"), "EXECUTED", "", "2026-10-03 12:00:06",
+                "", "")]
+        self.assertEqual(one(greet), acs.WIDGET)
+        self.assertEqual(one(talk), acs.REAL)
+        self.assertEqual(one(talk, events=start(True)), acs.CANARY)
+        self.assertEqual(one(talk, email="ops@optiwar.com", cid="7"), acs.TEST)
+        heads = [("x", "", "", _hex("walkin@example.com"), "active", "", "")]
+        guest = acs.collect(_sql(heads=heads, rows=talk))[0][0]
+        self.assertEqual(dict(acs.identity(guest))["Email"], "walkin@example.com (CHAT_PROVIDED)")
+        self.assertEqual(one(talk, actions=act), acs.CANARY)
+        self.assertEqual(one(talk, events=start(False), actions=act), acs.REAL)
+
+    def test_the_body_carries_counts_only(self):
+        sessions, _ = acs.collect(_sql(phones=[("42", _hex("+919810022222"))]))
+        text = acs.build(sessions, acs.file_name("2026-10-04"))
+        self.assertIn("Sessions with customer input  2", text)
+        for pii in ("Asha", "asha@", "9810022222", "9810011111"):
+            self.assertNotIn(pii, text)
 
 
 if __name__ == "__main__":
