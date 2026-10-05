@@ -581,6 +581,15 @@ def offers_navigation(text):
     return bool(_OFFER_RE.search(text) and _NAV_OFFER_TARGET_RE.search(text))
 
 
+def asks_before_navigating(text):
+    """True when a reply that carries a destination asks the customer first
+    ("...Would you like me to take you there?") rather than saying it is
+    going there now. Link markup is ignored, so a button label is not read
+    as the reply's own words."""
+    words = re.sub(r"\[[^\]]*\]\([^)]*\)", " ", text or "")
+    return offers_navigation(words) and not _PROMISE_RE.search(words)
+
+
 # ─── Schema (additive) ───
 
 def ensure_schema(get_conn):

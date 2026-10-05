@@ -2973,7 +2973,15 @@ def chat_message():
                               payload={'codes': _breach})
 
         # ── ACR A1: create/confirm a structured action + mandatory fallback link ──
-        if navigate_url:
+        if navigate_url and acr_action is None and acr.asks_before_navigating(ai_reply):
+            # The reply asks before going there, so the destination is an offer
+            # the customer's yes executes, not a navigation of this turn.
+            _offered = {'id': acr.create_pending_action(db, session_id, 'NAVIGATE', navigate_url),
+                        'type': 'NAVIGATE', 'target': navigate_url, 'state': 'OFFERED'}
+            ai_reply = acr.with_fallback_link(ai_reply, navigate_url)
+            navigate_url = None
+            actions = [a for a in actions if a != 'navigate']
+        elif navigate_url:
             if acr_action is None:
                 _aid = acr.create_pending_action(db, session_id, 'NAVIGATE', navigate_url)
                 acr.mark_action(db, _aid, 'CONFIRMED')
