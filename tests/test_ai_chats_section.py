@@ -180,6 +180,7 @@ class AiChatsSectionTests(unittest.TestCase):
         s = sessions[0]
         greet, first, second = (acs.trace_for(s, i) for i in (0, 2, 4))
         self.assertEqual(greet["basis"], "greeting")
+        self.assertIn("Source: RULE · widget greeting", acs.render_html([s], "2026-10-04"))
         self.assertEqual((first["source"], first["language"], first["intent"]),
                          ("MODEL + TOOL", "en", "PRODUCT_SEARCH"))
         self.assertEqual(first["tools"][0]["returned"], 3)

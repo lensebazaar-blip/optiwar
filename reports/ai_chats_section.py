@@ -630,9 +630,10 @@ def render_html(sessions, day, hours=WINDOW_HOURS, errors=()):
                     BADGE.get(t.get("source"), t.get("source") or ""))
                 if (t.get("action") or {}).get("id"):
                     badge += "<span class=\"badge\">ACR ACTION</span>"
-                if t.get("basis") != "greeting":
-                    trace = "\n<div class=\"trace\">%s</div>" % "<br>".join(
-                        e(x) for x in trace_lines(t))
+                lines = (["Source: RULE · widget greeting, not a reply to the customer · "
+                          "Model call: NONE"] if t.get("basis") == "greeting"
+                         else trace_lines(t))
+                trace = "\n<div class=\"trace\">%s</div>" % "<br>".join(e(x) for x in lines)
             out.append("<div class=\"m %s\"><span class=\"who\">%s</span>%s <span class=\"t\">%s</span>\n%s%s%s</div>"
                        % (src, SPEAKER[src], badge, e(m["at"]), e(m["text"]), trace,
                           "\n<span class=\"meta\">%s</span>" % e(meta) if meta else ""))
