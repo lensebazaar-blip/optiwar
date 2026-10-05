@@ -31,6 +31,8 @@ class Unit(unittest.TestCase):
         self.assertTrue(asks("Here are 5 frames. Would you like me to take you there?"))
         self.assertTrue(asks("Would you like me to show you these? "
                              "Click here to let me take you there"))
+        self.assertTrue(asks("Shall I show you these? You can click here to let me "
+                             "take you there."))
         self.assertFalse(asks("Here are the frames. Let me know if you want another colour."))
         self.assertFalse(asks("Taking you there now. Would you like me to show you more?"))
         self.assertFalse(asks("Opening them now, let me know if you want another colour."))
