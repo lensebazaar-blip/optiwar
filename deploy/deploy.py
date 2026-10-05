@@ -1159,8 +1159,8 @@ def cmd_canary(args):
     """Drive one staff conversation and prove canonical events were written.
 
     Runs on the production host so the request path is nginx and gunicorn,
-    exactly as a shopper's would be. ``ACR_CANARY_ONLY`` keeps the action path
-    staff-only, so nothing is exposed to live shoppers.
+    exactly as a shopper's would be. Its NAVIGATE actions are the ones every
+    shopper gets; the session is marked canary so reports keep it apart.
 
     The whole conversation is driven, not just its first turn: the model's
     product search is what emits ``RECOMMENDATION_GENERATED``, a confirmation

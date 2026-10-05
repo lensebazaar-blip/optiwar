@@ -2300,7 +2300,8 @@ def _model_call_trace(calls):
     for c in calls or ():
         out.append({k: v for k, v in (
             ('kind', c.get('kind')), ('provider', c.get('provider')),
-            ('model', c.get('model')), ('ok', c.get('success')),
+            ('model', c.get('model')), ('returned_model', c.get('actual_model')),
+            ('ok', c.get('success')),
             ('tool_call', c.get('tool_call') or None),
             ('ms', c.get('duration_ms')), ('in', c.get('input_tokens')),
             ('out', c.get('output_tokens')), ('failure', c.get('failure_code')))
@@ -2431,27 +2432,46 @@ def _acr_canary_cookie():
         return False
 
 
-def _acr_enabled_for(contact_email):
-    """ACR customer-facing gate (safeguard #3, limited canary).
-
-    - ``ACR_ACTIONS_ENABLED`` false  -> off for everyone (legacy stable path).
-    - ``ACR_CANARY_ONLY`` true (default) -> on only for approved canary sessions:
-      a signed ``ow_acr_canary`` cookie, or a customer whose email is in the
-      ``ACR_CANARY_EMAILS`` allow-list.
-    - ``ACR_CANARY_ONLY`` false -> on for all sessions (post-canary rollout).
-
-    Fail-safe: any error resolves to False (legacy path), never a crash.
-    """
+def _nav_actions_enabled():
+    """NAVIGATE is a safe action (no money, no data change): when
+    ``ACR_ACTIONS_ENABLED`` is on it is a recorded action for every customer.
+    Mutating actions (face, cart) keep their own feature and confirmation
+    gates. Fail-safe: any error resolves to False (legacy path)."""
     try:
-        return acr.canary_allows(
-            current_app.config.get('ACR_ACTIONS_ENABLED', False),
-            current_app.config.get('ACR_CANARY_ONLY', True),
-            _acr_canary_cookie(),
-            contact_email,
-            current_app.config.get('ACR_CANARY_EMAILS', ''),
-        )
+        return bool(current_app.config.get('ACR_ACTIONS_ENABLED', False))
     except Exception:
         return False
+
+
+NAV_CONFIRM_REPLY = {
+    'en': 'Opening that for you.',
+    'hi-Latn': 'Theek hai, abhi khol raha hoon.',
+    'hi': 'ठीक है, अभी खोल रहा हूँ।',
+}
+
+
+def _offered_navigation(db, session_id):
+    """The live NAVIGATE offer the assistant's latest reply made, or None.
+
+    Only the offer in the latest reply counts: once the assistant has said
+    something else, a "yes" answers that instead."""
+    try:
+        cur = db.cursor()
+        cur.execute(
+            """SELECT metadata FROM chat_messages
+               WHERE session_id = %s AND role = 'assistant'
+               ORDER BY id DESC LIMIT 1""", (session_id,))
+        row = cur.fetchone()
+        meta = json.loads((row or {}).get('metadata') or '{}')
+        act = (meta.get('trace') or {}).get('action') or {}
+    except Exception:
+        return None
+    if act.get('type') != 'NAVIGATE' or act.get('state') != 'OFFERED' or not act.get('id'):
+        return None
+    pending = acr.get_live_pending_action(db, session_id, 'NAVIGATE')
+    if not pending or pending.get('action_id') != act['id'] or not pending.get('target'):
+        return None
+    return pending
 
 
 @bp.route('/admin/acr-canary', methods=['GET', 'POST'])
@@ -2754,6 +2774,15 @@ def chat_message():
     if ai_reply is None and face_ctx:
         ai_reply, face_result = _face_confirmation(db, session_id, face_ctx,
                                                    content, page_url)
+    # A confirmation of the live NAVIGATE offer is executed as offered: the
+    # same action, the same destination, and no model call.
+    nav_confirm = None
+    if (ai_reply is None and not support and _nav_actions_enabled()
+            and acr.is_confirmation(content)):
+        _offer = _offered_navigation(db, session_id)
+        if _offer and acr.mark_action(db, _offer['action_id'], 'CONFIRMED'):
+            nav_confirm = _offer
+            ai_reply = NAV_CONFIRM_REPLY.get(reply_language, NAV_CONFIRM_REPLY['en'])
     error = None
     _trigger = 'customer_message' if ai_reply is None or support else 'action_confirmation'
     if ai_reply is None:
@@ -2857,14 +2886,16 @@ def chat_message():
 
     # Clean AI reply (handle action tags)
     ai_reply, actions, navigate_url = _clean_ai_reply(ai_reply)
-    ai_reply = _face_offer(db, session_id, face_ctx, ai_reply, page_url)
+    if nav_confirm is None:
+        ai_reply = _face_offer(db, session_id, face_ctx, ai_reply, page_url)
     if (sign_in_needed and not support and not navigate_url
             and order_lookup.SIGN_IN_ORDERS_URL not in ai_reply):
         ai_reply = _with_link(ai_reply, 'Sign in', order_lookup.SIGN_IN_ORDERS_URL)
 
     # Deterministic product navigation: override the model's freelanced link
     # with the matched product's canonical catalog URL when applicable.
-    navigate_url = _resolve_product_nav(navigate_url, content)
+    navigate_url = (nav_confirm['target'] if nav_confirm
+                    else _resolve_product_nav(navigate_url, content))
 
     # ── Authoritative server-side navigation-safety gate ──
     # Policy decides here (browser safeUrl() is only defence-in-depth). A
@@ -2880,14 +2911,17 @@ def chat_message():
                       success=False, failure_code='unsafe_url')
         navigate_url = acr.FRAMES_LISTING_FALLBACK
 
-    # ── ACR canary gate (safeguard #3) ──
-    # When ACR is not enabled for this session, ordinary customers keep the exact
-    # pre-ACR stable path (no pending actions, no fallback button, no result
-    # reporting). ACR action-integrity runs only for approved canary sessions.
+    # ── ACR NAVIGATE action integrity (safeguard #3) ──
+    # With ACR_ACTIONS_ENABLED off, everyone keeps the pre-ACR stable path (no
+    # pending actions, no fallback button, no result reporting).
     acr_action = None
     _bound_offer = False
     _offered = None
-    if _acr_enabled_for(session.get('contact_email')):
+    if _nav_actions_enabled():
+        if nav_confirm:
+            acr_action = {'action_id': nav_confirm['action_id'], 'type': 'NAVIGATE',
+                          'target': navigate_url}
+            _bound_offer = True
         # ── ACR A1: resolve a bare confirmation against a live pending action ──
         # If the model produced no navigation this turn but the customer just
         # confirmed ("yes"/"take me there"), honour the action we proposed earlier
