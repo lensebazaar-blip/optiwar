@@ -31,6 +31,8 @@ WINDOW_HOURS = int(os.environ.get("ACR_REPORT_WINDOW_HOURS", "24"))
 REPORT_DIR = os.environ.get("OPTIWAR_REPORT_DIR", "/root/reports")
 MAX_SESSIONS = 500
 
+HISTORICAL = "HISTORICAL RECONSTRUCTION (from events; turn-time state not proven)"
+
 SPEAKER = {"customer": "Customer", "ai": "AI", "human": "Agent", "system": "System"}
 
 
@@ -42,6 +44,12 @@ def _text(hexed):
     if not hexed or hexed == "NULL":
         return ""
     return bytes.fromhex(hexed).decode("utf-8", "replace")
+
+
+def _rows(sql, query, width):
+    """Rows padded to ``width``: run_sql strips its output, so the last row
+    loses a trailing empty column."""
+    return [tuple(r) + ("",) * (width - len(r)) for r in sql(query)]
 
 
 def _in_window(hours):
@@ -57,19 +65,19 @@ def collect(sql=run_sql, hours=WINDOW_HOURS):
     errors = []
     window = _in_window(hours)
     try:
-        heads = sql(
+        heads = _rows(sql,
             "SELECT session_id, IFNULL(customer_id,''), HEX(IFNULL(contact_name,'')), "
             "HEX(IFNULL(contact_email,'')), IFNULL(status,''), IFNULL(ket_ticket_ref,''), "
             "HEX(IFNULL(current_page_url,'')) FROM chat_sessions "
-            "WHERE session_id IN (%s)" % window)
+            "WHERE session_id IN (%s)" % window, 7)
     except SqlError as exc:
         heads = []
         errors.append("chat_sessions: %s" % exc)
     try:
-        rows = sql(
+        rows = _rows(sql,
             "SELECT session_id, source, HEX(IFNULL(content,'')), HEX(IFNULL(metadata,'')), "
             "created_at, IFNULL(status,'') FROM chat_messages WHERE session_id IN (%s) "
-            "ORDER BY session_id, id" % window)
+            "ORDER BY session_id, id" % window, 6)
     except SqlError as exc:
         return [], errors + ["chat_messages: %s" % exc]
     info = {}
@@ -85,7 +93,7 @@ def collect(sql=run_sql, hours=WINDOW_HOURS):
                                      events=[], actions=[], orders=[])
         s["messages"].append({"source": source, "text": _text(content),
                               "meta": _text(meta), "at": at,
-                              "status": r[5] if len(r) > 5 else ""})
+                              "status": r[5]})
     ordered = sorted(sessions.values(), key=lambda s: s["messages"][0]["at"])
     if len(ordered) > MAX_SESSIONS:
         errors.append("only the first %d of %d chats are in the file" % (MAX_SESSIONS, len(ordered)))
@@ -99,13 +107,13 @@ def collect(sql=run_sql, hours=WINDOW_HOURS):
 
 def _attach_ledgers(sql, window, sessions, errors):
     try:
-        for r in sql(
+        for r in _rows(sql,
                 "SELECT session_id, event_type, created_at, IFNULL(action_id,''), "
                 "IFNULL(action_type,''), IFNULL(success,''), IFNULL(failure_code,''), "
                 "IFNULL(journey_stage,''), IFNULL(provider,''), IFNULL(model,''), "
                 "IFNULL(duration_ms,''), HEX(IFNULL(payload,'')) FROM ai_events "
                 "WHERE session_id COLLATE utf8mb4_general_ci IN (%s) "
-                "ORDER BY session_id, created_at" % window):
+                "ORDER BY session_id, created_at" % window, 12):
             s = sessions.get(r[0])
             if s is not None:
                 s["events"].append({
@@ -115,12 +123,12 @@ def _attach_ledgers(sql, window, sessions, errors):
     except SqlError as exc:
         errors.append("ai_events: %s" % exc)
     try:
-        for r in sql(
+        for r in _rows(sql,
                 "SELECT session_id, action_id, action_type, HEX(IFNULL(target,'')), status, "
                 "IFNULL(result_code,''), created_at, IFNULL(resolved_at,''), "
                 "IFNULL(expires_at,'') FROM ai_actions "
                 "WHERE session_id COLLATE utf8mb4_general_ci IN (%s) "
-                "ORDER BY session_id, created_at" % window):
+                "ORDER BY session_id, created_at" % window, 9):
             s = sessions.get(r[0])
             if s is not None:
                 s["actions"].append({"id": r[1], "type": r[2], "target": _text(r[3]),
@@ -129,9 +137,9 @@ def _attach_ledgers(sql, window, sessions, errors):
     except SqlError as exc:
         errors.append("ai_actions: %s" % exc)
     try:
-        for r in sql(
+        for r in _rows(sql,
                 "SELECT session_id, order_id, attribution_type FROM ai_session_commerce "
-                "WHERE session_id COLLATE utf8mb4_general_ci IN (%s)" % window):
+                "WHERE session_id COLLATE utf8mb4_general_ci IN (%s)" % window, 3):
             s = sessions.get(r[0])
             if s is not None:
                 s["orders"].append({"order_id": r[1], "attribution": r[2]})
@@ -148,8 +156,8 @@ def _attach_phones(sql, sessions):
     if not ids:
         return
     try:
-        rows = sql("SELECT customer_id, HEX(IFNULL(customer_phone,'')) FROM customers "
-                   "WHERE customer_id IN (%s)" % ",".join(ids))
+        rows = _rows(sql, "SELECT customer_id, HEX(IFNULL(customer_phone,'')) FROM customers "
+                     "WHERE customer_id IN (%s)" % ",".join(ids), 2)
         phones = {r[0]: _text(r[1]).strip() for r in rows}
         state = None
     except SqlError:
@@ -237,14 +245,16 @@ def trace_for(s, idx):
     evs = _turn_events(s, idx)
     model_evs = [e for e in evs if e["type"] == "MODEL_CALL"]
     calls = [{"provider": e["provider"], "model": e["model"],
+              "returned_model": e["payload"].get("actual_model"),
               "ok": e["success"] == "1", "ms": e["ms"],
               "in": e["payload"].get("input_tokens"),
               "out": e["payload"].get("output_tokens"),
               # Before tool rounds were recorded as such, a round that asked
-              # for a tool was stored as an empty, failed reply.
+              # for a tool was stored as an empty, failed reply with no
+              # failure code; every real failure carries one.
               "tool_call": (e["payload"].get("tool_call") or
-                            (e["success"] != "1" and k < len(model_evs) - 1))}
-             for k, e in enumerate(model_evs)]
+                            (e["success"] != "1" and not e["failure"]))}
+             for e in model_evs]
     tools = []
     for e in evs:
         if e["type"] == "RECOMMENDATION_GENERATED":
@@ -263,10 +273,7 @@ def trace_for(s, idx):
         source = "MODEL + TOOL" if tools else "MODEL"
     else:
         source = "DETERMINISTIC"
-    action = next(({"id": e["action_id"], "type": e["action_type"] or "NAVIGATE",
-                    "state": "CONFIRMED" if e["type"] == "ACTION_CONFIRMED" else "OFFERED"}
-                   for e in evs if e["type"] in ("NAVIGATION_OFFERED", "ACTION_CONFIRMED")
-                   and e["action_id"]), None)
+    action = _turn_action(evs)
     if action is None and "navigate" in (meta.get("actions") or []):
         action = {"type": "NAVIGATE", "state": "AUTO_NAVIGATE", "recorded": False}
     return {"source": source, "trigger": "customer_message",
@@ -274,7 +281,27 @@ def trace_for(s, idx):
             "intent": understood.get("turn_intent") or understood.get("intent"),
             "confidence": understood.get("intent_confidence"),
             "tools": tools, "model_calls": calls, "action": action,
-            "basis": "rebuilt from events"}
+            "basis": HISTORICAL}
+
+
+def _turn_action(evs):
+    """The action as it stood when this reply was sent: one offered in this
+    turn is OFFERED (its later confirmation belongs to the customer's next
+    turn); one offered earlier and confirmed in this turn is CONFIRMED, or
+    EXECUTED if that happened in the same turn too."""
+    offered = [e for e in evs if e["type"] == "NAVIGATION_OFFERED" and e["action_id"]]
+    new_ids = {e["action_id"] for e in offered}
+    executed = {e["action_id"] for e in evs if e["type"] == "ACTION_EXECUTED"}
+    for e in evs:
+        if e["type"] == "ACTION_CONFIRMED" and e["action_id"] and e["action_id"] not in new_ids:
+            return {"id": e["action_id"], "type": e["action_type"] or "NAVIGATE",
+                    "state": "EXECUTED" if e["action_id"] in executed else "CONFIRMED",
+                    "bound_to_offer": True}
+    if offered:
+        e = offered[0]
+        return {"id": e["action_id"], "type": e["action_type"] or "NAVIGATE",
+                "state": "OFFERED"}
+    return None
 
 
 def _fmt_args(args):
@@ -317,8 +344,9 @@ def trace_lines(t):
         tin = sum(int(c.get("in") or 0) for c in calls)
         tout = sum(int(c.get("out") or 0) for c in calls)
         ms = sum(int(c.get("ms") or 0) for c in calls)
-        names = sorted({"%s/%s" % (c.get("provider") or "-", c.get("model") or "-")
-                        for c in calls})
+        names = sorted({"%s · requested %s · returned %s"
+                        % (c.get("provider") or "-", c.get("model") or "-",
+                           c.get("returned_model") or "NOT REPORTED") for c in calls})
         bad = [c for c in calls if c.get("ok") is False and not c.get("tool_call")]
         out.append("Model: %s · %d call(s)%s · tokens in %d / out %d · %d ms · "
                    "cost basis not declared" % (", ".join(names), len(calls),
@@ -359,9 +387,10 @@ def identity(s):
     if s.get("customer_id"):
         phone = s.get("account_phone_state") or s.get("account_phone") or "not on the account"
         rows = [("Customer", s.get("name") or "-"), ("Customer ID", s["customer_id"]),
-                ("Email", s.get("email") or "-"),
-                ("Phone", phone + (" (ACCOUNT_VERIFIED)" if s.get("account_phone") else "")),
-                ("Signed in", "YES")]
+                ("Email", s.get("email") or "-"), ("Phone", phone)]
+        if s.get("account_phone"):
+            rows.append(("Phone source", "ACCOUNT_VERIFIED"))
+        rows.append(("Signed in", "YES"))
     else:
         rows = [("Customer", "Guest"),
                 ("Email", "%s (CHAT_PROVIDED)" % s["email"] if s.get("email") else "not known"),
@@ -601,9 +630,10 @@ def render_html(sessions, day, hours=WINDOW_HOURS, errors=()):
                     BADGE.get(t.get("source"), t.get("source") or ""))
                 if (t.get("action") or {}).get("id"):
                     badge += "<span class=\"badge\">ACR ACTION</span>"
-                if t.get("basis") != "greeting":
-                    trace = "\n<div class=\"trace\">%s</div>" % "<br>".join(
-                        e(x) for x in trace_lines(t))
+                lines = (["Source: RULE · widget greeting, not a reply to the customer · "
+                          "Model call: NONE"] if t.get("basis") == "greeting"
+                         else trace_lines(t))
+                trace = "\n<div class=\"trace\">%s</div>" % "<br>".join(e(x) for x in lines)
             out.append("<div class=\"m %s\"><span class=\"who\">%s</span>%s <span class=\"t\">%s</span>\n%s%s%s</div>"
                        % (src, SPEAKER[src], badge, e(m["at"]), e(m["text"]), trace,
                           "\n<span class=\"meta\">%s</span>" % e(meta) if meta else ""))
