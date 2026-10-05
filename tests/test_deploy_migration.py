@@ -83,6 +83,8 @@ class DeployMigrationTest(unittest.TestCase):
                      for n, _c in self.cl.PRODUCTS_INDEXES]
         expected += ["products.%s (column)" % n
                      for n, _d in self.deploy.catalogue_columns()]
+        for table, columns in self.deploy.test_identity_module().ADDED_COLUMNS:
+            expected += ["%s.%s (column)" % (table, n) for n, _d in columns]
         self.assertEqual(labels, expected)
 
     def test_the_catalogue_columns_are_the_ones_catalogue_ensures(self):
@@ -219,7 +221,8 @@ class DeployMigrationTest(unittest.TestCase):
         known = {"ai_events", "ai_actions", "products",
                  "contact_lens_products", "contact_lens_images",
                  "contact_lens_variants", "contact_lens_prescriptions",
-                 "chat_sessions", "chat_attachments", "order_reshipments"}
+                 "chat_sessions", "chat_attachments", "order_reshipments",
+                 "customers"}
         for label, sql in self.deploy.migration():
             if label.endswith("(table)"):
                 self.assertIn(label.split(" ", 1)[0], sql, label)
