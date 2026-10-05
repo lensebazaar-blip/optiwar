@@ -3129,6 +3129,8 @@ def chat_message():
         resp['navigate_url'] = navigate_url
     if acr_action:
         resp['action'] = acr_action
+    if _offered:
+        resp['offer'] = {'action_id': _offered['id'], 'target': _offered['target']}
     if face_result is not None:
         resp['face_action'] = face_result
     if lens_proposal is not None:

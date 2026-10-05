@@ -581,13 +581,27 @@ def offers_navigation(text):
     return bool(_OFFER_RE.search(text) and _NAV_OFFER_TARGET_RE.search(text))
 
 
+_SENTENCE_RE = re.compile(r"[^.!?\n]+[.!?]*")
+# "Click here to let me take you there" invites a click; it is not the
+# assistant saying it is already going there.
+_CLICK_INVITE_RE = re.compile(r"(click|tap)\b", re.IGNORECASE)
+
+
 def asks_before_navigating(text):
     """True when a reply that carries a destination asks the customer first
     ("...Would you like me to take you there?") rather than saying it is
     going there now. Link markup is ignored, so a button label is not read
     as the reply's own words."""
     words = re.sub(r"\[[^\]]*\]\([^)]*\)", " ", text or "")
-    return offers_navigation(words) and not _PROMISE_RE.search(words)
+    asks = said = False
+    for sentence in _SENTENCE_RE.findall(words):
+        sentence = sentence.strip()
+        if sentence.endswith("?"):
+            asks = asks or bool(_OFFER_RE.search(sentence)
+                                and _NAV_OFFER_TARGET_RE.search(sentence))
+        elif _PROMISE_RE.search(sentence) and not _CLICK_INVITE_RE.match(sentence):
+            said = True
+    return asks and not said
 
 
 # ─── Schema (additive) ───
@@ -960,6 +974,10 @@ def record_action_result(db, action_id, success, failure_code=None, duration_ms=
         return False
     sid = row['session_id'] if isinstance(row, dict) else row[0]
     at = row['action_type'] if isinstance(row, dict) else row[1]
+    # An offer the customer opened from its button arrives still PENDING:
+    # opening it was the confirmation.
+    if success:
+        mark_action(db, action_id, 'CONFIRMED')
     # Executed is recorded ONLY here, on the verified browser callback — never
     # optimistically at confirmation time — so it is counted exactly once.
     mark_action(db, action_id, 'EXECUTED' if success else 'FAILED',

@@ -25,6 +25,23 @@ TARGET = "/frames?shape=aviator"
 
 class Unit(unittest.TestCase):
 
+    def test_a_reply_asks_before_navigating_only_with_a_navigation_question(self):
+        import acr
+        asks = acr.asks_before_navigating
+        self.assertTrue(asks("Here are 5 frames. Would you like me to take you there?"))
+        self.assertTrue(asks("Would you like me to show you these? "
+                             "Click here to let me take you there"))
+        self.assertFalse(asks("Here are the frames. Let me know if you want another colour."))
+        self.assertFalse(asks("Taking you there now. Would you like me to show you more?"))
+        self.assertFalse(asks("Opening them now, let me know if you want another colour."))
+        self.assertFalse(asks("Shall I raise a ticket for you?"))
+
+    def test_the_widget_stashes_the_offer_its_button_opens(self):
+        with open(os.path.join(REPO, "static", "js", "chat-widget.js"), encoding="utf-8") as fh:
+            js = fh.read()
+        self.assertIn("lastOffer = data.offer && data.offer.action_id ? data.offer : null;", js)
+        self.assertIn("a.getAttribute('href') === lastOffer.target", js)
+
     def test_the_returned_model_is_kept_apart_from_the_requested_one(self):
         cg = sys.modules.get("flaskr.chat_gateway") or _load_gateway()
         out = cg._model_call_trace([
@@ -205,6 +222,33 @@ class OnMariaDB(unittest.TestCase):
         self.assertEqual(body["navigate_url"], "/frames?shape=round")
         self.assertEqual(body["action"]["action_id"], acts[0]["action_id"])
         self.assertEqual([a["status"] for a in self._actions()], ["CONFIRMED"])
+
+    def test_the_prompts_own_offer_wording_is_an_offer(self):
+        self.scripted = [("Would you like me to show you these? Click here to let me take "
+                          "you there [ACTION:NAVIGATE:/frames?shape=round]", None)]
+        body = self._say("round frames please")
+        self.assertNotIn("navigate_url", body)
+        acts = self._actions()
+        self.assertEqual(body["offer"], {"action_id": acts[0]["action_id"],
+                                         "target": "/frames?shape=round"})
+        self.assertEqual([a["status"] for a in acts], ["PENDING"])
+
+    def test_an_offer_opened_from_its_button_is_confirmed_then_executed(self):
+        offered = self._offer()
+        self.assertTrue(self.cg.acr.record_action_result(self.db, offered, True))
+        self.assertEqual([a["status"] for a in self._actions()], ["EXECUTED"])
+        cur = self.db.cursor()
+        cur.execute("SELECT event_type FROM ai_events WHERE session_id=%s AND action_id=%s",
+                    (self.sid, offered))
+        self.assertEqual(sorted(r["event_type"] for r in cur.fetchall()),
+                         ["ACTION_CONFIRMED", "ACTION_EXECUTED", "NAVIGATION_OFFERED"])
+
+    def test_a_follow_up_question_that_is_not_an_offer_still_navigates(self):
+        self.scripted = [("Here are the frames. Let me know if you want another colour. "
+                          "[ACTION:NAVIGATE:/frames?shape=round]", None)]
+        body = self._say("round frames please")
+        self.assertEqual(body["navigate_url"], "/frames?shape=round")
+        self.assertNotIn("offer", body)
 
     def test_a_reply_that_says_it_is_going_there_still_navigates(self):
         self.scripted = [("Opening them now, let me know if you want another colour. "
