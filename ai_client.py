@@ -624,9 +624,11 @@ def call_model(*, workload, messages, model=None, deadline=None, max_tokens=None
             _msg = resp.choices[0].message
             reasoning_present = bool(getattr(_msg, "reasoning_content", None))
             content_empty = not (getattr(_msg, "content", None) or "").strip()
+            tool_call = bool(getattr(_msg, "tool_calls", None))
         except Exception:
             reasoning_present = False
             content_empty = True
+            tool_call = False
         _log(logger, endpoint=endpoint, workload=workload, provider=wl["provider"],
              outcome="ok", requested_model=model, actual_model=getattr(resp, "model", "-"),
              thinking_mode=thinking_mode, reasoning_present=reasoning_present,
@@ -640,7 +642,8 @@ def call_model(*, workload, messages, model=None, deadline=None, max_tokens=None
              rid=request_id)
         _record_call(kind="model_call", provider=wl["provider"], model=model,
                      actual_model=getattr(resp, "model", None),
-                     workload=workload, success=not content_empty,
+                     workload=workload, success=not content_empty or tool_call,
+                     tool_call=tool_call,
                      duration_ms=int((time.monotonic() - provider_start) * 1000),
                      input_tokens=_int_or_none(getattr(usage, "prompt_tokens", None)),
                      output_tokens=_int_or_none(getattr(usage, "completion_tokens", None)),

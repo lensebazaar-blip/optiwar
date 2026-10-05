@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
 from flask import (Blueprint, request, jsonify, current_app, make_response, g,
+                   has_request_context,
                    render_template, Response, session as flask_session)
 from itsdangerous import URLSafeSerializer, BadSignature
 from openai import OpenAI
@@ -188,14 +189,15 @@ def _emit_model_events(db, session_id, page_url):
         from .ai_client import pop_calls
         calls = pop_calls()
     except Exception:
-        return
+        return []
     for c in calls:
         ev = _MODEL_EVENT_BY_KIND.get(c.get('kind'))
         if not ev:
             continue
         payload = {'input_tokens': c.get('input_tokens'),
                    'output_tokens': c.get('output_tokens'),
-                   'actual_model': c.get('actual_model')}
+                   'actual_model': c.get('actual_model'),
+                   'tool_call': c.get('tool_call') or None}
         acr.log_event(
             db, ev, session_id=session_id, page_url=page_url,
             success=c.get('success') if ev == acr.EV_MODEL_CALL else False,
@@ -203,6 +205,7 @@ def _emit_model_events(db, session_id, page_url):
             request_id=c.get('request_id'), provider=c.get('provider'),
             model=c.get('model'), workload=c.get('workload'),
             payload={k: v for k, v in payload.items() if v is not None} or None)
+    return calls
 
 
 def _insert_message(db, session_id, source, role, content, status='sent', metadata=None,
@@ -376,6 +379,11 @@ def _search_catalog(color=None, shape=None, facefit=None, min_price=None, max_pr
 
     # Sort by relevance (stock qty descending)
     results.sort(key=lambda x: x.get('qty', 0), reverse=True)
+    try:
+        if has_request_context():
+            g._chat_search_total = len(results)
+    except Exception:
+        pass
     results = results[:limit]
 
     # Format for AI consumption
@@ -1173,6 +1181,7 @@ def _call_deepseek_wrapped(messages, is_india, endpoint, gate_key):
                     if _hrc():
                         _g._chat_nav_products = results
                         _g._chat_nav_filters = _nav_filters_from_args(args)
+                        _g._chat_search_args = _search_args(args)
                 except Exception:
                     pass
                 # Re-send a sanitized assistant tool-call message (only role/
@@ -1304,6 +1313,7 @@ def _call_deepseek(system_prompt, history, user_message, is_india=False,
                         if _hrc():
                             _g._chat_nav_products = results
                             _g._chat_nav_filters = _nav_filters_from_args(args)
+                            _g._chat_search_args = _search_args(args)
                     except Exception:
                         pass
                     # Add tool call and result to messages
@@ -2235,6 +2245,128 @@ def _nav_filters_from_args(args):
     return out
 
 
+# How search_products orders and caps what it returns. Stated in every turn's
+# trace so a reader can tell a ranking change from a different query.
+SEARCH_RANKING_VERSION = 'in_stock_qty_desc_v1'
+SEARCH_RESULT_LIMIT = 15
+_SEARCH_ARG_KEYS = acr.NAV_FILTER_KEYS + ('keyword',)
+
+
+def _search_args(args):
+    """Every argument the model passed to search_products (the navigation
+    filters plus the free-text keyword), as short strings."""
+    out = {}
+    for k in _SEARCH_ARG_KEYS:
+        v = (args or {}).get(k)
+        if v is not None and str(v).strip() != '':
+            out[k] = str(v).strip()[:60]
+    return out
+
+
+def _page_kind(url):
+    """A coarse, deterministic label for the page the chat was sent from."""
+    if not url:
+        return None
+    parts = urlparse(url)
+    path, query = (parts.path or '/').lower(), (parts.query or '').lower()
+    if 'pid=' in query or path.startswith('/product'):
+        return 'product'
+    for prefix, kind in (('/cart', 'cart'), ('/checkout', 'checkout'),
+                         ('/order', 'order'), ('/auth', 'login'), ('/login', 'login'),
+                         ('/profile', 'account'), ('/tryon', 'try-on'),
+                         ('/face', 'face-scan'), ('/f/', 'face-scan'),
+                         ('/lenses', 'lens'), ('/contact', 'contact'),
+                         ('/terms', 'policy'), ('/return', 'policy')):
+        if path.startswith(prefix):
+            return kind
+    if path in ('', '/'):
+        return 'home'
+    return 'listing'
+
+
+def _response_source(answered_by, tools, escalated):
+    """DETERMINISTIC | MODEL | MODEL + TOOL | FALLBACK | SUPPORT/KET."""
+    if escalated:
+        return 'SUPPORT/KET'
+    if answered_by == 'fallback':
+        return 'FALLBACK'
+    if answered_by != 'model':
+        return 'DETERMINISTIC'
+    return 'MODEL + TOOL' if tools else 'MODEL'
+
+
+def _model_call_trace(calls):
+    out = []
+    for c in calls or ():
+        out.append({k: v for k, v in (
+            ('kind', c.get('kind')), ('provider', c.get('provider')),
+            ('model', c.get('model')), ('ok', c.get('success')),
+            ('tool_call', c.get('tool_call') or None),
+            ('ms', c.get('duration_ms')), ('in', c.get('input_tokens')),
+            ('out', c.get('output_tokens')), ('failure', c.get('failure_code')))
+            if v is not None})
+    return out
+
+
+def _turn_tools(rx_model, order_model, reship_model, return_model, face_ctx,
+                photo_section, lens_section, turn_intent):
+    """The read tools whose result reached this turn's prompt, plus the
+    catalogue search when the model ran it. Facts about the call only, never
+    the customer's data."""
+    tools = []
+    products = getattr(g, '_chat_nav_products', None)
+    if products is not None:
+        tools.append({'tool': 'search_products',
+                      'args': getattr(g, '_chat_search_args', None) or {},
+                      'matched': getattr(g, '_chat_search_total', len(products)),
+                      'returned': len(products),
+                      'skus': [p.get('code') for p in products if p.get('code')][:SEARCH_RESULT_LIMIT],
+                      'ranking': SEARCH_RANKING_VERSION,
+                      'catalog_at': (datetime.fromtimestamp(_catalog_cache['mtime'])
+                                     .strftime('%Y-%m-%d %H:%M:%S')
+                                     if _catalog_cache.get('mtime') else None)})
+    if rx_model is not None:
+        tools.append({'tool': 'LOOKUP_PRESCRIPTION', 'found': bool(rx_lookup.found(rx_model))})
+    if order_model is not None:
+        tools.append({'tool': 'LOOKUP_ORDER', 'found': bool(order_lookup.found(order_model))})
+    if reship_model and reship_model.get('orders'):
+        tools.append({'tool': 'LOOKUP_RESHIP_STATUS',
+                      'asked': turn_intent == ai_language.INTENT_RESHIP_STATUS})
+    if return_model and return_model.get('orders'):
+        tools.append({'tool': 'READ_RETURN'})
+    if face_ctx:
+        tools.append({'tool': 'READ_FACES'})
+    if photo_section:
+        tools.append({'tool': 'PHOTO_VISION'})
+    if lens_section:
+        tools.append({'tool': 'LENS_PAGE_FACTS'})
+    return tools
+
+
+def _turn_trace(answered_by, understanding, turn_intent, tools, model_calls, page_url,
+                is_india, action=None, escalated=False, trigger='customer_message'):
+    """The operational record of one assistant reply, stored in its message
+    metadata for the daily report: what was understood, which path answered,
+    which tools and model calls it took, and the action it carried. No prompt
+    text, no model reasoning, no customer data."""
+    understanding = understanding or {}
+    trace = {'v': 1,
+             'source': _response_source(answered_by, tools, escalated),
+             'trigger': trigger,
+             'language': understanding.get('detected_language'),
+             'intent': turn_intent,
+             'confidence': understanding.get('intent_confidence'),
+             'tools': tools,
+             'model_calls': _model_call_trace(model_calls),
+             'page': {'kind': _page_kind(page_url),
+                      'site': 'optiwar.in' if is_india else 'optiwar.com',
+                      'facts_used': [t['tool'] for t in tools
+                                     if t['tool'] in ('LENS_PAGE_FACTS',)]}}
+    if action:
+        trace['action'] = action
+    return trace
+
+
 def _recover_nav_target():
     """Best-effort navigation target for a recommendation turn, so a later
     confirmation ("yes") always resolves to a real, non-dead destination that
@@ -2287,6 +2419,18 @@ def _is_chat_owner(session_id):
     return bool(sid) and sid == session_id
 
 
+def _acr_canary_cookie():
+    """True when the browser carries a valid signed ``ow_acr_canary`` cookie."""
+    raw = request.cookies.get('ow_acr_canary', '')
+    if not raw:
+        return False
+    try:
+        return URLSafeSerializer(
+            current_app.config['SECRET_KEY'], salt='acr-canary').loads(raw) == 'on'
+    except (BadSignature, Exception):
+        return False
+
+
 def _acr_enabled_for(contact_email):
     """ACR customer-facing gate (safeguard #3, limited canary).
 
@@ -2299,18 +2443,10 @@ def _acr_enabled_for(contact_email):
     Fail-safe: any error resolves to False (legacy path), never a crash.
     """
     try:
-        cookie_ok = False
-        raw = request.cookies.get('ow_acr_canary', '')
-        if raw:
-            try:
-                cookie_ok = URLSafeSerializer(
-                    current_app.config['SECRET_KEY'], salt='acr-canary').loads(raw) == 'on'
-            except (BadSignature, Exception):
-                cookie_ok = False
         return acr.canary_allows(
             current_app.config.get('ACR_ACTIONS_ENABLED', False),
             current_app.config.get('ACR_CANARY_ONLY', True),
-            cookie_ok,
+            _acr_canary_cookie(),
             contact_email,
             current_app.config.get('ACR_CANARY_EMAILS', ''),
         )
@@ -2436,7 +2572,8 @@ def chat_start():
     acr.log_event(db, acr.EV_SESSION_STARTED, session_id=session_id,
                   journey_stage=acr.STAGE_LANDING, page_url=page_url,
                   consent_scope=acr.CONSENT_FUNCTIONAL,
-                  payload={'authenticated': bool(customer_id)})
+                  payload={'authenticated': bool(customer_id),
+                           'acr_canary': _acr_canary_cookie()})
     _log_journey_stage(db, session_id, page_url)
     _log_opened(db, session_id, page_url, entry, False)
 
@@ -2598,6 +2735,7 @@ def chat_message():
     reply_meta = {}
     support = _support_request(db, session_id, session, content)
     ai_reply = None
+    answered_by = 'rule'
     if support:
         lead = f"{contact_name}, " if contact_name and contact_name != 'Visitor' else ''
         if support['ask']:
@@ -2617,7 +2755,9 @@ def chat_message():
         ai_reply, face_result = _face_confirmation(db, session_id, face_ctx,
                                                    content, page_url)
     error = None
+    _trigger = 'customer_message' if ai_reply is None or support else 'action_confirmation'
     if ai_reply is None:
+        answered_by = 'model'
         # Backstop: unexecuted tool markup is a failed turn, never a reply.
         # One retry; if the model leaks again the turn fails like any other
         # provider error and the customer sees the generic apology.
@@ -2632,7 +2772,9 @@ def chat_message():
 
     # Canonical MODEL_* events: one terminal event per provider round-trip,
     # drained from the wrapper telemetry regardless of success/shed/failure.
-    _emit_model_events(db, session_id, page_url)
+    _model_calls = _emit_model_events(db, session_id, page_url)
+    _tools = _turn_tools(rx_model, order_model, reship_model, return_model, face_ctx,
+                         photo_section, lens_section, turn_intent)
     # Canonical RECOMMENDATION_GENERATED: emitted when the model's product search
     # returned matches this turn. Carries immutable SKUs (product codes) for
     # later recommendation-quality / inventory / revenue attribution.
@@ -2670,7 +2812,10 @@ def chat_message():
         fallback_kind, fail_msg = _model_down_reply(turn_intent, reply_language, session_id)
         _insert_message(db, session_id, 'ai', 'assistant', fail_msg,
                        status='failed',
-                       metadata={'error': error[:500]})
+                       metadata={'error': error[:500],
+                                 'trace': _turn_trace('fallback', understanding, turn_intent,
+                                                      _tools, _model_calls, page_url,
+                                                      is_india)})
         _log_event(db, session_id, 'ai_failed', {'error': error[:500]})
         acr.log_event(db, acr.EV_MODEL_FALLBACK_USED, session_id=session_id,
                       journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
@@ -2740,6 +2885,8 @@ def chat_message():
     # pre-ACR stable path (no pending actions, no fallback button, no result
     # reporting). ACR action-integrity runs only for approved canary sessions.
     acr_action = None
+    _bound_offer = False
+    _offered = None
     if _acr_enabled_for(session.get('contact_email')):
         # ── ACR A1: resolve a bare confirmation against a live pending action ──
         # If the model produced no navigation this turn but the customer just
@@ -2758,6 +2905,8 @@ def chat_message():
                 acr_action = {'action_id': pending['action_id'], 'type': 'NAVIGATE',
                               'target': navigate_url}
                 acr.mark_action(db, pending['action_id'], 'CONFIRMED')
+                _bound_offer = True
+                _trigger = 'action_confirmation'
 
         if navigate_url and 'navigate' not in actions:
             actions.append('navigate')
@@ -2808,7 +2957,8 @@ def chat_message():
             # — so a later confirmation can't be turned into an unexpected redirect.
             _seed = _recover_nav_target()
             if _seed:
-                acr.create_pending_action(db, session_id, 'NAVIGATE', _seed)
+                _offered = {'id': acr.create_pending_action(db, session_id, 'NAVIGATE', _seed),
+                            'type': 'NAVIGATE', 'target': _seed, 'state': 'OFFERED'}
     else:
         # Pre-ACR stable path (unchanged legacy behaviour for ordinary customers).
         if navigate_url and 'navigate' not in actions:
@@ -2820,6 +2970,24 @@ def chat_message():
     # duplicate submit can never store two AI replies for one customer turn. On a
     # duplicate the winning row id is returned; re-read it so both callers return the
     # single stored reply.
+    _escalated = bool({'human_handover', 'create_ticket'} & set(actions))
+    if acr_action:
+        _act = {'id': acr_action['action_id'], 'type': 'NAVIGATE',
+                'target': acr_action['target'], 'state': 'CONFIRMED',
+                'bound_to_offer': _bound_offer}
+    elif _offered:
+        _act = _offered
+    elif navigate_url:
+        _act = {'type': 'NAVIGATE', 'target': navigate_url, 'state': 'AUTO_NAVIGATE',
+                'recorded': False}
+    elif face_result is not None:
+        _act = {'type': 'FACE', 'ok': bool(isinstance(face_result, dict)
+                                           and face_result.get('ok'))}
+    else:
+        _act = None
+    reply_meta = dict(reply_meta or {}, trace=_turn_trace(
+        answered_by, understanding, turn_intent, _tools, _model_calls, page_url,
+        is_india, action=_act, escalated=_escalated, trigger=_trigger))
     _ai_meta = dict(reply_meta, actions=actions) if actions else (reply_meta or None)
     ai_msg_id = _insert_message(db, session_id, 'ai', 'assistant', ai_reply, status='sent',
                                 metadata=_ai_meta,
@@ -2842,7 +3010,6 @@ def chat_message():
         'actions': actions
     })
 
-    _escalated = bool({'human_handover', 'create_ticket'} & set(actions))
     _clarified = bool(turn_meta.get('clarify'))
     acr.log_event(db, acr.EV_TURN_UNDERSTOOD, session_id=session_id,
                   journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
