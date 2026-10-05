@@ -31,7 +31,8 @@ _CONFIRM_RE = re.compile(
     r"haan|haa|han|ha|ji|ji haan|haan ji|han ji|theek hai|thik hai|thik h|"
     r"kar do|kardo|kar dijiye|kijiye|chalo|bilkul|"
     r"\u0939\u093e\u0901|\u0939\u093e\u0902|\u091c\u0940|\u091c\u0940 \u0939\u093e\u0901|"
-    r"\u0920\u0940\u0915 \u0939\u0948|\u0915\u0930 \u0926\u094b)(?!\w)[\s!.,\u0964]*$",
+    r"\u0920\u0940\u0915 \u0939\u0948|\u0915\u0930 \u0926\u094b)"
+    r"(\s+(please|pls|plz|ji))?(?!\w)[\s!.,\u0964]*$",
     re.IGNORECASE,
 )
 
