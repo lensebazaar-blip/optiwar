@@ -95,7 +95,7 @@ DEPLOY_SET = ("__init__.py", "log_hygiene.py", "acr.py", "ai_api.py", "ai_client
               "face_scan_done.py", "face_scan_groups.py", "face_scan_groups_api.py",
               "face_fit.py", "face_cart.py", "face_assistant.py", "favorites.py", "favorites_api.py",
               "reship.py", "reship_api.py", "reship_assistant.py", "return_assistant.py", "return_fee.py", "return_refund.py", "return_request.py", "reverse_pickup.py", "templates/ops_reship.html",
-              "ai_language.py", "rx_lookup.py", "order_lookup.py", "satisfaction.py",
+              "ai_language.py", "rx_lookup.py", "order_lookup.py", "test_identity.py", "satisfaction.py",
               "templates/face_scan_guest.html", "templates/favorites.html",
               "static/scripts.js",
               "static/tryon/js/tryon.js", "static/tryon/css/tryon.css", "templates/tryon.html",
@@ -112,7 +112,7 @@ DEPLOY_SET = ("__init__.py", "log_hygiene.py", "acr.py", "ai_api.py", "ai_client
 # new module; listing one here says the absence is expected and the file is to
 # be created. A rollback restores only what it replaced, so these stay behind —
 # harmless, because the code that imports them is reverted with them.
-NEW_IN_RELEASE = ("log_hygiene.py", "ai_language.py", "rx_lookup.py", "order_lookup.py", "satisfaction.py", "paid_orders.py", "razorpay_events.py", "rx_powers.py",
+NEW_IN_RELEASE = ("log_hygiene.py", "test_identity.py", "ai_language.py", "rx_lookup.py", "order_lookup.py", "satisfaction.py", "paid_orders.py", "razorpay_events.py", "rx_powers.py",
                   "razorpay_settlement.py", "razorpay_reconcile.py",
                   "refunds.py", "ops_refunds.py", "catalogue.py",
                   "contact_lens.py", "dev_defects.py", "lens_minimums.py",
@@ -448,6 +448,14 @@ def face_cart_module():
     return mod
 
 
+def test_identity_module():
+    spec = importlib.util.spec_from_file_location(
+        "test_identity_for_deploy", os.path.join(REPO, "test_identity.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def reship_module():
     """reship.py has no package imports; loaded plainly for its TABLES."""
     spec = importlib.util.spec_from_file_location(
@@ -565,6 +573,10 @@ def migration():
     items += [("products.%s (column)" % name,
                "ALTER TABLE products ADD COLUMN %s %s" % (name, decl))
               for name, decl in catalogue_columns()]
+    for table, columns in test_identity_module().ADDED_COLUMNS:
+        items += [("%s.%s (column)" % (table, name),
+                   "ALTER TABLE %s ADD COLUMN %s %s" % (table, name, decl))
+                  for name, decl in columns]
     return items
 
 

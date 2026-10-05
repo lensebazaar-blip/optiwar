@@ -77,7 +77,7 @@ def _row(r, key, idx):
     return r[key] if isinstance(r, dict) else r[idx]
 
 
-def read_model(cursor, cart, customer_id, site_from=None):
+def read_model(cursor, cart, customer_id, site_from=None, include_test=False):
     """``{"cart": [...], "orders": [...]}``; each entry holds the product
     name, lens package and both eyes. The cart rows are matched on rx_id *and*
     product_id, so a crafted cart entry cannot read an unrelated row."""
@@ -106,7 +106,8 @@ def read_model(cursor, cart, customer_id, site_from=None):
                "AND pc.status='TXN_SUCCESS') AS paid "
                "FROM orders o JOIN rx_collector rc ON rc.rx_id=o.rx_id "
                "LEFT JOIN products p ON p.product_id=o.product_id "
-               "WHERE o.customer_id=%s AND o.is_test=0 AND o.archived=0 "
+               "WHERE o.customer_id=%s AND " + ("" if include_test else "o.is_test=0 AND ") +
+               "o.archived=0 "
                "AND o.date_created >= NOW() - INTERVAL " + str(int(ORDER_LOOKBACK_DAYS)) +
                " DAY ")
         params = [customer_id]

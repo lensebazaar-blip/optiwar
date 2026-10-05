@@ -35,6 +35,7 @@ from . import reship_assistant
 from . import return_assistant
 from . import rx_lookup
 from . import satisfaction
+from . import test_identity
 from .mail import create_ticket_in_db
 import smtplib
 from email.message import EmailMessage
@@ -936,9 +937,10 @@ def _rx_context(db, understanding, user_msgs, page_url, session_id):
     customer_id = flask_session.get('user_id')
     is_india = 'in.optiwar.com' in (page_url or '') or 'optiwar.in' in (page_url or '')
     try:
-        model = rx_lookup.read_model(db.cursor(), flask_session.get('cart') or [],
-                                     customer_id,
-                                     'in.optiwar.com' if is_india else 'optiwar.com')
+        model = rx_lookup.read_model(
+            db.cursor(), flask_session.get('cart') or [], customer_id,
+            'in.optiwar.com' if is_india else 'optiwar.com',
+            include_test=test_identity.is_test_customer(db.cursor(), customer_id))
     except Exception:
         acr.log_event(db, acr.EV_PRESCRIPTION_LOOKUP, session_id=session_id,
                       journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
@@ -985,8 +987,9 @@ def _order_context(db, turn_intent, page_url, session_id):
     if turn_intent not in ai_language.ORDER_LOOKUP_INTENTS or not customer_id:
         return '', None
     try:
-        model = order_lookup.read_model(db, customer_id, _site_of(page_url),
-                                        shipments=reship.shipments_for_orders)
+        model = order_lookup.read_model(
+            db, customer_id, _site_of(page_url), shipments=reship.shipments_for_orders,
+            include_test=test_identity.is_test_customer(db.cursor(), customer_id))
     except Exception as e:  # noqa: BLE001 - the chat must still answer
         current_app.logger.warning('[Chat] order lookup unavailable: %s', e)
         acr.log_event(db, acr.EV_TOOL_USED, session_id=session_id,

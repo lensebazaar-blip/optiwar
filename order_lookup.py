@@ -34,12 +34,12 @@ def _age_days(v, now):
     return (now - v).days
 
 
-def group(rows, now=None):
+def group(rows, now=None, include_test=False):
     """``{"orders": [...], "unpaid": [...]}`` from ``ORDER_LINES_SQL`` rows,
-    newest first. Test orders are nobody's order."""
+    newest first. Test orders are nobody's order, except a TEST customer's."""
     grouped = OrderedDict()
     for r in rows or []:
-        if r.get("is_test_order"):
+        if r.get("is_test_order") and not include_test:
             continue
         o = grouped.get(r["order_id"])
         if o is None:
@@ -69,7 +69,8 @@ def group(rows, now=None):
     return model
 
 
-def read_model(db, customer_id, site_from=None, shipments=None, now=None):
+def read_model(db, customer_id, site_from=None, shipments=None, now=None,
+               include_test=False):
     """The signed-in customer's recent orders on this site; ``shipments`` is
     ``reship.shipments_for_orders`` (passed in so this module stays pure)."""
     cur = db.cursor()
@@ -81,7 +82,7 @@ def read_model(db, customer_id, site_from=None, shipments=None, now=None):
         params.append(site_from)
     sql += "ORDER BY o.date_created DESC LIMIT %d" % MAX_LINES
     cur.execute(sql, tuple(params))
-    model = group(cur.fetchall(), now=now)
+    model = group(cur.fetchall(), now=now, include_test=include_test)
     track = [o["order_id"] for o in model["orders"] if o["status_name"] in TRACKABLE]
     found = shipments(db, track) if (shipments and track) else {}
     for o in model["orders"]:

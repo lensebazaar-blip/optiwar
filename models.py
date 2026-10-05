@@ -13,6 +13,7 @@ from .rx_powers import normalize_rows
 from . import ops_refunds
 from . import policy_terms
 from . import reship, reship_api, return_fee
+from . import test_identity
 from flaskr.notifications import notify_payment_attempted, notify_payment_success, notify_payment_failed, notify_order_confirmed, notify_order_shipped
 import os
 import MySQLdb
@@ -3545,6 +3546,10 @@ def test_checkout():
         flash('Please sign in to proceed with checkout.')
         return redirect(url_for('auth.login', next=url_for('main.checkout_page')))
 
+    is_test_customer = test_identity.is_test_customer(get_db().cursor(), session.get('user_id'))
+    if not (current_app.config.get('TEST_PAY_ENABLED') or is_test_customer):
+        abort(404)
+
     cart = session.get('cart', [])
     if not cart:
         flash('Your cart is empty.')
@@ -3690,15 +3695,16 @@ def test_checkout():
             if _pe_row:
                 _profile_email = _pe_row['customer_email']
 
-        # EWS: Notify payment success for test order
+        # EWS: Notify payment success for test order; a TEST customer is told nothing.
         try:
-            _ews_phone = customer_phone
-            _ews_phone_code = request.form.get('phone_code', '')
-            if _ews_phone_code and _ews_phone and not _ews_phone.startswith('+'):
-                _ews_phone = _ews_phone_code.replace('+','') + _ews_phone
-            _ews_currency = '\u20b9' if _req_is_india() else '\u20ac'
-            notify_payment_success(customer_email, _ews_phone, order_id, grand_total, _ews_currency, request.host, gateway='TEST_PAY', profile_email=_profile_email)
-            notify_order_confirmed(customer_email, _ews_phone, customer_name, order_id, grand_total, _ews_currency, request.host, profile_email=_profile_email)
+            if not is_test_customer:
+                _ews_phone = customer_phone
+                _ews_phone_code = request.form.get('phone_code', '')
+                if _ews_phone_code and _ews_phone and not _ews_phone.startswith('+'):
+                    _ews_phone = _ews_phone_code.replace('+','') + _ews_phone
+                _ews_currency = '\u20b9' if _req_is_india() else '\u20ac'
+                notify_payment_success(customer_email, _ews_phone, order_id, grand_total, _ews_currency, request.host, gateway='TEST_PAY', profile_email=_profile_email)
+                notify_order_confirmed(customer_email, _ews_phone, customer_name, order_id, grand_total, _ews_currency, request.host, profile_email=_profile_email)
         except Exception as _ews_err:
             current_app.logger.error(f"EWS:ERROR test_payment_success {_ews_err}")
 
