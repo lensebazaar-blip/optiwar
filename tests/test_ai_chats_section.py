@@ -166,8 +166,11 @@ class AiChatsSectionTests(unittest.TestCase):
         events = [_ev("chat_d", "SESSION_STARTED", "2026-10-03 12:00:00", {"authenticated": False}),
                   _ev("chat_d", "TURN_UNDERSTOOD", "2026-10-03 12:00:10",
                       {"detected_language": "en", "turn_intent": "PRODUCT_SEARCH"}),
-                  _ev("chat_d", "MODEL_CALL", "2026-10-03 12:00:13", {"input_tokens": 500,
-                      "output_tokens": 40}, provider="deepseek", model="deepseek-chat", ms="800"),
+                  _ev("chat_d", "MODEL_CALL", "2026-10-03 12:00:12", {"input_tokens": 500,
+                      "output_tokens": 40, "actual_model": "deepseek-flash"},
+                      provider="deepseek", model="deepseek-chat", ms="800"),
+                  _ev("chat_d", "MODEL_CALL", "2026-10-03 12:00:13", {"output_tokens": 9},
+                      provider="deepseek", model="deepseek-chat", success="0", ms="300"),
                   _ev("chat_d", "RECOMMENDATION_GENERATED", "2026-10-03 12:00:14",
                       {"result_count": 3, "skus": ["A", "B", "C"], "filters": {"color": "blue"}}),
                   _ev("chat_d", "ACTION_EXECUTED", "2026-10-03 12:00:35", action_id="act-9"),
@@ -180,6 +183,10 @@ class AiChatsSectionTests(unittest.TestCase):
         self.assertEqual((first["source"], first["language"], first["intent"]),
                          ("MODEL + TOOL", "en", "PRODUCT_SEARCH"))
         self.assertEqual(first["tools"][0]["returned"], 3)
+        self.assertEqual([c["tool_call"] for c in first["model_calls"]], [False, True])
+        model_line = [x for x in acs.trace_lines(first) if x.startswith("Model:")][0]
+        self.assertIn("requested deepseek-chat · returned deepseek-flash", model_line)
+        self.assertNotIn("failed", model_line)
         self.assertEqual(second["source"], "DETERMINISTIC")
         out = dict(acs.outcome(s)[0])
         self.assertEqual((out["Actions executed"], out["Furthest page reached"]), ("1", "LISTING"))

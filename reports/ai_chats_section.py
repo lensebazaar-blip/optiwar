@@ -245,14 +245,16 @@ def trace_for(s, idx):
     evs = _turn_events(s, idx)
     model_evs = [e for e in evs if e["type"] == "MODEL_CALL"]
     calls = [{"provider": e["provider"], "model": e["model"],
+              "returned_model": e["payload"].get("actual_model"),
               "ok": e["success"] == "1", "ms": e["ms"],
               "in": e["payload"].get("input_tokens"),
               "out": e["payload"].get("output_tokens"),
               # Before tool rounds were recorded as such, a round that asked
-              # for a tool was stored as an empty, failed reply.
+              # for a tool was stored as an empty, failed reply with no
+              # failure code; every real failure carries one.
               "tool_call": (e["payload"].get("tool_call") or
-                            (e["success"] != "1" and k < len(model_evs) - 1))}
-             for k, e in enumerate(model_evs)]
+                            (e["success"] != "1" and not e["failure"]))}
+             for e in model_evs]
     tools = []
     for e in evs:
         if e["type"] == "RECOMMENDATION_GENERATED":
