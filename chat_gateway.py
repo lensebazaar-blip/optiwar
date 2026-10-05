@@ -3221,6 +3221,22 @@ def _attachment_id_of(metadata):
     return value or None
 
 
+def _live_offer_of(metadata, live):
+    """The message's NAVIGATE offer as ``{action_id, target}`` while it is the
+    session's live pending action, else None."""
+    if not metadata or not live.get('action_id'):
+        return None
+    try:
+        meta = json.loads(metadata) if isinstance(metadata, str) else metadata
+        act = (meta.get('trace') or {}).get('action') or {}
+    except (ValueError, TypeError, AttributeError):
+        return None
+    if (act.get('type') != 'NAVIGATE' or act.get('state') != 'OFFERED'
+            or act.get('id') != live['action_id']):
+        return None
+    return {'action_id': live['action_id'], 'target': live.get('target')}
+
+
 @bp.route('/messages/<session_id>', methods=['GET'])
 def chat_messages(session_id):
     """Get messages for a session (polling endpoint).
@@ -3259,6 +3275,7 @@ def chat_messages(session_id):
         )
 
     messages = cur.fetchall()
+    live = acr.get_live_pending_action(db, session_id, 'NAVIGATE') or {}
     db.close()
 
     # Serialize
@@ -3276,6 +3293,9 @@ def chat_messages(session_id):
         if attachment_id:
             item['attachment_id'] = attachment_id
             item['attachment_url'] = '/api/chat/attachment/%d' % attachment_id
+        offer = _live_offer_of(m.get('metadata'), live)
+        if offer:
+            item['offer'] = offer
         result.append(item)
 
     return jsonify({

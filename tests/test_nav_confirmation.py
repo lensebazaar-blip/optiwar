@@ -41,8 +41,11 @@ class Unit(unittest.TestCase):
     def test_the_widget_stashes_the_offer_its_button_opens(self):
         with open(os.path.join(REPO, "static", "js", "chat-widget.js"), encoding="utf-8") as fh:
             js = fh.read()
-        self.assertIn("lastOffer = data.offer && data.offer.action_id ? data.offer : null;", js)
-        self.assertIn("a.getAttribute('href') === lastOffer.target", js)
+        self.assertNotIn("lastOffer", js)
+        self.assertIn("var id = a && a.getAttribute('data-ow-action-id');", js)
+        self.assertIn("renderMsgDirect('ai', data.reply, false, replyTime, data.offer);", js)
+        self.assertIn("renderMsgDirect(type, m.content, true, m.created_at, m.offer);", js)
+        self.assertIn("old[i].removeAttribute('data-ow-action-id');", js)
 
     def test_the_returned_model_is_kept_apart_from_the_requested_one(self):
         cg = sys.modules.get("flaskr.chat_gateway") or _load_gateway()
@@ -244,6 +247,52 @@ class OnMariaDB(unittest.TestCase):
                     (self.sid, offered))
         self.assertEqual(sorted(r["event_type"] for r in cur.fetchall()),
                          ["ACTION_CONFIRMED", "ACTION_EXECUTED", "NAVIGATION_OFFERED"])
+
+    def _history(self):
+        real = self.cg._is_chat_owner
+        self.cg._is_chat_owner = lambda sid: sid == self.sid
+        try:
+            r = self.client.get("/api/chat/messages/" + self.sid)
+        finally:
+            self.cg._is_chat_owner = real
+        self.assertEqual(r.status_code, 200)
+        return [m for m in r.get_json()["messages"] if m["source"] == "ai"]
+
+    def test_a_restored_chat_carries_the_live_offer_on_its_own_message(self):
+        offered = self._offer()
+        self.assertEqual([m.get("offer") for m in self._history()],
+                         [{"action_id": offered, "target": TARGET}])
+
+    def test_only_the_newest_offer_is_live_after_a_second_one(self):
+        first = self._offer()
+        self.scripted = [(OFFER, None)]
+        self._say("show me aviators again")
+        acts = {a["action_id"]: a["status"] for a in self._actions()}
+        self.assertEqual(acts[first], "SUPERSEDED")
+        second = [k for k, v in acts.items() if v == "PENDING"][0]
+        self.assertEqual([m.get("offer") for m in self._history()],
+                         [None, {"action_id": second, "target": TARGET}])
+
+    def test_a_superseded_offers_button_executes_nothing(self):
+        first = self._offer()
+        self.scripted = [(OFFER, None)]
+        self._say("show me aviators again")
+        self.assertFalse(self.cg.acr.record_action_result(self.db, first, True))
+        acts = {a["action_id"]: a["status"] for a in self._actions()}
+        self.assertEqual(acts[first], "SUPERSEDED")
+        cur = self.db.cursor()
+        cur.execute("SELECT COUNT(*) AS n FROM ai_events WHERE action_id=%s "
+                    "AND event_type IN ('ACTION_CONFIRMED','ACTION_EXECUTED')", (first,))
+        self.assertEqual(cur.fetchone()["n"], 0)
+
+    def test_an_executed_action_is_recorded_once(self):
+        offered = self._offer()
+        self.assertTrue(self.cg.acr.record_action_result(self.db, offered, True))
+        self.assertFalse(self.cg.acr.record_action_result(self.db, offered, True))
+        cur = self.db.cursor()
+        cur.execute("SELECT COUNT(*) AS n FROM ai_events WHERE action_id=%s "
+                    "AND event_type='ACTION_EXECUTED'", (offered,))
+        self.assertEqual(cur.fetchone()["n"], 1)
 
     def test_a_follow_up_question_that_is_not_an_offer_still_navigates(self):
         self.scripted = [("Here are the frames. Let me know if you want another colour. "

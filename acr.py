@@ -979,9 +979,19 @@ def record_action_result(db, action_id, success, failure_code=None, duration_ms=
     if success:
         mark_action(db, action_id, 'CONFIRMED')
     # Executed is recorded ONLY here, on the verified browser callback — never
-    # optimistically at confirmation time — so it is counted exactly once.
-    mark_action(db, action_id, 'EXECUTED' if success else 'FAILED',
-                result_code=failure_code, duration_ms=duration_ms)
+    # optimistically at confirmation time — and only for a CONFIRMED action, so
+    # it is counted exactly once and a superseded or expired offer stays so.
+    try:
+        cur.execute(
+            """UPDATE ai_actions
+               SET status=%s, result_code=%s, duration_ms=%s, resolved_at=NOW()
+               WHERE action_id=%s AND status='CONFIRMED'""",
+            ('EXECUTED' if success else 'FAILED', failure_code, duration_ms, action_id),
+        )
+    except Exception:
+        return False
+    if not (cur.rowcount and cur.rowcount > 0):
+        return False
     log_event(db, EV_ACTION_EXECUTED if success else EV_ACTION_FAILED,
               session_id=sid, action_id=action_id, action_type=at,
               journey_stage=STAGE_NAVIGATION, success=bool(success),
