@@ -42,6 +42,10 @@ class Unit(unittest.TestCase):
         with open(os.path.join(REPO, "static", "js", "chat-widget.js"), encoding="utf-8") as fh:
             js = fh.read()
         self.assertNotIn("lastOffer", js)
+        self.assertIn("stashActionForArrival({ action_id: id }, a.getAttribute('href'));", js)
+        self.assertIn("stashActionForArrival(acrAction, data.navigate_url);", js)
+        self.assertIn("var arrived = !!(d && d.target && pathOf(d.target) === here);", js)
+        self.assertIn("if (!arrived || !d.session_id || !d.action_id) return;", js)
         self.assertIn("var id = a && a.getAttribute('data-ow-action-id');", js)
         self.assertIn("renderMsgDirect('ai', data.reply, false, replyTime, data.offer);", js)
         self.assertIn("renderMsgDirect(type, m.content, true, m.created_at, m.offer);", js)

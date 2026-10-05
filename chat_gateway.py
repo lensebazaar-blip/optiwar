@@ -2515,6 +2515,32 @@ def _log_opened(db, session_id, page_url, entry, resumed):
                                'authenticated': bool(flask_session.get('user_id'))})
 
 
+def _adopt_guest_chat(db, email, name, customer_id):
+    """A browser that chatted signed out and then signed in keeps that chat:
+    the open anonymous session its owner cookie names becomes the account's,
+    so the conversation continues and is traceable to the customer."""
+    if not email or not customer_id:
+        return None
+    owned = acr.session_from_chat_cookie(
+        request.cookies, current_app.config.get("SECRET_KEY", ""))
+    if not owned:
+        return None
+    cur = db.cursor()
+    cur.execute(
+        """UPDATE chat_sessions
+           SET customer_id = %s, contact_email = %s,
+               contact_name = COALESCE(NULLIF(contact_name, ''), %s),
+               last_activity = NOW()
+           WHERE session_id = %s AND customer_id IS NULL
+             AND status IN ('active', 'ai_pending', 'human_pending', 'human_open')""",
+        (customer_id, email, name or None, owned),
+    )
+    if not (cur.rowcount and cur.rowcount > 0):
+        return None
+    _log_event(db, owned, 'guest_session_adopted', {'customer_id': customer_id})
+    return owned
+
+
 @bp.route('/start', methods=['POST'])
 def chat_start():
     """Start a new chat session or resume the active one.
@@ -2534,6 +2560,7 @@ def chat_start():
 
     # Check for existing active session
     if email:
+        _adopt_guest_chat(db, email, name, customer_id)
         cur.execute(
             """SELECT session_id, status, created_at FROM chat_sessions
                WHERE contact_email = %s AND status IN ('active', 'ai_pending')
@@ -3444,7 +3471,8 @@ def dev_defect():
 @bp.route('/status', methods=['GET'])
 def chat_status():
     """This browser's open session (used by widget on load): the signed-in
-    account's latest, or the anonymous session its owner cookie names."""
+    account's latest (a chat begun signed out in this browser first becomes the
+    account's), or the anonymous session its owner cookie names."""
     email = (flask_session.get('user_email') or '').strip()
     owned = None if email else acr.session_from_chat_cookie(
         request.cookies, current_app.config.get("SECRET_KEY", ""))
@@ -3454,6 +3482,8 @@ def chat_status():
     db = _get_db()
     cur = db.cursor()
     if email:
+        _adopt_guest_chat(db, email, flask_session.get('user_name') or '',
+                          flask_session.get('user_id'))
         cur.execute(
             """SELECT session_id, status, created_at, last_activity FROM chat_sessions
                WHERE contact_email = %s AND status IN ('active', 'ai_pending', 'human_pending', 'human_open')

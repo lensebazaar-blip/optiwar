@@ -299,6 +299,50 @@ class OnMariaDB(unittest.TestCase):
         self.assertEqual(st["session_id"], sid)
         self.assertEqual(self._start(), sid)          # the same browser resumes it
 
+    def _adopted(self, sid):
+        cur = self.db.cursor()
+        cur.execute("SELECT COUNT(*) AS n FROM chat_events WHERE session_id=%s "
+                    "AND event_type='guest_session_adopted'", (sid,))
+        return cur.fetchone()["n"]
+
+    def test_a_chat_begun_signed_out_continues_after_sign_in(self):
+        sid = self._start()
+        self.assertEqual(self._say(sid, "scan my face").status_code, 200)
+        self._sign_in()
+        st = self.client.get("/api/chat/status").get_json()
+        self.assertEqual(st["session_id"], sid)
+        self.assertEqual(self._start(), sid)
+        row = self._row(sid)
+        self.assertEqual(row["customer_id"], 424242)
+        self.assertEqual(row["contact_email"], "canary@example.com")
+        self.assertEqual(self._adopted(sid), 1)
+        msgs = self.client.get("/api/chat/messages/%s" % sid).get_json()["messages"]
+        self.assertIn("scan my face", [m["content"] for m in msgs])
+
+    def test_signing_in_on_another_browser_does_not_take_a_guest_chat(self):
+        sid = self._start()
+        other = self.app.test_client()
+        with other.session_transaction() as s:
+            s["user_id"] = 424242
+            s["user_email"] = "canary@example.com"
+            s["user_name"] = "Canary"
+        st = other.get("/api/chat/status").get_json()
+        self.assertNotEqual(st.get("session_id"), sid)
+        self.assertIsNone(self._row(sid)["customer_id"])
+        self.assertEqual(self._adopted(sid), 0)
+
+    def test_an_adopted_chat_is_not_adopted_again_by_a_second_account(self):
+        sid = self._start()
+        self._sign_in()
+        self.assertEqual(self.client.get("/api/chat/status").get_json()["session_id"], sid)
+        with self.client.session_transaction() as s:
+            s["user_id"] = 515151
+            s["user_email"] = "second@example.com"
+        st = self.client.get("/api/chat/status").get_json()
+        self.assertNotEqual(st.get("session_id"), sid)
+        self.assertEqual(self._row(sid)["customer_id"], 424242)
+        self.assertEqual(self._adopted(sid), 1)
+
     def test_another_browser_cannot_use_or_see_an_anonymous_chat(self):
         sid = self._start()
         other = self.app.test_client()
