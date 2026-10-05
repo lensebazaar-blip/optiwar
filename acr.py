@@ -584,7 +584,7 @@ def offers_navigation(text):
 _SENTENCE_RE = re.compile(r"[^.!?\n]+[.!?]*")
 # "Click here to let me take you there" invites a click; it is not the
 # assistant saying it is already going there.
-_CLICK_INVITE_RE = re.compile(r"(click|tap)\b", re.IGNORECASE)
+_CLICK_INVITE_RE = re.compile(r"\b(click|tap)\b", re.IGNORECASE)
 
 
 def asks_before_navigating(text):
@@ -599,7 +599,7 @@ def asks_before_navigating(text):
         if sentence.endswith("?"):
             asks = asks or bool(_OFFER_RE.search(sentence)
                                 and _NAV_OFFER_TARGET_RE.search(sentence))
-        elif _PROMISE_RE.search(sentence) and not _CLICK_INVITE_RE.match(sentence):
+        elif _PROMISE_RE.search(sentence) and not _CLICK_INVITE_RE.search(sentence):
             said = True
     return asks and not said
 
