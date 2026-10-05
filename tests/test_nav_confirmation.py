@@ -190,6 +190,29 @@ class OnMariaDB(unittest.TestCase):
         self.assertEqual(body["action"]["action_id"], acts[0]["action_id"])
         self.assertNotEqual(self._last_trace()["action"]["state"], "AUTO_NAVIGATE")
 
+    def test_a_reply_that_asks_and_links_is_an_offer_the_yes_opens(self):
+        self.scripted = [(OFFER + "\n\n[ACTION:NAVIGATE:/frames?shape=round]", None)]
+        body = self._say("round frames please")
+        self.assertNotIn("navigate_url", body)
+        self.assertNotIn("navigate", body["actions"])
+        self.assertIn("](/frames?shape=round)", body["reply"])
+        acts = self._actions()
+        self.assertEqual([(a["target"], a["status"]) for a in acts],
+                         [("/frames?shape=round", "PENDING")])
+        self.assertEqual(self._last_trace()["action"]["state"], "OFFERED")
+        body = self._say("yes")
+        self.assertEqual(self.model_calls, 1)
+        self.assertEqual(body["navigate_url"], "/frames?shape=round")
+        self.assertEqual(body["action"]["action_id"], acts[0]["action_id"])
+        self.assertEqual([a["status"] for a in self._actions()], ["CONFIRMED"])
+
+    def test_a_reply_that_says_it_is_going_there_still_navigates(self):
+        self.scripted = [("Opening them now, let me know if you want another colour. "
+                          "[ACTION:NAVIGATE:/frames?shape=round]", None)]
+        body = self._say("round frames please")
+        self.assertEqual(body["navigate_url"], "/frames?shape=round")
+        self.assertEqual([a["status"] for a in self._actions()], ["CONFIRMED"])
+
     def test_with_actions_switched_off_the_legacy_path_is_unchanged(self):
         self.app.config["ACR_ACTIONS_ENABLED"] = False
         self.scripted = [(OFFER, None)]
