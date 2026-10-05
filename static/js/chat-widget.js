@@ -24,7 +24,6 @@
   var isOpen = false;
   var isTyping = false;
   var lastPollTime = null;
-  var lastOffer = null;
   var initialLoaded = false;  // history rendered once; later polls reconcile, never wipe
   var currentMode = 'small'; // small | half | full
 
@@ -164,13 +163,12 @@
   document.body.appendChild(panel);
 
   var msgContainer = document.getElementById('ow-messages');
-  // Opening the live offer from its button is the customer's yes: the
-  // destination page reports the same action executed.
+  // Opening a live offer from its own button is the customer's yes: the
+  // destination page reports that button's action executed.
   msgContainer.addEventListener('click', function(e) {
     var a = e.target && e.target.closest ? e.target.closest('a.ow-action-btn') : null;
-    if (a && lastOffer && a.getAttribute('href') === lastOffer.target) {
-      stashActionForArrival(lastOffer);
-    }
+    var id = a && a.getAttribute('data-ow-action-id');
+    if (id) stashActionForArrival({ action_id: id });
   });
   var input = document.getElementById('ow-input');
   var sendBtn = document.getElementById('ow-send');
@@ -593,7 +591,7 @@
       if (data.reply) {
         var replyTime = new Date().toISOString();
         messages.push({ source: 'ai', content: data.reply, id: data.message_id || Date.now(), created_at: replyTime });
-        renderMsgDirect('ai', data.reply, false, replyTime);
+        renderMsgDirect('ai', data.reply, false, replyTime, data.offer);
         scrollToBottom();
         lastPollTime = replyTime;
       }
@@ -613,7 +611,6 @@
       if (data.face_action && data.face_action.ok && data.face_action.reload && !data.navigate_url) {
         setTimeout(function() { window.location.reload(); }, 1500);
       }
-      lastOffer = data.offer && data.offer.action_id ? data.offer : null;
       if (data.navigate_url) {
         var acrAction = data.action && data.action.action_id ? data.action : null;
         // ACR A1: stash the action across the navigation instead of reporting
@@ -698,7 +695,7 @@
           data.messages.forEach(function(m) {
             var type = m.source === 'customer' ? 'user' : (m.source === 'system' ? 'system' : 'ai');
             if (m.attachment_url) { renderPhotoMsg(type, m.attachment_url, photoName(m.content), m.created_at, false); return; }
-            renderMsgDirect(type, m.content, true, m.created_at);
+            renderMsgDirect(type, m.content, true, m.created_at, m.offer);
           });
           scrollToBottom();
         }
@@ -716,7 +713,7 @@
         newMsgs.forEach(function(m) {
           messages.push(m);
           var type = m.source === 'customer' ? 'user' : (m.source === 'system' ? 'system' : 'ai');
-          renderMsgDirect(type, m.content, false, m.created_at);
+          renderMsgDirect(type, m.content, false, m.created_at, m.offer);
           if (!isOpen && m.source !== 'customer') showUnread();
         });
         if (newMsgs.length > 0) {
@@ -767,7 +764,21 @@
     scrollToBottom();
   }
 
-  function renderMsgDirect(type, content, skipScroll, timestamp) {
+  // A new offer supersedes every older one, so only its own button carries an
+  // action; older buttons still open their page but confirm nothing.
+  function bindOffer(div, offer) {
+    if (!offer || !offer.action_id) return;
+    var old = msgContainer.querySelectorAll('a[data-ow-action-id]');
+    for (var i = 0; i < old.length; i++) old[i].removeAttribute('data-ow-action-id');
+    var btns = div.querySelectorAll('a.ow-action-btn');
+    for (var j = 0; j < btns.length; j++) {
+      if (btns[j].getAttribute('href') === offer.target) {
+        btns[j].setAttribute('data-ow-action-id', offer.action_id);
+      }
+    }
+  }
+
+  function renderMsgDirect(type, content, skipScroll, timestamp, offer) {
     var wrap = document.createElement('div');
     wrap.className = 'ow-msg-wrap ow-wrap-' + (type === 'user' ? 'user' : (type === 'system' ? 'system' : 'ai'));
     var div = document.createElement('div');
@@ -777,6 +788,7 @@
     } else {
       div.className = 'ow-msg ow-msg-' + (type === 'user' ? 'user' : 'ai');
       div.innerHTML = formatContent(content);
+      bindOffer(div, offer);
     }
     wrap.appendChild(div);
     var timeEl = document.createElement('div');
