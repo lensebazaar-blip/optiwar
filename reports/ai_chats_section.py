@@ -100,6 +100,7 @@ def collect(sql=run_sql, hours=WINDOW_HOURS):
         ordered = ordered[:MAX_SESSIONS]
     _attach_ledgers(sql, window, sessions, errors)
     _attach_phones(sql, ordered)
+    _attach_test_flags(sql, ordered)
     for s in ordered:
         s["kind"], s["kind_basis"] = classify(s)
     return ordered, errors
@@ -168,6 +169,23 @@ def _attach_phones(sql, sessions):
             s["account_phone_state"] = state
 
 
+def _attach_test_flags(sql, sessions):
+    """``customers.is_test`` of each signed-in customer; without the grant the
+    flag is unknown and classification falls back to the email rules."""
+    ids = sorted({s["customer_id"] for s in sessions
+                  if str(s.get("customer_id") or "").isdigit()})
+    if not ids:
+        return
+    try:
+        flagged = {r[0] for r in _rows(sql, "SELECT customer_id FROM customers "
+                                       "WHERE is_test=1 AND customer_id IN (%s)" % ",".join(ids), 1)}
+    except SqlError:
+        return
+    for s in sessions:
+        if s.get("customer_id") in ids:
+            s["is_test_customer"] = s["customer_id"] in flagged
+
+
 def _json(raw):
     if not raw:
         return {}
@@ -203,6 +221,8 @@ def classify(s):
     email = (s.get("email") or "").lower()
     if flag is True:
         return CANARY, "ACR canary browser"
+    if s.get("is_test_customer"):
+        return TEST, "TEST account (customers.is_test)"
     if email and (email in TEST_EMAILS or email.rsplit("@", 1)[-1] in INTERNAL_DOMAINS
                   or email.startswith("deploy-canary+")):
         return TEST, "internal/test email"

@@ -39,6 +39,16 @@ class TurnTrace(unittest.TestCase):
                                                "limit": 5}),
                          {"color": "Black", "keyword": "BP86"})
 
+    def test_an_asked_reship_lookup_that_found_nothing_is_still_a_tool(self):
+        from flask import Flask
+        with Flask(__name__).app_context():
+            tools = self.cg._turn_tools(None, None, {"orders": []}, None, None, "", "",
+                                        "RESHIP_STATUS")
+            self.assertEqual(tools, [{"tool": "LOOKUP_RESHIP_STATUS", "asked": True,
+                                      "found": False}])
+            self.assertEqual(self.cg._turn_tools(None, None, {"orders": []}, None, None, "", "",
+                                                 "ORDER_STATUS"), [])
+
     def test_the_trace_holds_facts_about_the_turn_only(self):
         calls = [{"kind": "model_call", "provider": "deepseek", "model": "deepseek-chat",
                   "success": False, "tool_call": True, "duration_ms": 700,
