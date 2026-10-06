@@ -18,6 +18,7 @@ from itsdangerous import URLSafeSerializer, BadSignature
 from openai import OpenAI
 from . import acr
 from . import ai_language
+from . import cart_lookup
 from . import catalogue
 from . import chat_attachments
 from . import chat_image
@@ -2316,7 +2317,7 @@ def _model_call_trace(calls):
 
 
 def _turn_tools(rx_model, order_model, reship_model, return_model, face_ctx,
-                photo_section, lens_section, turn_intent):
+                photo_section, lens_section, turn_intent, cart_model=None):
     """The read tools whose result reached this turn's prompt, plus the
     catalogue search when the model ran it. Facts about the call only, never
     the customer's data."""
@@ -2348,6 +2349,8 @@ def _turn_tools(rx_model, order_model, reship_model, return_model, face_ctx,
         tools.append({'tool': 'PHOTO_VISION'})
     if lens_section:
         tools.append({'tool': 'LENS_PAGE_FACTS'})
+    if cart_model is not None:
+        tools.append({'tool': 'LOOKUP_CART', 'found': cart_lookup.found(cart_model)})
     return tools
 
 
@@ -2826,6 +2829,14 @@ def chat_message():
         acr.log_event(db, acr.EV_TOOL_USED, session_id=session_id,
                       journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
                       action_type='LOOKUP_RESHIP_STATUS', success=True)
+    cart_model = None
+    if cart_lookup.wanted(content, page_url):
+        cart_model = cart_lookup.read_model(flask_session.get('cart'))
+        system_prompt += cart_lookup.prompt_section(cart_model)
+        acr.log_event(db, acr.EV_TOOL_USED, session_id=session_id,
+                      journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
+                      action_type='LOOKUP_CART', success=True,
+                      payload=cart_lookup.event_payload(cart_model))
     turn_meta = {}
     reply_meta = {}
     support = _support_request(db, session_id, session, content)
@@ -2883,7 +2894,7 @@ def chat_message():
     # drained from the wrapper telemetry regardless of success/shed/failure.
     _model_calls = _emit_model_events(db, session_id, page_url)
     _tools = _turn_tools(rx_model, order_model, reship_model, return_model, face_ctx,
-                         photo_section, lens_section, turn_intent)
+                         photo_section, lens_section, turn_intent, cart_model)
     # Canonical RECOMMENDATION_GENERATED: emitted when the model's product search
     # returned matches this turn. Carries immutable SKUs (product codes) for
     # later recommendation-quality / inventory / revenue attribution.
