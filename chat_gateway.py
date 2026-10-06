@@ -35,6 +35,7 @@ from . import reship
 from . import reship_assistant
 from . import return_assistant
 from . import rx_lookup
+from . import satisfaction
 from . import test_identity
 from .mail import create_ticket_in_db
 import smtplib
@@ -1942,6 +1943,8 @@ def _forward_ticket_from_chat(db, session_id, session, page_url, phone='', class
     context_note = _ticket_context_text(classification, phone) if classification else ''
     callback = (classification or {}).get('ticket_reason') == ai_language.INTENT_CALLBACK_REQUEST
     subject_tag = "[AI Chat][Callback]" if callback else "[AI Chat]"
+    if test_identity.is_test_customer(db.cursor(), session.get('customer_id')):
+        subject_tag = "[TEST] " + subject_tag
 
     # STEP 1: Insert into local DB (same as contact form)
     local_ticket_id = None
@@ -2334,9 +2337,10 @@ def _turn_tools(rx_model, order_model, reship_model, return_model, face_ctx,
         tools.append({'tool': 'LOOKUP_PRESCRIPTION', 'found': bool(rx_lookup.found(rx_model))})
     if order_model is not None:
         tools.append({'tool': 'LOOKUP_ORDER', 'found': bool(order_lookup.found(order_model))})
-    if reship_model and reship_model.get('orders'):
-        tools.append({'tool': 'LOOKUP_RESHIP_STATUS',
-                      'asked': turn_intent == ai_language.INTENT_RESHIP_STATUS})
+    asked_reship = turn_intent == ai_language.INTENT_RESHIP_STATUS
+    if reship_model is not None and (reship_model.get('orders') or asked_reship):
+        tools.append({'tool': 'LOOKUP_RESHIP_STATUS', 'asked': asked_reship,
+                      'found': bool(reship_model.get('orders'))})
     if return_model and return_model.get('orders'):
         tools.append({'tool': 'READ_RETURN'})
     if face_ctx:
@@ -2454,6 +2458,33 @@ NAV_CONFIRM_REPLY = {
     'hi-Latn': 'Theek hai, abhi khol raha hoon.',
     'hi': 'ठीक है, अभी खोल रहा हूँ।',
 }
+
+
+def _last_assistant_meta(db, session_id):
+    """The metadata of the session's latest assistant reply, ``{}`` if none."""
+    try:
+        cur = db.cursor()
+        cur.execute(
+            """SELECT metadata FROM chat_messages
+               WHERE session_id = %s AND role = 'assistant'
+               ORDER BY id DESC LIMIT 1""", (session_id,))
+        row = cur.fetchone()
+        return json.loads((row or {}).get('metadata') or '{}')
+    except Exception:
+        return {}
+
+
+def _answered_from_record(turn_intent, rx_model, order_model, reship_model):
+    """Whether this turn's support question was answered from the customer's
+    own record (a lookup that found it), not from nothing."""
+    if turn_intent in ai_language.PRESCRIPTION_INTENTS:
+        return bool(rx_model and not rx_model.get('unavailable') and rx_lookup.found(rx_model))
+    if turn_intent in ai_language.ORDER_LOOKUP_INTENTS:
+        return bool(order_model and not order_model.get('unavailable')
+                    and order_lookup.found(order_model))
+    if turn_intent == ai_language.INTENT_RESHIP_STATUS:
+        return bool(reship_model and reship_model.get('orders'))
+    return False
 
 
 def _offered_navigation(db, session_id):
@@ -2775,11 +2806,25 @@ def chat_message():
     turn_intent = _turn_intent(understanding, content)
     reply_language = ai_language.conversation_language(user_msgs)['language']
     signed_in = bool(flask_session.get('user_id'))
+    # An answer to "Did this answer your question?": a no is about the issue
+    # that was asked about, so the recovery reads the same record again.
+    sat_meta = _last_assistant_meta(db, session_id)
+    sat_answer = satisfaction.answer_of(sat_meta, content, acr.is_confirmation)
+    if sat_answer:
+        sat_intent = satisfaction.pending(sat_meta).get('intent')
+        if sat_answer == satisfaction.NOT_SATISFIED and sat_intent:
+            turn_intent = sat_intent
+        acr.log_event(db, acr.EV_SATISFACTION_RECORDED, session_id=session_id,
+                      journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
+                      success=sat_answer == satisfaction.SATISFIED,
+                      payload={'state': sat_answer, 'turn_intent': sat_intent})
     rx_section, rx_model = _rx_context(db, understanding, user_msgs, page_url, session_id)
     order_section, order_model = _order_context(db, turn_intent, page_url, session_id)
     sign_in_needed = not signed_in and turn_intent in ai_language.ACCOUNT_INTENTS
     system_prompt += (ai_language.prompt_section(understanding) + rx_section + order_section
-                      + (order_lookup.SIGNED_OUT_SECTION if sign_in_needed else ''))
+                      + (order_lookup.SIGNED_OUT_SECTION if sign_in_needed else '')
+                      + (satisfaction.RECOVERY_SECTION
+                         if sat_answer == satisfaction.NOT_SATISFIED else ''))
     if reship_model is not None and turn_intent == ai_language.INTENT_RESHIP_STATUS:
         acr.log_event(db, acr.EV_TOOL_USED, session_id=session_id,
                       journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
@@ -2811,6 +2856,9 @@ def chat_message():
                                      last4=support['phone'][-4:]) + ' [ACTION:CREATE_TICKET]'
     else:
         ai_reply = _confirmed_ask_reply(history, content, contact_name)
+    sat_thanks = ai_reply is None and sat_answer == satisfaction.SATISFIED
+    if sat_thanks:
+        ai_reply = satisfaction.text_for(satisfaction.THANKS, reply_language)
     face_result = None
     if ai_reply is None and face_ctx:
         ai_reply, face_result = _face_confirmation(db, session_id, face_ctx,
@@ -2826,6 +2874,8 @@ def chat_message():
             ai_reply = NAV_CONFIRM_REPLY.get(reply_language, NAV_CONFIRM_REPLY['en'])
     error = None
     _trigger = 'customer_message' if ai_reply is None or support else 'action_confirmation'
+    if sat_thanks:
+        _trigger = 'satisfaction_answer'
     if ai_reply is None:
         answered_by = 'model'
         # Backstop: unexecuted tool markup is a failed turn, never a reply.
@@ -2971,7 +3021,7 @@ def chat_message():
         # is NOT itself a supervisor handover / ticket confirmation — otherwise a
         # "yes" answering "connect you to my supervisor? Yes or No" would be
         # hijacked into a stale redirect.
-        _confirm_is_navigational = (face_result is None and
+        _confirm_is_navigational = (face_result is None and sat_answer is None and
                                     not ({'human_handover', 'create_ticket'} & set(actions)))
         if not navigate_url and _confirm_is_navigational and acr.is_confirmation(content):
             pending = acr.get_live_pending_action(db, session_id, 'NAVIGATE')
@@ -3054,6 +3104,24 @@ def chat_message():
     # duplicate the winning row id is returned; re-read it so both callers return the
     # single stored reply.
     _escalated = bool({'human_handover', 'create_ticket'} & set(actions))
+    _sat_state = None
+    _asks_yes_no = _pending_ask([{'role': 'assistant', 'content': ai_reply}])
+    if sat_answer == satisfaction.NOT_SATISFIED and not _escalated:
+        if _asks_yes_no != 'create_ticket':
+            ai_reply = f"{ai_reply.rstrip()}\n\n{satisfaction.TICKET_OFFER}"
+        _sat_state = {'state': satisfaction.RECOVERY, 'intent': turn_intent}
+    elif (sat_answer is None and not _escalated and not _asks_yes_no
+          and not turn_meta.get('clarify')
+          and satisfaction.should_ask(
+              turn_intent,
+              _answered_from_record(turn_intent, rx_model, order_model, reship_model),
+              signed_in, satisfaction.already_asked(db, session_id),
+              carries_more=bool(navigate_url or _offered or acr_action or support
+                                or face_result is not None or lens_proposal is not None
+                                or sign_in_needed))):
+        ai_reply = (f"{ai_reply.rstrip()}\n\n"
+                    f"{satisfaction.text_for(satisfaction.ASK, reply_language)}")
+        _sat_state = {'state': satisfaction.ASKED, 'intent': turn_intent}
     if acr_action:
         _act = {'id': acr_action['action_id'], 'type': 'NAVIGATE',
                 'target': acr_action['target'], 'state': 'CONFIRMED',
@@ -3071,6 +3139,8 @@ def chat_message():
     reply_meta = dict(reply_meta or {}, trace=_turn_trace(
         answered_by, understanding, turn_intent, _tools, _model_calls, page_url,
         is_india, action=_act, escalated=_escalated, trigger=_trigger))
+    if _sat_state:
+        reply_meta['satisfaction'] = _sat_state
     _ai_meta = dict(reply_meta, actions=actions) if actions else (reply_meta or None)
     ai_msg_id = _insert_message(db, session_id, 'ai', 'assistant', ai_reply, status='sent',
                                 metadata=_ai_meta,
@@ -3088,6 +3158,10 @@ def chat_message():
                     actions = json.loads(_sm).get('actions', actions)
                 except (ValueError, TypeError):
                     pass
+    if _sat_state and _sat_state['state'] == satisfaction.ASKED:
+        acr.log_event(db, acr.EV_SATISFACTION_ASKED, session_id=session_id,
+                      journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
+                      payload={'turn_intent': turn_intent})
     _log_event(db, session_id, 'ai_completed', {
         'reply_length': len(ai_reply),
         'actions': actions

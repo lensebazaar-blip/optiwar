@@ -27,8 +27,12 @@ ROWS = [
 ]
 
 
-def _sql(heads=HEADS, rows=ROWS, events=(), actions=(), orders=(), phones=()):
+def _sql(heads=HEADS, rows=ROWS, events=(), actions=(), orders=(), phones=(), test_ids=()):
     def sql(query):
+        if "is_test=1" in query:
+            if isinstance(test_ids, Exception):
+                raise test_ids
+            return [(i,) for i in test_ids]
         for table, data in (("FROM ai_events", events), ("FROM ai_actions", actions),
                             ("FROM ai_session_commerce", orders), ("FROM customers", phones)):
             if table in query:
@@ -239,6 +243,14 @@ class AiChatsSectionTests(unittest.TestCase):
         self.assertEqual(dict(acs.identity(guest))["Email"], "walkin@example.com (CHAT_PROVIDED)")
         self.assertEqual(one(talk, actions=act), acs.CANARY)
         self.assertEqual(one(talk, events=start(False), actions=act), acs.REAL)
+
+    def test_a_flagged_test_account_is_test_and_an_ungranted_flag_falls_back(self):
+        heads = [("chat_a", "42", _hex("Q A"), _hex("qa@example.invalid"), "active", "", "")]
+        rows = [("chat_a", "customer", _hex("where is my order?"), "", "2026-10-03 10:00:00")]
+        s = acs.collect(_sql(heads=heads, rows=rows, test_ids=["42"]))[0][0]
+        self.assertEqual((s["kind"], s["kind_basis"]), (acs.TEST, "TEST account (customers.is_test)"))
+        s = acs.collect(_sql(heads=heads, rows=rows, test_ids=SqlError("denied")))[0][0]
+        self.assertEqual(s["kind"], acs.REAL)
 
     def test_the_body_carries_counts_only(self):
         sessions, _ = acs.collect(_sql(phones=[("42", _hex("+919810022222"))]))

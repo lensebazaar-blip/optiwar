@@ -91,6 +91,14 @@ class EvalSuiteTests(unittest.TestCase):
         self.assertNotIn("Likely intent", al.prompt_section(u))
         self.assertLess(al.detect("")["confidence"], 0.1)
 
+    def test_asking_which_phone_number_is_on_file_is_not_a_callback(self):
+        for text in ("what phone number is on my account?", "change my phone number",
+                     "mera phone number kya hai"):
+            self.assertNotEqual(al.classify_intent(text)[0], al.INTENT_CALLBACK_REQUEST, text)
+        for text in ("call me please", "please phone me", "mujhe phone karo", "Callback",
+                     "mujhe call back chahiye"):
+            self.assertEqual(al.classify_intent(text)[0], al.INTENT_CALLBACK_REQUEST, text)
+
 
 class IncidentTests(unittest.TestCase):
     """OPTIWA-1031 itself: what she asked is kept apart from what she clicked."""

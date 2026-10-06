@@ -428,8 +428,11 @@ _C_HUMAN = _concept(
     "manager staff".split(),
     ("इंसान", "एजेंट", "व्यक्ति", "मनुष्य", "मानव"))
 _C_CALL = _concept(
-    "callback call phone ring baat".split(),
-    ("कॉल", "फोन", "फ़ोन", "बात"))
+    "callback call ring".split(),
+    ("कॉल",))
+_C_PHONE = _concept(
+    "phone baat".split(),
+    ("फोन", "फ़ोन", "बात"))
 _C_RESHIP = _concept(
     "returned return wapas vapas reship reshipping reshipment rto".split(),
     ("वापस", "रिटर्न"))
@@ -491,7 +494,7 @@ def classify_intent(text):
         ("rx", _C_RX), ("power", _C_POWER), ("specs", _C_SPECS), ("eye", _C_EYE), ("number", _C_NUMBER),
         ("past", _C_PAST_ENTRY), ("saved", _C_SAVED), ("which", _C_WHICH_MADE), ("show", _C_SHOW),
         ("order", _C_ORDER), ("when", _C_WHEN_WHERE), ("how", _C_HOW),
-        ("entry", _C_ENTRY_VERB), ("human", _C_HUMAN), ("call", _C_CALL),
+        ("entry", _C_ENTRY_VERB), ("human", _C_HUMAN), ("call", _C_CALL), ("phone", _C_PHONE),
         ("reship", _C_RESHIP), ("payment", _C_PAYMENT), ("product", _C_PRODUCT))}
     rx_context = (has["rx"] or has["power"] or (has["number"] and (has["specs"] or has["eye"]))
                   or (has["number"] and has["saved"] and has["show"]))
@@ -509,7 +512,7 @@ def classify_intent(text):
         return INTENT_PRESCRIPTION_STATUS, 0.55
     if has["human"]:
         return INTENT_HUMAN_REQUEST, 0.85
-    if has["call"] and not has["specs"]:
+    if (has["call"] or (has["phone"] and not has["number"])) and not has["specs"]:
         return INTENT_CALLBACK_REQUEST, 0.8
     if has["reship"] and (has["order"] or has["specs"] or has["how"] or has["when"]):
         return INTENT_RESHIP_STATUS, 0.7
