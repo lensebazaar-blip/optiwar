@@ -38,6 +38,17 @@ class Unit(unittest.TestCase):
         self.assertFalse(asks("Opening them now, let me know if you want another colour."))
         self.assertFalse(asks("Shall I raise a ticket for you?"))
 
+    def test_a_reply_names_the_one_page_its_own_buttons_open(self):
+        import acr
+        link = acr.reply_link_target
+        self.assertEqual(link("Would you like me to take you there?\n\n"
+                              "[\u25b6 Open My Orders](/profile/?tab=orders)"), "/profile/?tab=orders")
+        self.assertEqual(link("[a](/x) and again [b](/x)"), "/x")
+        self.assertIsNone(link("Would you like me to take you there?"))
+        self.assertIsNone(link("[a](/x) or [b](/y)"))
+        self.assertIsNone(link("[a](https://evil.example/x)"))
+        self.assertIsNone(link("[a](//evil.example/x)"))
+
     def test_the_widget_stashes_the_offer_its_button_opens(self):
         with open(os.path.join(REPO, "static", "js", "chat-widget.js"), encoding="utf-8") as fh:
             js = fh.read()
@@ -231,6 +242,23 @@ class OnMariaDB(unittest.TestCase):
         self.assertEqual(body["navigate_url"], "/frames?shape=round")
         self.assertEqual(body["action"]["action_id"], acts[0]["action_id"])
         self.assertEqual([a["status"] for a in self._actions()], ["CONFIRMED"])
+
+    def test_an_offer_whose_only_destination_is_its_own_link_is_opened_by_the_yes(self):
+        self.cg._recover_nav_target = lambda: None
+        self.scripted = [("Your order is confirmed. Full details are in My Orders. Would you "
+                          "like me to take you there?\n\n[\u25b6 Open My Orders](/profile/?tab=orders)",
+                          None)]
+        body = self._say("hmm ok")
+        self.assertNotIn("navigate_url", body)
+        acts = self._actions()
+        self.assertEqual([(a["target"], a["status"]) for a in acts],
+                         [("/profile/?tab=orders", "PENDING")])
+        self.assertEqual(self._last_trace()["action"]["state"], "OFFERED")
+        body = self._say("yes")
+        self.assertEqual(self.model_calls, 1)
+        self.assertEqual(body["navigate_url"], "/profile/?tab=orders")
+        self.assertEqual(body["action"]["action_id"], acts[0]["action_id"])
+        self.assertEqual(self._last_trace()["source"], "DETERMINISTIC")
 
     def test_the_prompts_own_offer_wording_is_an_offer(self):
         self.scripted = [("Would you like me to show you these? Click here to let me take "

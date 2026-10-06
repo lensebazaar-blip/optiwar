@@ -3077,7 +3077,7 @@ def chat_message():
             # follow-up "yes" resolves to a real destination. Only seed on a
             # genuine navigation offer — never on a ticket/handover yes/no prompt
             # — so a later confirmation can't be turned into an unexpected redirect.
-            _seed = _recover_nav_target()
+            _seed = _recover_nav_target() or acr.reply_link_target(ai_reply)
             if _seed:
                 _offered = {'id': acr.create_pending_action(db, session_id, 'NAVIGATE', _seed),
                             'type': 'NAVIGATE', 'target': _seed, 'state': 'OFFERED'}

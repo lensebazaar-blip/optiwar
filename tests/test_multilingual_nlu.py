@@ -99,6 +99,16 @@ class EvalSuiteTests(unittest.TestCase):
                      "mujhe call back chahiye"):
             self.assertEqual(al.classify_intent(text)[0], al.INTENT_CALLBACK_REQUEST, text)
 
+    def test_an_account_question_is_not_a_payment_question(self):
+        for text in ("what phone number is on my account?", "my account"):
+            self.assertNotEqual(al.classify_intent(text)[0], al.INTENT_PAYMENT_STATUS, text)
+        self.assertEqual(al.classify_intent("my amount was deducted")[0], al.INTENT_PAYMENT_STATUS)
+        self.assertEqual(al.classify_intent("my amout was deducted")[0], al.INTENT_PAYMENT_STATUS)
+
+    def test_asking_to_resend_a_parcel_is_a_reship_question(self):
+        self.assertEqual(al.classify_intent("my parcel came back to you, can you resend it?")[0],
+                         al.INTENT_RESHIP_STATUS)
+
 
 class IncidentTests(unittest.TestCase):
     """OPTIWA-1031 itself: what she asked is kept apart from what she clicked."""

@@ -608,6 +608,21 @@ def asks_before_navigating(text):
     return asks and not said
 
 
+_MD_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
+
+
+def reply_link_target(text):
+    """The one site-relative page a reply's own link buttons point at, or
+    None when it links nowhere, somewhere off-site, or to several pages."""
+    targets = {t.strip() for t in _MD_LINK_RE.findall(text or "")}
+    if len(targets) != 1:
+        return None
+    target = targets.pop()
+    if not target.startswith("/") or target.startswith("//"):
+        return None
+    return target
+
+
 # ─── Schema (additive) ───
 
 def ensure_schema(get_conn):
