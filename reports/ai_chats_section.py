@@ -330,8 +330,10 @@ def _fmt_args(args):
 
 def trace_lines(t):
     """Readable, safe trace lines (no prompt, no reasoning, no customer data)."""
-    out = ["Source: %s · Trigger: %s · %s" % (BADGE.get(t.get("source"), t.get("source")),
-                                             t.get("trigger") or "-", t.get("basis") or "")]
+    source = t.get("source")
+    if not (source == "DETERMINISTIC" and t.get("trigger") not in (None, "session_start")):
+        source = BADGE.get(source, source)
+    out = ["Source: %s · Trigger: %s · %s" % (source, t.get("trigger") or "-", t.get("basis") or "")]
     bits = []
     if t.get("language"):
         bits.append("Language %s" % t["language"])

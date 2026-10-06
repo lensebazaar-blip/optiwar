@@ -434,7 +434,7 @@ _C_PHONE = _concept(
     "phone baat".split(),
     ("फोन", "फ़ोन", "बात"))
 _C_RESHIP = _concept(
-    "returned return wapas vapas reship reshipping reshipment rto".split(),
+    "returned return wapas vapas reship reshipping reshipment rto resend".split(),
     ("वापस", "रिटर्न"))
 _C_PAYMENT = _concept(
     "payment paymnt payement pay paid paisa paise amount refund refunded deducted "
@@ -469,11 +469,16 @@ def _near(sk, target):
     return False
 
 
+# Ordinary words one edit from a concept word ("account" / "amount") are
+# themselves, not a typo of it.
+_NOT_TYPOS = frozenset(skeleton(w) for w in "account".split())
+
+
 def _hit(concept, text, latin):
     skels, native = concept
     if latin & skels:
         return True
-    for sk in latin:
+    for sk in latin - _NOT_TYPOS:
         for target in skels:
             if _near(sk, target):
                 return True

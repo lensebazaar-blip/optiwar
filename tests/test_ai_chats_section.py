@@ -193,6 +193,10 @@ class AiChatsSectionTests(unittest.TestCase):
         self.assertIn("requested deepseek-chat · returned deepseek-flash", model_line)
         self.assertNotIn("failed", model_line)
         self.assertEqual(second["source"], "DETERMINISTIC")
+        self.assertTrue(acs.trace_lines({"source": "DETERMINISTIC", "trigger": "action_confirmation"})[0]
+                        .startswith("Source: DETERMINISTIC · Trigger: action_confirmation"))
+        self.assertTrue(acs.trace_lines({"source": "DETERMINISTIC", "trigger": "session_start"})[0]
+                        .startswith("Source: RULE"))
         out = dict(acs.outcome(s)[0])
         self.assertEqual((out["Actions executed"], out["Furthest page reached"]), ("1", "LISTING"))
 
