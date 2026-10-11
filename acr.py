@@ -60,10 +60,20 @@ _OFFER_RE = re.compile(
 # supervisor handover. Only a genuine navigation offer should seed a pending
 # NAVIGATE action — otherwise a later bare "yes" answering a ticket/handover
 # yes/no question would be resolved into an unwanted redirect.
+# A page the site has: the catalogue, a product list, or a named page. "See the
+# price breakdown" names none of these, so it is an explanation, not a page.
+_NAV_PLACE = (
+    r"(frames?|eyeglasses|sunglasses|spectacles|glasses|lenses|lens options|"
+    r"collection|catalogue|catalog|range|styles|options|listing|page|cart|orders?|"
+    r"size guide|prescription)"
+)
 _NAV_OFFER_TARGET_RE = re.compile(
     r"take you( there| to)?|open (it|them|that|these|those|this|the|your)|"
     r"show you|go to|these frames|the frames|our frames|frames page|"
-    r"browse (these|them|our|the)|see (them|these|our|the)|lens options",
+    r"(browse|see|view|explore)( them| these| those| our| the| all| some| more)?"
+    r"( (progressive|single.vision|bifocal|blue.light|matching|similar|other|available|full)\w*)*"
+    r" " + _NAV_PLACE + r"\b|"
+    r"browse (these|them)|see (them|these)",
     re.IGNORECASE,
 )
 
