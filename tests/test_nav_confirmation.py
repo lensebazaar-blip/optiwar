@@ -38,6 +38,23 @@ class Unit(unittest.TestCase):
         self.assertFalse(asks("Opening them now, let me know if you want another colour."))
         self.assertFalse(asks("Shall I raise a ticket for you?"))
 
+    def test_a_question_put_to_the_customer_is_an_offer_too(self):
+        import acr
+        asks = acr.asks_before_navigating
+        self.assertTrue(asks("Progressive lenses are \u20b91000 upgrade \u2014 a no-line "
+                             "multifocal giving smooth distance, intermediate and near vision.\n"
+                             "Want to see our frames and add Progressive at checkout?\n"
+                             "[\u25b6 Open lens options](/lenses)"))
+        self.assertTrue(asks("Ready to browse the lenses?"))
+        self.assertTrue(asks("Interested in seeing these frames?"))
+        self.assertTrue(acr.offers_navigation("Want to see our frames?"))
+        self.assertFalse(asks("You may want to see the size guide first."))
+        self.assertFalse(asks("Want to see them? Taking you there now."))
+        self.assertFalse(asks("Want me to raise a ticket?"))
+        self.assertFalse(asks("Which colour do you want to see?"))
+        self.assertFalse(acr.offers_navigation("Want to see them? [Open](/x)".replace(
+            "see them", "raise a ticket")))
+
     def test_a_reply_names_the_one_page_its_own_buttons_open(self):
         import acr
         link = acr.reply_link_target
