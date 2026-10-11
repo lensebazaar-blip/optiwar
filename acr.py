@@ -60,12 +60,39 @@ _OFFER_RE = re.compile(
 # supervisor handover. Only a genuine navigation offer should seed a pending
 # NAVIGATE action — otherwise a later bare "yes" answering a ticket/handover
 # yes/no question would be resolved into an unwanted redirect.
+# A page the site has: the catalogue, a product list, or a named page. "See the
+# price breakdown" names none of these, so it is an explanation, not a page.
+_NAV_PLACE = (
+    r"(frames?|eyeglasses|sunglasses|spectacles|glasses|lenses|lens options|"
+    r"collection|catalogue|catalog|range|styles|options|listing|page|cart|orders?|"
+    r"size guide|prescription)"
+)
 _NAV_OFFER_TARGET_RE = re.compile(
     r"take you( there| to)?|open (it|them|that|these|those|this|the|your)|"
-    r"show you|go to|these frames|the frames|frames page|browse (these|them)|"
-    r"see (them|these)",
+    r"show you|go to|these frames|the frames|our frames|frames page|"
+    r"(browse|see|view|explore)( them| these| those| our| the| all| some| more)?"
+    r"( (progressive|single.vision|bifocal|blue.light|matching|similar|other|available|full)\w*)*"
+    r" " + _NAV_PLACE + r"\b|"
+    r"browse (these|them)|see (them|these)",
     re.IGNORECASE,
 )
+
+# A question put to the customer directly ("Want to see our frames?", "Ready
+# to browse the lenses?") invites a yes the same way "Would you like me to"
+# does. Only a sentence that ends in "?" is read this way, so "You may want
+# to see the size guide" stays a statement.
+_INVITE_RE = re.compile(
+    r"\b(want|like|wish|ready|care|keen|happy) to\b|\binterested in\b|"
+    r"\bhow about\b|\bfancy\b",
+    re.IGNORECASE,
+)
+
+
+def _is_navigation_question(sentence):
+    """True when one sentence asks the customer whether to go somewhere."""
+    if not sentence.endswith("?") or not _NAV_OFFER_TARGET_RE.search(sentence):
+        return False
+    return bool(_OFFER_RE.search(sentence) or _INVITE_RE.search(sentence))
 
 PENDING_TTL_SECONDS = 1800  # 30 min
 
@@ -582,7 +609,10 @@ def offers_navigation(text):
     NAVIGATE action so a ticket/handover yes/no offer never seeds one."""
     if not text:
         return False
-    return bool(_OFFER_RE.search(text) and _NAV_OFFER_TARGET_RE.search(text))
+    if _OFFER_RE.search(text) and _NAV_OFFER_TARGET_RE.search(text):
+        return True
+    words = re.sub(r"\[[^\]]*\]\([^)]*\)", " ", text)
+    return any(_is_navigation_question(s.strip()) for s in _SENTENCE_RE.findall(words))
 
 
 _SENTENCE_RE = re.compile(r"[^.!?\n]+[.!?]*")
@@ -601,8 +631,7 @@ def asks_before_navigating(text):
     for sentence in _SENTENCE_RE.findall(words):
         sentence = sentence.strip()
         if sentence.endswith("?"):
-            asks = asks or bool(_OFFER_RE.search(sentence)
-                                and _NAV_OFFER_TARGET_RE.search(sentence))
+            asks = asks or _is_navigation_question(sentence)
         elif _PROMISE_RE.search(sentence) and not _CLICK_INVITE_RE.search(sentence):
             said = True
     return asks and not said
