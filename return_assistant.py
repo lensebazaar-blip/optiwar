@@ -25,6 +25,11 @@ Stages, in the order a return moves through them:
 import re
 
 try:
+    from . import return_request
+except ImportError:  # flat layout (tests, scripts)
+    import return_request
+
+try:
     from . import reship
     from . import reverse_pickup as rp
 except ImportError:  # pragma: no cover - flat test import
@@ -53,7 +58,7 @@ PRE_PICKUP = (ST_FEE_DUE, ST_TO_BOOK, ST_REQUESTED, ST_INFO, ST_NOT_APPROVED)
 FEE_REFUNDED_STATES = (rp.FEE_REFUNDED, rp.FEE_PARTIALLY_REFUNDED)
 
 RULES = """RETURN / REVERSE-PICKUP RULES (India only; authoritative, from Optiwar's return record):
-- A return is collected by a Delhivery reverse pickup that our team books. The reverse-pickup fee is
+- A return is collected by a courier reverse pickup that our team books. The reverse-pickup fee is
   a fixed INR %(fee)s (clause 9B of the Terms). Never quote another amount, and never offer to
   waive, change or refund it: only our team decides that.
 - RETURN_REQUESTED: the customer's return request is with our team for review; they reply by
@@ -366,8 +371,11 @@ def prompt_section(model):
     """The system-prompt section: rules, then this customer's facts."""
     head = RULES % {"fee": model["fee"], "path": MY_ORDERS_PATH}
     if not model["orders"]:
-        body = ("\nCUSTOMER'S RETURNS: none on record. If asked, say there is no return record "
-                "and offer a support ticket.")
+        body = ("\nCUSTOMER'S RETURNS: none on record. If asked, say there is no return record. "
+                "A return is requested from the order's card in My Orders within %d days of "
+                "delivery (the card shows the Request a return button only while that is "
+                "possible); you cannot request one. For a return outside that window, or any "
+                "question about one, offer a support ticket." % return_request.RETURN_WINDOW_DAYS)
     else:
         body = "\nCUSTOMER'S RETURNS (authoritative):\n" + "\n".join(
             _line(e, model["fee"]) for e in model["orders"])
