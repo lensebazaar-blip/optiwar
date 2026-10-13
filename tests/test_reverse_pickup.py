@@ -56,6 +56,7 @@ class ReversePickupTest(unittest.TestCase):
         os.environ[rp.ENABLED_ENV] = "true"
         os.environ[rp.CUSTOMER_ENV] = "true"
         os.environ.pop(rp.WA_APPROVED_ENV, None)
+        os.environ.pop(rp.WA_V3_APPROVED_ENV, None)
         self.mails, self.wa = [], []
         self._mail, self._wa = reship._default_mailer, reship._default_whatsapp
         reship._default_mailer = lambda to, subj, text: self.mails.append((to, subj, text))
@@ -71,6 +72,7 @@ class ReversePickupTest(unittest.TestCase):
         os.environ.pop(rp.ENABLED_ENV, None)
         os.environ.pop(rp.CUSTOMER_ENV, None)
         os.environ.pop(rp.WA_APPROVED_ENV, None)
+        os.environ.pop(rp.WA_V3_APPROVED_ENV, None)
         self.db.rollback()
         cur = self.db.cursor()
         for oid in self._orders:
@@ -182,6 +184,34 @@ class ReversePickupTest(unittest.TestCase):
         self.assertEqual(phone, "919999900000")
         self.assertEqual(comps["body_2"]["value"], AWB)
 
+    def test_booking_names_the_courier_ops_booked(self):
+        _cid, oid = self._order()
+        r = self._post(oid, self._body(courier="dtdc", awb="7X119057819"))
+        self.assertEqual(r.status_code, 200, r.get_json())
+        view = r.get_json()["reverse_pickup"]
+        self.assertEqual(view["courier"], "DTDC")
+        self.assertEqual(len(self.mails), 1)
+        text = self.mails[0][2]
+        self.assertIn("Courier: DTDC", text)
+        self.assertIn("A DTDC agent will collect", text)
+        self.assertNotIn("Delhivery", text)
+        self.assertTrue(any("Reverse pickup booked with DTDC, AWB 7X119057819" in h for h in self._history(oid)))
+        self.cur.execute("SELECT courier FROM order_reverse_pickups WHERE order_id=%s", (oid,))
+        self.assertEqual(self.cur.fetchone()["courier"], "DTDC")
+        public = rp.public_view(rp.by_awb(self.db, "7X119057819"))
+        self.assertEqual(public["courier"], "DTDC")
+        self.assertEqual(public["track_url"], "https://www.dtdc.com/track")
+
+    def test_v3_whatsapp_carries_the_courier_first(self):
+        os.environ[rp.WA_APPROVED_ENV] = "1"
+        os.environ[rp.WA_V3_APPROVED_ENV] = "1"
+        _cid, oid = self._order()
+        self._post(oid, self._body())
+        _phone, tpl, comps = self.wa[0]
+        self.assertEqual(tpl, "reverse_pickup_booked_v3")
+        self.assertEqual([comps["body_%d" % i]["value"] for i in (1, 2, 3)], ["Delhivery", oid, AWB])
+        self.assertIn("delhivery.com", comps["body_4"]["value"])
+
     def test_a_failed_whatsapp_is_counted_not_fatal(self):
         os.environ[rp.WA_APPROVED_ENV] = "1"
         reship._default_whatsapp = lambda *a: {"ok": False, "error": "template rejected"}
@@ -195,7 +225,7 @@ class ReversePickupTest(unittest.TestCase):
     def test_refusals(self):
         _cid, oid = self._order()
         cases = [
-            (self._body(courier="DTDC"), 422, "courier_not_supported"),
+            (self._body(courier="BlueDart"), 422, "courier_not_supported"),
             (self._body(awb="ABC123"), 422, "invalid_awb"),
             (self._body(forward_awb="7X000000000"), 409, "forward_awb_mismatch"),
         ]

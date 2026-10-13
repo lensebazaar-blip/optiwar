@@ -44,13 +44,13 @@ MIN_DESCRIPTION = 20
 MAX_DESCRIPTION = 2000
 MIN_NOTE = 10
 
-DECLARATIONS_VERSION = "rp-declarations-2026-10-03"
+DECLARATIONS_VERSION = "rp-declarations-2026-10-13"
 DECLARATIONS = (
     "The product is in its original box/case with all accessories, and the invoice is included.",
     "The product has not been altered, repaired or damaged by me after delivery.",
     "I understand a \u20b9250 reverse-pickup fee applies. It is refunded only if Optiwar's "
     "inspection confirms a manufacturing defect.",
-    "I will hand the parcel only to the Delhivery agent for the pickup Optiwar books, and will "
+    "I will hand the parcel only to the courier agent for the pickup Optiwar books, and will "
     "not ship it myself.",
     "I understand that Optiwar's inspection decides the outcome, and that approval to return is "
     "not a promise of a refund.",
