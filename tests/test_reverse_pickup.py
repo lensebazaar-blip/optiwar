@@ -212,6 +212,32 @@ class ReversePickupTest(unittest.TestCase):
         self.assertEqual([comps["body_%d" % i]["value"] for i in (1, 2, 3)], ["Delhivery", oid, AWB])
         self.assertIn("delhivery.com", comps["body_4"]["value"])
 
+    def test_v2_whatsapp_is_not_sent_for_another_courier(self):
+        os.environ[rp.WA_APPROVED_ENV] = "1"
+        _cid, oid = self._order()
+        r = self._post(oid, self._body(courier="DTDC", awb="7X119057819"))
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(self.wa, [])
+        state = r.get_json()["reverse_pickup"]["notification_state"]
+        self.assertEqual([s["channel"] for s in state["sent"]], ["email"])
+        self.assertEqual(state["failed"], 0)
+        os.environ[rp.WA_V3_APPROVED_ENV] = "1"
+        _c2, other = self._order()
+        self._post(other, self._body(courier="DTDC", awb="7X119057820"))
+        self.assertEqual([w[1] for w in self.wa], ["reverse_pickup_booked_v3"])
+        self.assertEqual(self.wa[0][2]["body_1"]["value"], "DTDC")
+
+    def test_same_awb_with_another_courier_is_not_a_replay(self):
+        _cid, oid = self._order()
+        self.assertEqual(self._post(oid, self._body(awb="36120510012345")).status_code, 200)
+        r = self._post(oid, self._body(courier="DTDC", awb="36120510012345"))
+        self.assertEqual((r.status_code, r.get_json()["error"]), (409, "awb_in_use"))
+        r = self._post(oid, self._body(awb="36120510012345"))
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.get_json()["reverse_pickup"]["courier"], "Delhivery")
+        self.cur.execute("SELECT COUNT(*) AS n FROM order_reverse_pickups WHERE order_id=%s", (oid,))
+        self.assertEqual(self.cur.fetchone()["n"], 1)
+
     def test_a_failed_whatsapp_is_counted_not_fatal(self):
         os.environ[rp.WA_APPROVED_ENV] = "1"
         reship._default_whatsapp = lambda *a: {"ok": False, "error": "template rejected"}
