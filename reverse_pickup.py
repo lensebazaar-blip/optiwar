@@ -598,6 +598,9 @@ def book(db, order_id, body, operator):
             raise ReversePickupError("awb_in_use", "this AWB is recorded on another order", 409)
         if existing["status"] != ST_BOOKED:
             raise ReversePickupError("awb_cancelled", "this AWB was cancelled; book a new waybill", 409)
+        if existing["courier"] != courier:
+            raise ReversePickupError("awb_in_use", "this AWB is recorded with %s on this order"
+                                     % existing["courier"], 409)
         return existing, False
     active = active_for_order(db, oid, for_update=True)
     if active:
@@ -764,7 +767,10 @@ def notify(db, event_type, row, host, mailer=None, whatsapp=None, environ=None):
 
     phone = (acct.get("customer_phone") or "").strip()
     approved = str(env.get(WA_APPROVED_ENV, "")).strip().lower() in ("1", "true", "yes")
-    if phone and approved and claim("whatsapp"):
+    # The _v2 templates name Delhivery in their fixed text, so until the
+    # courier-variable _v3 ones are approved another courier gets no WhatsApp.
+    wa_fits = _wa_v3(env) or row["courier"] == COURIER
+    if phone and approved and wa_fits and claim("whatsapp"):
         tpl = env.get(reship.WA_TEMPLATE_PREFIX_ENV, "") + _wa_template(event_type, env)
         try:
             r = (whatsapp or reship._default_whatsapp)(
