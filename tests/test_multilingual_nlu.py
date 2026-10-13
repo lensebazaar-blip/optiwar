@@ -99,6 +99,14 @@ class EvalSuiteTests(unittest.TestCase):
                      "mujhe call back chahiye"):
             self.assertEqual(al.classify_intent(text)[0], al.INTENT_CALLBACK_REQUEST, text)
 
+    def test_asking_which_phone_number_is_on_file_is_an_account_question(self):
+        for text in ("what phone number is on my account?", "change my phone number",
+                     "mera phone number kya hai"):
+            self.assertEqual(al.classify_intent(text)[0], al.INTENT_ACCOUNT_DETAILS, text)
+        # A full question of its own never inherits the conversation's intent.
+        self.assertEqual(al.conversation_intent(["where is my order", "what phone number is on my account?"])[0],
+                         al.INTENT_ACCOUNT_DETAILS)
+
     def test_an_account_question_is_not_a_payment_question(self):
         for text in ("what phone number is on my account?", "my account"):
             self.assertNotEqual(al.classify_intent(text)[0], al.INTENT_PAYMENT_STATUS, text)

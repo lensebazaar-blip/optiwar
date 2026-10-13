@@ -1101,6 +1101,19 @@ def _support_text(kind, language, session_id, **values):
     return translated.strip()
 
 
+TEST_MODEL_DOWN_MARKER = '[TEST MODEL DOWN]'
+
+
+def _test_forced_model_down(db, content):
+    """True when a flagged TEST account opens its message with
+    ``TEST_MODEL_DOWN_MARKER``: the turn takes the model-down path without a
+    model call, so the fallback reply can be proven on production without
+    waiting for an outage. Never true for a real customer or a guest."""
+    if not (content or '').lstrip().startswith(TEST_MODEL_DOWN_MARKER):
+        return False
+    return test_identity.is_test_customer(db.cursor(), flask_session.get('user_id'))
+
+
 def _model_down_reply(turn_intent, language, session_id):
     """``(kind, reply)`` for a turn the model could not answer: where the
     customer can see the answer themselves, never an invented one."""
@@ -2341,8 +2354,9 @@ def _turn_tools(rx_model, order_model, reship_model, return_model, face_ctx,
     if reship_model is not None and (reship_model.get('orders') or asked_reship):
         tools.append({'tool': 'LOOKUP_RESHIP_STATUS', 'asked': asked_reship,
                       'found': bool(reship_model.get('orders'))})
-    if return_model and return_model.get('orders'):
-        tools.append({'tool': 'READ_RETURN'})
+    if return_model is not None and (return_model.get('orders') or asked_reship):
+        tools.append({'tool': 'READ_RETURN', 'asked': asked_reship,
+                      'found': bool(return_model.get('orders'))})
     if face_ctx:
         tools.append({'tool': 'READ_FACES'})
     if photo_section:
@@ -2882,6 +2896,9 @@ def chat_message():
         # One retry; if the model leaks again the turn fails like any other
         # provider error and the customer sees the generic apology.
         for attempt in (1, 2):
+            if _test_forced_model_down(db, content):
+                error = 'test_forced_model_down'
+                break
             ai_reply, error = _call_deepseek(
                 system_prompt, history, content, is_india=is_india,
                 endpoint="chat_gateway.message", gate_key=session_id)

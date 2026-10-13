@@ -29,6 +29,7 @@ INTENT_RESHIP_STATUS = "RESHIP_STATUS"
 INTENT_PAYMENT_STATUS = "PAYMENT_STATUS"
 INTENT_HUMAN_REQUEST = "HUMAN_REQUEST"
 INTENT_CALLBACK_REQUEST = "CALLBACK_REQUEST"
+INTENT_ACCOUNT_DETAILS = "ACCOUNT_DETAILS"
 INTENT_PRODUCT_SEARCH = "PRODUCT_SEARCH"
 INTENT_GREETING = "GREETING"
 INTENT_OTHER = "OTHER"
@@ -517,7 +518,9 @@ def classify_intent(text):
         return INTENT_PRESCRIPTION_STATUS, 0.55
     if has["human"]:
         return INTENT_HUMAN_REQUEST, 0.85
-    if (has["call"] or (has["phone"] and not has["number"])) and not has["specs"]:
+    if has["phone"] and has["number"] and not has["specs"]:
+        return INTENT_ACCOUNT_DETAILS, 0.7
+    if (has["call"] or has["phone"]) and not has["specs"]:
         return INTENT_CALLBACK_REQUEST, 0.8
     if has["reship"] and (has["order"] or has["specs"] or has["how"] or has["when"]):
         return INTENT_RESHIP_STATUS, 0.7

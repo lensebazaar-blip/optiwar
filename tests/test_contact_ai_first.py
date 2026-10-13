@@ -412,6 +412,29 @@ class OnMariaDB(unittest.TestCase):
         self.assertNotIn(order_lookup.SIGN_IN_ORDERS_URL, body["reply"])
         self.assertNotIn("NOT signed in", self.prompts[-1])
 
+    def test_a_test_account_can_force_the_model_down_path_and_a_customer_cannot(self):
+        cg = self.cg
+        sid = self._start()
+        self._sign_in()
+        marker = cg.TEST_MODEL_DOWN_MARKER + " mera order kaha hai"
+        real = cg.test_identity.is_test_customer
+        cg.test_identity.is_test_customer = lambda cur, cid: cid == 424242
+        try:
+            body = self._say(sid, marker).get_json()
+        finally:
+            cg.test_identity.is_test_customer = real
+        self.assertEqual(body["status"], "failed")
+        self.assertIn(order_lookup.MY_ORDERS_URL, body["reply"])
+        self.assertEqual(self.prompts, [], "a forced outage makes no model call")
+        fb = [e for e in self._events(sid) if e["event_type"] == "MODEL_FALLBACK_USED"]
+        self.assertEqual(len(fb), 1)
+        self.assertEqual(json.loads(fb[0]["payload"])["fallback"], "model_down_orders")
+        # The same marker from a real (unflagged) customer is an ordinary message.
+        self.scripted.append(("Your order is on its way.", None))
+        body = self._say(sid, marker).get_json()
+        self.assertEqual(body["status"], "sent")
+        self.assertEqual(len(self.prompts), 1)
+
     def test_a_model_outage_answers_deterministically_and_says_so(self):
         sid = self._start()
         self.scripted.append((None, "provider_error"))

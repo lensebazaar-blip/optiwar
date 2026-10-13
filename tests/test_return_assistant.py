@@ -155,7 +155,10 @@ class ReturnAssistantTest(_Harness):
         plain_cid, _plain = self._order(fee=None)
         m = self._model(plain_cid)
         self.assertEqual(m["orders"], [])
-        self.assertIn("none on record", ra.prompt_section(m))
+        section = ra.prompt_section(m)
+        self.assertIn("none on record", section)
+        self.assertIn("My Orders within %d days of delivery" % ra.return_request.RETURN_WINDOW_DAYS, section)
+        self.assertNotIn("Delhivery", section)
         self.assertEqual(ra.reply_violations(m, "Your refund will be processed."), [])
 
     def test_a_test_order_is_not_a_customers_return(self):
