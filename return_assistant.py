@@ -24,7 +24,10 @@ Stages, in the order a return moves through them:
 """
 import re
 
-import return_request
+try:
+    from . import return_request
+except ImportError:  # flat layout (tests, scripts)
+    import return_request
 
 try:
     from . import reship
