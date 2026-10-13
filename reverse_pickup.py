@@ -1,4 +1,4 @@
-"""India reverse pickup: Ops books a Delhivery reverse waybill, Optiwar
+"""India reverse pickup: Ops books a courier reverse waybill, Optiwar
 records it against the order and tells the customer.
 
 Optiwar is the authority for the ₹250 reverse-pickup fee: one
@@ -38,6 +38,12 @@ WA_APPROVED_ENV = "REVERSE_PICKUP_WA_TEMPLATES_APPROVED"
 CUSTOMER_ENV = "REVERSE_PICKUP_CUSTOMER_ENABLED"
 
 COURIER = "Delhivery"
+# Couriers whose AWB format and tracking page reship knows, by the name
+# Ops may type (any case) -> the name the customer is shown.
+COURIERS = {"delhivery": "Delhivery", "dtdc": "DTDC"}
+# The _v3 WhatsApp templates carry the courier as their first variable;
+# until Meta approves them the Delhivery-only _v2 ones are used.
+WA_V3_APPROVED_ENV = "REVERSE_PICKUP_WA_V3_APPROVED"
 
 ST_BOOKED = "BOOKED"
 ST_CANCELLED = "CANCELLED"
@@ -323,6 +329,7 @@ NOTICE_RETRY_MINUTES_ENV = "REVERSE_PICKUP_NOTICE_RETRY_MINUTES"
 NOTICE_RETRY_MINUTES = 15
 
 _WA_TEMPLATES = {EV_BOOKED: "reverse_pickup_booked_v2", EV_CANCELLED: "reverse_pickup_cancelled_v2"}
+_WA_TEMPLATES_V3 = {EV_BOOKED: "reverse_pickup_booked_v3", EV_CANCELLED: "reverse_pickup_cancelled_v3"}
 CHANGE_EMAIL = "admin@optiwar.com"
 
 EMAILS = {
@@ -330,10 +337,10 @@ EMAILS = {
         "Reverse pickup scheduled for your Optiwar order {order_id}",
         "Dear {name},\n\n"
         "A reverse pickup has been scheduled for your order {order_id}.\n\n"
-        "Courier: Delhivery\n"
+        "Courier: {courier}\n"
         "Pickup AWB: {awb}\n"
         "Track: {track_url}\n\n"
-        "A Delhivery agent will collect the parcel from your order address in 1-3 working days.\n\n"
+        "A {courier} agent will collect the parcel from your order address in 1-3 working days.\n\n"
         "Before the pickup:\n"
         "- Keep the product in its original box/case with all accessories and the invoice, packed and ready.\n"
         "- Keep your phone reachable so the agent can contact you.\n"
@@ -346,7 +353,7 @@ EMAILS = {
     EV_CANCELLED: (
         "Reverse pickup cancelled for your Optiwar order {order_id}",
         "Dear {name},\n\n"
-        "The Delhivery reverse pickup for your order {order_id} (AWB {awb}) has been cancelled. "
+        "The {courier} reverse pickup for your order {order_id} (AWB {awb}) has been cancelled. "
         "No agent will come to collect the parcel for this booking.\n\n"
         "If you did not expect this, reply to this email or write to {support}.\n\n"
         "My Orders: {url}\n\n"
@@ -415,14 +422,14 @@ CASE_EMAILS.update({
     NOTICE_REQUEST_APPROVED: (
         "Optiwar Return Request Approved",
         "Your return request has been approved, subject to inspection.\n"
-        "To arrange the Delhivery reverse pickup, please pay the ₹250 reverse-pickup fee in "
+        "To arrange the reverse pickup, please pay the ₹250 reverse-pickup fee in "
         "My Orders: {url}\n"
         "The fee is refunded if our inspection confirms a manufacturing defect."),
     NOTICE_REQUEST_APPROVED_WAIVED: (
         "Optiwar Return Request Approved",
         "Your return request has been approved, subject to inspection.\n"
         "The ₹250 reverse-pickup fee has been waived for this return, so nothing is due from you.\n"
-        "We will book the Delhivery reverse pickup and send you the pickup details."),
+        "We will book the reverse pickup and send you the pickup details."),
     NOTICE_REQUEST_INFO: (
         "Optiwar Return Request: Information Needed",
         "We need a little more information before we can approve your return request:\n"
@@ -436,7 +443,7 @@ CASE_EMAILS.update({
     NOTICE_FEE_PAID: (
         "Optiwar Reverse-Pickup Fee Received",
         "We have received your ₹250 reverse-pickup fee (payment {payment_id}).\n"
-        "We will now book the Delhivery pickup and send you the pickup details."),
+        "We will now book the pickup and send you the pickup details."),
     NOTICE_FEE_REFUNDED: (
         "Optiwar Reverse-Pickup Fee Refunded",
         "Our inspection confirmed the manufacturing defect you reported, so your ₹250 "
@@ -571,11 +578,12 @@ def book(db, order_id, body, operator):
     oid = resolve_order_id(db, order_id)
     if not oid:
         raise ReversePickupError("not_found", "order not found", 404)
-    courier = str(body.get("courier") or "").strip()
-    if courier.lower() != COURIER.lower():
-        raise ReversePickupError("courier_not_supported", "only Delhivery reverse pickups are accepted")
+    courier = COURIERS.get(str(body.get("courier") or COURIER).strip().lower())
+    if not courier:
+        raise ReversePickupError("courier_not_supported", "unknown courier; accepted: %s"
+                                 % ", ".join(COURIERS.values()))
     awb = _normal_awb(body.get("awb"))
-    hint = reship.awb_format_error(COURIER, awb)
+    hint = reship.awb_format_error(courier, awb)
     if not awb or hint:
         raise ReversePickupError("invalid_awb", hint or "awb required")
     cur = db.cursor()
@@ -623,18 +631,18 @@ def book(db, order_id, body, operator):
         "INSERT INTO order_reverse_pickups (pickup_uuid, order_id, customer_id, site_from, "
         "courier, awb, reference, reason, remarks, forward_awb, pickup_city, pickup_pin, "
         "status, booked_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-        (row_uuid, oid, head.get("customer_id"), head.get("site_from"), COURIER, awb,
+        (row_uuid, oid, head.get("customer_id"), head.get("site_from"), courier, awb,
          _clip(body.get("reference"), 64), _clip(body.get("reason"), 255),
          _clip(body.get("remarks"), 500), forward, _clip(pickup.get("city"), 64),
          _clip(pickup.get("pin"), 12), ST_BOOKED, _clip(operator, 191)))
-    add_history(cur, oid, "Reverse pickup booked with Delhivery, AWB %s%s (forward AWB %s unchanged) by %s"
-                % (awb, " ref %s" % _clip(body.get("reference"), 64) if body.get("reference") else "",
+    add_history(cur, oid, "Reverse pickup booked with %s, AWB %s%s (forward AWB %s unchanged) by %s"
+                % (courier, awb, " ref %s" % _clip(body.get("reference"), 64) if body.get("reference") else "",
                    forward or "n/a", _clip(operator, 120)), head.get("site_from"))
     reship.emit(db, EV_BOOKED, oid, row_uuid, head.get("customer_id"),
                 {"awb": awb, "operator": _clip(operator, 120)}, key=row_uuid, commit=False)
     row = by_awb(db, awb)
     queue_ops_event(db, EV_BOOKED, oid,
-                    {"courier": COURIER, "awb": awb, "reference": row.get("reference") or None,
+                    {"courier": courier, "awb": awb, "reference": row.get("reference") or None,
                      "forward_awb": forward or None, "booked_by": _clip(operator, 191),
                      "booked_at": _iso(row.get("booked_at"))},
                     case=case, pickup=row, key=row_uuid, commit=False)
@@ -671,8 +679,8 @@ def cancel(db, order_id, body, operator):
     cur = db.cursor()
     cur.execute("UPDATE order_reverse_pickups SET status=%s, cancelled_by=%s, cancelled_at=NOW() "
                 "WHERE id=%s AND status=%s", (ST_CANCELLED, _clip(operator, 191), row["id"], ST_BOOKED))
-    add_history(cur, oid, "Reverse pickup cancelled with Delhivery, AWB %s, by %s"
-                % (row["awb"], _clip(operator, 120)), row.get("site_from"))
+    add_history(cur, oid, "Reverse pickup cancelled with %s, AWB %s, by %s"
+                % (row["courier"], row["awb"], _clip(operator, 120)), row.get("site_from"))
     reship.emit(db, EV_CANCELLED, oid, row["pickup_uuid"], row.get("customer_id"),
                 {"awb": row["awb"], "operator": _clip(operator, 120)}, key=row["pickup_uuid"], commit=False)
     row = by_awb(db, row["awb"])
@@ -691,12 +699,21 @@ def _host_url(host, path):
     return host.rstrip("/") + path
 
 
-def _wa_components(event_type, fields):
-    comps = {"body_1": {"type": "text", "value": fields["order_id"]},
-             "body_2": {"type": "text", "value": fields["awb"]}}
+def _wa_v3(env):
+    return str(env.get(WA_V3_APPROVED_ENV, "")).strip().lower() in ("1", "true", "yes")
+
+
+def _wa_template(event_type, env):
+    return (_WA_TEMPLATES_V3 if _wa_v3(env) else _WA_TEMPLATES)[event_type]
+
+
+def _wa_components(event_type, fields, env=None):
+    values = [fields["order_id"], fields["awb"]]
     if event_type == EV_BOOKED:
-        comps["body_3"] = {"type": "text", "value": fields["track_url"]}
-    return comps
+        values.append(fields["track_url"])
+    if env is not None and _wa_v3(env):
+        values.insert(0, fields["courier"])
+    return {"body_%d" % (i + 1): {"type": "text", "value": v} for i, v in enumerate(values)}
 
 
 def notify(db, event_type, row, host, mailer=None, whatsapp=None, environ=None):
@@ -710,7 +727,8 @@ def notify(db, event_type, row, host, mailer=None, whatsapp=None, environ=None):
     acct = reship._account(cur, row.get("customer_id"))
     fields = {"name": (acct.get("customer_name") or "").strip() or "Customer",
               "order_id": row["order_id"], "awb": row["awb"],
-              "track_url": reship.tracking_url(COURIER, row["awb"]) or "",
+              "courier": row["courier"],
+              "track_url": reship.tracking_url(row["courier"], row["awb"]) or "",
               "support": reship.SUPPORT_EMAIL,
               "change_email": CHANGE_EMAIL,
               "terms_url": _host_url(host, TERMS_URL),
@@ -747,11 +765,11 @@ def notify(db, event_type, row, host, mailer=None, whatsapp=None, environ=None):
     phone = (acct.get("customer_phone") or "").strip()
     approved = str(env.get(WA_APPROVED_ENV, "")).strip().lower() in ("1", "true", "yes")
     if phone and approved and claim("whatsapp"):
-        tpl = env.get(reship.WA_TEMPLATE_PREFIX_ENV, "") + _WA_TEMPLATES[event_type]
+        tpl = env.get(reship.WA_TEMPLATE_PREFIX_ENV, "") + _wa_template(event_type, env)
         try:
             r = (whatsapp or reship._default_whatsapp)(
                 phone.replace("+", "").replace(" ", "").replace("-", ""), tpl,
-                _wa_components(event_type, fields)) or {}
+                _wa_components(event_type, fields, env)) or {}
             if not r.get("ok"):
                 failed("whatsapp", r.get("error") or "not accepted")
             else:
@@ -809,7 +827,7 @@ def public_view(row):
     if not row:
         return None
     return {"state": row["status"], "awb": row["awb"], "courier": row["courier"],
-            "track_url": reship.tracking_url(COURIER, row["awb"]),
+            "track_url": reship.tracking_url(row["courier"], row["awb"]),
             "booked_at": row.get("booked_at"), "cancelled_at": row.get("cancelled_at")}
 
 

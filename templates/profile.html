@@ -992,12 +992,12 @@
               <span class="oh-reship-kicker">Return</span>
               {% if rp.state == 'BOOKED' %}
               <div class="oh-reship-title">Reverse pickup scheduled</div>
-              <p class="oh-reship-ship">Delhivery &middot; <span class="oh-reship-awb">AWB {{ rp.awb }}</span>
+              <p class="oh-reship-ship">{{ rp.courier }} &middot; <span class="oh-reship-awb">AWB {{ rp.awb }}</span>
                 {% if rp.track_url %}<a class="oh-reship-track" href="{{ rp.track_url }}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Track</a>{% endif %}</p>
-              <p>A Delhivery agent will collect the parcel from your order address in 1&ndash;3 working days. Keep it packed in its original box with all accessories and the invoice, and do not send it with any other courier.</p>
+              <p>A {{ rp.courier }} agent will collect the parcel from your order address in 1&ndash;3 working days. Keep it packed in its original box with all accessories and the invoice, and do not send it with any other courier.</p>
               {% else %}
               <div class="oh-reship-title">Reverse pickup cancelled</div>
-              <p class="oh-reship-ship">Delhivery &middot; <span class="oh-reship-awb">AWB {{ rp.awb }}</span></p>
+              <p class="oh-reship-ship">{{ rp.courier }} &middot; <span class="oh-reship-awb">AWB {{ rp.awb }}</span></p>
               {% endif %}
             </div>
             {% endif %}
@@ -1015,7 +1015,7 @@
               <p>Please reply to our email with the details or photos.</p>
               {% elif rq.state == 'APPROVED_FEE_DUE' %}
               <div class="oh-reship-title">Return approved, subject to inspection</div>
-              <p>The &#8377;{{ rq.fee }} reverse-pickup fee is due before we book the Delhivery pickup. It is refunded if our inspection confirms a manufacturing defect.</p>
+              <p>The &#8377;{{ rq.fee }} reverse-pickup fee is due before we book the pickup. It is refunded if our inspection confirms a manufacturing defect.</p>
               {% if rq.can_pay %}
               <button type="button" class="oh-reship-btn" onclick="owReturnPay(this)">Pay &#8377;{{ rq.fee }}</button>
               <p class="oh-reship-err" hidden></p>
@@ -1023,7 +1023,7 @@
               {% elif rq.state == 'APPROVED' %}
               <div class="oh-reship-title">Return approved, subject to inspection</div>
               {% if rq.fee_paid %}<p>We have received your &#8377;{{ rq.fee }} reverse-pickup fee.</p>{% endif %}
-              <p>We will book the Delhivery reverse pickup and send you the pickup details.</p>
+              <p>We will book the reverse pickup and send you the pickup details.</p>
               {% elif rq.state == 'FEE_REFUNDED' %}
               <div class="oh-reship-title">Reverse-pickup fee refunded</div>
               <p>Our inspection confirmed the manufacturing defect, so your &#8377;{{ rq.refunded }} reverse-pickup fee has been refunded to your original payment method{% if rq.refund_id %} (refund {{ rq.refund_id }}){% endif %}. It normally reaches your account within 5&ndash;7 working days.</p>
