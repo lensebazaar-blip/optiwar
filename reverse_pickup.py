@@ -1608,9 +1608,14 @@ def _product_refund_executed(cur, case):
     after the case was opened (an earlier return's refund is not this one's)."""
     if not reship._has_table(cur, "return_assessments"):
         return False
+    # return_assessments stamps are naive UTC (return_assessment.mark_executed);
+    # the case's created_at is the session clock (NOW()), IST on the live box.
+    # Compare both in UTC, or a refund executed within the offset of the case
+    # opening is not found.
     cur.execute("SELECT 1 FROM return_assessments WHERE order_id=%s AND refund_id IS NOT NULL "
-                "AND COALESCE(executed_at, assessed_at) >= %s LIMIT 1",
-                (case["order_id"], case["created_at"]))
+                "AND COALESCE(executed_at, assessed_at) >= "
+                "COALESCE(CONVERT_TZ(%s, @@session.time_zone, '+00:00'), %s) LIMIT 1",
+                (case["order_id"], case["created_at"], case["created_at"]))
     return bool(cur.fetchone())
 
 

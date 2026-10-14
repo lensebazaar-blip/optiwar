@@ -206,6 +206,25 @@ class Phase4Test(unittest.TestCase):
         # the queue shows it as COMPLETED, and the case allows a fresh request
         self.assertTrue(rreq._case_allows_request(rp.case_for_order(self.db, oid)))
 
+    def test_a_refund_executed_in_utc_is_found_when_the_database_clock_is_ist(self):
+        # the live box's MariaDB runs on SYSTEM time (IST); the assessment is
+        # stamped in UTC, 5h30 behind the case's created_at
+        self.cur.execute("SET SESSION time_zone='+05:30'")
+        try:
+            oid, _ = self._inspected(defect=True, fee="WAIVED")
+            self.cur.execute(
+                "INSERT INTO return_assessments (order_id, site, claim_type, currency, paid_minor, "
+                "lens_deduction_cap_pct, proposed_refund_minor, assessed_by, service_identity, assessed_at) "
+                "VALUES (%s,'in','MANUFACTURING_DEFECT','INR',94900,50,94900,'ops','in-ops',NOW())", (oid,))
+            aid = self.cur.lastrowid
+            self.assertTrue(assess.mark_executed(self.cur, aid, 4243))
+            self.db.commit()
+            r = self._complete(oid, "PRODUCT_REFUNDED")
+            self.assertEqual(r.status_code, 200, r.get_json())
+        finally:
+            self.cur.execute("SET SESSION time_zone='SYSTEM'")
+            self.db.commit()
+
     def test_a_product_refund_completes_a_confirmed_defect_without_a_shipment(self):
         oid, _ = self._inspected(defect=False)
         self._post(oid, {"message_id": "<ok@mail>"}, path="/consent")
