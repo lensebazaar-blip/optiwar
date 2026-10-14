@@ -51,7 +51,7 @@ def api_key_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         key = request.headers.get("X-API-Key", "") or request.form.get("api_key", "")
-        if key != API_SECRET:
+        if not API_SECRET or key != API_SECRET:
             return jsonify({"error": "Unauthorized"}), 401
         return f(*args, **kwargs)
     return decorated

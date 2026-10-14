@@ -74,7 +74,7 @@ RELEASES = os.environ.get("OPTIWAR_RELEASES", "/root/deploy_releases")
 # eligibility rule is only true if every read surface applies it, so shipping
 # models.py without chat.py, ai_api.py or orders.py would leave a lens visible
 # on .in through the chat, the fitting API or the favourites list.
-DEPLOY_SET = ("__init__.py", "log_hygiene.py", "acr.py", "ai_api.py", "ai_client.py", "catalogue.py", "chat.py",
+DEPLOY_SET = ("__init__.py", "log_hygiene.py", "pricing.py", "acr.py", "ai_api.py", "ai_client.py", "catalogue.py", "chat.py",
               "chat_gateway.py", "contact_lens.py", "dev_defects.py",
               "lens_minimums.py",
               "lens_rx.py", "lens_documents.py", "lens_upload.py",
@@ -180,6 +180,15 @@ REVIEWED_DRIFT = {
     "templates/ai_faq.html": {"e30290407c024093673b3b69d1b55c8b":
                               "openContactChoice() without the 'faq' entry, "
                               "superseded by #170"},
+    # Reviewed 2026-10-14 against origin/main: the running file differs from
+    # main only in the shared secret the eu.lensbazaar.com dashboard sends on
+    # /api/lens-pricing/update, hardcoded on the box where main reads
+    # PRICING_API_SECRET, and in the pricing-file resolver main adds (#223).
+    # REQUIRED_ENV refuses the deploy until that name is set on the box, and
+    # api_key_required refuses every call while it is empty, so nothing is lost
+    # by replacing it.
+    "pricing.py": {"e2246b0dfdb04e76d3c3333c5f1e58ba":
+                   "hardcoded PRICING_API_SECRET, now read from the environment"},
 }
 
 # Environment names the deployed code reads and production does not set yet.
@@ -190,6 +199,8 @@ REVIEWED_DRIFT = {
 REQUIRED_ENV = (
     ("SECRET_KEY", "__init__.py refuses to start without it (session signing)"),
     ("GOOGLE_MAPS_API_KEY", "models.py reads it for /api/places_autocomplete"),
+    ("PRICING_API_SECRET",
+     "pricing.py authenticates the eu.lensbazaar.com price-update API with it"),
     ("RAZORPAY_WEBHOOK_SECRET", "payments.py verifies /razorpay/webhook with it"),
     # The refund API's own credential, deliberately not OPS_API_TOKEN: it is the
     # grant that lets EU Ops refund at all, and without it every refund request

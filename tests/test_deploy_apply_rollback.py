@@ -170,7 +170,7 @@ class DeploySetTest(unittest.TestCase):
         # These carry credentials hardcoded on the box that exist nowhere in
         # git; deploying the repo's version would blank them into empty strings,
         # silently, because os.environ.get(NAME, "") is a valid string.
-        for name in ("pricing.py", "delhivery_union.py", "missing_order_search.py",
+        for name in ("delhivery_union.py", "missing_order_search.py",
                      "dashboard_admin_streamlit.py"):
             self.assertNotIn(name, self.d.DEPLOY_SET)
 
@@ -184,6 +184,16 @@ class DeploySetTest(unittest.TestCase):
         self.assertIn("GOOGLE_MAPS_API_KEY",
                       [name for name, _why in self.d.REQUIRED_ENV])
         self.assertIn("models.py", self.d.REVIEWED_DRIFT)
+
+    def test_pricing_is_only_deployable_with_its_credential_moved_to_the_box(self):
+        # pricing.py left that list the same way: production hardcodes the
+        # eu.lensbazaar.com dashboard's shared secret where the repo reads
+        # PRICING_API_SECRET, and models.py (#223) imports its resolver, so the
+        # two ship together or not at all.
+        self.assertIn("pricing.py", self.d.DEPLOY_SET)
+        self.assertIn("PRICING_API_SECRET",
+                      [name for name, _why in self.d.REQUIRED_ENV])
+        self.assertIn("pricing.py", self.d.REVIEWED_DRIFT)
 
     def test_a_new_module_is_in_scope_only_when_its_absence_is_expected(self):
         # Every deployed file that production does not have yet must be declared,
