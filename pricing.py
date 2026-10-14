@@ -11,11 +11,26 @@ from functools import wraps
 
 bp = Blueprint("pricing", __name__)
 
-PRICING_FILE = "/var/www/flask-optiwar-ow-release-090525/lens_pricing.json"
+PROD_PRICING_FILE = "/var/www/flask-optiwar-ow-release-090525/lens_pricing.json"
+REPO_PRICING_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "config", "lens_pricing.json")
+
+
+def pricing_file():
+    """LENS_PRICING_FILE if set; else the box's file; else the repo copy."""
+    env = os.environ.get("LENS_PRICING_FILE")
+    if env:
+        return env
+    if os.path.exists(PROD_PRICING_FILE):
+        return PROD_PRICING_FILE
+    return REPO_PRICING_FILE
+
+
+PRICING_FILE = pricing_file()
 
 def load_pricing():
     try:
-        with open(PRICING_FILE, "r") as f:
+        with open(pricing_file(), "r") as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return {}

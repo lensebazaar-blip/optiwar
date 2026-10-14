@@ -1,4 +1,5 @@
 import os
+import secrets
 import time
 from datetime import datetime, timezone, timedelta
 from flask import Flask, request, session, make_response, redirect, jsonify
@@ -34,7 +35,13 @@ def create_app(test_config=None):
     app = Flask(__name__, instance_relative_config=True)
     app.config['DEBUG'] = False
     app.config['ENV'] = 'prouction'
-    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', '#4418@1220042ksk$dkdk%sdskl!!')
+    secret_key = os.environ.get('SECRET_KEY')
+    if not secret_key:
+        if test_config is None and os.environ.get('OPTIWAR_DEV') != '1':
+            raise RuntimeError("SECRET_KEY is not set; refusing to start. Set SECRET_KEY, "
+                               "or OPTIWAR_DEV=1 for a local run with a per-process key.")
+        secret_key = secrets.token_hex(32)
+    app.config['SECRET_KEY'] = secret_key
     app.config['SESSION_TYPE'] = 'filesystem'
     # Session cookie hardening
     app.config['SESSION_COOKIE_HTTPONLY'] = True
@@ -255,7 +262,7 @@ def create_app(test_config=None):
         }
 
     # 🔐 Ensure logs directory exists
-    log_dir = '/var/log/optiwar'
+    log_dir = os.environ.get('OPTIWAR_LOG_DIR', '/var/log/optiwar')
     debug_log_path = os.path.join(log_dir, 'debug.log')
     os.makedirs(log_dir, exist_ok=True)
 
