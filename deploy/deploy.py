@@ -105,7 +105,8 @@ DEPLOY_SET = ("__init__.py", "log_hygiene.py", "acr.py", "ai_api.py", "ai_client
               "templates/product_page.html", "templates/product_page_lens.html",
               "templates/_product_reviews.html", "templates/_picture.html",
               "templates/base.html", "static/js/chat-widget.js",
-              "templates/all_frames.html", "templates/guide_frame_shapes.html")
+              "templates/all_frames.html", "templates/guide_frame_shapes.html",
+              "templates/ai_faq.html")
 
 # Files that do not exist in production yet. Absence is otherwise a block, so
 # that a path typo or a file missing from the release cannot be mistaken for a
@@ -171,6 +172,14 @@ REVIEWED_DRIFT = {
     "templates/checkout.html": {"843b994d359d5f0501a9c3a6ac55fe18":
                                 "hardcoded GOOGLE_MAPS_API_KEY, now read from "
                                 "the environment"},
+    # Reviewed 2026-10-14 against origin/main: the running file is the July
+    # ai_faq.html, whose footer link calls openContactChoice() with no entry
+    # point. main (#170) passes 'faq' so the support entry is attributed; the
+    # file was never in DEPLOY_SET, so that change never shipped. Nothing on
+    # the box is lost by replacing it.
+    "templates/ai_faq.html": {"e30290407c024093673b3b69d1b55c8b":
+                              "openContactChoice() without the 'faq' entry, "
+                              "superseded by #170"},
 }
 
 # Environment names the deployed code reads and production does not set yet.
