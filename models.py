@@ -12,6 +12,7 @@ from .razorpay_settlement import (resolve_order_reference, settle, notify_paid_o
 from .rx_powers import normalize_rows
 from . import ops_refunds
 from . import policy_terms
+from .pricing import pricing_file as _pricing_file
 from . import reship, reship_api, return_fee
 from . import test_identity
 from flaskr.notifications import notify_payment_attempted, notify_payment_success, notify_payment_failed, notify_order_confirmed, notify_order_shipped
@@ -685,7 +686,7 @@ def index():
     import json as _json_idx
     _lens_prices = {}
     try:
-        with open("/var/www/flask-optiwar-ow-release-090525/lens_pricing.json", "r") as _fp:
+        with open(_pricing_file(), "r") as _fp:
             _lp = _json_idx.load(_fp)
         for _cat in _lp.get("default", {}).values():
             for _code, _item in _cat.items():
@@ -2541,9 +2542,8 @@ def get_addon_price_map(context=None):
     Returns flat dict of {code: {name, price}} for the given context.
     """
     import json as _json
-    pricing_file = "/var/www/flask-optiwar-ow-release-090525/lens_pricing.json"
     try:
-        with open(pricing_file, "r") as f:
+        with open(_pricing_file(), "r") as f:
             config = _json.load(f)
         result = {}
         # Always start with default prices (includes bifocal category for addon_3)
@@ -4904,7 +4904,7 @@ def lenses_hub():
     import json as _json
     _eur_map = {}
     try:
-        with open("/var/www/flask-optiwar-ow-release-090525/lens_pricing.json", "r") as _f:
+        with open(_pricing_file(), "r") as _f:
             _pc = _json.load(_f)
         for _cat in _pc.get("default", {}).values():
             for _code, _item in _cat.items():
@@ -4940,7 +4940,7 @@ def lens_page(lens_slug):
     import json as _json2
     _eur_map2 = {}
     try:
-        with open("/var/www/flask-optiwar-ow-release-090525/lens_pricing.json", "r") as _f2:
+        with open(_pricing_file(), "r") as _f2:
             _pc2 = _json2.load(_f2)
         for _cat2 in _pc2.get("default", {}).values():
             for _code2, _item2 in _cat2.items():

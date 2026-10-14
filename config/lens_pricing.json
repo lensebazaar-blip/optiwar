@@ -1,0 +1,238 @@
+{
+  "default": {
+    "coatings": {
+      "arc01": {
+        "name": "Anti-Glare",
+        "short": "AG",
+        "color": "green",
+        "price": 50,
+        "desc": "Reduces reflections on lens surface",
+        "price_eur": 5.0
+      },
+      "bcm02": {
+        "name": "Blue Cut",
+        "short": "BC",
+        "color": "#2563eb",
+        "price": 100,
+        "desc": "Blocks harmful blue light from screens",
+        "price_eur": 7.0
+      },
+      "arcmat03": {
+        "name": "Multi Anti-Glare",
+        "short": "MA",
+        "color": "linear-gradient(135deg,#6366f1,#ec4899)",
+        "price": 200,
+        "desc": "Premium multi-layer anti-reflective coating",
+        "price_eur": 7.0
+      },
+      "polarized04": {
+        "name": "Polarized",
+        "short": "PL",
+        "color": "linear-gradient(135deg,#0ea5e9,#06b6d4)",
+        "price": 800,
+        "desc": "Eliminates glare from reflective surfaces",
+        "price_eur": 10.0
+      }
+    },
+    "thickness": {
+      "opsix1": {
+        "name": "Thin Lenses",
+        "short": "TN",
+        "color": "#0891b2",
+        "price": 100,
+        "desc": "Slimmer profile for medium prescriptions",
+        "price_eur": 10.0
+      },
+      "ops672": {
+        "name": "Extra-Thin",
+        "short": "XT",
+        "color": "#7c3aed",
+        "price": 350,
+        "desc": "Ultra-slim for high prescriptions",
+        "price_eur": 7.0
+      },
+      "pcgreystyle": {
+        "name": "Photo-Grey",
+        "short": "PG",
+        "color": "#6b7280",
+        "price": 350,
+        "desc": "Darkens in sunlight, clears indoors",
+        "price_eur": 10.0
+      },
+      "pcbostyle": {
+        "name": "Photo-Brown",
+        "short": "PB",
+        "color": "#92400e",
+        "price": 650,
+        "desc": "Brown tint in sunlight, premium finish",
+        "price_eur": 10.0
+      }
+    },
+    "bifocal": {
+      "crkt": {
+        "name": "Biofocal Round KT",
+        "short": "KT",
+        "color": "#f59e0b",
+        "price": 250,
+        "desc": "Round Kryptok style bifocal",
+        "price_eur": 8.0
+      },
+      "crd": {
+        "name": "Biofocal Flat-top D",
+        "short": "FT",
+        "color": "#ea580c",
+        "price": 500,
+        "desc": "D-segment flat-top bifocal lens",
+        "price_eur": 8.0
+      },
+      "prog01": {
+        "name": "Progressive Lenses",
+        "short": "PR",
+        "color": "linear-gradient(135deg,#4f46e5,#06b6d4)",
+        "price": 1000,
+        "desc": "Seamless multifocal no-line lens",
+        "price_eur": 10.0
+      }
+    }
+  },
+  "when_bifocal": {
+    "coatings": {
+      "arc01": {
+        "name": "Anti-Glare",
+        "short": "AG",
+        "color": "green",
+        "price": 50,
+        "desc": "Reduces reflections on lens surface",
+        "price_eur": 5.0
+      },
+      "bcm02": {
+        "name": "Blue Cut",
+        "short": "BC",
+        "color": "#2563eb",
+        "price": 100,
+        "desc": "Blocks harmful blue light from screens",
+        "price_eur": 10.0
+      },
+      "arcmat03": {
+        "name": "Multi Anti-Glare",
+        "short": "MA",
+        "color": "linear-gradient(135deg,#6366f1,#ec4899)",
+        "price": 200,
+        "desc": "Premium multi-layer anti-reflective coating",
+        "price_eur": 10.0
+      },
+      "polarized04": {
+        "name": "Polarized",
+        "short": "PL",
+        "color": "linear-gradient(135deg,#0ea5e9,#06b6d4)",
+        "price": 2000,
+        "desc": "Eliminates glare from reflective surfaces",
+        "price_eur": 20.0
+      }
+    },
+    "thickness": {
+      "opsix1": {
+        "name": "Thin Lenses",
+        "short": "TN",
+        "color": "#0891b2",
+        "price": 100,
+        "desc": "Slimmer profile for medium prescriptions",
+        "price_eur": 5.0
+      },
+      "ops672": {
+        "name": "Extra-Thin",
+        "short": "XT",
+        "color": "#7c3aed",
+        "price": 350,
+        "desc": "Ultra-slim for high prescriptions",
+        "price_eur": 10.0
+      },
+      "pcgreystyle": {
+        "name": "Photo-Grey",
+        "short": "PG",
+        "color": "#6b7280",
+        "price": 650,
+        "desc": "Darkens in sunlight, clears indoors",
+        "price_eur": 10.0
+      },
+      "pcbostyle": {
+        "name": "Photo-Brown",
+        "short": "PB",
+        "color": "#92400e",
+        "price": 650,
+        "desc": "Brown tint in sunlight, premium finish",
+        "price_eur": 10.0
+      }
+    }
+  },
+  "when_progressive": {
+    "coatings": {
+      "arc01": {
+        "name": "Anti-Glare",
+        "short": "AG",
+        "color": "green",
+        "price": 50,
+        "desc": "Reduces reflections on lens surface",
+        "price_eur": 5.0
+      },
+      "bcm02": {
+        "name": "Blue Cut",
+        "short": "BC",
+        "color": "#2563eb",
+        "price": 100,
+        "desc": "Blocks harmful blue light from screens",
+        "price_eur": 10.0
+      },
+      "arcmat03": {
+        "name": "Multi Anti-Glare",
+        "short": "MA",
+        "color": "linear-gradient(135deg,#6366f1,#ec4899)",
+        "price": 200,
+        "desc": "Premium multi-layer anti-reflective coating",
+        "price_eur": 10.0
+      },
+      "polarized04": {
+        "name": "Polarized",
+        "short": "PL",
+        "color": "linear-gradient(135deg,#0ea5e9,#06b6d4)",
+        "price": 2500,
+        "desc": "Eliminates glare from reflective surfaces",
+        "price_eur": 20.0
+      }
+    },
+    "thickness": {
+      "opsix1": {
+        "name": "Thin Lenses",
+        "short": "TN",
+        "color": "#0891b2",
+        "price": 100,
+        "desc": "Slimmer profile for medium prescriptions",
+        "price_eur": 5.0
+      },
+      "ops672": {
+        "name": "Extra-Thin",
+        "short": "XT",
+        "color": "#7c3aed",
+        "price": 350,
+        "desc": "Ultra-slim for high prescriptions",
+        "price_eur": 10.0
+      },
+      "pcgreystyle": {
+        "name": "Photo-Grey",
+        "short": "PG",
+        "color": "#6b7280",
+        "price": 650,
+        "desc": "Darkens in sunlight, clears indoors",
+        "price_eur": 10.0
+      },
+      "pcbostyle": {
+        "name": "Photo-Brown",
+        "short": "PB",
+        "color": "#92400e",
+        "price": 650,
+        "desc": "Brown tint in sunlight, premium finish",
+        "price_eur": 10.0
+      }
+    }
+  }
+}

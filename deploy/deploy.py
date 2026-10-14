@@ -188,6 +188,7 @@ REVIEWED_DRIFT = {
 # working (an autocomplete that returns nothing, a webhook that rejects every
 # delivery) rather than an error anyone sees.
 REQUIRED_ENV = (
+    ("SECRET_KEY", "__init__.py refuses to start without it (session signing)"),
     ("GOOGLE_MAPS_API_KEY", "models.py reads it for /api/places_autocomplete"),
     ("RAZORPAY_WEBHOOK_SECRET", "payments.py verifies /razorpay/webhook with it"),
     # The refund API's own credential, deliberately not OPS_API_TOKEN: it is the
