@@ -227,6 +227,22 @@ class OrderFaceScanTests(unittest.TestCase):
         cur.close()
         return values
 
+    def _snapshot(self, order_id, placed, product_size, fit, measurements=None,
+                  face_profile_id=None, display_name=None, face_scan_id=None):
+        cur = self.db.cursor()
+        cur.execute(
+            """INSERT INTO order_face_snapshots
+               (order_id,line_no,product_id,customer_id,face_profile_id,display_name,
+                face_scan_id,measured_at,measurements,product_size,fit_classification,
+                fit_label,fit_json,snapshot_at)
+               VALUES (%s,1,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (order_id, FRAME_ID, self.customer_id, face_profile_id, display_name,
+             face_scan_id, placed, json.dumps(measurements) if measurements else None,
+             product_size, fit["classification"], fit["label"], json.dumps(fit),
+             placed))
+        self.db.commit()
+        cur.close()
+
     def _capture_file(self, name, data=b"\xff\xd8\xffimage"):
         directory = self.fp.capture_dir(self.app_root)
         with open(os.path.join(directory, name), "wb") as image:
@@ -303,6 +319,72 @@ class OrderFaceScanTests(unittest.TestCase):
                          (placed - timedelta(days=1)).isoformat())
         self.assertEqual(line["fit"], sealed_fit)
 
+    def test_gift_snapshot_wins_over_account_scan(self):
+        order_id, placed = self._order()
+        self._legacy_scan(placed - timedelta(hours=1))
+        gift_fit = self.fit.evaluate(None, "54-17-140")
+        self._snapshot(order_id, placed, "54-17-140", gift_fit)
+
+        result = self.service.scan_for_order(self.db, order_id, self.app_root)
+        line = result["lines"][0]
+        self.assertEqual(line["source"], "order_snapshot")
+        self.assertEqual(line["person"], "No person / Gift")
+        self.assertIsNone(line["scan"])
+        self.assertEqual(line["fit"], gift_fit)
+
+    def test_snapshot_size_and_fit_warning_use_purchased_size(self):
+        catalogue_size = "58-20-160"
+        purchased_size = "54-17-140"
+        self._product(FRAME_ID, "BO74", "Spectacles Frame",
+                      catalogue_size, "Spectacles Frame")
+        order_id, placed = self._order()
+        measurements = {
+            "pd_far": 65, "pd_near": 62, "face_width": 142.5,
+            "recommended_diameter": 53, "recommended_bridge": 24,
+            "recommended_length": 145,
+        }
+        sealed_fit = {
+            "classification": self.fit.NOT_MATCHED,
+            "label": "NOT MATCHED",
+            "recommended_dimensions": {"size": "53-24-145"},
+            "reasons": ["sealed size mismatch"],
+        }
+        self._snapshot(order_id, placed, purchased_size, sealed_fit,
+                       measurements=measurements, face_profile_id=7101,
+                       display_name="Mira")
+
+        result = self.service.scan_for_order(self.db, order_id, self.app_root)
+        line = result["lines"][0]
+        self.assertEqual(line["product_size"], purchased_size)
+        self.assertEqual(line["catalogue_size"], catalogue_size)
+        self.assertIn(
+            "Frame size 54-17-140 does not match the recommended 53-24-145: "
+            "sealed size mismatch.",
+            result["warnings"])
+        self.assertNotIn(
+            "Frame size 58-20-160 does not match the recommended 53-24-145:",
+            result["warnings"])
+
+    def test_snapshot_keeps_frame_fit_after_catalogue_recategorization(self):
+        self._product(FRAME_ID, "BO74", "Accessories", "58-20-160",
+                      "Spectacles Frame")
+        order_id, placed = self._order()
+        measurements = {
+            "pd_far": 65, "pd_near": 62, "face_width": 142.5,
+            "recommended_diameter": 53, "recommended_bridge": 24,
+            "recommended_length": 145,
+        }
+        sealed_fit = self.fit.evaluate(measurements, "54-17-140")
+        self._snapshot(order_id, placed, "54-17-140", sealed_fit,
+                       measurements=measurements, face_profile_id=7101,
+                       display_name="Mira")
+
+        line = self.service.scan_for_order(
+            self.db, order_id, self.app_root)["lines"][0]
+        self.assertTrue(line["is_frame"])
+        self.assertEqual(line["fit"], sealed_fit)
+        self.assertEqual(line["catalogue_size"], "58-20-160")
+
     def test_scan_after_order_adds_warning(self):
         order_id, placed = self._order()
         self._legacy_scan(placed + timedelta(minutes=30))
@@ -365,15 +447,29 @@ class OrderFaceScanTests(unittest.TestCase):
         for path in ("/ops/api/orders/%s/face-scan" % order_id,
                      "/ops/api/orders/%s/face-scan/capture" % order_id,
                      "/ops/face-scan?order=%s" % order_id):
-            self.assertEqual(self.client.get(path).status_code, 401)
+            response = self.client.get(path)
+            self.assertEqual(response.status_code, 401)
+            self.assertEqual(response.headers.get("Cache-Control"), "no-store")
+            self.assertEqual(response.headers.get("Pragma"), "no-cache")
         self.service._test_state["authorized"] = True
-        self.assertEqual(self.client.get(
-            "/ops/api/orders/%s/face-scan" % order_id).status_code, 200)
-        self.assertEqual(self.client.get(
-            "/ops/face-scan?order=%s" % order_id).status_code, 200)
+        response = self.client.get(
+            "/ops/api/orders/%s/face-scan" % order_id)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("Cache-Control"), "no-store")
+        self.assertEqual(response.headers.get("Pragma"), "no-cache")
+        response = self.client.get("/ops/face-scan?order=%s" % order_id)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("Cache-Control"), "no-store")
+        self.assertEqual(response.headers.get("Pragma"), "no-cache")
         missing = self.client.get("/ops/api/orders/NO-SUCH-ORDER/face-scan")
         self.assertEqual(missing.status_code, 404)
         self.assertEqual(missing.get_json(), {"ok": False, "error": "not_found"})
+        self.assertEqual(missing.headers.get("Cache-Control"), "no-store")
+        self.assertEqual(missing.headers.get("Pragma"), "no-cache")
+        missing_page = self.client.get("/ops/face-scan?order=NO-SUCH-ORDER")
+        self.assertEqual(missing_page.status_code, 404)
+        self.assertEqual(missing_page.headers.get("Cache-Control"), "no-store")
+        self.assertEqual(missing_page.headers.get("Pragma"), "no-cache")
 
     def test_lens_line_has_no_fit(self):
         self._product(LENS_ID, "LENS1", "Contact Lenses", "", "Daily lens")
@@ -384,6 +480,10 @@ class OrderFaceScanTests(unittest.TestCase):
 
     def test_people_lists_latest_completed_profile_scan(self):
         order_id, _placed = self._order()
+        active_capture = "active-profile.jpg"
+        inactive_capture = "inactive-profile.jpg"
+        self._capture_file(active_capture)
+        self._capture_file(inactive_capture)
         cur = self.db.cursor()
         cur.execute(
             """INSERT INTO face_profiles
@@ -394,10 +494,25 @@ class OrderFaceScanTests(unittest.TestCase):
         cur.execute(
             """INSERT INTO face_scans
                (customer_id,face_profile_id,status,pd_far,pd_near,face_width,
-                recommended_diameter,recommended_bridge,recommended_length,measured_at)
-               VALUES (%s,%s,'COMPLETED',64,61,138,52,18,140,%s)""",
-            (self.customer_id, profile_id, datetime.now() - timedelta(hours=2)))
+                recommended_diameter,recommended_bridge,recommended_length,
+                capture_path,measured_at)
+               VALUES (%s,%s,'COMPLETED',64,61,138,52,18,140,%s,%s)""",
+            (self.customer_id, profile_id, active_capture,
+             datetime.now() - timedelta(hours=2)))
         scan_id = cur.lastrowid
+        cur.execute(
+            """INSERT INTO face_profiles
+               (customer_id,display_name,relationship_type,is_active)
+               VALUES (%s,'Inactive member','sibling',0)""",
+            (self.customer_id,))
+        inactive_profile_id = cur.lastrowid
+        cur.execute(
+            """INSERT INTO face_scans
+               (customer_id,face_profile_id,status,capture_path,measured_at)
+               VALUES (%s,%s,'COMPLETED',%s,%s)""",
+            (self.customer_id, inactive_profile_id, inactive_capture,
+             datetime.now() - timedelta(hours=1)))
+        inactive_scan_id = cur.lastrowid
         self.db.commit()
         cur.close()
 
@@ -406,6 +521,15 @@ class OrderFaceScanTests(unittest.TestCase):
         self.assertEqual(result["people"][0]["scan_id"], scan_id)
         self.assertEqual(result["people"][0]["pd_far"], 64)
         self.assertEqual(result["people"][0]["recommended_size"], "52-18-140")
+        active_capture_response = self.client.get(
+            "/ops/api/orders/%s/face-scan/capture?scan_id=%s"
+            % (order_id, scan_id))
+        self.assertEqual(active_capture_response.status_code, 200)
+        self.assertEqual(active_capture_response.mimetype, "image/jpeg")
+        inactive_capture_response = self.client.get(
+            "/ops/api/orders/%s/face-scan/capture?scan_id=%s"
+            % (order_id, inactive_scan_id))
+        self.assertEqual(inactive_capture_response.status_code, 404)
 
     def test_html_shows_values_warnings_and_escapes_product_name(self):
         unsafe_name = "<script>alert(1)</script>"
@@ -416,8 +540,11 @@ class OrderFaceScanTests(unittest.TestCase):
         response = self.client.get("/ops/face-scan?order=%s" % order_id)
         body = response.get_data(as_text=True)
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("Cache-Control"), "no-store")
+        self.assertEqual(response.headers.get("Pragma"), "no-cache")
         self.assertIn(order_id, body)
         self.assertIn("65", body)
         self.assertIn("Scan PD is binocular (far/near).", body)
         self.assertNotIn(unsafe_name, body)
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", body)
+        self.assertIn('data-label="PD far / near"', body)
