@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Ops — Order face scan</title>
+  <style>
+    :root{--bg:#0f172a;--card:#1e293b;--line:#334155;--txt:#e2e8f0;--muted:#94a3b8;
+          --warn:#f59e0b;--accent:#38bdf8;--bad:#ef4444}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+         background:var(--bg);color:var(--txt);font-size:14px}
+    header{padding:18px 24px;border-bottom:1px solid var(--line)}
+    h1{font-size:20px;margin:0 0 12px}
+    h2{font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;
+       margin:24px 0 8px}
+    .wrap{padding:0 24px 40px;max-width:1200px;margin:auto}
+    form{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    input{background:var(--bg);color:var(--txt);border:1px solid var(--line);
+          border-radius:6px;padding:9px 10px;font:inherit;width:min(360px,75vw)}
+    button{background:var(--accent);color:#0f172a;border:0;border-radius:6px;
+           padding:9px 14px;font:inherit;font-weight:600;cursor:pointer}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);
+          vertical-align:top;overflow-wrap:anywhere}
+    th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+    code{font-size:12px;color:var(--accent)}
+    .muted{color:var(--muted)}
+    .box{margin:16px 0;padding:12px 16px;border:1px solid var(--warn);
+         background:#422006;border-radius:8px}
+    .box h2{margin:0 0 6px;color:var(--warn)}
+    .box ul{margin:0;padding-left:20px}
+    .capture{max-width:260px;max-height:240px;object-fit:contain;border:1px solid var(--line);
+             border-radius:6px;background:#fff}
+    .fit{font-weight:600}
+    .not-found,.empty{color:var(--muted);padding:14px 0}
+    @media(max-width:700px){.wrap{padding:0 12px 28px}header{padding:16px 12px}
+      table{font-size:12px}th,td{padding:8px 6px}}
+  </style>
+</head>
+<body>
+<header>
+  <h1>Order face scan</h1>
+  <form method="get" action="/ops/face-scan">
+    <label for="order">Order number</label>
+    <input id="order" name="order" value="{{ order }}" placeholder="OW-EXXYXS-826552">
+    <button type="submit">Search</button>
+  </form>
+</header>
+<main class="wrap">
+  {% if not_found %}
+    <p class="not-found">Order not found.</p>
+  {% elif result %}
+    <h2>Order <code>{{ result.order_id }}</code></h2>
+    <p class="muted">Customer {{ result.customer_id }} · {{ result.date_created or 'Order date unavailable' }} · {{ result.site_from or 'Site unavailable' }} · {{ result.status }}</p>
+    {% if result.warnings %}
+      <section class="box" role="alert" aria-label="Scan warnings">
+        <h2>Fitting notes</h2>
+        <ul>{% for warning in result.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>
+      </section>
+    {% endif %}
+    <h2>Order lines</h2>
+    <table>
+      <thead><tr><th>Product</th><th>Source / person</th><th>PD far / near</th>
+        <th>Face width</th><th>Recommended / frame size</th><th>Fit</th><th>Measured</th><th>Scan photo</th></tr></thead>
+      <tbody>
+      {% for line in result.lines %}
+        <tr>
+          <td><code>{{ line.product_code or '—' }}</code><br>{{ line.product_name or '—' }}<br>
+            <span class="muted">line {{ line.order_line_id }}</span></td>
+          <td>{{ line.source or '—' }}{% if line.person %}<br><span class="muted">{{ line.person }}</span>{% endif %}</td>
+          <td>{% if line.scan %}{{ line.scan.pd_far if line.scan.pd_far is not none else '—' }} / {{ line.scan.pd_near if line.scan.pd_near is not none else '—' }}{% else %}—{% endif %}</td>
+          <td>{% if line.scan and line.scan.face_width is not none %}{{ line.scan.face_width }} mm{% else %}—{% endif %}</td>
+          <td>{% if line.scan %}{{ line.scan.recommended_size or '—' }}{% else %}—{% endif %}<br>
+            <span class="muted">frame {{ line.product_size or 'not stated' }}</span></td>
+          <td>{% if line.fit %}<span class="fit">{{ line.fit.label }}</span>
+            {% if line.fit.reasons %}<br><span class="muted">{{ line.fit.reasons|join('; ') }}</span>{% endif %}
+            {% else %}—{% endif %}</td>
+          <td>{% if line.scan and line.scan.measured_at %}
+            {{ line.scan.measured_at }}<br>
+            <span class="muted">{% if line.scan.scanned_before_order %}before order{% elif line.scan.scanned_before_order is sameas false %}after order{% else %}order timing unknown{% endif %}</span>
+            {% else %}—{% endif %}</td>
+          <td>{% if line.scan and line.scan.capture.available %}
+            <img class="capture" src="{{ line.scan.capture.url }}" alt="Face scan photo for order {{ result.order_id }}">
+            {% elif line.scan %}<span class="muted">{{ line.scan.capture.reason or 'Photo unavailable' }}</span>
+            {% else %}—{% endif %}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="8" class="empty">No order lines.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <h2>Other people on this account</h2>
+    <table>
+      <thead><tr><th>Person</th><th>PD far / near</th><th>Face width</th>
+        <th>Recommended size</th><th>Measured</th><th>Scan photo</th></tr></thead>
+      <tbody>
+      {% for person in result.people %}
+        <tr>
+          <td>{{ person.display_name or 'Account holder' }}</td>
+          <td>{% if person.scan %}{{ person.scan.pd_far if person.scan.pd_far is not none else '—' }} / {{ person.scan.pd_near if person.scan.pd_near is not none else '—' }}{% else %}—{% endif %}</td>
+          <td>{% if person.scan and person.scan.face_width is not none %}{{ person.scan.face_width }} mm{% else %}—{% endif %}</td>
+          <td>{% if person.scan %}{{ person.scan.recommended_size or '—' }}{% else %}—{% endif %}</td>
+          <td>{% if person.scan %}{{ person.scan.measured_at or '—' }}{% else %}—{% endif %}</td>
+          <td>{% if person.scan and person.scan.capture.available %}
+            <img class="capture" src="{{ person.scan.capture.url }}" alt="Face scan photo for {{ person.display_name }}">
+            {% elif person.scan %}<span class="muted">{{ person.scan.capture.reason or 'Photo unavailable' }}</span>
+            {% else %}—{% endif %}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="empty">No active face profiles on this account.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="empty">Search for an order to see its face scan and frame fit.</p>
+  {% endif %}
+</main>
+</body>
+</html>
