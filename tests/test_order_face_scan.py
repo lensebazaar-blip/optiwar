@@ -84,6 +84,13 @@ def _load_service():
     return service
 
 
+def _ensure_columns(cursor, table, columns):
+    for column, definition in columns:
+        cursor.execute(
+            "ALTER TABLE `%s` ADD COLUMN IF NOT EXISTS `%s` %s"
+            % (table, column, definition))
+
+
 @unittest.skipUnless(AVAILABLE, "MariaDB test database not reachable")
 class OrderFaceScanTests(unittest.TestCase):
     @classmethod
@@ -94,9 +101,80 @@ class OrderFaceScanTests(unittest.TestCase):
         cls.fit = cls.service._test_fit
         cur = cls.db.cursor()
         cur.execute(LEGACY_DDL)
+        _ensure_columns(cur, "face_measurements", (
+            ("id", "INT NULL"),
+            ("customer_id", "INT NULL"),
+            ("pd_far", "DECIMAL(5,2) NULL"),
+            ("pd_near", "DECIMAL(5,2) NULL"),
+            ("face_width", "DECIMAL(5,2) NULL"),
+            ("eye_mouth", "DECIMAL(5,2) NULL"),
+            ("recommended_diameter", "INT NULL"),
+            ("recommended_bridge", "INT NULL"),
+            ("recommended_length", "INT NULL"),
+            ("decentration", "DECIMAL(5,2) NULL"),
+            ("frame_candidates", "TEXT NULL"),
+            ("screenshot_path", "VARCHAR(500) NULL"),
+            ("measured_at", "DATETIME NULL"),
+        ))
         cur.execute(PRODUCTS_DDL)
+        _ensure_columns(cur, "products", (
+            ("product_id", "INT NULL"),
+            ("product_code", "VARCHAR(40) NULL"),
+            ("product_name", "VARCHAR(200) NULL"),
+            ("product_category", "VARCHAR(80) NULL"),
+            ("product_size", "VARCHAR(32) NULL"),
+            ("product_slug", "VARCHAR(200) NULL"),
+            ("product_status", "VARCHAR(20) NULL DEFAULT 'ACTIVE'"),
+            ("product_quantity", "INT NULL DEFAULT 0"),
+            ("show_in_listings", "TINYINT(1) NULL DEFAULT 1"),
+        ))
         cur.execute(cls.fp.PROFILES_SCHEMA)
+        _ensure_columns(cur, "face_profiles", (
+            ("id", "BIGINT UNSIGNED NULL"),
+            ("customer_id", "INT NULL"),
+            ("display_name", "VARCHAR(60) NULL"),
+            ("relationship_type", "VARCHAR(16) NULL DEFAULT 'other'"),
+            ("is_self", "TINYINT(1) NULL DEFAULT 0"),
+            ("is_default", "TINYINT(1) NULL DEFAULT 0"),
+            ("is_active", "TINYINT(1) NULL DEFAULT 1"),
+            ("self_slot", "TINYINT NULL"),
+            ("default_slot", "TINYINT NULL"),
+            ("latest_scan_id", "BIGINT UNSIGNED NULL"),
+            ("consent_recorded_at", "DATETIME NULL"),
+            ("created_at", "DATETIME NULL DEFAULT CURRENT_TIMESTAMP"),
+            ("updated_at",
+             "DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE "
+             "CURRENT_TIMESTAMP"),
+            ("deleted_at", "DATETIME NULL"),
+        ))
         cur.execute(cls.fp.SCANS_SCHEMA)
+        _ensure_columns(cur, "face_scans", (
+            ("id", "BIGINT UNSIGNED NULL"),
+            ("customer_id", "INT NULL"),
+            ("face_profile_id", "BIGINT UNSIGNED NULL"),
+            ("scan_group_id", "CHAR(36) NULL"),
+            ("status", "VARCHAR(20) NULL"),
+            ("source", "VARCHAR(16) NULL DEFAULT 'tryon'"),
+            ("pd_far", "DECIMAL(5,2) NULL"),
+            ("pd_near", "DECIMAL(5,2) NULL"),
+            ("face_width", "DECIMAL(5,2) NULL"),
+            ("eye_mouth", "DECIMAL(5,2) NULL"),
+            ("recommended_diameter", "INT NULL"),
+            ("recommended_bridge", "INT NULL"),
+            ("recommended_length", "INT NULL"),
+            ("decentration", "DECIMAL(5,2) NULL"),
+            ("frame_candidates", "TEXT NULL"),
+            ("capture_path", "VARCHAR(255) NULL"),
+            ("capture_purged_at", "DATETIME NULL"),
+            ("algorithm_version", "VARCHAR(32) NULL"),
+            ("legacy_measurement_id", "INT NULL"),
+            ("failure_reason", "VARCHAR(120) NULL"),
+            ("measured_at", "DATETIME NULL"),
+            ("created_at", "DATETIME NULL DEFAULT CURRENT_TIMESTAMP"),
+            ("updated_at",
+             "DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE "
+             "CURRENT_TIMESTAMP"),
+        ))
         cur.execute(
             """CREATE TABLE IF NOT EXISTS order_face_snapshots (
                  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -110,6 +188,25 @@ class OrderFaceScanTests(unittest.TestCase):
                  fit_json TEXT NULL, snapshot_at DATETIME NOT NULL,
                  UNIQUE KEY uq_order_face_line (order_id, line_no)
              ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+        _ensure_columns(cur, "order_face_snapshots", (
+            ("id", "BIGINT UNSIGNED NULL"),
+            ("order_id", "VARCHAR(64) NULL"),
+            ("line_no", "INT NULL"),
+            ("product_id", "INT NULL"),
+            ("customer_id", "INT NULL"),
+            ("face_profile_id", "BIGINT UNSIGNED NULL"),
+            ("display_name", "VARCHAR(80) NULL"),
+            ("relationship_type", "VARCHAR(32) NULL"),
+            ("is_self", "TINYINT NULL DEFAULT 0"),
+            ("face_scan_id", "BIGINT UNSIGNED NULL"),
+            ("measured_at", "DATETIME NULL"),
+            ("measurements", "TEXT NULL"),
+            ("product_size", "VARCHAR(40) NULL"),
+            ("fit_classification", "VARCHAR(20) NULL"),
+            ("fit_label", "VARCHAR(40) NULL"),
+            ("fit_json", "TEXT NULL"),
+            ("snapshot_at", "DATETIME NULL"),
+        ))
         cur.execute(
             """CREATE TABLE IF NOT EXISTS orders (
                  order_line_id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -117,6 +214,14 @@ class OrderFaceScanTests(unittest.TestCase):
                  customer_id INT NULL, product_id INT NULL, site_from VARCHAR(64) NULL,
                  KEY idx_order (order_id)
              ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+        _ensure_columns(cur, "orders", (
+            ("order_line_id", "BIGINT NULL"),
+            ("order_id", "VARCHAR(64) NULL"),
+            ("date_created", "DATETIME NULL"),
+            ("customer_id", "INT NULL"),
+            ("product_id", "INT NULL"),
+            ("site_from", "VARCHAR(64) NULL"),
+        ))
         cls.db.commit()
         cur.close()
 
