@@ -199,6 +199,10 @@ class DeploySetTest(unittest.TestCase):
         # Every deployed file that production does not have yet must be declared,
         # so that a path typo reads as a block rather than as a new module.
         self.assertIn("paid_orders.py", self.d.DEPLOY_SET)
+        self.assertIn("order_face_scan.py", self.d.DEPLOY_SET)
+        self.assertIn("templates/ops_order_face_scan.html", self.d.DEPLOY_SET)
+        self.assertIn("order_face_scan.py", self.d.NEW_IN_RELEASE)
+        self.assertIn("templates/ops_order_face_scan.html", self.d.NEW_IN_RELEASE)
         for name in self.d.NEW_IN_RELEASE:
             self.assertIn(name, self.d.DEPLOY_SET)
 
