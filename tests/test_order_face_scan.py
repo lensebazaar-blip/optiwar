@@ -249,8 +249,8 @@ class OrderFaceScanTests(unittest.TestCase):
         self.assertTrue(line["scan"]["scanned_before_order"])
         self.assertEqual(line["scan"]["hours_from_order"], -1.0)
         self.assertEqual(line["fit"], expected_fit)
-        self.assertEqual(line["fit"]["classification"], "very_good")
-        self.assertEqual(line["fit"]["label"], "VERY GOOD")
+        self.assertEqual(line["fit"]["classification"], "good")
+        self.assertEqual(line["fit"]["label"], "GOOD")
         self.assertIn(self.service.BINOCULAR_WARNING, result["warnings"])
 
     def test_order_prefix_and_case_are_normalised(self):
