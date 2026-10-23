@@ -27,6 +27,8 @@
     th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
     code{font-size:12px;color:var(--accent)}
     .muted{color:var(--muted)}
+    .box,.muted{overflow-wrap:anywhere}
+    img{max-width:100%}
     .box{margin:16px 0;padding:12px 16px;border:1px solid var(--warn);
          background:#422006;border-radius:8px}
     .box h2{margin:0 0 6px;color:var(--warn)}
@@ -36,17 +38,15 @@
     .fit{font-weight:600}
     .not-found,.empty{color:var(--muted);padding:14px 0}
     @media(max-width:700px){.wrap{padding:0 12px 28px}header{padding:16px 12px}
-      table,tbody,tr,td{display:block;width:100%}
+      table,thead,tbody,tr,th,td{display:block;width:100%}
       thead{display:none}
-      tbody tr{border:1px solid var(--line);border-radius:8px;margin:0 0 10px;
-        background:var(--card);overflow:hidden}
-      td{display:grid;grid-template-columns:40% 60%;padding:8px 6px}
-      td::before{content:attr(data-label);color:var(--muted);font-size:11px;
-        font-weight:600;text-transform:uppercase}
-      td[colspan]{display:block}
-      td[colspan]::before{content:none}
-      table{font-size:12px}
-      .capture{max-width:100%}}
+      tr{border:1px solid var(--line);border-radius:8px;margin:0 0 12px;padding:4px 0}
+      td{border-bottom:1px solid var(--line);padding:8px 12px}
+      td:last-child{border-bottom:0}
+      td::before{content:attr(data-label);display:block;color:var(--muted);font-size:11px;
+        text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
+      td.empty::before{content:none}
+      .capture{max-width:100%;height:auto}}
   </style>
 </head>
 <body>
