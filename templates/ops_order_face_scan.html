@@ -27,6 +27,8 @@
     th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
     code{font-size:12px;color:var(--accent)}
     .muted{color:var(--muted)}
+    .box,.muted{overflow-wrap:anywhere}
+    img{max-width:100%}
     .box{margin:16px 0;padding:12px 16px;border:1px solid var(--warn);
          background:#422006;border-radius:8px}
     .box h2{margin:0 0 6px;color:var(--warn)}
@@ -36,7 +38,15 @@
     .fit{font-weight:600}
     .not-found,.empty{color:var(--muted);padding:14px 0}
     @media(max-width:700px){.wrap{padding:0 12px 28px}header{padding:16px 12px}
-      table{font-size:12px}th,td{padding:8px 6px}}
+      table,thead,tbody,tr,th,td{display:block;width:100%}
+      thead{display:none}
+      tr{border:1px solid var(--line);border-radius:8px;margin:0 0 12px;padding:4px 0}
+      td{border-bottom:1px solid var(--line);padding:8px 12px}
+      td:last-child{border-bottom:0}
+      td::before{content:attr(data-label);display:block;color:var(--muted);font-size:11px;
+        text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
+      td.empty::before{content:none}
+      .capture{max-width:100%;height:auto}}
   </style>
 </head>
 <body>
@@ -67,21 +77,21 @@
       <tbody>
       {% for line in result.lines %}
         <tr>
-          <td><code>{{ line.product_code or '—' }}</code><br>{{ line.product_name or '—' }}<br>
+          <td data-label="Product"><code>{{ line.product_code or '—' }}</code><br>{{ line.product_name or '—' }}<br>
             <span class="muted">line {{ line.order_line_id }}</span></td>
-          <td>{{ line.source or '—' }}{% if line.person %}<br><span class="muted">{{ line.person }}</span>{% endif %}</td>
-          <td>{% if line.scan %}{{ line.scan.pd_far if line.scan.pd_far is not none else '—' }} / {{ line.scan.pd_near if line.scan.pd_near is not none else '—' }}{% else %}—{% endif %}</td>
-          <td>{% if line.scan and line.scan.face_width is not none %}{{ line.scan.face_width }} mm{% else %}—{% endif %}</td>
-          <td>{% if line.scan %}{{ line.scan.recommended_size or '—' }}{% else %}—{% endif %}<br>
+          <td data-label="Source / person">{{ line.source or '—' }}{% if line.person %}<br><span class="muted">{{ line.person }}</span>{% endif %}</td>
+          <td data-label="PD far / near">{% if line.scan %}{{ line.scan.pd_far if line.scan.pd_far is not none else '—' }} / {{ line.scan.pd_near if line.scan.pd_near is not none else '—' }}{% else %}—{% endif %}</td>
+          <td data-label="Face width">{% if line.scan and line.scan.face_width is not none %}{{ line.scan.face_width }} mm{% else %}—{% endif %}</td>
+          <td data-label="Recommended / frame size">{% if line.scan %}{{ line.scan.recommended_size or '—' }}{% else %}—{% endif %}<br>
             <span class="muted">frame {{ line.product_size or 'not stated' }}</span></td>
-          <td>{% if line.fit %}<span class="fit">{{ line.fit.label }}</span>
+          <td data-label="Fit">{% if line.fit %}<span class="fit">{{ line.fit.label }}</span>
             {% if line.fit.reasons %}<br><span class="muted">{{ line.fit.reasons|join('; ') }}</span>{% endif %}
             {% else %}—{% endif %}</td>
-          <td>{% if line.scan and line.scan.measured_at %}
+          <td data-label="Measured">{% if line.scan and line.scan.measured_at %}
             {{ line.scan.measured_at }}<br>
             <span class="muted">{% if line.scan.scanned_before_order %}before order{% elif line.scan.scanned_before_order is sameas false %}after order{% else %}order timing unknown{% endif %}</span>
             {% else %}—{% endif %}</td>
-          <td>{% if line.scan and line.scan.capture.available %}
+          <td data-label="Scan photo">{% if line.scan and line.scan.capture.available %}
             <img class="capture" src="{{ line.scan.capture.url }}" alt="Face scan photo for order {{ result.order_id }}">
             {% elif line.scan %}<span class="muted">{{ line.scan.capture.reason or 'Photo unavailable' }}</span>
             {% else %}—{% endif %}</td>
@@ -98,12 +108,12 @@
       <tbody>
       {% for person in result.people %}
         <tr>
-          <td>{{ person.display_name or 'Account holder' }}</td>
-          <td>{% if person.scan %}{{ person.scan.pd_far if person.scan.pd_far is not none else '—' }} / {{ person.scan.pd_near if person.scan.pd_near is not none else '—' }}{% else %}—{% endif %}</td>
-          <td>{% if person.scan and person.scan.face_width is not none %}{{ person.scan.face_width }} mm{% else %}—{% endif %}</td>
-          <td>{% if person.scan %}{{ person.scan.recommended_size or '—' }}{% else %}—{% endif %}</td>
-          <td>{% if person.scan %}{{ person.scan.measured_at or '—' }}{% else %}—{% endif %}</td>
-          <td>{% if person.scan and person.scan.capture.available %}
+          <td data-label="Person">{{ person.display_name or 'Account holder' }}</td>
+          <td data-label="PD far / near">{% if person.scan %}{{ person.scan.pd_far if person.scan.pd_far is not none else '—' }} / {{ person.scan.pd_near if person.scan.pd_near is not none else '—' }}{% else %}—{% endif %}</td>
+          <td data-label="Face width">{% if person.scan and person.scan.face_width is not none %}{{ person.scan.face_width }} mm{% else %}—{% endif %}</td>
+          <td data-label="Recommended size">{% if person.scan %}{{ person.scan.recommended_size or '—' }}{% else %}—{% endif %}</td>
+          <td data-label="Measured">{% if person.scan %}{{ person.scan.measured_at or '—' }}{% else %}—{% endif %}</td>
+          <td data-label="Scan photo">{% if person.scan and person.scan.capture.available %}
             <img class="capture" src="{{ person.scan.capture.url }}" alt="Face scan photo for {{ person.display_name }}">
             {% elif person.scan %}<span class="muted">{{ person.scan.capture.reason or 'Photo unavailable' }}</span>
             {% else %}—{% endif %}</td>

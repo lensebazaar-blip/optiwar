@@ -24,9 +24,9 @@ HOST="${OPTIWAR_TEST_DB_HOST:-127.0.0.1}"
 
 mysql_root() {
   if [ -n "${OPTIWAR_TEST_DB_ROOT_PW:-}" ]; then
-    mysql -h "$HOST" -u root -p"$OPTIWAR_TEST_DB_ROOT_PW" "$@"
+    mysql --skip-ssl -h "$HOST" -u root -p"$OPTIWAR_TEST_DB_ROOT_PW" "$@"
   else
-    mysql -u root "$@"
+    mysql --skip-ssl -u root "$@"
   fi
 }
 

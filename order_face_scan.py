@@ -5,8 +5,8 @@ import os
 from datetime import datetime, timedelta
 from urllib.parse import quote
 
-from flask import (current_app, jsonify, render_template, request, send_file,
-                   session, has_app_context)
+from flask import (current_app, has_app_context, jsonify, make_response,
+                   render_template, request, send_file, session)
 
 try:
     from . import face_cart, face_fit, face_profiles
@@ -174,6 +174,8 @@ def _people(cursor, customer_id, order_date, app_root, order_id):
 def _decode_snapshot(snapshot):
     measurements = snapshot.get("measurements")
     fit = snapshot.get("fit")
+    if fit is None:
+        fit = snapshot.get("fit_json")
     if isinstance(measurements, str):
         try:
             measurements = json.loads(measurements)
@@ -190,6 +192,13 @@ def _decode_snapshot(snapshot):
 def _warn(warnings, message):
     if message not in warnings:
         warnings.append(message)
+
+
+def _no_cache(response):
+    response = make_response(response)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 
 def scan_for_order(db, order_id, app_root):
@@ -248,56 +257,53 @@ def scan_for_order(db, order_id, app_root):
                 any_scan = True
         output_lines = []
         for index, row in enumerate(lines, start=1):
-            is_frame = face_cart.is_frame_line({
-                "product_category": row.get("product_category")})
+            sealed_entry = snapshot_by_line.get(index)
+            snapshot = (sealed_entry[1] if sealed_entry
+                        and sealed_entry[0] == int(row["product_id"] or 0)
+                        else None)
+            is_frame = (snapshot is not None or face_cart.is_frame_line({
+                "product_category": row.get("product_category")}))
             source = None
             person = None
             scan = None
             fit = None
+            catalogue_size = row.get("product_size")
+            product_size = ((snapshot.get("product_size") or catalogue_size)
+                            if snapshot is not None else catalogue_size)
             if is_frame:
-                sealed = snapshot_by_line.get(index)
-                if sealed and sealed[0] == int(row["product_id"] or 0):
-                    snapshot = sealed[1]
+                if snapshot is not None:
                     measurements, sealed_fit = _decode_snapshot(snapshot)
-                    has_person = (snapshot.get("face_profile_id") is not None
-                                  or snapshot.get("display_name"))
-                    if has_person:
-                        source = "order_snapshot"
-                        person = snapshot.get("display_name") or "Account holder"
-                        fit = sealed_fit
-                        if measurements is not None:
-                            measurements = dict(measurements)
-                            measurements.setdefault("measured_at",
-                                                     snapshot.get("measured_at"))
-                            scan = _scan_payload(
-                                measurements, order_date, app_root,
-                                actual_order_id,
-                                scan_id=snapshot.get("face_scan_id"))
-                            if snapshot.get("face_scan_id") is not None:
-                                cur = db.cursor()
-                                try:
-                                    cur.execute(
-                                        "SELECT capture_path, capture_purged_at "
-                                        "FROM face_scans WHERE id=%s AND customer_id=%s",
-                                        (snapshot["face_scan_id"], int(customer_id)))
-                                    capture_row = cur.fetchone()
-                                except Exception:
-                                    capture_row = None
-                                finally:
-                                    cur.close()
-                                if capture_row:
-                                    scan["capture"] = _capture_info(
-                                        capture_row.get("capture_path"),
-                                        measurements.get("measured_at"),
-                                        app_root, actual_order_id,
-                                        scan_id=snapshot["face_scan_id"],
-                                        purged_at=capture_row.get("capture_purged_at"))
-                    else:
-                        snapshot = None
+                    source = "order_snapshot"
+                    person = snapshot["person"]
+                    fit = sealed_fit
+                    if measurements is not None:
+                        measurements = dict(measurements)
+                        measurements.setdefault("measured_at",
+                                                 snapshot.get("measured_at"))
+                        scan = _scan_payload(
+                            measurements, order_date, app_root,
+                            actual_order_id,
+                            scan_id=snapshot.get("face_scan_id"))
+                        if snapshot.get("face_scan_id") is not None:
+                            cur = db.cursor()
+                            try:
+                                cur.execute(
+                                    "SELECT capture_path, capture_purged_at "
+                                    "FROM face_scans WHERE id=%s AND customer_id=%s",
+                                    (snapshot["face_scan_id"], int(customer_id)))
+                                capture_row = cur.fetchone()
+                            except Exception:
+                                capture_row = None
+                            finally:
+                                cur.close()
+                            if capture_row:
+                                scan["capture"] = _capture_info(
+                                    capture_row.get("capture_path"),
+                                    measurements.get("measured_at"),
+                                    app_root, actual_order_id,
+                                    scan_id=snapshot["face_scan_id"],
+                                    purged_at=capture_row.get("capture_purged_at"))
                 else:
-                    snapshot = None
-
-                if snapshot is None:
                     if account_scan:
                         source = "account_scan"
                         person = "Account holder"
@@ -305,9 +311,9 @@ def scan_for_order(db, order_id, app_root):
                             account_scan, order_date, app_root,
                             actual_order_id,
                             capture_name=account_scan.get("screenshot_path"))
-                        fit = face_fit.evaluate(account_scan, row.get("product_size"))
+                        fit = face_fit.evaluate(account_scan, product_size)
                     else:
-                        fit = face_fit.evaluate(None, row.get("product_size"))
+                        fit = face_fit.evaluate(None, product_size)
 
             if scan is not None:
                 any_scan = True
@@ -320,7 +326,7 @@ def scan_for_order(db, order_id, app_root):
                         "measurements are kept." % _retention_days())
             if fit and fit.get("classification") == face_fit.NOT_MATCHED:
                 rec = (fit.get("recommended_dimensions") or {}).get("size") or "unknown"
-                size = row.get("product_size") or "not stated"
+                size = product_size or "not stated"
                 reasons = "; ".join(fit.get("reasons") or [])
                 _warn(warnings, "Frame size %s does not match the recommended %s: %s."
                       % (size, rec, reasons))
@@ -330,7 +336,8 @@ def scan_for_order(db, order_id, app_root):
                 "product_id": row.get("product_id"),
                 "product_code": row.get("product_code"),
                 "product_name": row.get("product_name"),
-                "product_size": row.get("product_size"),
+                "product_size": product_size,
+                "catalogue_size": catalogue_size,
                 "is_frame": is_frame,
                 "source": source,
                 "person": person,
@@ -370,34 +377,50 @@ def scan_for_order(db, order_id, app_root):
 
 
 def _not_found():
-    return jsonify({"ok": False, "error": "not_found"}), 404
+    return _no_cache((jsonify({"ok": False, "error": "not_found"}), 404))
 
 
 def register(bp):
     @bp.route("/ops/api/orders/<order_id>/face-scan", methods=["GET"])
     def ops_order_face_scan_api(order_id):
         if not _ops_auth():
-            return jsonify({"error": "Unauthorized"}), 401
+            return _no_cache((jsonify({"error": "Unauthorized"}), 401))
         result = scan_for_order(get_db(), order_id, current_app.root_path)
-        return jsonify(result) if result is not None else _not_found()
+        return _no_cache(jsonify(result)) if result is not None else _not_found()
 
     @bp.route("/ops/api/orders/<order_id>/face-scan/capture", methods=["GET"])
     def ops_order_face_scan_capture(order_id):
         if not _ops_auth():
-            return jsonify({"error": "Unauthorized"}), 401
+            return _no_cache((jsonify({"error": "Unauthorized"}), 401))
         db = get_db()
         result = scan_for_order(db, order_id, current_app.root_path)
         if result is None:
             return _not_found()
 
         scan_id = request.args.get("scan_id")
+        if scan_id is not None:
+            try:
+                scan_key = int(scan_id)
+            except (TypeError, ValueError):
+                return _not_found()
+            order_scan_ids = {
+                scan["scan_id"]
+                for line in result["lines"]
+                for scan in [line.get("scan")]
+                if scan and scan.get("scan_id") is not None
+            }
+            order_scan_ids.update(
+                person["scan"]["scan_id"]
+                for person in result["people"]
+                if person.get("scan")
+                and person["scan"].get("scan_id") is not None
+            )
+            if scan_key not in order_scan_ids:
+                return _not_found()
+
         cursor = db.cursor()
         try:
             if scan_id is not None:
-                try:
-                    scan_key = int(scan_id)
-                except (TypeError, ValueError):
-                    return _not_found()
                 cursor.execute(
                     "SELECT capture_path, capture_purged_at FROM face_scans "
                     "WHERE id=%s AND customer_id=%s",
@@ -430,16 +453,18 @@ def register(bp):
             result["order_id"], result["customer_id"], actor)
         response = send_file(path, mimetype="image/jpeg", max_age=0)
         response.headers["Cache-Control"] = "no-store"
-        return response
+        return _no_cache(response)
 
     @bp.route("/ops/face-scan", methods=["GET"])
     def ops_order_face_scan_page():
         if not _ops_auth():
-            return jsonify({"error": "Unauthorized"}), 401
+            return _no_cache((jsonify({"error": "Unauthorized"}), 401))
         order = request.args.get("order", "")
         result = (scan_for_order(get_db(), order, current_app.root_path)
                   if order.strip() else None)
-        return render_template("ops_order_face_scan.html",
-                               order=order, result=result,
-                               not_found=bool(order.strip() and result is None)), (
-                                   404 if order.strip() and result is None else 200)
+        response = make_response(
+            render_template("ops_order_face_scan.html",
+                            order=order, result=result,
+                            not_found=bool(order.strip() and result is None)),
+            404 if order.strip() and result is None else 200)
+        return _no_cache(response)
