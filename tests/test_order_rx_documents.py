@@ -813,6 +813,108 @@ class OrderRxDocumentTests(unittest.TestCase):
             self.assertEqual(unauth.headers["Cache-Control"], "no-store")
             self.assertEqual(unauth.headers["Pragma"], "no-cache")
 
+    def test_order_api_can_skip_link_issuance(self):
+        document_id = self._document(pages=2)
+        self._attach(document_id, cart=[
+            dict(self.cart[0], rx_document_ids=[document_id])])
+        response = self.client.get(
+            "/ops/api/orders/%s/rx-documents?links=0" % self.order_id)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        files = response.json["lines"][0]["documents"][0]["files"]
+        self.assertEqual([file["page"] for file in files], [0, 1])
+        self.assertTrue(all(file["view_url"] is None for file in files))
+        self.assertTrue(all(file["download_url"] is None for file in files))
+        self.assertNotIn("LINK_ISSUED", self._audit_actions(document_id))
+
+    def test_document_links_route_authenticates_and_rejects_removed_or_purged(self):
+        document_id = self._document()
+        path = "/ops/api/rx-documents/%d/links" % document_id
+        STATE["authorized"] = False
+        self._set_session(email=None)
+        unauth = self.client.get(path)
+        self.assertEqual(unauth.status_code, 401)
+        self.assertEqual(unauth.json["error"], "Unauthorized")
+        self.assertEqual(unauth.headers["Cache-Control"], "no-store")
+
+        STATE["authorized"] = True
+        not_attached = self.client.get(path)
+        self.assertEqual(not_attached.status_code, 404)
+        self.assertEqual(not_attached.json["error"], "not_found")
+        self._attach(document_id, cart=[
+            dict(self.cart[0], rx_document_ids=[document_id])])
+        cur = self.db.cursor()
+        for status, purged_at in (("REMOVED", None),
+                                  ("PARSED", datetime.datetime.now())):
+            cur.execute(
+                "UPDATE order_rx_documents SET status=%s,purged_at=%s "
+                "WHERE document_id=%s", (status, purged_at, document_id))
+            self.db.commit()
+            response = self.client.get(path)
+            self.assertEqual(response.status_code, 404)
+            self.assertEqual(response.json["error"], "not_found")
+
+    def test_document_links_audit_bearer_user_and_respect_session_email(self):
+        document_id = self._document(pages=2)
+        self._attach(document_id, cart=[
+            dict(self.cart[0], rx_document_ids=[document_id])])
+        self._write_file(document_id)
+        path = "/ops/api/rx-documents/%d/links" % document_id
+        self._set_session(email=None)
+        headers = {"Authorization": "Bearer test-token",
+                   "X-Ops-User": "alice"}
+        response = self.client.get(path, headers=headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertEqual(response.json["document_id"], document_id)
+        self.assertEqual([file["page"] for file in response.json["files"]],
+                         [0, 1])
+        self.assertTrue(all(file["view_url"] and file["download_url"]
+                            for file in response.json["files"]))
+        viewed = self.client.get(response.json["files"][0]["view_url"],
+                                 headers=headers)
+        self.assertEqual(viewed.status_code, 200)
+        viewed.close()
+        self.client.post(
+            "/ops/api/rx-documents/%d/review" % document_id,
+            headers=headers,
+            json={"verdict": "MATCHES_ORDER"})
+
+        cur = self.db.cursor()
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM order_rx_document_audit "
+            "WHERE document_id=%s AND action='LINK_ISSUED'",
+            (document_id,))
+        self.assertEqual(cur.fetchone()["n"], 2)
+        cur.execute(
+            "SELECT action,actor FROM order_rx_document_audit "
+            "WHERE document_id=%s AND action IN "
+            "('LINK_ISSUED','VIEWED','REVIEWED') ORDER BY id",
+            (document_id,))
+        actors = {row["action"]: row["actor"] for row in cur.fetchall()}
+        self.assertEqual(actors["LINK_ISSUED"], "bearer:alice")
+        self.assertEqual(actors["VIEWED"], "bearer:alice")
+        self.assertEqual(actors["REVIEWED"], "bearer:alice")
+
+        invalid = self.client.get(
+            path, headers={"Authorization": "Bearer test-token",
+                           "X-Ops-User": "alice ops"})
+        self.assertEqual(invalid.status_code, 200)
+        cur.execute(
+            "SELECT actor FROM order_rx_document_audit WHERE document_id=%s "
+            "AND action='LINK_ISSUED' ORDER BY id DESC LIMIT 1",
+            (document_id,))
+        self.assertEqual(cur.fetchone()["actor"], "bearer")
+
+        self._set_session(email="admin@example.com")
+        admin = self.client.get(path, headers=headers)
+        self.assertEqual(admin.status_code, 200)
+        cur.execute(
+            "SELECT actor FROM order_rx_document_audit WHERE document_id=%s "
+            "AND action='LINK_ISSUED' ORDER BY id DESC LIMIT 1",
+            (document_id,))
+        self.assertEqual(cur.fetchone()["actor"], "admin@example.com")
+
     def test_review_note_validation_and_reparse_do_not_change_order_rx(self):
         document_id = self._upload().json["document_id"]
         self._attach(document_id)
