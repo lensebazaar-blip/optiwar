@@ -678,9 +678,8 @@ def _assistant_reply_before(db, session_id, before_message_id=None):
 
 
 _RX_PHOTO_TICKET_FORWARD_FAILED = (
-    "I couldn't send the photo to your support ticket automatically — our team "
-    "will see it in this chat, but please also reply to your ticket email with "
-    "the photo.")
+    "I couldn't send the photo to your support ticket automatically — please "
+    "reply to your ticket email with the photo so a person can check it.")
 
 
 def _ensure_rx_photo_forwarded_to_ticket(db, session_id, session,
