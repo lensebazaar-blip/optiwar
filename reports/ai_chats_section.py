@@ -309,7 +309,9 @@ def _turn_action(evs):
     turn is OFFERED (its later confirmation belongs to the customer's next
     turn); one offered earlier and confirmed in this turn is CONFIRMED, or
     EXECUTED if that happened in the same turn too."""
-    offered = [e for e in evs if e["type"] == "NAVIGATION_OFFERED" and e["action_id"]]
+    offered = [e for e in evs if e["type"] in (
+        "NAVIGATION_OFFERED", "FACE_ACTION_OFFERED",
+        "RX_PHOTO_ATTACH_OFFERED") and e["action_id"]]
     new_ids = {e["action_id"] for e in offered}
     executed = {e["action_id"] for e in evs if e["type"] == "ACTION_EXECUTED"}
     for e in evs:

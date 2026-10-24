@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS chat_attachments (
     vision_model   VARCHAR(64) NULL,
     vision_error   VARCHAR(255) NULL,
     created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    purged_at      DATETIME NULL,
     PRIMARY KEY (id),
     KEY idx_ca_session (session_id, created_at),
     KEY idx_ca_status (ket_status)
@@ -75,6 +76,7 @@ SESSION_COLUMNS = (
         ("vision_json", "TEXT NULL"),
         ("vision_model", "VARCHAR(64) NULL"),
         ("vision_error", "VARCHAR(255) NULL"),
+        ("purged_at", "DATETIME NULL"),
     )),
 )
 

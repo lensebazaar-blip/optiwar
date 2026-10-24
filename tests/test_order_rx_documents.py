@@ -254,6 +254,8 @@ class OrderRxDocumentTests(unittest.TestCase):
             ("customer_id", "INT NULL"),
             ("date_created", "DATETIME NULL"),
             ("site_from", "VARCHAR(64) NULL"),
+            ("is_test", "TINYINT NULL DEFAULT 0"),
+            ("archived", "TINYINT NULL DEFAULT 0"),
         ))
         cursor.execute(
             "CREATE TABLE IF NOT EXISTS rx_collector ("
@@ -567,7 +569,9 @@ class OrderRxDocumentTests(unittest.TestCase):
             cursor = mock.Mock()
             self.service.ensure_schema(cursor)
             self.assertEqual(cursor.execute.call_count,
-                             len(self.service.TABLES))
+                             len(self.service.TABLES) + sum(
+                                 len(columns) for _table, columns
+                                 in self.service.ADDED_COLUMNS))
             cursor.execute.reset_mock()
             self.service.ensure_schema(cursor)
             cursor.execute.assert_not_called()
@@ -609,6 +613,13 @@ class OrderRxDocumentTests(unittest.TestCase):
         self.assertEqual(self.service.compare_prescription(None, typed),
                          ("NO_READING", []))
 
+    def test_comparison_requires_typed_values_for_readable_photo_eyes(self):
+        status, differences = self.service.compare_prescription(
+            self._proposal(), {})
+        self.assertEqual(status, "DIFFERENT")
+        self.assertIn("R: no typed value on the order", differences)
+        self.assertIn("L: no typed value on the order", differences)
+
     def test_checkout_attachment_ownership_retention_and_idempotent_reuse(self):
         document_id = self._upload().json["document_id"]
         with self.client.session_transaction() as sess:
@@ -638,6 +649,76 @@ class OrderRxDocumentTests(unittest.TestCase):
                     "WHERE document_id=%s", (other,))
         self.assertIsNone(cur.fetchone()["order_id"])
 
+    def test_chat_attachment_is_bounded_audited_and_idempotent(self):
+        line = dict(self.cart[0], order_id=self.order_id,
+                    order_line_id=self.line_id, product_id=self.pid,
+                    rx_id=self.cid,
+                    typed=self.service.typed_snapshot(self.cart[0]))
+        source = _image_bytes("JPEG", (4000, 3000), noise=True)
+        with self.app.test_request_context("/", base_url="https://optiwar.com"):
+            cursor = self.db.cursor()
+            document_id = self.service.attach_chat_photo(
+                cursor, self.cid, 87654321, line, source,
+                self._proposal(), 0.96, "test-vision")
+            duplicate = self.service.attach_chat_photo(
+                cursor, self.cid, 87654321, line, source,
+                self._proposal(), 0.96, "test-vision")
+        self.assertEqual(document_id, duplicate)
+        cursor = self.db.cursor()
+        cursor.execute(
+            "SELECT source,chat_attachment_id,order_id,order_rx_id,"
+            "comparison,stored_bytes FROM order_rx_documents "
+            "WHERE document_id=%s", (document_id,))
+        row = cursor.fetchone()
+        self.assertEqual(row["source"], "chat")
+        self.assertEqual(row["chat_attachment_id"], 87654321)
+        self.assertEqual(row["order_id"], self.order_id)
+        self.assertEqual(row["order_rx_id"], self.cid)
+        self.assertEqual(row["comparison"], "MATCH")
+        self.assertLess(row["stored_bytes"], 2_000_000)
+        self.assertEqual(self._audit_actions(document_id),
+                         ["UPLOADED", "ATTACHED", "PARSED"])
+        self.assertEqual(os.stat(self._file_path(document_id)).st_mode & 0o777,
+                         0o600)
+
+    def test_preparing_rx_lines_uses_paid_status_and_existing_eye_parsing(self):
+        class Cursor:
+            def execute(self, sql, params):
+                self.sql = sql
+                self.params = params
+
+            def fetchall(self):
+                return [
+                    {"order_id": "OW-22", "order_line_id": 3, "product_id": 4,
+                     "rx_id": 5, "product_name": "Newest frame",
+                     "order_status_name": "Processed",
+                     "right_eye": "-1.00/-0.50/180/1.50",
+                     "left_eye": "-2.00/-0.25/90/1.50"},
+                    {"order_id": "OW-21", "order_line_id": 2, "product_id": 4,
+                     "rx_id": 6, "product_name": "Shipped frame",
+                     "order_status_name": "Shipped",
+                     "right_eye": "-1.00///", "left_eye": None},
+                    {"order_id": "OW-20", "order_line_id": 1, "product_id": 4,
+                     "rx_id": 7, "product_name": "No Rx frame",
+                     "order_status_name": "Processed",
+                     "right_eye": None, "left_eye": None},
+                ]
+
+        cursor = Cursor()
+        lines = self.service.preparing_rx_lines(cursor, self.cid)
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(
+            lines[0],
+            {"order_id": "OW-22", "order_line_id": 3, "product_id": 4,
+             "rx_id": 5, "product_name": "Newest frame",
+             "typed": {"right_pwr": -1.0, "right_cyl": -0.5,
+                       "right_axis": 180.0, "right_add": 1.5,
+                       "left_pwr": -2.0, "left_cyl": -0.25,
+                       "left_axis": 90.0, "left_add": 1.5}})
+        self.assertIn("pc.status='TXN_SUCCESS'", cursor.sql)
+        self.assertIn("o.is_test=0 AND o.archived=0", cursor.sql)
+        self.assertEqual(cursor.params, (self.cid,))
+
     def test_checkout_documents_only_returns_owned_live_files(self):
         document_id = self._upload().json["document_id"]
         with self.client.session_transaction() as sess:
@@ -652,6 +733,13 @@ class OrderRxDocumentTests(unittest.TestCase):
     def test_ops_auth_cache_order_lookup_signed_files_and_audit(self):
         document_id = self._upload().json["document_id"]
         self._attach(document_id)
+        line = dict(self.cart[0], order_id=self.order_id,
+                    order_line_id=self.line_id, product_id=self.pid,
+                    rx_id=self.cid)
+        with self.app.test_request_context("/", base_url="https://optiwar.com"):
+            self.service.attach_chat_photo(
+                self.db.cursor(), self.cid, 87654322, line,
+                _image_bytes("JPEG"), self._proposal(), 0.96, "test-vision")
         response = self.client.get(
             "/ops/api/orders/ow-%s/rx-documents" % self.order_id)
         self.assertEqual(response.status_code, 200)
@@ -663,6 +751,7 @@ class OrderRxDocumentTests(unittest.TestCase):
                                       self.order_id).get_data(as_text=True))
         page = self.client.get("/ops/rx-documents?order=" + self.order_id)
         self.assertEqual(page.status_code, 200)
+        self.assertIn("From chat", page.get_data(as_text=True))
         self.assertEqual(page.headers["Cache-Control"], "no-store")
         self.assertEqual(page.headers["Pragma"], "no-cache")
         self.assertEqual(self.client.get(

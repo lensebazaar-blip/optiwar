@@ -595,8 +595,13 @@ def migration():
               for name, ddl in face_cart_module().TABLES]
     items += [("%s (table)" % name, " ".join(ddl.split()))
               for name, ddl in favorites_module().TABLES]
+    ordx = order_rx_documents_module()
     items += [("%s (table)" % name, " ".join(ddl.split()))
-              for name, ddl in order_rx_documents_module().TABLES]
+              for name, ddl in ordx.TABLES]
+    for table, columns in ordx.ADDED_COLUMNS:
+        items += [("%s.%s (column)" % (table, name),
+                   "ALTER TABLE %s ADD COLUMN %s %s" % (table, name, decl))
+                  for name, decl in columns]
     rs = reship_module()
     items += [("%s (table)" % name, " ".join(ddl.split()))
               for name, ddl in rs.TABLES]

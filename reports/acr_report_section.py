@@ -117,6 +117,7 @@ EV_JOURNEY_STAGE = "JOURNEY_STAGE"
 EV_RECOMMENDATION_GENERATED = "RECOMMENDATION_GENERATED"
 EV_NAVIGATION_OFFERED = "NAVIGATION_OFFERED"
 EV_FACE_ACTION_OFFERED = "FACE_ACTION_OFFERED"
+EV_RX_PHOTO_ATTACH_OFFERED = "RX_PHOTO_ATTACH_OFFERED"
 EV_ACTION_CONFIRMED = "ACTION_CONFIRMED"
 EV_ACTION_EXECUTED = "ACTION_EXECUTED"
 EV_ACTION_FAILED = "ACTION_FAILED"
@@ -174,6 +175,7 @@ SESSION_JOIN = "s.session_id = e.session_id COLLATE utf8mb4_general_ci"
 
 FUNNEL_STAGES = ("LISTING", "PRODUCT", "CART", "CHECKOUT", "PURCHASE")
 FACE_ACTION_TYPES = ("FACE_SHOP_FOR", "FACE_DEFAULT", "FACE_CART_LINE")
+RX_PHOTO_ACTION_TYPES = ("RX_PHOTO_ATTACH",)
 
 
 def _by_host(counts):
@@ -340,6 +342,8 @@ def _collect():
     safe("nav_actions", lambda: action_counts("='NAVIGATE'"))
     safe("face_actions", lambda: action_counts(
         "IN (%s)" % ",".join(_q(t) for t in FACE_ACTION_TYPES)))
+    safe("rx_photo_actions", lambda: action_counts(
+        "IN (%s)" % ",".join(_q(t) for t in RX_PHOTO_ACTION_TYPES)))
 
     safe("nav_expired_by_time", lambda: _to_int(_scalar(
         "SELECT COUNT(*) FROM ai_actions WHERE action_type='NAVIGATE' "
@@ -981,6 +985,8 @@ def build():
         (("%.1f%%" % success_rate) if success_rate is not None else NA, st_success or "-"))
     add("    Action lifecycle (FACE_*; assistant face abilities are OFF in production):")
     add("      %s" % _lifecycle_line(m.get("face_actions")))
+    add("    Action lifecycle (RX_PHOTO_ATTACH):")
+    add("      %s" % _lifecycle_line(m.get("rx_photo_actions")))
     add("      promise-without-action       %s" % _val(m.get("promise_without_action")))
     add("      unsafe-url rejected          %s" % _val(m.get("unsafe_url_rejected")))
     add("      reship rule breach           %s" % _val(m.get("reship_rule_breach")))
