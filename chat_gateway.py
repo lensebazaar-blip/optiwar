@@ -677,6 +677,64 @@ def _assistant_reply_before(db, session_id, before_message_id=None):
         return None
 
 
+_RX_PHOTO_TICKET_FORWARD_FAILED = (
+    "I couldn't send the photo to your support ticket automatically — our team "
+    "will see it in this chat, but please also reply to your ticket email with "
+    "the photo.")
+
+
+def _ensure_rx_photo_forwarded_to_ticket(db, session_id, session,
+                                         attachment_id, page_url):
+    row = None
+    status = None
+    if attachment_id is not None:
+        try:
+            cur = db.cursor()
+            cur.execute(
+                "SELECT id,session_id,filename,mime_type,stored_name,ket_status,"
+                "purged_at FROM chat_attachments WHERE id=%s AND session_id=%s",
+                (attachment_id, session_id))
+            row = cur.fetchone()
+            status = row.get("ket_status") if row else None
+        except Exception as exc:
+            current_app.logger.warning(
+                "[ChatAttach] Rx-photo ticket status failed id=%s: %s",
+                attachment_id, type(exc).__name__)
+
+    ticket_uid = session.get("ket_ticket_uid")
+    if (status != chat_attachments.KET_SENT and ticket_uid and row
+            and row.get("stored_name") and row.get("purged_at") is None):
+        try:
+            data = _read_attachment_bytes(row)
+            _forward_attachment_to_ket(db, row, data, ticket_uid)
+        except Exception as exc:
+            current_app.logger.warning(
+                "[ChatAttach] Rx-photo ticket retry failed id=%s: %s",
+                attachment_id, type(exc).__name__)
+        try:
+            cur = db.cursor()
+            cur.execute(
+                "SELECT ket_status FROM chat_attachments "
+                "WHERE id=%s AND session_id=%s",
+                (attachment_id, session_id))
+            current = cur.fetchone()
+            status = current.get("ket_status") if current else None
+        except Exception as exc:
+            current_app.logger.warning(
+                "[ChatAttach] Rx-photo ticket status check failed id=%s: %s",
+                attachment_id, type(exc).__name__)
+
+    sent = status == chat_attachments.KET_SENT
+    if not sent:
+        acr.log_event(
+            db, acr.EV_HANDOVER_ESCALATED, session_id=session_id,
+            journey_stage=acr.STAGE_SUPPORT, action_type="PHOTO_ESCALATION",
+            page_url=page_url,
+            payload={"attachment_id": attachment_id,
+                     "reason": "rx_photo_ket_forward_failed"})
+    return sent
+
+
 def _rx_photo_confirmation(db, session_id, session, user_message, page_url,
                            before_message_id=None):
     if not (acr.is_confirmation(user_message)
@@ -747,13 +805,19 @@ def _rx_photo_confirmation(db, session_id, session, user_message, page_url,
     if not current_offer:
         acr.mark_action(db, action_id, "SUPERSEDED", result_code="stale_offer")
         return None, None, []
+    attachment_id_for_ticket = int(attachment_id)
     if face_assistant.is_decline(user_message):
         acr.mark_action(db, action_id, face_assistant.ST_DECLINED)
         already_ticketed = bool(session.get("ket_ticket_uid")
                                 or session.get("ket_ticket_ref"))
         if already_ticketed:
-            return ("Okay — I haven't added it to an order. Our support team "
-                    "already has the photo on your ticket.",
+            sent = _ensure_rx_photo_forwarded_to_ticket(
+                db, session_id, session, attachment_id_for_ticket, page_url)
+            reply = ("Okay — I haven't added it to an order. Our support team "
+                     "already has the photo on your ticket.") if sent else (
+                         "Okay — I haven't added it to an order. "
+                         + _RX_PHOTO_TICKET_FORWARD_FAILED)
+            return (reply,
                     {"action_id": action_id, "type": "RX_PHOTO_ATTACH",
                      "ok": False, "state": "DECLINED", "code": "declined"}, [])
         return ("Okay — I haven't added it to an order. I've passed it to our "
@@ -824,9 +888,14 @@ def _rx_photo_confirmation(db, session_id, session, user_message, page_url,
             code=code, page_url=page_url)
         already_ticketed = bool(session.get("ket_ticket_uid")
                                 or session.get("ket_ticket_ref"))
-        reply = ("I couldn't add it to the order, so our support team already "
-                 "has the photo on your ticket.") if already_ticketed else (
-                     "I couldn't add it to the order, so I've passed it to our "
+        if already_ticketed:
+            sent = _ensure_rx_photo_forwarded_to_ticket(
+                db, session_id, session, attachment_id_for_ticket, page_url)
+            reply = ("I couldn't add it to the order, so our support team already "
+                     "has the photo on your ticket.") if sent else (
+                         _RX_PHOTO_TICKET_FORWARD_FAILED)
+        else:
+            reply = ("I couldn't add it to the order, so I've passed it to our "
                      "support team so a person checks it.")
         return (reply,
                 {"action_id": action_id, "type": "RX_PHOTO_ATTACH", "ok": False,

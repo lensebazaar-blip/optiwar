@@ -159,7 +159,7 @@ class ChatRxPhotoTests(unittest.TestCase):
 
     def _ticket_turn(self, answer, tampered=False, *, vision_proposal=None,
                      ticketed=False, switch_user_to=None, intervening=False,
-                     attach_failure=False):
+                     attach_failure=False, ket_upload_answers=None):
         fixture = ta.OnMariaDB("runTest")
         fixture.db = ta._connect()
         fixture.setUp()
@@ -200,6 +200,8 @@ class ChatRxPhotoTests(unittest.TestCase):
             "ket_ticket_ref=%s WHERE session_id=%s",
             ("uid-31" if ticketed else None,
              "KET-31" if ticketed else None, fixture.sid))
+        if ket_upload_answers:
+            fixture.answers.extend(ket_upload_answers)
         right_eye = "+1.25/-0.50/180/1.50"
         left_eye = "-2.00/-0.25/90/1.50"
         cur.execute(
@@ -295,6 +297,31 @@ class ChatRxPhotoTests(unittest.TestCase):
         self.assertEqual(
             base64.b64decode(images[0]["data_base64"])[:3], b"\xff\xd8\xff")
 
+    def _assert_no_ticket_created(self, fixture, forwarded):
+        self.assertEqual(forwarded, [])
+        cur = fixture.db.cursor()
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM chat_rx_photo_test_tickets "
+            "WHERE session_id=%s", (fixture.sid,))
+        self.assertEqual(cur.fetchone()["n"], 0)
+
+    def _assert_rx_photo_ket_forward_escalated(self, fixture):
+        cur = fixture.db.cursor()
+        cur.execute(
+            "SELECT action_type,payload FROM ai_events WHERE session_id=%s "
+            "AND event_type=%s",
+            (fixture.sid, self.cg.acr.EV_HANDOVER_ESCALATED))
+        matches = []
+        for event in cur.fetchall():
+            payload = event["payload"]
+            if isinstance(payload, bytes):
+                payload = payload.decode("utf-8")
+            if json.loads(payload or "{}").get("reason") == (
+                    "rx_photo_ket_forward_failed"):
+                matches.append(event)
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["action_type"], "PHOTO_ESCALATION")
+
     def _temporary_rx_storage(self):
         storage = tempfile.TemporaryDirectory(prefix="chat-rx-docs-")
         upload_dir = mock.patch.object(self.ordx, "upload_dir",
@@ -338,6 +365,88 @@ class ChatRxPhotoTests(unittest.TestCase):
         self.assertEqual(cur.fetchone()["n"], 0)
         self.assertEqual(len(fixture.uploads), 1)
         self.assertEqual(fixture.uploads[0][0], "uid-31")
+
+    def test_ticketed_decline_retries_failed_forward_before_claiming_ticket_has_photo(self):
+        fixture, forwarded, body = self._ticket_turn(
+            "no", ticketed=True,
+            ket_upload_answers=[(False, "http 503"), (True, "ref-31")])
+        self.assertEqual(fixture.rx_offer["ket_status"], "failed")
+        self.assertEqual(body["actions"], [])
+        self.assertEqual(body["rx_photo_action"]["state"], "DECLINED")
+        self.assertEqual(
+            body["reply"],
+            "Okay — I haven't added it to an order. Our support team already "
+            "has the photo on your ticket.")
+        self.assertEqual(len(fixture.uploads), 2)
+        cur = fixture.db.cursor()
+        cur.execute(
+            "SELECT ket_status,ket_ticket_uid FROM chat_attachments WHERE id=%s",
+            (fixture.rx_offer["attachment_id"],))
+        self.assertEqual(cur.fetchone(), {
+            "ket_status": "sent", "ket_ticket_uid": "uid-31"})
+        self._assert_no_ticket_created(fixture, forwarded)
+
+    def test_ticketed_decline_reports_failed_forward_without_creating_ticket(self):
+        fixture, forwarded, body = self._ticket_turn(
+            "no", ticketed=True,
+            ket_upload_answers=[(False, "http 503"), (False, "http 503")])
+        self.assertEqual(body["actions"], [])
+        self.assertEqual(body["rx_photo_action"]["state"], "DECLINED")
+        self.assertEqual(
+            body["reply"],
+            "Okay — I haven't added it to an order. I couldn't send the photo "
+            "to your support ticket automatically — our team will see it in "
+            "this chat, but please also reply to your ticket email with the photo.")
+        self.assertEqual(len(fixture.uploads), 2)
+        cur = fixture.db.cursor()
+        cur.execute(
+            "SELECT ket_status,ket_ticket_uid FROM chat_attachments WHERE id=%s",
+            (fixture.rx_offer["attachment_id"],))
+        self.assertEqual(cur.fetchone(), {
+            "ket_status": "failed", "ket_ticket_uid": "uid-31"})
+        self._assert_rx_photo_ket_forward_escalated(fixture)
+        self._assert_no_ticket_created(fixture, forwarded)
+
+    def test_ticketed_attach_failure_retries_failed_forward_before_claiming_ticket_has_photo(self):
+        fixture, forwarded, body = self._ticket_turn(
+            "yes", ticketed=True, attach_failure=True,
+            ket_upload_answers=[(False, "http 503"), (True, "ref-31")])
+        self.assertEqual(fixture.rx_offer["ket_status"], "failed")
+        self.assertEqual(body["actions"], [])
+        self.assertEqual(body["rx_photo_action"]["state"], "FAILED")
+        self.assertEqual(
+            body["reply"],
+            "I couldn't add it to the order, so our support team already has "
+            "the photo on your ticket.")
+        self.assertEqual(len(fixture.uploads), 2)
+        cur = fixture.db.cursor()
+        cur.execute(
+            "SELECT ket_status,ket_ticket_uid FROM chat_attachments WHERE id=%s",
+            (fixture.rx_offer["attachment_id"],))
+        self.assertEqual(cur.fetchone(), {
+            "ket_status": "sent", "ket_ticket_uid": "uid-31"})
+        self._assert_no_ticket_created(fixture, forwarded)
+
+    def test_ticketed_attach_failure_reports_failed_forward_without_creating_ticket(self):
+        fixture, forwarded, body = self._ticket_turn(
+            "yes", ticketed=True, attach_failure=True,
+            ket_upload_answers=[(False, "http 503"), (False, "http 503")])
+        self.assertEqual(body["actions"], [])
+        self.assertEqual(body["rx_photo_action"]["state"], "FAILED")
+        self.assertEqual(
+            body["reply"],
+            "I couldn't send the photo to your support ticket automatically — "
+            "our team will see it in this chat, but please also reply to your "
+            "ticket email with the photo.")
+        self.assertEqual(len(fixture.uploads), 2)
+        cur = fixture.db.cursor()
+        cur.execute(
+            "SELECT ket_status,ket_ticket_uid FROM chat_attachments WHERE id=%s",
+            (fixture.rx_offer["attachment_id"],))
+        self.assertEqual(cur.fetchone(), {
+            "ket_status": "failed", "ket_ticket_uid": "uid-31"})
+        self._assert_rx_photo_ket_forward_escalated(fixture)
+        self._assert_no_ticket_created(fixture, forwarded)
 
     def test_nonpreparing_target_failure_creates_ticket_and_forwards_photo(self):
         fixture, forwarded, body = self._ticket_turn("yes", tampered=True)
