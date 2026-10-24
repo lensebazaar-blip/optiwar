@@ -1,9 +1,11 @@
 """Regression coverage for chat Rx-photo retention and action vocabulary."""
+import base64
 import datetime
 import importlib
 import os
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -15,6 +17,11 @@ try:
     ta = importlib.import_module("test_chat_attachments")
 except ImportError:
     ta = importlib.import_module("tests.test_chat_attachments")
+
+if "flask_mail" not in sys.modules:
+    flask_mail = types.ModuleType("flask_mail")
+    flask_mail.Message = object
+    sys.modules["flask_mail"] = flask_mail
 
 import acr
 
@@ -90,6 +97,130 @@ class ChatRxPhotoTests(unittest.TestCase):
         cls.app = ta.OnMariaDB.app
         cls.cv = ta.OnMariaDB.cg.chat_vision
         cls.ordx = importlib.import_module("flaskr.order_rx_documents")
+        cls.cg.acr.ensure_schema(ta._connect)
+        db = ta._connect()
+        try:
+            cur = db.cursor()
+            for col, ddl in (("customer_id", "INT NULL"),
+                             ("current_page_url", "TEXT NULL"),
+                             ("ket_ticket_uid", "VARCHAR(191) NULL"),
+                             ("ket_ticket_ref", "VARCHAR(191) NULL")):
+                cur.execute("ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS %s %s"
+                            % (col, ddl))
+            cur.execute(
+                """CREATE TABLE IF NOT EXISTS chat_rx_photo_test_tickets (
+                       id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                       session_id VARCHAR(64) NOT NULL,
+                       name VARCHAR(191) NULL,
+                       email VARCHAR(191) NULL,
+                       subject VARCHAR(255) NULL,
+                       message TEXT NULL,
+                       KEY idx_session (session_id)
+                   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+        finally:
+            db.close()
+
+    def _ticket_turn(self, answer, tampered=False):
+        fixture = ta.OnMariaDB("runTest")
+        fixture.db = ta._connect()
+        fixture.setUp()
+        self.addCleanup(fixture.db.close)
+        self.addCleanup(fixture.doCleanups)
+        self.addCleanup(fixture.tearDown)
+
+        def clean_ticket_rows():
+            cur = fixture.db.cursor()
+            for table in ("ai_actions", "ai_events", "chat_rx_photo_test_tickets"):
+                cur.execute("DELETE FROM %s WHERE session_id=%%s" % table,
+                            (fixture.sid,))
+        self.addCleanup(clean_ticket_rows)
+
+        def create_ticket(name, email, subject, message):
+            cur = fixture.db.cursor()
+            cur.execute(
+                "INSERT INTO chat_rx_photo_test_tickets "
+                "(session_id,name,email,subject,message) VALUES (%s,%s,%s,%s,%s)",
+                (fixture.sid, name, email, subject, message))
+            return cur.lastrowid
+
+        ticket_patch = mock.patch.object(
+            self.cg, "create_ticket_in_db", side_effect=create_ticket)
+        ticket_patch.start()
+        self.addCleanup(ticket_patch.stop)
+        for name in ("_send_ticket_whatsapp", "_send_ticket_sms"):
+            notification_patch = mock.patch.object(self.cg, name)
+            notification_patch.start()
+            self.addCleanup(notification_patch.stop)
+        forwarded = fixture._ticket_flow()
+        fixture._as_owner()
+        fixture.db.cursor().execute(
+            "UPDATE chat_sessions SET customer_id=101 WHERE session_id=%s",
+            (fixture.sid,))
+        fixture.reading = self.cv.parse(
+            '{"kind":"prescription","confidence":0.96,"prescription":'
+            '{"right":{"sph":"-1.00"},"left":{"sph":"-1.00"}}}')
+        line = {"order_id": "OW-22", "order_line_id": 3, "product_id": 4,
+                "rx_id": 5, "product_name": "Frame", "typed": {}}
+        preparing = mock.patch.object(
+            self.ordx, "preparing_rx_lines",
+            side_effect=[[line], [] if tampered else [line]])
+        lens = mock.patch.object(
+            self.cg, "_lens_context", return_value=(None, None, None, None))
+        test_identity = mock.patch.object(
+            self.cg.test_identity, "is_test_customer", return_value=False)
+        model_patch = mock.patch.object(
+            self.cg, "_call_deepseek",
+            return_value=("unexpected model reply", None))
+        with preparing, lens, test_identity, model_patch as model:
+            offered = fixture._post(ta.PNG, name="rx.png").get_json()
+            self.assertIn("Shall I add this photo to order OW-22", offered["reply"])
+            self.assertEqual(offered["actions"], [])
+            cur = fixture.db.cursor()
+            cur.execute(
+                "SELECT action_id,action_type,target,status FROM ai_actions "
+                "WHERE session_id=%s", (fixture.sid,))
+            action = cur.fetchone()
+            self.assertEqual(action["action_type"], "RX_PHOTO_ATTACH")
+            self.assertEqual(action["status"], "PENDING")
+            response = fixture.client.post("/api/chat/message", json={
+                "session_id": fixture.sid, "content": answer,
+                "page_url": "https://optiwar.com/account/orders",
+                "client_message_id": "rx-" + answer + ("-tampered" if tampered else ""),
+            })
+            self.assertEqual(response.status_code, 200)
+            model.assert_not_called()
+        return fixture, forwarded, response.get_json()
+
+    def _assert_ticket_and_photo_were_forwarded(self, fixture, forwarded):
+        cur = fixture.db.cursor()
+        cur.execute(
+            "SELECT id,name,email,subject,message FROM chat_rx_photo_test_tickets "
+            "WHERE session_id=%s", (fixture.sid,))
+        ticket = cur.fetchone()
+        self.assertIsNotNone(ticket)
+        self.assertEqual(ticket["email"], "jane@example.com")
+        self.assertIn("[Photo attached: rx.jpg]", ticket["message"])
+        self.assertEqual(len(forwarded), 1)
+        images = forwarded[0]["images"]
+        self.assertEqual(len(images), 1)
+        self.assertEqual(images[0]["filename"], "rx.jpg")
+        self.assertEqual(
+            base64.b64decode(images[0]["data_base64"])[:3], b"\xff\xd8\xff")
+
+    def test_decline_message_turn_creates_ticket_and_forwards_photo(self):
+        fixture, forwarded, body = self._ticket_turn("no")
+        self.assertEqual(body["actions"], ["create_ticket"])
+        self.assertEqual(body["rx_photo_action"]["state"], "DECLINED")
+        self.assertIn("Your support ticket KET-31 has been created", body["reply"])
+        self._assert_ticket_and_photo_were_forwarded(fixture, forwarded)
+
+    def test_nonpreparing_target_failure_creates_ticket_and_forwards_photo(self):
+        fixture, forwarded, body = self._ticket_turn("yes", tampered=True)
+        self.assertEqual(body["actions"], ["create_ticket"])
+        self.assertEqual(body["rx_photo_action"]["state"], "FAILED")
+        self.assertEqual(body["rx_photo_action"]["code"], "not_preparing")
+        self.assertIn("Your support ticket KET-31 has been created", body["reply"])
+        self._assert_ticket_and_photo_were_forwarded(fixture, forwarded)
 
     def test_action_offer_vocabulary_and_prompt_rule(self):
         self.assertIn("RX_PHOTO_ATTACH", acr.SUPPORT_ACTION_TYPES)
