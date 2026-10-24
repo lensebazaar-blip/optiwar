@@ -144,9 +144,15 @@ def _ops_auth():
 
 
 def _ops_actor():
-    return session.get("user_email") or (
-        "bearer" if request.headers.get("Authorization", "").startswith("Bearer ")
-        else "unknown")
+    user_email = session.get("user_email")
+    if user_email:
+        return user_email
+    if request.headers.get("Authorization", "").startswith("Bearer "):
+        ops_user = request.headers.get("X-Ops-User", "")
+        return ("bearer:" + ops_user
+                if re.fullmatch(r"[A-Za-z0-9._@-]{1,64}", ops_user)
+                else "bearer")
+    return "unknown"
 
 
 def _customer_id():
@@ -956,13 +962,38 @@ def register(bp):
     def order_rx_api(order_id):
         if not _ops_auth():
             return _json({"error": "Unauthorized"}, 401)
-        cursor = get_db().cursor()
+        db = get_db()
+        cursor = db.cursor()
         ensure_schema(cursor)
-        result = _order_view(cursor, order_id)
+        result = _order_view(
+            cursor, order_id, issue_links=request.args.get("links") != "0")
         if result is None:
             return _json({"ok": False, "error": "not_found"}, 404)
-        get_db().commit()
+        db.commit()
         return _json(result)
+
+    @bp.route("/ops/api/rx-documents/<int:document_id>/links",
+              methods=["GET"])
+    def order_rx_document_links(document_id):
+        if not _ops_auth():
+            return _json({"error": "Unauthorized"}, 401)
+        db = get_db()
+        cursor = db.cursor()
+        ensure_schema(cursor)
+        cursor.execute(
+            "SELECT d.*,p.product_name FROM order_rx_documents d "
+            "LEFT JOIN products p ON p.product_id=d.product_id "
+            "WHERE d.document_id=%s AND d.order_id IS NOT NULL "
+            "AND d.status NOT IN ('REMOVED','PURGED') "
+            "AND d.purged_at IS NULL",
+            (document_id,))
+        row = cursor.fetchone()
+        if not row:
+            return _json({"ok": False, "error": "not_found"}, 404)
+        document = _document_view(row, cursor)
+        db.commit()
+        return _json({"ok": True, "document_id": int(document_id),
+                      "files": document["files"]})
 
     @bp.route("/ops/rx-documents", methods=["GET"])
     def order_rx_page():
