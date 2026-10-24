@@ -116,12 +116,16 @@ class ChatRxPhotoTests(unittest.TestCase):
             cur.execute(
                 """CREATE TABLE IF NOT EXISTS rx_collector (
                        rx_id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                       recommendations VARCHAR(255) NULL,
+                       recommendation_price INT NULL,
                        right_eye VARCHAR(255) NULL,
                        left_eye VARCHAR(255) NULL,
                        product_id INT NULL,
                        date_created DATETIME DEFAULT CURRENT_TIMESTAMP
                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
-            for col, ddl in (("right_eye", "VARCHAR(255) NULL"),
+            for col, ddl in (("recommendations", "VARCHAR(255) NULL"),
+                             ("recommendation_price", "INT NULL"),
+                             ("right_eye", "VARCHAR(255) NULL"),
                              ("left_eye", "VARCHAR(255) NULL"),
                              ("product_id", "INT NULL"),
                              ("date_created", "DATETIME NULL DEFAULT CURRENT_TIMESTAMP")):
