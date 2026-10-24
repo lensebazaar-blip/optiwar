@@ -395,8 +395,8 @@ class ChatRxPhotoTests(unittest.TestCase):
         self.assertEqual(
             body["reply"],
             "Okay — I haven't added it to an order. I couldn't send the photo "
-            "to your support ticket automatically — our team will see it in "
-            "this chat, but please also reply to your ticket email with the photo.")
+            "to your support ticket automatically — please reply to your ticket "
+            "email with the photo so a person can check it.")
         self.assertEqual(len(fixture.uploads), 2)
         cur = fixture.db.cursor()
         cur.execute(
@@ -436,8 +436,8 @@ class ChatRxPhotoTests(unittest.TestCase):
         self.assertEqual(
             body["reply"],
             "I couldn't send the photo to your support ticket automatically — "
-            "our team will see it in this chat, but please also reply to your "
-            "ticket email with the photo.")
+            "please reply to your ticket email with the photo so a person can "
+            "check it.")
         self.assertEqual(len(fixture.uploads), 2)
         cur = fixture.db.cursor()
         cur.execute(
