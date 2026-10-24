@@ -77,7 +77,7 @@ def _refuse(code, message, status=400, where=""):
     return jsonify({"ok": False, "code": code, "message": message}), status
 
 
-def read_document(pages, workload):
+def read_document(pages, workload, endpoint="/contact-lenses/rx-upload"):
     """Ask the configured provider; ``(proposal, confidence, model, unreadable)``.
 
     Provider failures propagate as ``ai_client.ModelError`` for the route to
@@ -86,7 +86,7 @@ def read_document(pages, workload):
     """
     resp = ai_client.call_model(
         workload=workload, messages=lens_documents.messages_for(pages),
-        max_tokens=400, temperature=0, endpoint="/contact-lenses/rx-upload")
+        max_tokens=400, temperature=0, endpoint=endpoint)
     text = ""
     try:
         text = resp.choices[0].message.content or ""

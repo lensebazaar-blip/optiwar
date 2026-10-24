@@ -95,6 +95,8 @@ DEPLOY_SET = ("__init__.py", "log_hygiene.py", "pricing.py", "acr.py", "ai_api.p
               "face_scan_done.py", "face_scan_groups.py", "face_scan_groups_api.py",
               "face_fit.py", "face_cart.py", "face_assistant.py", "favorites.py", "favorites_api.py",
               "order_face_scan.py", "templates/ops_order_face_scan.html",
+              "order_rx_documents.py", "templates/ops_order_rx_documents.html",
+              "static/ai/optiwar_ai_knowledge_base.json",
               "reship.py", "reship_api.py", "reship_assistant.py", "return_assistant.py", "return_fee.py", "return_refund.py", "return_request.py", "reverse_pickup.py", "templates/ops_reship.html",
               "ai_language.py", "rx_lookup.py", "order_lookup.py", "test_identity.py", "satisfaction.py", "cart_lookup.py",
               "templates/face_scan_guest.html", "templates/favorites.html",
@@ -131,6 +133,7 @@ NEW_IN_RELEASE = ("log_hygiene.py", "test_identity.py", "ai_language.py", "rx_lo
                   "face_scan_done.py", "face_scan_groups.py", "face_scan_groups_api.py",
                   "face_fit.py", "face_cart.py", "face_assistant.py", "favorites.py", "favorites_api.py",
                   "order_face_scan.py", "templates/ops_order_face_scan.html",
+                  "order_rx_documents.py", "templates/ops_order_rx_documents.html",
                   "reship.py", "reship_api.py", "reship_assistant.py", "return_assistant.py", "return_fee.py", "return_refund.py", "return_request.py", "reverse_pickup.py", "templates/ops_reship.html",
                   "templates/face_scan_guest.html",
                   "templates/lens_landing.html",
@@ -502,6 +505,38 @@ def favorites_module():
     return mod
 
 
+def order_rx_documents_module():
+    """Load the Rx document schema without importing the application's DB or AI clients."""
+    import types
+    pkg_name = "order_rx_deploy_pkg"
+    pkg = types.ModuleType(pkg_name)
+    pkg.__path__ = [REPO]
+    sys.modules[pkg_name] = pkg
+    stubs = {
+        "ai_client": {"ModelError": type("ModelError", (Exception,), {})},
+        "db": {"get_db": lambda: None},
+        "dev_defects": {"record": lambda *args, **kwargs: None},
+        "lens_upload": {"read_document": lambda *args, **kwargs: None},
+    }
+    for name, attrs in stubs.items():
+        mod = types.ModuleType(pkg_name + "." + name)
+        for key, value in attrs.items():
+            setattr(mod, key, value)
+        sys.modules[mod.__name__] = mod
+        setattr(pkg, name, mod)
+    loaded = None
+    for name in ("lens_order", "lens_rx", "lens_documents",
+                 "order_rx_documents"):
+        spec = importlib.util.spec_from_file_location(
+            pkg_name + "." + name, os.path.join(REPO, name + ".py"))
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = mod
+        setattr(pkg, name, mod)
+        spec.loader.exec_module(mod)
+        loaded = mod
+    return loaded
+
+
 def catalogue_columns():
     """``catalogue.GMC_COLUMNS``, read from the source without importing it.
 
@@ -560,6 +595,8 @@ def migration():
               for name, ddl in face_cart_module().TABLES]
     items += [("%s (table)" % name, " ".join(ddl.split()))
               for name, ddl in favorites_module().TABLES]
+    items += [("%s (table)" % name, " ".join(ddl.split()))
+              for name, ddl in order_rx_documents_module().TABLES]
     rs = reship_module()
     items += [("%s (table)" % name, " ".join(ddl.split()))
               for name, ddl in rs.TABLES]

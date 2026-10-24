@@ -32,7 +32,7 @@ from .catalogue import (
     current_site, strip_ineligible_urls, age_group, ensure_gmc_columns,
     live_lenses, lens_matrix_summary, SITE_IN, SITE_COM,
 )
-from . import face_cart, face_fit, face_profiles, face_profiles_api, face_scan_groups_api, face_scan_invites_api, favorites_api, order_face_scan
+from . import face_cart, face_fit, face_profiles, face_profiles_api, face_scan_groups_api, face_scan_invites_api, favorites_api, order_face_scan, order_rx_documents
 from . import (acr, lens_cart, lens_config, lens_documents, lens_feed,
                lens_order, lens_preview, lens_rx, lens_seo, lens_upload,
                lens_view)
@@ -67,6 +67,7 @@ face_scan_invites_api.register(bp)
 face_scan_groups_api.register(bp)
 favorites_api.register(bp)
 order_face_scan.register(bp)
+order_rx_documents.register(bp)
 
 @bp.route('/eu/')
 @bp.route('/eu/<path:rest>')
@@ -3118,11 +3119,13 @@ def checkout_page():
             session.modified = True    # the line dicts are the session's own
             save_cart_to_db()
         face_lines = face_cart.decorate(_fdb, user_id, cart)
+    rx_documents = (order_rx_documents.checkout_documents(
+        get_db().cursor(), user_id, cart) if user_id else {})
 
     import uuid as _uuid
     session['checkout_token'] = str(_uuid.uuid4())
     _acr_stage(acr.STAGE_CHECKOUT)
-    return render_template('checkout.html', cart=cart,ship_days=ship_days, face_lines=face_lines,product_image_map=product_image_map, grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, right_eye=right_eye, left_eye=left_eye,right_pwr=right_pwr, right_lens_color=right_lens_color, right_cyl=right_cyl, right_qty=right_qty, right_axis=right_axis, right_add=right_add, left_pwr=left_pwr, left_lens_color=left_lens_color, left_cyl=left_cyl, left_qty=left_qty, left_axis=left_axis, left_add=left_add, lens_recommendations=lens_recommendations, prefill=prefill, saved_addresses=saved_addresses, lens_removal_pending=lens_removal_pending, lens_removal_confirm_text=lens_cart.CONFIRM_REMOVAL, **policy_terms.checkout_context(cart, _get_site_from()))
+    return render_template('checkout.html', cart=cart,ship_days=ship_days, face_lines=face_lines,product_image_map=product_image_map, grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, right_eye=right_eye, left_eye=left_eye,right_pwr=right_pwr, right_lens_color=right_lens_color, right_cyl=right_cyl, right_qty=right_qty, right_axis=right_axis, right_add=right_add, left_pwr=left_pwr, left_lens_color=left_lens_color, left_cyl=left_cyl, left_qty=left_qty, left_axis=left_axis, left_add=left_add, lens_recommendations=lens_recommendations, prefill=prefill, saved_addresses=saved_addresses, lens_removal_pending=lens_removal_pending, lens_removal_confirm_text=lens_cart.CONFIRM_REMOVAL, rx_documents=rx_documents, **policy_terms.checkout_context(cart, _get_site_from()))
 
 """
 @bp.route('/initiate-payment', methods=['POST'])
@@ -3259,6 +3262,7 @@ def checkout():
 
     db = get_db()
     cursor = db.cursor()
+    order_rx_documents.ensure_schema(cursor)
 
     # Checkout idempotency: bind this submission to a one-time token so a
     # double-submit reuses the same order instead of creating a second one.
@@ -3474,6 +3478,7 @@ def checkout():
             # The person and fit each frame line was bought for, sealed with
             # the order; the profile may be renamed or deleted later.
             face_cart.record(db, cursor, order_id, user_id, cart)
+        order_rx_documents.attach_for_order(cursor, order_id, customer_id, cart)
         if not _reuse_order_id:
             cursor.execute("UPDATE order_intents SET order_id=%s, status='created' WHERE token=%s", (order_id, _checkout_token))
         db.commit()
@@ -3588,6 +3593,7 @@ def test_checkout():
     cursor = db.cursor()
 
     try:
+        order_rx_documents.ensure_schema(cursor)
         db.begin()
 
         user_id = session.get('user_id')
@@ -3685,6 +3691,7 @@ def test_checkout():
             (order_id, test_dump, 'TXN_SUCCESS')
         )
 
+        order_rx_documents.attach_for_order(cursor, order_id, customer_id, cart)
         db.commit()
         print(f"[TEST-CHECKOUT] Order {order_id} committed as TEST order")
 

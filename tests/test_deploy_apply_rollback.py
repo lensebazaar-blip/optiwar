@@ -201,8 +201,15 @@ class DeploySetTest(unittest.TestCase):
         self.assertIn("paid_orders.py", self.d.DEPLOY_SET)
         self.assertIn("order_face_scan.py", self.d.DEPLOY_SET)
         self.assertIn("templates/ops_order_face_scan.html", self.d.DEPLOY_SET)
+        self.assertIn("order_rx_documents.py", self.d.DEPLOY_SET)
+        self.assertIn("templates/ops_order_rx_documents.html", self.d.DEPLOY_SET)
+        self.assertIn("static/ai/optiwar_ai_knowledge_base.json",
+                      self.d.DEPLOY_SET)
         self.assertIn("order_face_scan.py", self.d.NEW_IN_RELEASE)
         self.assertIn("templates/ops_order_face_scan.html", self.d.NEW_IN_RELEASE)
+        self.assertIn("order_rx_documents.py", self.d.NEW_IN_RELEASE)
+        self.assertIn("templates/ops_order_rx_documents.html",
+                      self.d.NEW_IN_RELEASE)
         for name in self.d.NEW_IN_RELEASE:
             self.assertIn(name, self.d.DEPLOY_SET)
 
