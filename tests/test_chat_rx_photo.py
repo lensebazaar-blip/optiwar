@@ -2,6 +2,7 @@
 import base64
 import datetime
 import importlib
+import json
 import os
 import sys
 import tempfile
@@ -71,16 +72,20 @@ class _DB:
 
 
 class _ConfirmationDB:
-    def __init__(self, attachment):
+    def __init__(self, attachment, assistant=None):
         self.attachment = attachment
+        self.assistant = assistant
+        self.last_sql = ""
 
     def cursor(self):
         return self
 
-    def execute(self, _sql, _params=()):
-        pass
+    def execute(self, sql, _params=()):
+        self.last_sql = sql
 
     def fetchone(self):
+        if "FROM chat_messages" in self.last_sql:
+            return self.assistant
         return self.attachment
 
     def commit(self):
@@ -97,6 +102,7 @@ class ChatRxPhotoTests(unittest.TestCase):
         cls.app = ta.OnMariaDB.app
         cls.cv = ta.OnMariaDB.cg.chat_vision
         cls.ordx = importlib.import_module("flaskr.order_rx_documents")
+        cls.ordx._SCHEMA_READY = False
         cls.cg.acr.ensure_schema(ta._connect)
         db = ta._connect()
         try:
@@ -107,6 +113,23 @@ class ChatRxPhotoTests(unittest.TestCase):
                              ("ket_ticket_ref", "VARCHAR(191) NULL")):
                 cur.execute("ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS %s %s"
                             % (col, ddl))
+            cur.execute(
+                """CREATE TABLE IF NOT EXISTS rx_collector (
+                       rx_id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                       right_eye VARCHAR(255) NULL,
+                       left_eye VARCHAR(255) NULL,
+                       product_id INT NULL,
+                       date_created DATETIME DEFAULT CURRENT_TIMESTAMP
+                   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+            for col, ddl in (("right_eye", "VARCHAR(255) NULL"),
+                             ("left_eye", "VARCHAR(255) NULL"),
+                             ("product_id", "INT NULL"),
+                             ("date_created", "DATETIME NULL DEFAULT CURRENT_TIMESTAMP")):
+                cur.execute("ALTER TABLE rx_collector ADD COLUMN IF NOT EXISTS %s %s"
+                            % (col, ddl))
+            cur.execute(
+                "ALTER TABLE rx_collector MODIFY rx_id INT NOT NULL AUTO_INCREMENT")
+            cls.ordx.ensure_schema(cur)
             cur.execute(
                 """CREATE TABLE IF NOT EXISTS chat_rx_photo_test_tickets (
                        id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -120,7 +143,19 @@ class ChatRxPhotoTests(unittest.TestCase):
         finally:
             db.close()
 
-    def _ticket_turn(self, answer, tampered=False):
+    def _typed_from_rx_row(self, row):
+        values = {}
+        for eye, column in (("right", "right_eye"), ("left", "left_eye")):
+            parsed = self.ordx.rx_lookup.parse_eye(row.get(column))
+            values[eye + "_pwr"] = parsed.get("sph") if parsed else None
+            values[eye + "_cyl"] = parsed.get("cyl") if parsed else None
+            values[eye + "_axis"] = parsed.get("axis") if parsed else None
+            values[eye + "_add"] = parsed.get("add") if parsed else None
+        return self.ordx.typed_snapshot(values)
+
+    def _ticket_turn(self, answer, tampered=False, *, vision_proposal=None,
+                     ticketed=False, switch_user_to=None, intervening=False,
+                     attach_failure=False):
         fixture = ta.OnMariaDB("runTest")
         fixture.db = ta._connect()
         fixture.setUp()
@@ -153,14 +188,40 @@ class ChatRxPhotoTests(unittest.TestCase):
             self.addCleanup(notification_patch.stop)
         forwarded = fixture._ticket_flow()
         fixture._as_owner()
-        fixture.db.cursor().execute(
-            "UPDATE chat_sessions SET customer_id=101 WHERE session_id=%s",
-            (fixture.sid,))
-        fixture.reading = self.cv.parse(
-            '{"kind":"prescription","confidence":0.96,"prescription":'
-            '{"right":{"sph":"-1.00"},"left":{"sph":"-1.00"}}}')
+        with fixture.client.session_transaction() as browser_session:
+            browser_session["user_id"] = 101
+        cur = fixture.db.cursor()
+        cur.execute(
+            "UPDATE chat_sessions SET customer_id=101,ket_ticket_uid=%s,"
+            "ket_ticket_ref=%s WHERE session_id=%s",
+            ("uid-31" if ticketed else None,
+             "KET-31" if ticketed else None, fixture.sid))
+        right_eye = "+1.25/-0.50/180/1.50"
+        left_eye = "-2.00/-0.25/90/1.50"
+        cur.execute(
+            "INSERT INTO rx_collector (right_eye,left_eye,product_id) "
+            "VALUES (%s,%s,%s)", (right_eye, left_eye, 4))
+        rx_id = cur.lastrowid
+        self.addCleanup(lambda: fixture.db.cursor().execute(
+            "DELETE FROM rx_collector WHERE rx_id=%s", (rx_id,)))
+        cur.execute("SELECT right_eye,left_eye FROM rx_collector WHERE rx_id=%s",
+                    (rx_id,))
+        rx_row = cur.fetchone()
+        typed = self._typed_from_rx_row(rx_row)
         line = {"order_id": "OW-22", "order_line_id": 3, "product_id": 4,
-                "rx_id": 5, "product_name": "Frame", "typed": {}}
+                "rx_id": rx_id, "product_name": "Frame", "typed": typed}
+        fixture.rx_line = line
+        fixture.rx_typed = typed
+        fixture.rx_id = rx_id
+        vision_proposal = vision_proposal or {
+            "right": {"sph": "+1.25", "cyl": "-0.50", "axis": "180",
+                      "add": "1.50"},
+            "left": {"sph": "-2.00", "cyl": "-0.25", "axis": "90",
+                     "add": "1.50"},
+        }
+        fixture.reading = self.cv.parse(json.dumps({
+            "kind": "prescription", "confidence": 0.96,
+            "prescription": vision_proposal}))
         preparing = mock.patch.object(
             self.ordx, "preparing_rx_lines",
             side_effect=[[line], [] if tampered else [line]])
@@ -170,9 +231,20 @@ class ChatRxPhotoTests(unittest.TestCase):
             self.cg.test_identity, "is_test_customer", return_value=False)
         model_patch = mock.patch.object(
             self.cg, "_call_deepseek",
-            return_value=("unexpected model reply", None))
+            return_value=("Is there anything else I can help with?", None))
+        failed_document_ids = []
+        write_failure = None
+        if attach_failure:
+            def fail_write(document_id, _pages):
+                failed_document_ids.append(document_id)
+                raise OSError("storage unavailable")
+            write_failure = mock.patch.object(
+                self.ordx, "_write_pages", side_effect=fail_write)
+            write_failure.start()
+            self.addCleanup(write_failure.stop)
         with preparing, lens, test_identity, model_patch as model:
             offered = fixture._post(ta.PNG, name="rx.png").get_json()
+            fixture.rx_offer = offered
             self.assertIn("Shall I add this photo to order OW-22", offered["reply"])
             self.assertEqual(offered["actions"], [])
             cur = fixture.db.cursor()
@@ -182,13 +254,25 @@ class ChatRxPhotoTests(unittest.TestCase):
             action = cur.fetchone()
             self.assertEqual(action["action_type"], "RX_PHOTO_ATTACH")
             self.assertEqual(action["status"], "PENDING")
+            if intervening:
+                intermediate = fixture.client.post("/api/chat/message", json={
+                    "session_id": fixture.sid,
+                    "content": "Can you tell me a joke?",
+                    "page_url": "https://optiwar.com/account/orders",
+                    "client_message_id": "rx-unrelated",
+                })
+                self.assertEqual(intermediate.status_code, 200)
+            if switch_user_to is not None:
+                with fixture.client.session_transaction() as browser_session:
+                    browser_session["user_id"] = switch_user_to
             response = fixture.client.post("/api/chat/message", json={
                 "session_id": fixture.sid, "content": answer,
                 "page_url": "https://optiwar.com/account/orders",
-                "client_message_id": "rx-" + answer + ("-tampered" if tampered else ""),
+                "client_message_id": "rx-" + answer + "-" + fixture.sid,
             })
             self.assertEqual(response.status_code, 200)
-            model.assert_not_called()
+            self.assertEqual(model.call_count, 2 if intervening else 0)
+        fixture.rx_failed_document_ids = failed_document_ids
         return fixture, forwarded, response.get_json()
 
     def _assert_ticket_and_photo_were_forwarded(self, fixture, forwarded):
@@ -207,12 +291,49 @@ class ChatRxPhotoTests(unittest.TestCase):
         self.assertEqual(
             base64.b64decode(images[0]["data_base64"])[:3], b"\xff\xd8\xff")
 
+    def _temporary_rx_storage(self):
+        storage = tempfile.TemporaryDirectory(prefix="chat-rx-docs-")
+        upload_dir = mock.patch.object(self.ordx, "upload_dir",
+                                       return_value=storage.name)
+        upload_dir.start()
+        self.addCleanup(storage.cleanup)
+        self.addCleanup(upload_dir.stop)
+
+    def _delete_chat_documents(self, db, attachment_id):
+        cur = db.cursor()
+        cur.execute(
+            "SELECT document_id FROM order_rx_documents "
+            "WHERE chat_attachment_id=%s", (attachment_id,))
+        for row in cur.fetchall():
+            cur.execute(
+                "DELETE FROM order_rx_document_audit WHERE document_id=%s",
+                (row["document_id"],))
+        cur.execute("DELETE FROM order_rx_documents WHERE chat_attachment_id=%s",
+                    (attachment_id,))
+
     def test_decline_message_turn_creates_ticket_and_forwards_photo(self):
         fixture, forwarded, body = self._ticket_turn("no")
         self.assertEqual(body["actions"], ["create_ticket"])
         self.assertEqual(body["rx_photo_action"]["state"], "DECLINED")
         self.assertIn("Your support ticket KET-31 has been created", body["reply"])
         self._assert_ticket_and_photo_were_forwarded(fixture, forwarded)
+
+    def test_ticketed_decline_does_not_create_a_second_ticket(self):
+        fixture, forwarded, body = self._ticket_turn("no", ticketed=True)
+        self.assertEqual(body["actions"], [])
+        self.assertEqual(body["rx_photo_action"]["state"], "DECLINED")
+        self.assertEqual(
+            body["reply"],
+            "Okay — I haven't added it to an order. Our support team already "
+            "has the photo on your ticket.")
+        self.assertEqual(forwarded, [])
+        cur = fixture.db.cursor()
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM chat_rx_photo_test_tickets "
+            "WHERE session_id=%s", (fixture.sid,))
+        self.assertEqual(cur.fetchone()["n"], 0)
+        self.assertEqual(len(fixture.uploads), 1)
+        self.assertEqual(fixture.uploads[0][0], "uid-31")
 
     def test_nonpreparing_target_failure_creates_ticket_and_forwards_photo(self):
         fixture, forwarded, body = self._ticket_turn("yes", tampered=True)
@@ -221,6 +342,147 @@ class ChatRxPhotoTests(unittest.TestCase):
         self.assertEqual(body["rx_photo_action"]["code"], "not_preparing")
         self.assertIn("Your support ticket KET-31 has been created", body["reply"])
         self._assert_ticket_and_photo_were_forwarded(fixture, forwarded)
+
+    def test_storage_failure_removes_document_and_opens_ticket(self):
+        fixture, forwarded, body = self._ticket_turn("yes", attach_failure=True)
+        self.assertEqual(body["actions"], ["create_ticket"])
+        self.assertEqual(body["rx_photo_action"]["state"], "FAILED")
+        self.assertIn("Your support ticket KET-31 has been created", body["reply"])
+        self._assert_ticket_and_photo_were_forwarded(fixture, forwarded)
+        self.assertEqual(len(fixture.rx_failed_document_ids), 1)
+        document_id = fixture.rx_failed_document_ids[0]
+        cur = fixture.db.cursor()
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM order_rx_documents WHERE document_id=%s",
+            (document_id,))
+        self.assertEqual(cur.fetchone()["n"], 0)
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM order_rx_document_audit WHERE document_id=%s",
+            (document_id,))
+        self.assertEqual(cur.fetchone()["n"], 0)
+
+    def test_account_switch_before_confirmation_fails_and_falls_back(self):
+        fixture, forwarded, body = self._ticket_turn(
+            "yes", switch_user_to=202)
+        self.assertEqual(body["actions"], ["create_ticket"])
+        self.assertEqual(body["rx_photo_action"]["state"], "FAILED")
+        self.assertEqual(body["rx_photo_action"]["code"], "account_changed")
+        self._assert_ticket_and_photo_were_forwarded(fixture, forwarded)
+        cur = fixture.db.cursor()
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM order_rx_documents "
+            "WHERE chat_attachment_id=%s", (fixture.rx_offer["attachment_id"],))
+        self.assertEqual(cur.fetchone()["n"], 0)
+
+    def test_unrelated_turn_supersedes_stale_photo_offer(self):
+        fixture, _forwarded, body = self._ticket_turn(
+            "yes", intervening=True)
+        self.assertEqual(body["actions"], [])
+        self.assertNotIn("rx_photo_action", body)
+        cur = fixture.db.cursor()
+        cur.execute(
+            "SELECT status FROM ai_actions WHERE session_id=%s "
+            "AND action_type='RX_PHOTO_ATTACH'", (fixture.sid,))
+        self.assertEqual(cur.fetchone()["status"], "SUPERSEDED")
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM order_rx_documents "
+            "WHERE chat_attachment_id=%s", (fixture.rx_offer["attachment_id"],))
+        self.assertEqual(cur.fetchone()["n"], 0)
+
+    def test_repeat_photo_confirmation_defers_to_newer_offers(self):
+        for face_pending, nav_pending, satisfaction_pending in (
+                ({"action_id": 1}, None, None),
+                (None, {"action_id": 2}, None),
+                (None, None, {"intent": "support"})):
+            with self.subTest(face=bool(face_pending), nav=bool(nav_pending),
+                              satisfaction=bool(satisfaction_pending)):
+                with (mock.patch.object(
+                            self.cg.acr, "get_live_pending_action_of",
+                            return_value=None),
+                      mock.patch.object(
+                            self.cg.face_assistant, "live_pending",
+                            return_value=("FACE_SHOP_FOR", face_pending)),
+                      mock.patch.object(
+                            self.cg.acr, "get_live_pending_action",
+                            return_value=nav_pending),
+                      mock.patch.object(
+                            self.cg.satisfaction, "pending",
+                            return_value=satisfaction_pending),
+                      mock.patch.object(
+                            self.cg, "_assistant_reply_before",
+                            return_value={
+                                "metadata": {"trace": {"action": {
+                                    "id": 7, "type": "RX_PHOTO_ATTACH",
+                                    "state": "EXECUTED"}}}})):
+                    result = self.cg._rx_photo_confirmation(
+                        _ConfirmationDB(None), "rx-session",
+                        {"customer_id": 101}, "yes", "/")
+                self.assertEqual(result, (None, None, []))
+
+    def test_successful_attach_preserves_typed_snapshot_and_repeat_yes(self):
+        self._temporary_rx_storage()
+        fixture, _forwarded, body = self._ticket_turn("yes")
+        attachment_id = fixture.rx_offer["attachment_id"]
+        self.addCleanup(self._delete_chat_documents, fixture.db, attachment_id)
+        self.assertEqual(body["rx_photo_action"]["state"], "EXECUTED")
+        cur = fixture.db.cursor()
+        cur.execute(
+            "SELECT document_id,order_id,order_rx_id,typed_json,comparison "
+            "FROM order_rx_documents WHERE chat_attachment_id=%s",
+            (attachment_id,))
+        document = cur.fetchone()
+        self.assertIsNotNone(document)
+        self.assertEqual(document["order_id"], "OW-22")
+        self.assertEqual(document["order_rx_id"], fixture.rx_id)
+        cur.execute("SELECT right_eye,left_eye FROM rx_collector WHERE rx_id=%s",
+                    (fixture.rx_id,))
+        typed_from_rx = self._typed_from_rx_row(cur.fetchone())
+        self.assertEqual(json.loads(document["typed_json"]), typed_from_rx)
+        self.assertEqual(document["comparison"], "MATCH")
+
+        with mock.patch.object(self.cg, "_call_deepseek") as model:
+            repeated = fixture.client.post("/api/chat/message", json={
+                "session_id": fixture.sid, "content": "yes",
+                "page_url": "https://optiwar.com/account/orders",
+                "client_message_id": "rx-repeat-" + fixture.sid,
+            })
+        self.assertEqual(repeated.status_code, 200)
+        repeated_body = repeated.get_json()
+        self.assertEqual(
+            repeated_body["reply"],
+            "That photo is already added to order OW-22 — nothing more to do.")
+        self.assertEqual(repeated_body["actions"], [])
+        self.assertEqual(repeated_body["rx_photo_action"]["state"], "SETTLED")
+        self.assertEqual(repeated_body["rx_photo_action"]["code"],
+                         "already_settled")
+        model.assert_not_called()
+        self.assertEqual(len(fixture.seen), 1)
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM order_rx_documents "
+            "WHERE chat_attachment_id=%s", (attachment_id,))
+        self.assertEqual(cur.fetchone()["n"], 1)
+
+    def test_different_photo_sphere_is_compared_with_typed_rx(self):
+        self._temporary_rx_storage()
+        proposal = {
+            "right": {"sph": "+3.25", "cyl": "-0.50", "axis": "180",
+                      "add": "1.50"},
+            "left": {"sph": "-2.00", "cyl": "-0.25", "axis": "90",
+                     "add": "1.50"},
+        }
+        fixture, _forwarded, _body = self._ticket_turn(
+            "yes", vision_proposal=proposal)
+        attachment_id = fixture.rx_offer["attachment_id"]
+        self.addCleanup(self._delete_chat_documents, fixture.db, attachment_id)
+        cur = fixture.db.cursor()
+        cur.execute(
+            "SELECT comparison,differences_json FROM order_rx_documents "
+            "WHERE chat_attachment_id=%s", (attachment_id,))
+        document = cur.fetchone()
+        self.assertEqual(document["comparison"], "DIFFERENT")
+        self.assertIn(
+            "R SPH: photo +3.25, typed +1.25",
+            json.loads(document["differences_json"]))
 
     def test_action_offer_vocabulary_and_prompt_rule(self):
         self.assertIn("RX_PHOTO_ATTACH", acr.SUPPORT_ACTION_TYPES)
@@ -248,8 +510,17 @@ class ChatRxPhotoTests(unittest.TestCase):
         }
         pending = {"action_id": 77, "target": "19:OW-22:3"}
         line = {"order_id": "OW-22", "order_line_id": 3, "product_id": 4,
-                "rx_id": 5, "product_name": "Frame", "typed": {}}
-        db = _ConfirmationDB(attachment)
+                "rx_id": 5, "product_name": "Frame",
+                "typed": {"right_pwr": 1.25, "right_cyl": -0.5,
+                          "right_axis": 180, "right_add": 1.5,
+                          "left_pwr": -2.0, "left_cyl": -0.25,
+                          "left_axis": 90, "left_add": 1.5}}
+        assistant = {
+            "id": 120,
+            "content": "Shall I add this photo to order OW-22 (Frame)?",
+            "metadata": json.dumps({"about_attachment_id": 19}),
+        }
+        db = _ConfirmationDB(attachment, assistant)
         attached = []
         outcomes = []
         with (mock.patch.object(self.cg.acr, "get_live_pending_action_of",
@@ -265,8 +536,11 @@ class ChatRxPhotoTests(unittest.TestCase):
               mock.patch.object(self.cg, "_read_attachment_bytes",
                                 return_value=b"existing photo"),
               mock.patch.object(self.cg.chat_vision, "describe") as describe):
-            reply, result, actions = self.cg._rx_photo_confirmation(
-                db, "rx-session", {"customer_id": 101}, "yes", "/account/orders")
+            with self.app.test_request_context():
+                self.cg.flask_session["user_id"] = 101
+                reply, result, actions = self.cg._rx_photo_confirmation(
+                    db, "rx-session", {"customer_id": 101}, "yes",
+                    "/account/orders")
         self.assertEqual(result["state"], "EXECUTED")
         self.assertEqual(result["order_id"], "OW-22")
         self.assertEqual(actions, [])
@@ -350,11 +624,16 @@ class ChatRxPhotoTests(unittest.TestCase):
 
     def test_decline_and_foreign_attachment_fall_back_to_support(self):
         pending = {"action_id": 78, "target": "20:OW-23:4"}
+        assistant = {
+            "id": 121,
+            "content": "Shall I add this photo to order OW-23 (Frame)?",
+            "metadata": json.dumps({"about_attachment_id": 20}),
+        }
         with (mock.patch.object(self.cg.acr, "get_live_pending_action_of",
                                 return_value=pending),
               mock.patch.object(self.cg.acr, "mark_action", return_value=True) as mark):
             reply, result, actions = self.cg._rx_photo_confirmation(
-                _ConfirmationDB(None), "rx-session",
+                _ConfirmationDB(None, assistant), "rx-session",
                 {"customer_id": 101}, "no", "/")
         self.assertEqual(result["state"], "DECLINED")
         self.assertEqual(actions, ["create_ticket"])
@@ -369,9 +648,11 @@ class ChatRxPhotoTests(unittest.TestCase):
               mock.patch.object(self.cg.acr, "mark_action", return_value=True),
               mock.patch.object(self.cg.face_assistant, "record_outcome",
                                 side_effect=lambda *a, **k: outcomes.append(a))):
-            reply, result, actions = self.cg._rx_photo_confirmation(
-                _ConfirmationDB(attachment), "rx-session",
-                {"customer_id": 101}, "yes", "/")
+            with self.app.test_request_context():
+                self.cg.flask_session["user_id"] = 101
+                reply, result, actions = self.cg._rx_photo_confirmation(
+                    _ConfirmationDB(attachment, assistant), "rx-session",
+                    {"customer_id": 101}, "yes", "/")
         self.assertEqual(result["state"], "FAILED")
         self.assertEqual(result["code"], "not_your_attachment")
         self.assertEqual(actions, ["create_ticket"])

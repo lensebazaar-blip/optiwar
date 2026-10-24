@@ -274,9 +274,16 @@ def compare_prescription(proposal, typed):
             "axis": typed.get(eye + "_axis"),
             "add": typed.get(eye + "_add"),
         }
-        if not any(v not in (None, "") for v in typed_eye.values()):
-            continue
         photo_eye = proposal.get(eye)
+        has_typed_values = any(
+            _number(typed_eye[key]) is not None for key in ("sph", "cyl", "add"))
+        if not has_typed_values:
+            if (isinstance(photo_eye, dict) and any(
+                    _number(photo_eye.get(key)) is not None
+                    for key in ("sph", "cyl", "add", "add_power"))):
+                exact = transposed = False
+                differences.append("%s: no typed value on the order" % label)
+            continue
         if not isinstance(photo_eye, dict) or not photo_eye:
             exact = transposed = False
             differences.append("%s: not readable on photo" % label)
@@ -508,7 +515,7 @@ def attach_chat_photo(cursor, customer_id, attachment_id, line, data,
 
     norm = lens_documents.normalise(data)
     now = datetime.datetime.now()
-    typed = typed_snapshot(line)
+    typed = typed_snapshot(line.get("typed") or {})
     parsed_json = (lens_documents.parsed_payload(proposal, confidence)
                    if proposal else None)
     comparison, differences = compare_prescription(proposal, typed)
@@ -553,7 +560,18 @@ def attach_chat_photo(cursor, customer_id, attachment_id, line, data,
         except Exception:
             pass
         if document_id is not None:
-            _delete_files(document_id, len(norm["pages"]))
+            try:
+                cursor.execute(
+                    "DELETE FROM order_rx_document_audit WHERE document_id=%s",
+                    (document_id,))
+            finally:
+                try:
+                    cursor.execute(
+                        "DELETE FROM order_rx_documents WHERE document_id=%s",
+                        (document_id,))
+                    cursor.connection.commit()
+                finally:
+                    _delete_files(document_id, len(norm["pages"]))
         raise
     return document_id
 

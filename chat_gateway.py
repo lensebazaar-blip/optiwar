@@ -648,17 +648,114 @@ def _order_reference(order_id):
     return value if value.upper().startswith("OW-") else "OW-" + value
 
 
-def _rx_photo_confirmation(db, session_id, session, user_message, page_url):
+def _assistant_reply_before(db, session_id, before_message_id=None):
+    try:
+        cur = db.cursor()
+        query = (
+            "SELECT id,content,metadata FROM chat_messages "
+            "WHERE session_id=%s AND source='ai' AND role='assistant' "
+            "AND status!='failed'")
+        params = [session_id]
+        if before_message_id is not None:
+            query += " AND id<%s"
+            params.append(before_message_id)
+        cur.execute(query + " ORDER BY id DESC LIMIT 1", tuple(params))
+        row = cur.fetchone()
+        if not row:
+            return None
+        metadata = row.get("metadata") if isinstance(row, dict) else row[2]
+        if isinstance(metadata, bytes):
+            metadata = metadata.decode("utf-8", "replace")
+        if not isinstance(metadata, dict):
+            metadata = json.loads(metadata or "{}")
+        return {
+            "id": row.get("id") if isinstance(row, dict) else row[0],
+            "content": row.get("content") if isinstance(row, dict) else row[1],
+            "metadata": metadata,
+        }
+    except Exception:
+        return None
+
+
+def _rx_photo_confirmation(db, session_id, session, user_message, page_url,
+                           before_message_id=None):
     if not (acr.is_confirmation(user_message)
             or face_assistant.is_decline(user_message)):
         return None, None, []
     pending = acr.get_live_pending_action_of(
         db, session_id, ("RX_PHOTO_ATTACH",))
     if not pending:
-        return None, None, []
+        if not acr.is_confirmation(user_message):
+            return None, None, []
+        _face_type, live_face = face_assistant.live_pending(db, session_id)
+        live_navigation = acr.get_live_pending_action(
+            db, session_id, "NAVIGATE")
+        if live_face or live_navigation:
+            return None, None, []
+        previous = _assistant_reply_before(
+            db, session_id, before_message_id)
+        metadata = (previous or {}).get("metadata") or {}
+        action = (metadata.get("trace") or {}).get("action") or {}
+        if (satisfaction.pending(metadata)
+                or action.get("type") != "RX_PHOTO_ATTACH"
+                or action.get("state") not in
+                ("EXECUTED", "FAILED", "DECLINED", "SETTLED")):
+            return None, None, []
+        action_id = action.get("id")
+        target = None
+        status = action.get("state")
+        if action_id:
+            try:
+                cur = db.cursor()
+                cur.execute(
+                    "SELECT target,status FROM ai_actions "
+                    "WHERE action_id=%s AND session_id=%s",
+                    (action_id, session_id))
+                action_row = cur.fetchone()
+                if action_row:
+                    target = (action_row.get("target")
+                              if isinstance(action_row, dict)
+                              else action_row[0])
+                    status = (action_row.get("status")
+                              if isinstance(action_row, dict)
+                              else action_row[1])
+            except Exception:
+                pass
+        order_id = None
+        if status == "EXECUTED" and target:
+            parts = str(target).split(":")
+            if len(parts) == 3 and parts[0].isdigit():
+                order_id = parts[1]
+        reply = ("That photo is already added to order %s — nothing more to do."
+                 % _order_reference(order_id)) if order_id else (
+                     "That request has already been settled — ask me again if "
+                     "you still want it.")
+        return reply, {
+            "action_id": action_id, "type": "RX_PHOTO_ATTACH", "ok": False,
+            "state": "SETTLED", "code": "already_settled",
+        }, []
     action_id = pending["action_id"]
+    previous = _assistant_reply_before(db, session_id, before_message_id)
+    target_parts = str(pending.get("target") or "").split(":")
+    attachment_id = target_parts[0] if len(target_parts) == 3 else ""
+    previous_meta = (previous or {}).get("metadata") or {}
+    current_offer = (
+        attachment_id.isdigit()
+        and str(previous_meta.get("about_attachment_id") or "") == attachment_id
+        and "Shall I add this photo to order" in
+        str((previous or {}).get("content") or ""))
+    if not current_offer:
+        acr.mark_action(db, action_id, "SUPERSEDED", result_code="stale_offer")
+        return None, None, []
     if face_assistant.is_decline(user_message):
         acr.mark_action(db, action_id, face_assistant.ST_DECLINED)
+        already_ticketed = bool(session.get("ket_ticket_uid")
+                                or session.get("ket_ticket_ref"))
+        if already_ticketed:
+            return ("Okay — I haven't added it to an order. Our support team "
+                    "already has the photo on your ticket.",
+                    {"action_id": action_id, "type": "RX_PHOTO_ATTACH",
+                     "ok": False, "state": "DECLINED", "code": "declined"}, [])
         return ("Okay — I haven't added it to an order. I've passed it to our "
                 "support team so a person checks it.",
                 {"action_id": action_id, "type": "RX_PHOTO_ATTACH", "ok": False,
@@ -678,6 +775,11 @@ def _rx_photo_confirmation(db, session_id, session, user_message, page_url):
         customer_id = session.get("customer_id")
         if not customer_id:
             code = "not_signed_in"
+            raise ValueError(code)
+        current_customer_id = flask_session.get("user_id")
+        if (not current_customer_id
+                or str(current_customer_id) != str(customer_id)):
+            code = "account_changed"
             raise ValueError(code)
         cursor = db.cursor()
         cursor.execute(
@@ -720,10 +822,16 @@ def _rx_photo_confirmation(db, session_id, session, user_message, page_url):
         face_assistant.record_outcome(
             db, session_id, action_id, "RX_PHOTO_ATTACH", False,
             code=code, page_url=page_url)
-        return ("I couldn't add it to the order, so I've passed it to our support "
-                "team so a person checks it.",
+        already_ticketed = bool(session.get("ket_ticket_uid")
+                                or session.get("ket_ticket_ref"))
+        reply = ("I couldn't add it to the order, so our support team already "
+                 "has the photo on your ticket.") if already_ticketed else (
+                     "I couldn't add it to the order, so I've passed it to our "
+                     "support team so a person checks it.")
+        return (reply,
                 {"action_id": action_id, "type": "RX_PHOTO_ATTACH", "ok": False,
-                 "state": "FAILED", "code": code}, ["create_ticket"])
+                 "state": "FAILED", "code": code},
+                [] if already_ticketed else ["create_ticket"])
 
 
 def _face_offer(db, session_id, face_ctx, ai_reply, page_url):
@@ -2891,7 +2999,8 @@ def chat_message():
 
     # Verify session exists and is active
     cur.execute(
-        """SELECT session_id, contact_name, contact_email, customer_id, status FROM chat_sessions
+        """SELECT session_id, contact_name, contact_email, customer_id, status,
+                  ket_ticket_uid, ket_ticket_ref FROM chat_sessions
            WHERE session_id = %s""",
         (session_id,)
     )
@@ -3038,7 +3147,8 @@ def chat_message():
     rx_photo_actions = []
     if ai_reply is None:
         ai_reply, rx_photo_result, rx_photo_actions = _rx_photo_confirmation(
-            db, session_id, session, content, page_url)
+            db, session_id, session, content, page_url,
+            before_message_id=customer_msg_id)
     if ai_reply is None and face_ctx:
         ai_reply, face_result = _face_confirmation(db, session_id, face_ctx,
                                                    content, page_url)

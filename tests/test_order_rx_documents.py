@@ -613,6 +613,13 @@ class OrderRxDocumentTests(unittest.TestCase):
         self.assertEqual(self.service.compare_prescription(None, typed),
                          ("NO_READING", []))
 
+    def test_comparison_requires_typed_values_for_readable_photo_eyes(self):
+        status, differences = self.service.compare_prescription(
+            self._proposal(), {})
+        self.assertEqual(status, "DIFFERENT")
+        self.assertIn("R: no typed value on the order", differences)
+        self.assertIn("L: no typed value on the order", differences)
+
     def test_checkout_attachment_ownership_retention_and_idempotent_reuse(self):
         document_id = self._upload().json["document_id"]
         with self.client.session_transaction() as sess:
@@ -645,7 +652,8 @@ class OrderRxDocumentTests(unittest.TestCase):
     def test_chat_attachment_is_bounded_audited_and_idempotent(self):
         line = dict(self.cart[0], order_id=self.order_id,
                     order_line_id=self.line_id, product_id=self.pid,
-                    rx_id=self.cid)
+                    rx_id=self.cid,
+                    typed=self.service.typed_snapshot(self.cart[0]))
         source = _image_bytes("JPEG", (4000, 3000), noise=True)
         with self.app.test_request_context("/", base_url="https://optiwar.com"):
             cursor = self.db.cursor()
