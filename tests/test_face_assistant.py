@@ -433,7 +433,7 @@ class GatewayWiringTests(unittest.TestCase):
         src = self.src
         conf = src.index("ai_reply, face_result = _face_confirmation(")
         self.assertLess(src.index("ai_reply = _confirmed_ask_reply(history, content, contact_name)"), conf)
-        self.assertLess(conf, src.index("if ai_reply is None:\n"))
+        self.assertLess(conf, src.index("if ai_reply is None:\n        answered_by"))
 
     def test_the_widget_reloads_after_an_executed_face_action(self):
         with open(os.path.join(REPO, "static", "js", "chat-widget.js"), encoding="utf-8") as fh:

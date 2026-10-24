@@ -68,6 +68,7 @@
     {% for doc in line.documents %}
     <article class="card" data-document-id="{{ doc.document_id }}">
       <h3>Prescription photo #{{ doc.document_id }}</h3>
+      {% if doc.source == 'chat' %}<span class="badge">From chat</span>{% endif %}
       {% if doc.comparison == 'DIFFERENT' %}
       <span class="badge different">DIFFERENT</span>
       <p class="warning">Contact the customer before glazing</p>

@@ -115,8 +115,10 @@ class GatewayRoutesThroughPolicyTests(unittest.TestCase):
                           "chat_gateway no longer calls %s" % name)
 
     def test_navigation_safety_is_checked_before_a_target_is_used(self):
-        gate = self.src.index("acr.is_safe_nav_url(")
-        seed = self.src.index("acr.create_pending_action(")
+        gate = self.src.index(
+            "if navigate_url and not acr.is_safe_nav_url(navigate_url):")
+        seed = self.src.index(
+            "acr.create_pending_action(db, session_id, 'NAVIGATE', navigate_url)")
         self.assertLess(gate, seed,
                         "an action can be seeded before the safety gate runs")
 

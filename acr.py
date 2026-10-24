@@ -305,6 +305,7 @@ EV_LENS_RX_PROPOSED = "LENS_RX_PROPOSED"
 # person or the person on a cart frame line (FACE_* action types); the change
 # itself follows ACTION_CONFIRMED -> ACTION_EXECUTED/FAILED like any other.
 EV_FACE_ACTION_OFFERED = "FACE_ACTION_OFFERED"
+EV_RX_PHOTO_ATTACH_OFFERED = "RX_PHOTO_ATTACH_OFFERED"
 
 # A reply to a customer with a returned parcel contradicted the reship ledger it
 # was given (offered payment while not payable, asked a paid customer to pay,
@@ -471,7 +472,7 @@ def funnel_stage_for_url(url):
 # Action types whose whole lifecycle (offer, confirmation, outcome, expiry) is
 # a support fact, not a navigation one.
 SUPPORT_ACTION_TYPES = frozenset({"FACE_SHOP_FOR", "FACE_DEFAULT",
-                                  "FACE_CART_LINE"})
+                                  "FACE_CART_LINE", "RX_PHOTO_ATTACH"})
 
 
 def action_stage(action_type):

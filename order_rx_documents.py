@@ -12,15 +12,23 @@ from flask import (current_app, jsonify, make_response, render_template, request
                    send_file, session, url_for)
 
 try:
-    from . import ai_client, dev_defects, lens_documents, lens_rx, lens_upload
-    from .db import get_db
+    from . import (ai_client, customer_orders, dev_defects, lens_documents,
+                   lens_rx, rx_lookup)
 except ImportError:
     import ai_client
+    import customer_orders
     import dev_defects
     import lens_documents
     import lens_rx
-    import lens_upload
-    from db import get_db
+    import rx_lookup
+
+
+def get_db():
+    try:
+        from .db import get_db as getter
+    except ImportError:
+        from db import get_db as getter
+    return getter()
 
 
 ST_UPLOADED = "UPLOADED"
@@ -59,6 +67,8 @@ CREATE TABLE IF NOT EXISTS order_rx_documents (
     review_note VARCHAR(500) NULL,
     reviewed_by VARCHAR(191) NULL,
     reviewed_at DATETIME NULL,
+    source VARCHAR(16) NOT NULL DEFAULT 'checkout',
+    chat_attachment_id BIGINT UNSIGNED NULL,
     created_at DATETIME NOT NULL,
     parsed_at DATETIME NULL,
     retain_until DATE NOT NULL,
@@ -87,6 +97,11 @@ CREATE TABLE IF NOT EXISTS order_rx_document_audit (
 TABLES = (("order_rx_documents", DOCUMENT_SCHEMA),
           ("order_rx_document_audit", AUDIT_SCHEMA))
 
+ADDED_COLUMNS = (("order_rx_documents", (
+    ("source", "VARCHAR(16) NOT NULL DEFAULT 'checkout'"),
+    ("chat_attachment_id", "BIGINT UNSIGNED NULL"),
+)),)
+
 _SCHEMA_READY = False
 
 
@@ -96,6 +111,10 @@ def ensure_schema(cursor):
         return
     for _name, ddl in TABLES:
         cursor.execute(ddl)
+    for table, columns in ADDED_COLUMNS:
+        for name, declaration in columns:
+            cursor.execute("ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s %s" %
+                           (table, name, declaration))
     _SCHEMA_READY = True
 
 
@@ -161,6 +180,52 @@ def typed_snapshot(item):
     return {key: item.get(key) for eye in ("right", "left")
             for key in (eye + "_pwr", eye + "_cyl", eye + "_axis",
                         eye + "_add")}
+
+
+def preparing_rx_lines(cursor, customer_id, site_from=None):
+    """Return this customer's paid, still-preparing spectacle order lines."""
+    sql = (
+        "SELECT o.order_id,o.order_line_id,o.product_id,o.rx_id,p.product_name,"
+        "rc.right_eye,rc.left_eye,"
+        "(SELECT os.order_status_name FROM order_status os "
+        " WHERE os.order_id=o.order_id ORDER BY os.order_status_id DESC LIMIT 1) "
+        "AS order_status_name "
+        "FROM orders o JOIN products p ON p.product_id=o.product_id "
+        "JOIN rx_collector rc ON rc.rx_id=o.rx_id "
+        "WHERE o.customer_id=%%s AND o.is_test=0 AND o.archived=0 "
+        "AND o.date_created >= NOW() - INTERVAL %d DAY "
+        "AND EXISTS (SELECT 1 FROM payment_collector pc "
+        " WHERE pc.order_id=o.order_id AND pc.status='TXN_SUCCESS') "
+    ) % int(rx_lookup.ORDER_LOOKBACK_DAYS)
+    params = [int(customer_id)]
+    if site_from:
+        sql += "AND o.site_from=%%s "
+        params.append(site_from)
+    sql += "ORDER BY o.date_created DESC,o.order_line_id DESC"
+    cursor.execute(sql, tuple(params))
+    result = []
+    for row in cursor.fetchall():
+        if customer_orders.stage(row.get("order_status_name"))[2] != 1:
+            continue
+        right = rx_lookup.parse_eye(row.get("right_eye"))
+        left = rx_lookup.parse_eye(row.get("left_eye"))
+        if right is None and left is None:
+            continue
+        typed = {}
+        for side, eye in (("right", right), ("left", left)):
+            typed[side + "_pwr"] = eye.get("sph") if eye else None
+            typed[side + "_cyl"] = eye.get("cyl") if eye else None
+            typed[side + "_axis"] = eye.get("axis") if eye else None
+            typed[side + "_add"] = eye.get("add") if eye else None
+        result.append({
+            "order_id": str(row.get("order_id") or ""),
+            "order_line_id": int(row["order_line_id"]),
+            "product_id": int(row["product_id"]),
+            "rx_id": int(row["rx_id"]),
+            "product_name": row.get("product_name") or "",
+            "typed": typed,
+        })
+    return result
 
 
 def _number(value):
@@ -426,6 +491,73 @@ def attach_for_order(cursor, order_id, customer_id, cart):
     return True
 
 
+def attach_chat_photo(cursor, customer_id, attachment_id, line, data,
+                      proposal, confidence, model):
+    """Copy an already-read chat photo onto its customer's order line."""
+    ensure_schema(cursor)
+    order_id = str(line["order_id"])
+    cursor.execute(
+        "SELECT document_id FROM order_rx_documents WHERE "
+        "chat_attachment_id=%s AND order_id=%s "
+        "AND source='chat' AND status NOT IN ('REMOVED','PURGED') "
+        "AND purged_at IS NULL ORDER BY document_id LIMIT 1",
+        (int(attachment_id), order_id))
+    existing = cursor.fetchone()
+    if existing:
+        return int(existing["document_id"])
+
+    norm = lens_documents.normalise(data)
+    now = datetime.datetime.now()
+    typed = typed_snapshot(line)
+    parsed_json = (lens_documents.parsed_payload(proposal, confidence)
+                   if proposal else None)
+    comparison, differences = compare_prescription(proposal, typed)
+    status = ST_PARSED if parsed_json else ST_UNREADABLE
+    document_id = None
+    try:
+        cursor.execute(
+            "INSERT INTO order_rx_documents "
+            "(customer_id,product_id,site,status,original_kind,original_bytes,"
+            "stored_bytes,sha256,pages,provider,model,parsed_json,confidence,"
+            "typed_json,comparison,differences_json,order_id,order_rx_id,"
+            "attached_at,source,chat_attachment_id,created_at,parsed_at,"
+            "retain_until) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+            "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (int(customer_id), int(line["product_id"]), request.host[:32],
+             status, norm["kind"], norm["original_bytes"], norm["stored_bytes"],
+             norm["sha256"], len(norm["pages"]), _provider_name(),
+             (model or "")[:64] or None, parsed_json, confidence,
+             json.dumps(typed, sort_keys=True), comparison,
+             json.dumps(differences, ensure_ascii=False), order_id,
+             int(line["rx_id"]), now, "chat", int(attachment_id), now, now,
+             _date_after_months(now, lens_rx.RETENTION_MONTHS)))
+        document_id = int(cursor.lastrowid)
+        first_name, stored_bytes = _write_pages(document_id, norm["pages"])
+        cursor.execute(
+            "UPDATE order_rx_documents SET stored_name=%s,stored_bytes=%s "
+            "WHERE document_id=%s",
+            (first_name, stored_bytes, document_id))
+        _audit(cursor, document_id, "UPLOADED", actor="customer",
+               detail="chat attachment=%d" % int(attachment_id), now=now)
+        _audit(cursor, document_id, "ATTACHED", actor="customer",
+               detail="order=%s" % order_id, now=now)
+        _audit(cursor, document_id,
+               "PARSED" if parsed_json else "PARSE_FAILED",
+               actor=_provider_name(),
+               detail=("comparison=%s" % comparison) if parsed_json
+               else "no readable proposal", now=now)
+        cursor.connection.commit()
+    except Exception:
+        try:
+            cursor.connection.rollback()
+        except Exception:
+            pass
+        if document_id is not None:
+            _delete_files(document_id, len(norm["pages"]))
+        raise
+    return document_id
+
+
 def _read_pages(document_id, pages):
     names = [stored_name(document_id, page) for page in range(int(pages or 1))]
     output = []
@@ -493,6 +625,7 @@ def _document_view(row, cursor, issue_links=True):
         "order_id": row.get("order_id"),
         "order_rx_id": row.get("order_rx_id"),
         "status": row.get("status"),
+        "source": row.get("source") or "checkout",
         "created_at": _datetime_text(row.get("created_at")),
         "attached_at": _datetime_text(row.get("attached_at")),
         "pages": pages,
@@ -560,6 +693,10 @@ def _queue(cursor, issue_links=True):
 
 
 def _vision_read(pages, endpoint):
+    try:
+        from . import lens_upload
+    except ImportError:
+        import lens_upload
     workload = _provider_name()
     proposal, confidence, model, unreadable = lens_upload.read_document(
         pages, workload, endpoint=endpoint)

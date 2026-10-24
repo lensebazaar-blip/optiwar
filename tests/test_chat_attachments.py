@@ -833,7 +833,8 @@ class OnMariaDB(unittest.TestCase):
         self.assertIn("Left eye (OS): SPH -3.50, ADD 1.00", j["reply"])
         self.assertIn("PD: 63", j["reply"])
         self.assertIn("Nothing is applied until you confirm", j["reply"])
-        self.assertEqual(j["actions"], [])
+        self.assertEqual(j["actions"], ["create_ticket"])
+        self.assertIn("passed it to our support team", j["reply"])
         self.assertNotIn("lens_rx_proposal", j)                  # no lens page -> nothing parked
         self.assertNotIn("[LENS_RX", j["reply"])
 

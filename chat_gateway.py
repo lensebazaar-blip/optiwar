@@ -643,6 +643,89 @@ def _face_confirmation(db, session_id, face_ctx, user_message, page_url):
                    'reload': True}
 
 
+def _order_reference(order_id):
+    value = str(order_id or "")
+    return value if value.upper().startswith("OW-") else "OW-" + value
+
+
+def _rx_photo_confirmation(db, session_id, session, user_message, page_url):
+    if not (acr.is_confirmation(user_message)
+            or face_assistant.is_decline(user_message)):
+        return None, None, []
+    pending = acr.get_live_pending_action_of(
+        db, session_id, ("RX_PHOTO_ATTACH",))
+    if not pending:
+        return None, None, []
+    action_id = pending["action_id"]
+    if face_assistant.is_decline(user_message):
+        acr.mark_action(db, action_id, face_assistant.ST_DECLINED)
+        return ("Okay — I haven't added it to an order. I've passed it to our "
+                "support team so a person checks it.",
+                {"action_id": action_id, "type": "RX_PHOTO_ATTACH", "ok": False,
+                 "state": "DECLINED", "code": "declined"}, ["create_ticket"])
+    if not acr.mark_action(db, action_id, "CONFIRMED"):
+        return ("That request has already been settled — ask me again if you "
+                "still want it.",
+                {"action_id": action_id, "type": "RX_PHOTO_ATTACH", "ok": False,
+                 "state": "SETTLED", "code": "already_settled"}, [])
+    code = "attach_failed"
+    try:
+        from . import order_rx_documents
+        parts = str(pending.get("target") or "").split(":")
+        if len(parts) != 3 or not parts[0].isdigit() or not parts[2].isdigit():
+            raise ValueError("bad_target")
+        attachment_id, order_id, line_id = int(parts[0]), parts[1], int(parts[2])
+        customer_id = session.get("customer_id")
+        if not customer_id:
+            code = "not_signed_in"
+            raise ValueError(code)
+        cursor = db.cursor()
+        cursor.execute(
+            "SELECT id,session_id,filename,mime_type,stored_name,vision_json,"
+            "vision_model,purged_at FROM chat_attachments WHERE id=%s",
+            (attachment_id,))
+        attachment = cursor.fetchone()
+        if (not attachment or attachment.get("session_id") != session_id
+                or not attachment.get("stored_name")
+                or attachment.get("purged_at") is not None):
+            code = "not_your_attachment"
+            raise ValueError(code)
+        line = next((item for item in order_rx_documents.preparing_rx_lines(
+            cursor, customer_id) if item["order_id"] == order_id
+            and item["order_line_id"] == line_id), None)
+        if line is None:
+            code = "not_preparing"
+            raise ValueError(code)
+        reading = chat_vision.Reading(json.loads(attachment.get("vision_json") or "{}"))
+        if (reading.kind != chat_vision.KIND_PRESCRIPTION
+                or not reading.proposal):
+            code = "no_reading"
+            raise ValueError(code)
+        data = _read_attachment_bytes(attachment)
+        order_rx_documents.ensure_schema(cursor)
+        order_rx_documents.attach_chat_photo(
+            cursor, customer_id, attachment_id, line, data,
+            reading.proposal, reading.confidence, attachment.get("vision_model"))
+        face_assistant.record_outcome(
+            db, session_id, action_id, "RX_PHOTO_ATTACH", True, page_url=page_url)
+        return ("Done — I've added your photo to order %s. Our team will check it "
+                "against the prescription you entered before your lenses are made."
+                % _order_reference(order_id),
+                {"action_id": action_id, "type": "RX_PHOTO_ATTACH", "ok": True,
+                 "state": "EXECUTED", "order_id": order_id,
+                 "attachment_id": attachment_id}, [])
+    except Exception as exc:
+        if code == "attach_failed":
+            code = str(exc)[:64] or code
+        face_assistant.record_outcome(
+            db, session_id, action_id, "RX_PHOTO_ATTACH", False,
+            code=code, page_url=page_url)
+        return ("I couldn't add it to the order, so I've passed it to our support "
+                "team so a person checks it.",
+                {"action_id": action_id, "type": "RX_PHOTO_ATTACH", "ok": False,
+                 "state": "FAILED", "code": code}, ["create_ticket"])
+
+
 def _face_offer(db, session_id, face_ctx, ai_reply, page_url):
     """Strip the model's face tag; when the gate admits the account and the
     target is the customer's own, record a PENDING action and make sure the
@@ -863,6 +946,7 @@ RULES:
     - /profile/?tab=faces (My Faces: the customer's saved face measurements)
     If a customer asks for a page that doesn't exist  tell them to contact support or create a ticket.
 23. ACTION INTEGRITY: Never claim you have opened, navigated to, or taken the customer somewhere unless you ALSO include the matching [ACTION:NAVIGATE:...] tag in that same reply. If you are only offering to navigate, ask the yes/no question WITHOUT claiming it is already done. Do not say "Let me take you there" or "I've opened it" on a turn that has no [ACTION:NAVIGATE:...] tag.
+24. When a customer wants to send or upload a prescription, explain: before paying, add a photo or screenshot at checkout under the frame; after paying (or any time), attach it here with the photo button (paperclip) next to the message box. Never mention an "Upload Prescription" button on product pages.
 """
     return prompt
 
@@ -1556,6 +1640,38 @@ def _read_attachment_bytes(row):
         return fh.read()
 
 
+def purge_expired(db, today=None, now=None):
+    """Remove chat-photo files after 30 days while retaining their audit rows."""
+    if now is None:
+        day = today or datetime.now().date()
+        now = datetime.combine(day, datetime.max.time())
+    cutoff = now - timedelta(days=30)
+    cur = db.cursor()
+    cur.execute(
+        "SELECT id,stored_name FROM chat_attachments "
+        "WHERE created_at < %s AND stored_name <> '' AND purged_at IS NULL",
+        (cutoff,))
+    rows = cur.fetchall()
+    purged = 0
+    for row in rows:
+        name = row.get("stored_name") or ""
+        if not name or os.path.basename(name) != name:
+            continue
+        try:
+            os.remove(os.path.join(_attachments_dir(), name))
+        except FileNotFoundError:
+            pass
+        except OSError:
+            continue
+        cur.execute(
+            "UPDATE chat_attachments SET stored_name='',purged_at=%s WHERE id=%s "
+            "AND purged_at IS NULL",
+            (now, row["id"]))
+        purged += cur.rowcount
+    db.commit()
+    return purged
+
+
 def _pending_attachments(db, session_id):
     """``[(row, bytes), ...]`` for the session's photos KET has not seen, oldest first.
     A photo stored before uploads were shrunk is shrunk here, so KET never
@@ -1819,6 +1935,7 @@ def _answer_photo(db, session, session_id, attachment_id, info, data, page_url, 
     lens_proposal = None
 
     if reading is not None and reading.kind == chat_vision.KIND_PRESCRIPTION and reading.proposal:
+        from . import order_rx_documents
         reply = chat_vision.customer_reply(reading, info['filename'])
         is_india = 'in.optiwar.com' in page_url or 'optiwar.in' in page_url
         lens_row, lens_shape, lens_mins, _section = _lens_context(
@@ -1830,7 +1947,48 @@ def _answer_photo(db, session, session_id, attachment_id, info, data, page_url, 
                 reply += ("\n\nThese values aren't available for the lens on this page "
                           "(%s). I can help you find one that is."
                           % ', '.join(lens_proposal.get('reasons') or ()))
-        return reply, [], lens_proposal
+            return reply, [], lens_proposal
+        lines = []
+        if session.get('customer_id'):
+            try:
+                lines = order_rx_documents.preparing_rx_lines(
+                    cur, session['customer_id'])
+            except Exception as e:
+                current_app.logger.warning(
+                    "[ChatAttach] preparing Rx lookup failed: %s",
+                    type(e).__name__)
+        if lines:
+            line = lines[0]
+            target = "%d:%s:%d" % (
+                int(attachment_id), line["order_id"], int(line["order_line_id"]))
+            try:
+                action_id = acr.create_pending_action(
+                    db, session_id, 'RX_PHOTO_ATTACH', target,
+                    ttl_seconds=acr.PENDING_TTL_SECONDS,
+                    offer_event=acr.EV_RX_PHOTO_ATTACH_OFFERED,
+                    journey_stage=acr.STAGE_SUPPORT,
+                    supersede_types=('RX_PHOTO_ATTACH',))
+            except Exception:
+                action_id = None
+            if action_id:
+                return (reply + "\n\nShall I add this photo to order %s (%s) so our "
+                        "team checks it against the prescription you entered? (yes/no)"
+                        % (_order_reference(line["order_id"]),
+                           line["product_name"] or "your frame"), [], None)
+        already_ticketed = bool(session.get('ket_ticket_uid') or
+                                session.get('ket_ticket_ref'))
+        if already_ticketed:
+            reply += " " + _ON_TICKET
+            return reply, [], None
+        reply += (" I've also passed it to our support team so a person checks it "
+                  "against your order.")
+        acr.log_event(
+            db, acr.EV_HANDOVER_ESCALATED, session_id=session_id,
+            journey_stage=acr.STAGE_SUPPORT, action_type='PHOTO_ESCALATION',
+            payload={'attachment_id': attachment_id,
+                     'reason': 'rx_photo_no_order',
+                     'kind': reading.kind, 'confidence': reading.confidence})
+        return reply, ['create_ticket'], None
     if reading is not None and reading.confident:
         reply = chat_vision.customer_reply(reading, info['filename']) or (
             reading.description + " How can I help with it?")
@@ -1869,7 +2027,8 @@ def _photo_context(db, session_id):
     try:
         cur.execute(
             "SELECT filename, vision_json FROM chat_attachments WHERE session_id = %s "
-            "AND stored_name <> '' ORDER BY id", (session_id,))
+            "AND stored_name <> '' AND purged_at IS NULL ORDER BY id",
+            (session_id,))
         rows = cur.fetchall()
     except Exception:  # noqa: BLE001 - table not there yet: no photos
         return ''
@@ -1890,11 +2049,12 @@ def chat_attachment_get(attachment_id):
     """The customer's own photo back to the widget; owner-gated by the session cookie."""
     db = _get_db()
     cur = db.cursor()
-    cur.execute("SELECT session_id, mime_type, stored_name FROM chat_attachments WHERE id = %s",
+    cur.execute("SELECT session_id,mime_type,stored_name,purged_at "
+                "FROM chat_attachments WHERE id = %s",
                 (attachment_id,))
     row = cur.fetchone()
     db.close()
-    if not row or not row['stored_name']:
+    if not row or not row['stored_name'] or row.get('purged_at') is not None:
         return jsonify({'error': 'not found'}), 404
     if not _is_chat_owner(row['session_id']):
         return jsonify({'error': 'forbidden'}), 403
@@ -2874,6 +3034,11 @@ def chat_message():
     if sat_thanks:
         ai_reply = satisfaction.text_for(satisfaction.THANKS, reply_language)
     face_result = None
+    rx_photo_result = None
+    rx_photo_actions = []
+    if ai_reply is None:
+        ai_reply, rx_photo_result, rx_photo_actions = _rx_photo_confirmation(
+            db, session_id, session, content, page_url)
     if ai_reply is None and face_ctx:
         ai_reply, face_result = _face_confirmation(db, session_id, face_ctx,
                                                    content, page_url)
@@ -2888,6 +3053,8 @@ def chat_message():
             ai_reply = NAV_CONFIRM_REPLY.get(reply_language, NAV_CONFIRM_REPLY['en'])
     error = None
     _trigger = 'customer_message' if ai_reply is None or support else 'action_confirmation'
+    if rx_photo_result is not None:
+        _trigger = 'action_confirmation'
     if sat_thanks:
         _trigger = 'satisfaction_answer'
     if ai_reply is None:
@@ -2994,6 +3161,7 @@ def chat_message():
 
     # Clean AI reply (handle action tags)
     ai_reply, actions, navigate_url = _clean_ai_reply(ai_reply)
+    actions.extend(rx_photo_actions)
     if nav_confirm is None:
         ai_reply = _face_offer(db, session_id, face_ctx, ai_reply, page_url)
     if (sign_in_needed and not support and not navigate_url
@@ -3038,7 +3206,8 @@ def chat_message():
         # is NOT itself a supervisor handover / ticket confirmation — otherwise a
         # "yes" answering "connect you to my supervisor? Yes or No" would be
         # hijacked into a stale redirect.
-        _confirm_is_navigational = (face_result is None and sat_answer is None and
+        _confirm_is_navigational = (face_result is None and rx_photo_result is None
+                                    and sat_answer is None and
                                     not ({'human_handover', 'create_ticket'} & set(actions)))
         if not navigate_url and _confirm_is_navigational and acr.is_confirmation(content):
             pending = acr.get_live_pending_action(db, session_id, 'NAVIGATE')
@@ -3134,8 +3303,9 @@ def chat_message():
               _answered_from_record(turn_intent, rx_model, order_model, reship_model),
               signed_in, satisfaction.already_asked(db, session_id),
               carries_more=bool(navigate_url or _offered or acr_action or support
-                                or face_result is not None or lens_proposal is not None
-                                or sign_in_needed))):
+              or face_result is not None or lens_proposal is not None
+              or rx_photo_result is not None
+              or sign_in_needed))):
         ai_reply = (f"{ai_reply.rstrip()}\n\n"
                     f"{satisfaction.text_for(satisfaction.ASK, reply_language)}")
         _sat_state = {'state': satisfaction.ASKED, 'intent': turn_intent}
@@ -3151,6 +3321,11 @@ def chat_message():
     elif face_result is not None:
         _act = {'type': 'FACE', 'ok': bool(isinstance(face_result, dict)
                                            and face_result.get('ok'))}
+    elif rx_photo_result is not None:
+        _act = {'id': rx_photo_result.get('action_id'),
+                'type': 'RX_PHOTO_ATTACH',
+                'state': rx_photo_result.get('state'),
+                'ok': rx_photo_result.get('ok')}
     else:
         _act = None
     reply_meta = dict(reply_meta or {}, trace=_turn_trace(
@@ -3265,6 +3440,8 @@ def chat_message():
         resp['offer'] = {'action_id': _offered['id'], 'target': _offered['target']}
     if face_result is not None:
         resp['face_action'] = face_result
+    if rx_photo_result is not None:
+        resp['rx_photo_action'] = rx_photo_result
     if lens_proposal is not None:
         resp['lens_rx_proposal'] = lens_proposal
     return jsonify(resp)
