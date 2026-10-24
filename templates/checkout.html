@@ -1034,7 +1034,7 @@ footer{ display:none !important; }
       <div class="ow-ck-list">
         {% for item in cart %}
         {# The same rule as lens_cart.is_lens, so what is drawn per eye is what update_quantity refuses. #}
-        {% set is_lens_line = item.vertical == 'CONTACT_LENS' or (item.product_category|default('')|trim|lower) == 'contact lens' or ((item.product_category|default('')|trim|lower) == 'contact lenses' and (item.right_qty is defined or item.left_qty is defined)) %}
+        {% set is_lens_line = item.vertical == 'CONTACT_LENS' or ((item.product_category|default('')|trim|lower) == 'contact lenses' and (item.right_qty is defined or item.left_qty is defined)) %}
         <article class="ow-ck-item{% if is_lens_line %} ow-ck-item--lens{% endif %}">
           <div class="ow-ck-thumb">
             {% set pid = item.product_id|string %}
@@ -2701,6 +2701,18 @@ function onScriptLoad() {
       });
     }).catch(function(){ return file; });
   }
+  function parseRxResponse(response){
+    var fallback = 'Upload failed. Please try a smaller photo or try again.';
+    return response.text().then(function(text){
+      var data;
+      try { data = JSON.parse(text); }
+      catch(error){ throw new Error(fallback); }
+      if (!data || typeof data !== 'object' || !response.ok || !data.ok) {
+        throw new Error((data && data.message) || fallback);
+      }
+      return data;
+    });
+  }
   document.querySelectorAll('.ow-rx-upload').forEach(function(box){
     var input = box.querySelector('input[type=file]');
     var status = box.querySelector('.ow-rx-upload-status');
@@ -2717,19 +2729,16 @@ function onScriptLoad() {
         form.append('document', prepared, prepared.name || file.name);
         return fetch('/checkout/rx-upload', {
           method:'POST', credentials:'same-origin', body:form
-        }).then(function(response){
-          return response.json().then(function(data){
-            if (!response.ok || !data.ok) throw new Error(data.message || 'Upload failed. Please try again.');
-            var li = document.createElement('li');
-            li.dataset.documentId = data.document_id;
-            li.appendChild(document.createTextNode(
-              'Prescription photo · ' + data.pages + ' page' + (data.pages === 1 ? '' : 's') + ' '));
-            var remove = document.createElement('button');
-            remove.type = 'button'; remove.className = 'ow-rx-upload-remove';
-            remove.dataset.documentId = data.document_id; remove.textContent = 'Remove';
-            li.appendChild(remove); list.prepend(li);
-            status.textContent = data.message || '';
-          });
+        }).then(parseRxResponse).then(function(data){
+          var li = document.createElement('li');
+          li.dataset.documentId = data.document_id;
+          li.appendChild(document.createTextNode(
+            'Prescription photo · ' + data.pages + ' page' + (data.pages === 1 ? '' : 's') + ' '));
+          var remove = document.createElement('button');
+          remove.type = 'button'; remove.className = 'ow-rx-upload-remove';
+          remove.dataset.documentId = data.document_id; remove.textContent = 'Remove';
+          li.appendChild(remove); list.prepend(li);
+          status.textContent = data.message || '';
         });
       }).catch(function(error){ status.textContent = error.message; })
         .finally(function(){ wait.hidden = true; input.value = ''; });
@@ -2740,10 +2749,9 @@ function onScriptLoad() {
       button.disabled = true;
       fetch('/checkout/rx-upload/' + button.dataset.documentId + '/remove', {
         method:'POST', credentials:'same-origin'
-      }).then(function(response){ return response.json().then(function(data){
-        if (!response.ok || !data.ok) throw new Error(data.message || 'Could not remove this photo.');
+      }).then(parseRxResponse).then(function(data){
         button.closest('li').remove(); status.textContent = 'Prescription photo removed.';
-      }); }).catch(function(error){ button.disabled = false; status.textContent = error.message; });
+      }).catch(function(error){ button.disabled = false; status.textContent = error.message; });
     });
   });
 })();

@@ -87,10 +87,16 @@ CREATE TABLE IF NOT EXISTS order_rx_document_audit (
 TABLES = (("order_rx_documents", DOCUMENT_SCHEMA),
           ("order_rx_document_audit", AUDIT_SCHEMA))
 
+_SCHEMA_READY = False
+
 
 def ensure_schema(cursor):
+    global _SCHEMA_READY
+    if _SCHEMA_READY:
+        return
     for _name, ddl in TABLES:
         cursor.execute(ddl)
+    _SCHEMA_READY = True
 
 
 def upload_dir():
@@ -573,21 +579,35 @@ def register(bp):
     def order_rx_upload():
         customer_id = _customer_id()
         if not customer_id:
-            return _json({"ok": False, "error": "unauthorized"}, 401)
+            return _json({
+                "ok": False,
+                "error": "unauthorized",
+                "message": "Please sign in again to add a photo.",
+            }, 401)
         cart = session.get("cart", [])
         try:
             line_index = int(request.form.get("line", ""))
         except (TypeError, ValueError):
             line_index = -1
         if line_index < 0 or line_index >= len(cart):
-            return _json({"ok": False, "code": "RX_UPLOAD_LINE"}, 400)
+            return _json({
+                "ok": False,
+                "code": "RX_UPLOAD_LINE",
+                "message": "This frame has no prescription entered, so a "
+                           "photo can't be added here.",
+            }, 400)
         item = cart[line_index]
         if (str(request.form.get("product_id", "")) !=
                 str(item.get("product_id", "")) or
                 lens_rx.is_lens_line(item) or
                 not any(item.get(key) not in (None, "") for key in
                         ("right_pwr", "left_pwr"))):
-            return _json({"ok": False, "code": "RX_UPLOAD_LINE"}, 400)
+            return _json({
+                "ok": False,
+                "code": "RX_UPLOAD_LINE",
+                "message": "This frame has no prescription entered, so a "
+                           "photo can't be added here.",
+            }, 400)
         upload = request.files.get("document")
         if upload is None:
             return _json({"ok": False, "code": "RX_UPLOAD_REJECTED",
@@ -611,13 +631,23 @@ def register(bp):
                       [int(v) for v in ids]))
             live_count = int(cursor.fetchone()["n"])
         if live_count >= 3:
-            return _json({"ok": False, "code": "RX_UPLOAD_LINE_LIMIT"}, 400)
+            return _json({
+                "ok": False,
+                "code": "RX_UPLOAD_LINE_LIMIT",
+                "message": "You can add up to 3 photos for this frame. "
+                           "Remove one to add another.",
+            }, 400)
         cursor.execute(
             "SELECT COUNT(*) AS n FROM order_rx_documents WHERE "
             "customer_id=%s AND created_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)",
             (customer_id,))
         if int(cursor.fetchone()["n"]) >= 20:
-            return _json({"ok": False, "code": "RX_UPLOAD_RATE_LIMIT"}, 429)
+            return _json({
+                "ok": False,
+                "code": "RX_UPLOAD_RATE_LIMIT",
+                "message": "Too many uploads today. Please try again tomorrow "
+                           "or send the photo in the chat.",
+            }, 429)
         try:
             norm = lens_documents.normalise(
                 upload.read(lens_documents.MAX_UPLOAD_BYTES + 1))
@@ -651,7 +681,11 @@ def register(bp):
             db.rollback()
             _delete_files(document_id, len(norm["pages"]))
             current_app.logger.exception("Prescription photo storage failed")
-            return _json({"ok": False, "code": "RX_UPLOAD_STORAGE_FAILED"}, 500)
+            return _json({
+                "ok": False,
+                "code": "RX_UPLOAD_STORAGE_FAILED",
+                "message": "We couldn't save that photo. Please try again.",
+            }, 500)
 
         parse_failure_audited = False
         try:
@@ -718,7 +752,11 @@ def register(bp):
     def order_rx_remove(document_id):
         customer_id = _customer_id()
         if not customer_id:
-            return _json({"ok": False, "error": "unauthorized"}, 401)
+            return _json({
+                "ok": False,
+                "error": "unauthorized",
+                "message": "Please sign in again to add a photo.",
+            }, 401)
         db = get_db()
         cursor = db.cursor()
         ensure_schema(cursor)
@@ -729,7 +767,12 @@ def register(bp):
             (document_id, customer_id))
         row = cursor.fetchone()
         if not row:
-            return _json({"ok": False, "error": "not_found"}, 404)
+            return _json({
+                "ok": False,
+                "error": "not_found",
+                "message": "That photo can't be removed. It may already be "
+                           "attached or unavailable.",
+            }, 404)
         _delete_files(document_id, row.get("pages"))
         cursor.execute(
             "UPDATE order_rx_documents SET status=%s WHERE document_id=%s "

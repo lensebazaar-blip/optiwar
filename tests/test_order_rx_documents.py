@@ -418,17 +418,28 @@ class OrderRxDocumentTests(unittest.TestCase):
 
     def test_upload_auth_line_and_product_validation(self):
         self._set_session(customer=False, email=None)
-        self.assertEqual(self.client.post("/checkout/rx-upload").status_code,
-                         401)
+        unauth = self.client.post("/checkout/rx-upload")
+        self.assertEqual(unauth.status_code, 401)
+        self.assertEqual(unauth.json["message"],
+                         "Please sign in again to add a photo.")
         self._set_session()
         bad_product = self._upload(product_id=self.pid + 99)
         self.assertEqual(bad_product.status_code, 400)
         self.assertEqual(bad_product.json["code"], "RX_UPLOAD_LINE")
+        line_message = ("This frame has no prescription entered, so a photo "
+                        "can't be added here.")
+        self.assertEqual(bad_product.json["message"], line_message)
         no_rx = [dict(self.cart[0], right_pwr=None, left_pwr=None)]
-        self.assertEqual(self._upload(cart=no_rx).json["code"], "RX_UPLOAD_LINE")
+        no_rx_response = self._upload(cart=no_rx)
+        self.assertEqual(no_rx_response.json["code"], "RX_UPLOAD_LINE")
+        self.assertEqual(no_rx_response.json["message"], line_message)
         lens = [dict(self.cart[0], product_category="Contact Lenses")]
-        self.assertEqual(self._upload(cart=lens).json["code"], "RX_UPLOAD_LINE")
-        self.assertEqual(self._upload(line="5").json["code"], "RX_UPLOAD_LINE")
+        lens_response = self._upload(cart=lens)
+        self.assertEqual(lens_response.json["code"], "RX_UPLOAD_LINE")
+        self.assertEqual(lens_response.json["message"], line_message)
+        bad_line = self._upload(line="5")
+        self.assertEqual(bad_line.json["code"], "RX_UPLOAD_LINE")
+        self.assertEqual(bad_line.json["message"], line_message)
 
     def test_upload_response_hides_ai_values_and_persists_document_id(self):
         response = self._upload()
@@ -489,6 +500,9 @@ class OrderRxDocumentTests(unittest.TestCase):
         response = self._upload(cart=line)
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json["code"], "RX_UPLOAD_LINE_LIMIT")
+        self.assertEqual(response.json["message"],
+                         "You can add up to 3 photos for this frame. "
+                         "Remove one to add another.")
 
         for _ in range(20):
             self._document()
@@ -496,16 +510,39 @@ class OrderRxDocumentTests(unittest.TestCase):
         response = self._upload()
         self.assertEqual(response.status_code, 429)
         self.assertEqual(response.json["code"], "RX_UPLOAD_RATE_LIMIT")
+        self.assertEqual(response.json["message"],
+                         "Too many uploads today. Please try again tomorrow "
+                         "or send the photo in the chat.")
+
+    def test_storage_failure_has_customer_message(self):
+        with mock.patch.object(self.service, "_write_pages",
+                               side_effect=OSError("disk full")):
+            response = self._upload()
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json["code"], "RX_UPLOAD_STORAGE_FAILED")
+        self.assertEqual(response.json["message"],
+                         "We couldn't save that photo. Please try again.")
 
     def test_remove_requires_ownership_and_unattached_document(self):
         response = self._upload()
         document_id = response.json["document_id"]
         path = self._file_path(document_id)
+        self._set_session(customer=False, email=None)
+        unauth = self.client.post(
+            "/checkout/rx-upload/%d/remove" % document_id)
+        self.assertEqual(unauth.status_code, 401)
+        self.assertEqual(unauth.json["message"],
+                         "Please sign in again to add a photo.")
         self._set_session(customer=True)
         with self.client.session_transaction() as sess:
             sess["user_id"] = self.cid + 1
-        self.assertEqual(self.client.post(
-            "/checkout/rx-upload/%d/remove" % document_id).status_code, 404)
+        wrong_owner = self.client.post(
+            "/checkout/rx-upload/%d/remove" % document_id)
+        self.assertEqual(wrong_owner.status_code, 404)
+        self.assertEqual(
+            wrong_owner.json["message"],
+            "That photo can't be removed. It may already be attached or "
+            "unavailable.")
         self._set_session()
         self.assertEqual(self.client.post(
             "/checkout/rx-upload/%d/remove" % document_id).status_code, 200)
@@ -515,8 +552,27 @@ class OrderRxDocumentTests(unittest.TestCase):
         response = self._upload()
         attached_id = response.json["document_id"]
         self._attach(attached_id)
-        self.assertEqual(self.client.post(
-            "/checkout/rx-upload/%d/remove" % attached_id).status_code, 404)
+        attached_remove = self.client.post(
+            "/checkout/rx-upload/%d/remove" % attached_id)
+        self.assertEqual(attached_remove.status_code, 404)
+        self.assertEqual(
+            attached_remove.json["message"],
+            "That photo can't be removed. It may already be attached or "
+            "unavailable.")
+
+    def test_ensure_schema_runs_once_per_process(self):
+        prior = self.service._SCHEMA_READY
+        self.service._SCHEMA_READY = False
+        try:
+            cursor = mock.Mock()
+            self.service.ensure_schema(cursor)
+            self.assertEqual(cursor.execute.call_count,
+                             len(self.service.TABLES))
+            cursor.execute.reset_mock()
+            self.service.ensure_schema(cursor)
+            cursor.execute.assert_not_called()
+        finally:
+            self.service._SCHEMA_READY = prior
 
     def test_comparison_exact_transposed_axis_wrap_and_missing_eye(self):
         typed = self.service.typed_snapshot(self.cart[0])
