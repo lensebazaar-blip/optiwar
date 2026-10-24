@@ -486,6 +486,38 @@ def _hit(concept, text, latin):
     return any(n in text for n in native)
 
 
+_RX_UPLOAD_VERBS = frozenset((
+    "upload", "uploading", "uplod", "uplode", "uploud", "send", "sends",
+    "sending", "attach", "attaches", "attaching", "share", "shares",
+    "sharing", "bhejna", "dalna", "daalna", "daalu", "dalu", "daalun",
+    "dalun"))
+_RX_UPLOAD_TARGETS = frozenset((
+    "photo", "photos", "image", "images", "pic", "pics", "screenshot",
+    "screenshots", "parchi", "slip"))
+_RX_UPLOAD_TARGET_PHRASES = (
+    "eye number", "eyes number", "aankh ka number", "ankh ka number",
+    "aankhon ka number", "ankhon ka number", "aankho ka number",
+    "ankho ka number")
+
+
+def is_rx_upload_request(text):
+    """Whether a message asks how to send or upload prescription information."""
+    normalized = unicodedata.normalize("NFKC", text or "").lower()
+    normalized = re.sub(r"[^\w]+", " ", normalized)
+    words = normalized.split()
+    _, latin = _norm_for_match(normalized)
+    has_upload_verb = any(
+        word in _RX_UPLOAD_VERBS or word.startswith("bhej")
+        for word in words)
+    has_upload_verb = has_upload_verb or "photo kaise" in normalized
+    has_rx_word = (_hit(_C_RX, normalized, latin)
+                   or _hit(_C_POWER, normalized, latin)
+                   or bool(set(words) & _RX_UPLOAD_TARGETS)
+                   or any(phrase in normalized
+                          for phrase in _RX_UPLOAD_TARGET_PHRASES))
+    return has_upload_verb and has_rx_word
+
+
 def classify_intent(text):
     """``(intent, confidence)`` for one customer message.
 

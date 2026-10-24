@@ -55,6 +55,27 @@ class EvalSuiteTests(unittest.TestCase):
             self.assertEqual(al.classify_intent(c["text"])[0], c["intent"],
                              "%s: %r" % (c["id"], c["text"]))
 
+    def test_rx_upload_request_detection_handles_typos_and_hinglish(self):
+        for text in (
+                "i have power details of my eyes , how can i uplode",
+                "how can we upload photo",
+                "i have ordered but how can upload the preccription",
+                "i have to uplod the prescription to  for exct detail",
+                "i have doubt that the enterd details is correct or not "
+                "thats why i wan to upload my prescription",
+                "how do i send my prescription photo",
+                "prescription ki photo kaise bheju",
+                "can i upload prescription image"):
+            self.assertTrue(al.is_rx_upload_request(text), text)
+        for text in (
+                "show my saved prescription",
+                "what is my prescription on order EXXYXS-826552",
+                "send me round frames",
+                "upload",
+                "i uploaded the photo",
+                "yes"):
+            self.assertFalse(al.is_rx_upload_request(text), text)
+
     def test_the_suite_covers_all_22_scheduled_languages(self):
         covered = {c["language"] for c in EVAL["cases"] if "language" in c}
         self.assertEqual(set(al.EIGHTH_SCHEDULE) - covered, set())

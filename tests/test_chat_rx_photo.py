@@ -281,6 +281,131 @@ class ChatRxPhotoTests(unittest.TestCase):
         fixture.rx_failed_document_ids = failed_document_ids
         return fixture, forwarded, response.get_json()
 
+    def _rx_upload_help_turn(self, content, *, signed_in, preparing_lines):
+        fixture = ta.OnMariaDB("runTest")
+        fixture.db = ta._connect()
+        fixture.setUp()
+        self.addCleanup(fixture.db.close)
+        self.addCleanup(fixture.doCleanups)
+        self.addCleanup(fixture.tearDown)
+
+        def clean_rows():
+            cur = fixture.db.cursor()
+            for table in ("ai_actions", "ai_events",
+                          "chat_rx_photo_test_tickets"):
+                cur.execute("DELETE FROM %s WHERE session_id=%%s" % table,
+                            (fixture.sid,))
+            fixture.db.commit()
+        self.addCleanup(clean_rows)
+
+        fixture._as_owner()
+        with fixture.client.session_transaction() as browser_session:
+            if signed_in:
+                browser_session["user_id"] = 101
+            else:
+                browser_session.pop("user_id", None)
+        fixture.db.cursor().execute(
+            "UPDATE chat_sessions SET customer_id=%s WHERE session_id=%s",
+            (101 if signed_in else None, fixture.sid))
+        fixture.db.commit()
+
+        line = {
+            "order_id": "947284", "order_line_id": 5, "product_id": 4,
+            "rx_id": 8, "product_name": "Round Frame",
+            "typed": {"right_pwr": 1.25},
+        }
+        with (mock.patch.object(
+                    self.ordx, "preparing_rx_lines",
+                    return_value=preparing_lines) as preparing,
+              mock.patch.object(self.cg, "_call_deepseek") as model,
+              mock.patch.object(
+                    self.cg, "_rx_context", return_value=("", None)),
+              mock.patch.object(
+                    self.cg, "_order_context", return_value=("", None)),
+              mock.patch.object(
+                    self.cg, "_lens_context",
+                    return_value=(None, None, None, None)),
+              mock.patch.object(self.cg, "_face_context", return_value=None),
+              mock.patch.object(self.cg, "_photo_context", return_value=""),
+              mock.patch.object(self.cg, "_reship_model", return_value=None),
+              mock.patch.object(self.cg, "_return_model", return_value=None)):
+            response = fixture.client.post("/api/chat/message", json={
+                "session_id": fixture.sid,
+                "content": content,
+                "page_url": "https://optiwar.com/account/orders",
+                "client_message_id": "rx-upload-help-" + fixture.sid,
+            })
+        self.assertEqual(response.status_code, 200)
+        model.assert_not_called()
+        if signed_in:
+            preparing.assert_called_once_with(
+                mock.ANY, 101, site_from="optiwar.com")
+        else:
+            preparing.assert_not_called()
+        return fixture, response.get_json(), line
+
+    def _assert_no_rx_upload_help_action_or_ticket(self, fixture, body):
+        self.assertEqual(body["actions"], [])
+        cur = fixture.db.cursor()
+        cur.execute("SELECT COUNT(*) AS n FROM ai_actions WHERE session_id=%s",
+                    (fixture.sid,))
+        self.assertEqual(cur.fetchone()["n"], 0)
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM chat_rx_photo_test_tickets "
+            "WHERE session_id=%s", (fixture.sid,))
+        self.assertEqual(cur.fetchone()["n"], 0)
+
+    def test_upload_help_for_preparing_order_is_deterministic(self):
+        fixture, body, _line = self._rx_upload_help_turn(
+            "how can i upload my prescription photo?", signed_in=True,
+            preparing_lines=[{
+                "order_id": "947284", "order_line_id": 5, "product_id": 4,
+                "rx_id": 8, "product_name": "Round Frame",
+                "typed": {"right_pwr": 1.25},
+            }])
+        self.assertIn("order OW-947284 (Round Frame)", body["reply"])
+        self.assertIn("nothing on your order changes until you say yes",
+                      body["reply"])
+        self._assert_no_rx_upload_help_action_or_ticket(fixture, body)
+
+        cur = fixture.db.cursor()
+        cur.execute(
+            "SELECT action_type,journey_stage,success FROM ai_events "
+            "WHERE session_id=%s AND event_type=%s",
+            (fixture.sid, self.cg.acr.EV_TOOL_USED))
+        event = next((row for row in cur.fetchall()
+                      if row["action_type"] == "RX_UPLOAD_HELP"), None)
+        self.assertIsNotNone(event)
+        self.assertEqual(event["journey_stage"], self.cg.acr.STAGE_SUPPORT)
+        self.assertTrue(event["success"])
+        cur.execute(
+            "SELECT metadata FROM chat_messages WHERE session_id=%s "
+            "AND source='ai' ORDER BY id DESC LIMIT 1", (fixture.sid,))
+        metadata = cur.fetchone()["metadata"]
+        if isinstance(metadata, bytes):
+            metadata = metadata.decode("utf-8")
+        if not isinstance(metadata, dict):
+            metadata = json.loads(metadata or "{}")
+        self.assertEqual(metadata["trace"]["source"], "DETERMINISTIC")
+
+    def test_upload_help_without_preparing_order_uses_checkout_and_paperclip(self):
+        fixture, body, _line = self._rx_upload_help_turn(
+            "how do i send my prescription photo?", signed_in=False,
+            preparing_lines=[])
+        self.assertIn('at checkout, tap "Add a photo or screenshot" under the frame',
+                      body["reply"])
+        self.assertIn("photo button (paperclip)", body["reply"])
+        self._assert_no_rx_upload_help_action_or_ticket(fixture, body)
+
+    def test_upload_help_for_shipped_only_customer_uses_checkout_and_paperclip(self):
+        fixture, body, _line = self._rx_upload_help_turn(
+            "can i upload prescription image?", signed_in=True,
+            preparing_lines=[])
+        self.assertIn('at checkout, tap "Add a photo or screenshot" under the frame',
+                      body["reply"])
+        self.assertIn("photo button (paperclip)", body["reply"])
+        self._assert_no_rx_upload_help_action_or_ticket(fixture, body)
+
     def _assert_ticket_and_photo_were_forwarded(self, fixture, forwarded):
         cur = fixture.db.cursor()
         cur.execute(

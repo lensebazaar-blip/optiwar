@@ -648,6 +648,60 @@ def _order_reference(order_id):
     return value if value.upper().startswith("OW-") else "OW-" + value
 
 
+def _rx_upload_help(db, session_id, content, page_url):
+    if (acr.is_confirmation(content)
+            or not ai_language.is_rx_upload_request(content)):
+        return None
+
+    customer_id = flask_session.get("user_id")
+    lines = []
+    if customer_id:
+        try:
+            from . import order_rx_documents
+            lines = order_rx_documents.preparing_rx_lines(
+                db.cursor(), customer_id, site_from=_site_of(page_url))
+        except Exception as e:  # noqa: BLE001 - help remains safe without a lookup
+            current_app.logger.warning(
+                "[Chat] preparing Rx upload help lookup failed: %s",
+                type(e).__name__)
+
+    if lines:
+        line = lines[0]
+        reply = (
+            "You can send it right here: tap the photo button (paperclip) next "
+            "to the message box and attach a photo or screenshot of your "
+            "prescription. I'll show you what I read and ask before adding it "
+            "to order %s (%s) — nothing on your order changes until you say yes."
+            % (_order_reference(line["order_id"]),
+               line.get("product_name") or "your frame"))
+    else:
+        reply = (
+            'Before paying: at checkout, tap "Add a photo or screenshot" under '
+            "the frame. Already ordered, or want a person to check it? Tap the "
+            "photo button (paperclip) next to the message box and send it here "
+            "— our team checks it against your order.")
+
+    language = ai_language.detect(content)["language"]
+    if language in ("hi", "hi-Latn"):
+        if lines:
+            reply += (
+                "\n\nPrescription ki photo ya screenshot paperclip button se "
+                "yahin bhejiye. Order %s (%s) mein jodne se pehle main aapse "
+                "poochhunga."
+                % (_order_reference(line["order_id"]),
+                   line.get("product_name") or "your frame"))
+        else:
+            reply += (
+                "\n\nCheckout par frame ke neeche 'Add a photo or screenshot' "
+                "tap kijiye. Payment ke baad photo paperclip se yahin bhej "
+                "sakte hain.")
+
+    acr.log_event(db, acr.EV_TOOL_USED, session_id=session_id,
+                  journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
+                  action_type="RX_UPLOAD_HELP", success=True)
+    return reply
+
+
 def _assistant_reply_before(db, session_id, before_message_id=None):
     try:
         cur = db.cursor()
@@ -3220,6 +3274,11 @@ def chat_message():
     if ai_reply is None and face_ctx:
         ai_reply, face_result = _face_confirmation(db, session_id, face_ctx,
                                                    content, page_url)
+    if ai_reply is None and not support:
+        rx_upload_reply = _rx_upload_help(db, session_id, content, page_url)
+        if rx_upload_reply is not None:
+            ai_reply = rx_upload_reply
+            answered_by = 'rule'
     # A confirmation of the live NAVIGATE offer is executed as offered: the
     # same action, the same destination, and no model call.
     nav_confirm = None
