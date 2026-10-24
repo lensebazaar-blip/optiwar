@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Ops — Prescription photos</title>
+  <style>
+    :root{--bg:#0f172a;--card:#1e293b;--line:#334155;--txt:#e2e8f0;--muted:#94a3b8;--accent:#38bdf8;--bad:#ef4444;--good:#34d399}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--txt);font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    header{padding:18px 24px;border-bottom:1px solid var(--line)}
+    h1{font-size:20px;margin:0 0 12px}
+    h2{font-size:16px;margin:20px 0 10px}
+    h3{font-size:14px;margin:0 0 8px}
+    .wrap{max-width:1100px;margin:auto;padding:18px 24px 44px}
+    form.search{display:flex;gap:8px;flex-wrap:wrap}
+    input,textarea,select{font:inherit;color:var(--txt);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:9px}
+    input[name=order]{width:min(360px,75vw)}
+    button,.button{display:inline-block;border:0;border-radius:6px;background:var(--accent);color:#0f172a;font:inherit;font-weight:650;padding:8px 12px;cursor:pointer;text-decoration:none}
+    button:disabled{opacity:.6;cursor:wait}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin:0 0 16px}
+    .muted{color:var(--muted);overflow-wrap:anywhere}
+    .table{width:100%;border-collapse:collapse}
+    th,td{text-align:left;vertical-align:top;padding:8px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+    th{color:var(--muted);font-size:11px;text-transform:uppercase}
+    .badge{display:inline-block;border-radius:99px;padding:3px 9px;font-weight:700}
+    .different{background:#7f1d1d;color:#fecaca}
+    .matched{background:#064e3b;color:#a7f3d0}
+    .suggestion{border-left:3px solid var(--accent);padding:8px 12px;margin:12px 0}
+    .warning{color:#fecaca;font-weight:700}
+    .progressive{border:1px solid #b45309;background:#422006;border-radius:7px;padding:10px;margin:12px 0}
+    .files{display:flex;gap:12px;flex-wrap:wrap}
+    .file{min-width:130px}
+    .file img{display:block;max-width:240px;max-height:220px;object-fit:contain;background:#fff;border:1px solid var(--line);border-radius:5px;margin:6px 0}
+    .review{display:grid;grid-template-columns:minmax(180px,240px) 1fr auto;gap:8px;align-items:start;margin-top:14px}
+    .review textarea{min-height:40px}
+    .notice{color:var(--muted)}
+    @media(max-width:700px){
+      header{padding:16px 12px}.wrap{padding:12px}
+      .table,.table thead,.table tbody,.table tr,.table th,.table td{display:block;width:100%}
+      .table thead{display:none}.table tr{border:1px solid var(--line);border-radius:8px;margin:0 0 12px;padding:4px}
+      .table td{border:0;padding:8px}
+      .table td::before{content:attr(data-label);display:block;color:var(--muted);font-size:11px;text-transform:uppercase;margin-bottom:3px}
+      .review{grid-template-columns:1fr}
+      .file{width:100%}.file img{max-width:100%}
+    }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Prescription photos</h1>
+  <form class="search" method="get" action="/ops/rx-documents">
+    <label for="order">Order number</label>
+    <input id="order" name="order" value="{{ order }}" placeholder="OW-EXXYXS-826552">
+    <button type="submit">Search</button>
+  </form>
+</header>
+<main class="wrap">
+  {% if order and not result %}
+  <p class="notice">Order not found.</p>
+  {% elif result %}
+  <h2>Order {{ result.order_id }}</h2>
+  {% for line in result.lines %}
+  <section class="card">
+    <h3>{{ line.product_name or ('Product ' ~ line.product_id) }}</h3>
+    <p class="muted">Order line {{ line.order_line_id }}</p>
+    {% for doc in line.documents %}
+    <article class="card" data-document-id="{{ doc.document_id }}">
+      <h3>Prescription photo #{{ doc.document_id }}</h3>
+      {% if doc.comparison == 'DIFFERENT' %}
+      <span class="badge different">DIFFERENT</span>
+      <p class="warning">Contact the customer before glazing</p>
+      {% elif doc.comparison in ('MATCH','MATCH_TRANSPOSED') %}
+      <span class="badge matched">{{ doc.comparison }}</span>
+      {% else %}
+      <span class="badge">{{ doc.comparison }}</span>
+      {% endif %}
+      <p class="muted">Uploaded {{ doc.created_at }} · {{ doc.pages }} page{{ 's' if doc.pages != 1 }} · {{ doc.stored_bytes }} bytes · {{ doc.provider }} {{ doc.model or '' }} · confidence {{ doc.confidence if doc.confidence is not none else 'not available' }}</p>
+      <h3>Typed values</h3>
+      <table class="table">
+        <thead><tr><th>Eye</th><th>SPH</th><th>CYL</th><th>AXIS</th><th>ADD</th></tr></thead>
+        <tbody>
+        {% for eye,label in (('right','R'),('left','L')) %}
+        <tr><td data-label="Eye">{{ label }}</td><td data-label="SPH">{{ doc.typed.get(eye ~ '_pwr') or '—' }}</td><td data-label="CYL">{{ doc.typed.get(eye ~ '_cyl') or '—' }}</td><td data-label="AXIS">{{ doc.typed.get(eye ~ '_axis') or '—' }}</td><td data-label="ADD">{{ doc.typed.get(eye ~ '_add') or '—' }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <div class="suggestion">
+        <strong>AI suggestion — check against the photo, do not copy blindly</strong>
+        {% if doc.parsed %}
+        <table class="table">
+          <thead><tr><th>Eye</th><th>SPH</th><th>CYL</th><th>AXIS</th><th>ADD</th></tr></thead>
+          <tbody>
+          {% for eye,label in (('right','R'),('left','L')) %}
+          {% set values = doc.parsed.get(eye) or {} %}
+          <tr><td data-label="Eye">{{ label }}</td><td data-label="SPH">{{ values.get('sph') or '—' }}</td><td data-label="CYL">{{ values.get('cyl') or '—' }}</td><td data-label="AXIS">{{ values.get('axis') or '—' }}</td><td data-label="ADD">{{ values.get('add_power') or values.get('add') or '—' }}</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        {% else %}<p class="muted">No readable suggestion is available.</p>{% endif %}
+      </div>
+      {% if doc.differences %}
+      <ul>{% for difference in doc.differences %}<li>{{ difference }}</li>{% endfor %}</ul>
+      {% endif %}
+      {% if doc.typed.get('right_add') or doc.typed.get('left_add') or (doc.parsed and ((doc.parsed.get('right') or {}).get('add_power') or (doc.parsed.get('left') or {}).get('add_power'))) %}
+      <p class="progressive">Fitting height and monocular PD are not on most prescriptions — take them from the face scan / customer</p>
+      {% endif %}
+      <div class="files">
+        {% for file in doc.files %}
+        <div class="file">
+          <strong>Page {{ file.page + 1 }}</strong>
+          <a href="{{ file.view_url }}" target="_blank" rel="noopener">View</a>
+          <a href="{{ file.download_url }}">Download</a>
+          <a href="{{ file.view_url }}" target="_blank" rel="noopener">
+            <img src="{{ file.view_url }}" alt="Prescription photo page {{ file.page + 1 }}">
+          </a>
+        </div>
+        {% endfor %}
+      </div>
+      <form class="review" data-review-form>
+        <select name="verdict" aria-label="Review verdict">
+          <option value="MATCHES_ORDER">Matches order</option>
+          <option value="DIFFERENT_CONTACT_CUSTOMER">Different — contact customer</option>
+          <option value="UNREADABLE_ASK_CUSTOMER">Unreadable — ask customer</option>
+        </select>
+        <textarea name="note" maxlength="500" placeholder="Required for a difference or unreadable photo"></textarea>
+        <button type="submit">Save review</button>
+      </form>
+      <button type="button" data-reparse>Read again with AI</button>
+      <p class="muted" data-result role="status"></p>
+      {% if doc.review_verdict %}<p class="muted">Reviewed: {{ doc.review_verdict }} · {{ doc.review_note or '' }} · {{ doc.reviewed_by or '' }}</p>{% endif %}
+    </article>
+    {% else %}<p class="notice">No prescription photos on this line.</p>{% endfor %}
+  </section>
+  {% endfor %}
+  {% elif queue is not none %}
+  <h2>Awaiting review</h2>
+  {% for doc in queue %}
+  <section class="card">
+    <a href="/ops/rx-documents?order={{ doc.order_id|urlencode }}">Order {{ doc.order_id }}</a>
+    <p>{{ doc.product_name or ('Product ' ~ doc.product_id) }} · Photo #{{ doc.document_id }} · {{ doc.created_at }}</p>
+    {% if doc.comparison == 'DIFFERENT' %}<span class="badge different">DIFFERENT</span><p class="warning">Contact the customer before glazing</p>{% endif %}
+    {% if doc.files %}<a href="{{ doc.files[0].view_url }}">View photo</a>{% endif %}
+  </section>
+  {% else %}<p class="notice">No attached prescription photos are waiting for review.</p>{% endfor %}
+  {% else %}
+  <p class="notice">Search an order to review its prescription photos.</p>
+  {% endif %}
+</main>
+<script>
+document.querySelectorAll('[data-review-form]').forEach(function(form){
+  form.addEventListener('submit',function(event){
+    event.preventDefault();
+    var card=form.closest('[data-document-id]'),data=new FormData(form);
+    var result=card.querySelector('[data-result]');
+    fetch('/ops/api/rx-documents/'+card.dataset.documentId+'/review',{
+      method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({verdict:data.get('verdict'),note:data.get('note')})
+    }).then(function(response){return response.json().then(function(body){if(!response.ok)throw new Error(body.error||'Review failed');return body;});})
+      .then(function(body){result.textContent='Review saved: '+body.verdict;})
+      .catch(function(error){result.textContent=error.message;});
+  });
+});
+document.querySelectorAll('[data-reparse]').forEach(function(button){
+  button.addEventListener('click',function(){
+    var card=button.closest('[data-document-id]'),result=card.querySelector('[data-result]');
+    button.disabled=true;result.textContent='Reading again…';
+    fetch('/ops/api/rx-documents/'+card.dataset.documentId+'/reparse',{
+      method:'POST',credentials:'same-origin'
+    }).then(function(response){return response.json().then(function(body){if(!response.ok)throw new Error(body.error||'Re-read failed');return body;});})
+      .then(function(body){result.textContent='Read again: '+body.comparison;location.reload();})
+      .catch(function(error){result.textContent=error.message;})
+      .finally(function(){button.disabled=false;});
+  });
+});
+</script>
+</body>
+</html>

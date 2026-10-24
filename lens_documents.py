@@ -117,6 +117,7 @@ AUD_PURGED = "PURGED"
 MAX_UPLOAD_BYTES = 12 * 1024 * 1024
 MIN_UPLOAD_BYTES = 1024
 MAX_SIDE_PX = 2000
+MAX_STORED_BYTES = 2_000_000
 MAX_PDF_PAGES = 2
 PDF_RENDER_DPI = 150
 JPEG_QUALITY = 85
@@ -163,7 +164,7 @@ def _pillow():
     return Image, ImageOps
 
 
-def _image_to_jpeg(image):
+def _image_to_jpeg(image, budget):
     Image, ImageOps = _pillow()
     image = ImageOps.exif_transpose(image)
     if image.mode not in ("RGB", "L"):
@@ -173,9 +174,26 @@ def _image_to_jpeg(image):
     if scale < 1.0:
         image = image.resize((max(1, int(w * scale)), max(1, int(h * scale))),
                              Image.LANCZOS)
-    out = io.BytesIO()
-    image.save(out, format="JPEG", quality=JPEG_QUALITY, optimize=True)
-    return out.getvalue()
+    qualities = (85, 75, 65, 55)
+    while True:
+        for quality in qualities:
+            out = io.BytesIO()
+            image.save(out, format="JPEG", quality=quality, optimize=True)
+            data = out.getvalue()
+            if len(data) <= budget:
+                return data
+        w, h = image.size
+        longest = max(w, h)
+        if longest <= 1200:
+            break
+        next_side = max(1200, int(longest * 0.8))
+        scale = next_side / float(longest)
+        image = image.resize((max(1, int(w * scale)), max(1, int(h * scale))),
+                             Image.LANCZOS)
+    raise Rejected(
+        "RX_UPLOAD_REJECTED",
+        "That photo could not be made small enough to keep. Please take a "
+        "closer photo of just the prescription.")
 
 
 def _raster_pdf(data):
@@ -206,12 +224,14 @@ def _raster_pdf(data):
                        "of your prescription instead.")
     pages = []
     Image, _ = _pillow()
-    for index in range(min(doc.page_count, MAX_PDF_PAGES)):
+    page_count = min(doc.page_count, MAX_PDF_PAGES)
+    if page_count < 1:
+        raise Rejected("RX_UPLOAD_REJECTED", "That PDF has no pages.")
+    budget = MAX_STORED_BYTES // page_count
+    for index in range(page_count):
         pix = doc[index].get_pixmap(dpi=PDF_RENDER_DPI, alpha=False)
         image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-        pages.append(_image_to_jpeg(image))
-    if not pages:
-        raise Rejected("RX_UPLOAD_REJECTED", "That PDF has no pages.")
+        pages.append(_image_to_jpeg(image, budget))
     return pages
 
 
@@ -238,17 +258,36 @@ def normalise(data):
     if kind == KIND_PDF:
         pages = _raster_pdf(data)
     else:
+        if kind == KIND_HEIC:
+            try:
+                import pillow_heif  # noqa: PLC0415
+                pillow_heif.register_heif_opener()
+            except ImportError:
+                raise Rejected(
+                    "RX_UPLOAD_HEIC_UNSUPPORTED",
+                    "iPhone HEIC photos can't be read here. Please take a "
+                    "screenshot of the photo and upload that, or upload it "
+                    "as JPEG.")
         Image, _ = _pillow()
         try:
             image = Image.open(io.BytesIO(data))
+            accepted_formats = {
+                KIND_JPEG: {"JPEG"},
+                KIND_PNG: {"PNG"},
+                KIND_WEBP: {"WEBP"},
+                KIND_HEIC: {"HEIF", "HEIC"},
+            }
+            if image.format not in accepted_formats.get(kind, set()):
+                raise ValueError("image format does not match its signature")
             image.load()
         except Exception:  # noqa: BLE001 - a decoder failure is one refusal
             raise Rejected("RX_UPLOAD_REJECTED",
                            "That image could not be read. Please try another "
                            "photo of your prescription.")
-        pages = [_image_to_jpeg(image)]
+        pages = [_image_to_jpeg(image, MAX_STORED_BYTES)]
     return {"kind": kind, "sha256": hashlib.sha256(data).hexdigest(),
-            "original_bytes": size, "pages": pages}
+            "original_bytes": size, "pages": pages,
+            "stored_bytes": sum(len(page) for page in pages)}
 
 
 def stored_name(document_id, page=0):

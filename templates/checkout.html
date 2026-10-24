@@ -401,6 +401,13 @@ footer{ display:none !important; }
 
 /* Lens details */
 .ow-ck-lens{ font-size:11px;color:#6366f1;margin-top:4px; }
+.ow-rx-upload{margin:10px 0;padding:12px;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc;color:#334155;font-size:13px}
+.ow-rx-upload p{margin:5px 0;color:#64748b}
+.ow-rx-upload input{display:block;max-width:100%;margin:8px 0}
+.ow-rx-upload-list{margin:8px 0 0;padding-left:18px}
+.ow-rx-upload-list li{margin:5px 0;overflow-wrap:anywhere}
+.ow-rx-upload-remove{margin-left:8px;border:0;background:transparent;color:#b91c1c;text-decoration:underline;cursor:pointer;font:inherit}
+.ow-rx-upload-wait{font-weight:600;color:#4338ca !important}
 
 /* Address card */
 .ow-ck-addr{
@@ -1106,6 +1113,28 @@ footer{ display:none !important; }
               {% if item.right_pwr and item.left_pwr %} &middot; {% endif %}
               {% if item.left_pwr %}L: {{ item.left_pwr }}{% if item.left_cyl %}/{{ item.left_cyl }}{% endif %}{% endif %}
             </p>
+            {% endif %}
+            {% if not order_id and not is_lens_line and item.vertical != 'CONTACT_LENS' and (item.product_category|default('')|trim|lower) not in ('contact lens', 'contact lenses') and ((item.right_pwr is not none and item.right_pwr != '') or (item.left_pwr is not none and item.left_pwr != '')) %}
+            {% set rx_uploads = rx_documents.get(loop.index0, []) if rx_documents is defined else [] %}
+            <section class="ow-rx-upload" data-rx-upload-line="{{ loop.index0 }}"
+                     data-product-id="{{ item.product_id }}">
+              <strong>Have your prescription? Add a photo or screenshot (optional)</strong>
+              <p>Phone photos and screenshots work.</p>
+              <input type="file" accept="image/*,application/pdf"
+                     aria-label="Add a prescription photo or screenshot">
+              <div class="ow-rx-upload-status" aria-live="polite"></div>
+              <p class="ow-rx-upload-wait" hidden>Uploading… reading can take up to 30 s</p>
+              <ul class="ow-rx-upload-list">
+                {% for rx_doc in rx_uploads %}
+                <li data-document-id="{{ rx_doc.document_id }}">
+                  Prescription photo · {{ rx_doc.pages }} page{{ 's' if rx_doc.pages != 1 }}
+                  {% if rx_doc.created_at %}<span>{{ rx_doc.created_at }}</span>{% endif %}
+                  <button type="button" class="ow-rx-upload-remove"
+                          data-document-id="{{ rx_doc.document_id }}">Remove</button>
+                </li>
+                {% endfor %}
+              </ul>
+            </section>
             {% endif %}
             {# --- View Prescription / Details button --- #}
             {% if item.right_pwr or item.left_pwr or item.addon_1_name or item.addon_2_name or item.addon_3_name or item.recommendations or item.optical_lens_type %}
@@ -2651,6 +2680,82 @@ function onScriptLoad() {
 })();
 </script>
 {% endif %}
+
+<script>
+(function(){
+  function makeJpeg(file){
+    if (!file.type || file.type.indexOf('image/') !== 0 ||
+        typeof createImageBitmap !== 'function') return Promise.resolve(file);
+    return createImageBitmap(file).then(function(image){
+      var scale = Math.min(1, 2400 / Math.max(image.width, image.height));
+      var canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+      image.close();
+      return new Promise(function(resolve){
+        canvas.toBlob(function(blob){
+          resolve(blob ? new File([blob], 'prescription.jpg',
+                                  {type:'image/jpeg'}) : file);
+        }, 'image/jpeg', 0.9);
+      });
+    }).catch(function(){ return file; });
+  }
+  function parseRxResponse(response){
+    var fallback = 'Upload failed. Please try a smaller photo or try again.';
+    return response.text().then(function(text){
+      var data;
+      try { data = JSON.parse(text); }
+      catch(error){ throw new Error(fallback); }
+      if (!data || typeof data !== 'object' || !response.ok || !data.ok) {
+        throw new Error((data && data.message) || fallback);
+      }
+      return data;
+    });
+  }
+  document.querySelectorAll('.ow-rx-upload').forEach(function(box){
+    var input = box.querySelector('input[type=file]');
+    var status = box.querySelector('.ow-rx-upload-status');
+    var wait = box.querySelector('.ow-rx-upload-wait');
+    var list = box.querySelector('.ow-rx-upload-list');
+    input.addEventListener('change', function(){
+      if (!input.files || !input.files[0]) return;
+      var file = input.files[0];
+      wait.hidden = false; status.textContent = '';
+      makeJpeg(file).then(function(prepared){
+        var form = new FormData();
+        form.append('line', box.dataset.rxUploadLine);
+        form.append('product_id', box.dataset.productId);
+        form.append('document', prepared, prepared.name || file.name);
+        return fetch('/checkout/rx-upload', {
+          method:'POST', credentials:'same-origin', body:form
+        }).then(parseRxResponse).then(function(data){
+          var li = document.createElement('li');
+          li.dataset.documentId = data.document_id;
+          li.appendChild(document.createTextNode(
+            'Prescription photo · ' + data.pages + ' page' + (data.pages === 1 ? '' : 's') + ' '));
+          var remove = document.createElement('button');
+          remove.type = 'button'; remove.className = 'ow-rx-upload-remove';
+          remove.dataset.documentId = data.document_id; remove.textContent = 'Remove';
+          li.appendChild(remove); list.prepend(li);
+          status.textContent = data.message || '';
+        });
+      }).catch(function(error){ status.textContent = error.message; })
+        .finally(function(){ wait.hidden = true; input.value = ''; });
+    });
+    list.addEventListener('click', function(event){
+      var button = event.target.closest('.ow-rx-upload-remove');
+      if (!button) return;
+      button.disabled = true;
+      fetch('/checkout/rx-upload/' + button.dataset.documentId + '/remove', {
+        method:'POST', credentials:'same-origin'
+      }).then(parseRxResponse).then(function(data){
+        button.closest('li').remove(); status.textContent = 'Prescription photo removed.';
+      }).catch(function(error){ button.disabled = false; status.textContent = error.message; });
+    });
+  });
+})();
+</script>
 
 {% else %}
 <!-- Empty cart -->

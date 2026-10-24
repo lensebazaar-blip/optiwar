@@ -63,6 +63,7 @@
     <p class="not-found">Order not found.</p>
   {% elif result %}
     <h2>Order <code>{{ result.order_id }}</code></h2>
+    <p><a href="/ops/rx-documents?order={{ result.order_id|urlencode }}">Prescription photos for this order</a></p>
     <p class="muted">Customer {{ result.customer_id }} · {{ result.date_created or 'Order date unavailable' }} · {{ result.site_from or 'Site unavailable' }} · {{ result.status }}</p>
     {% if result.warnings %}
       <section class="box" role="alert" aria-label="Scan warnings">

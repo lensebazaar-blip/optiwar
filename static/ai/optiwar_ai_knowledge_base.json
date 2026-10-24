@@ -733,9 +733,18 @@
     },
     {
       "question": "Can I upload my prescription as an image instead of entering values?",
-      "answer": "Yes. During the prescription entry step, you can upload a photo or scan of your prescription. Our team will read the values from the uploaded image and configure the correct lenses for your order.",
+      "answer": "Yes. Enter your values on the prescription step, then at checkout tap 'Add a photo or screenshot' under the frame — a phone photo or a screenshot works. Our team checks your typed values against the photo before your lenses are made.",
       "category": "prescription",
       "intent": "rx_upload",
+      "confidence": "high",
+      "source_url": "https://optiwar.com/add_prescription",
+      "agent_action": "inform_customer"
+    },
+    {
+      "question": "I've already ordered and paid. How do I send my prescription photo?",
+      "answer": "Attach the photo here in the chat with the photo button; our team will check it against your order before your lenses are made.",
+      "category": "prescription",
+      "intent": "rx_upload_after_order",
       "confidence": "high",
       "source_url": "https://optiwar.com/add_prescription",
       "agent_action": "inform_customer"

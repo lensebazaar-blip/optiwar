@@ -76,6 +76,8 @@ BEARER_EXEMPT_ENDPOINTS = {
     "main.ops_reverse_pickup_request_decision",
     "main.ops_reverse_pickup_forward_shipped",
     "main.ops_reverse_pickup_complete",
+    "main.order_rx_review",
+    "main.order_rx_reparse",
 }
 
 

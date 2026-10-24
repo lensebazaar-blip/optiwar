@@ -111,6 +111,10 @@ class WebhookReachabilityTests(unittest.TestCase):
                          if "main.%s" % view not in BEARER_EXEMPT_ENDPOINTS)
         self.assertEqual(missing, [])
 
+    def test_rx_document_review_and_reparse_are_bearer_exempt(self):
+        self.assertIn("main.order_rx_review", BEARER_EXEMPT_ENDPOINTS)
+        self.assertIn("main.order_rx_reparse", BEARER_EXEMPT_ENDPOINTS)
+
     def test_the_guard_still_rejects_a_missing_origin_in_general(self):
         # The exemption is per-endpoint, not a weakening of the decision.
         self.assertEqual(evaluate(None, None, "https://optiwar.com/",
