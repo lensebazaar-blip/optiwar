@@ -486,18 +486,20 @@ def _hit(concept, text, latin):
     return any(n in text for n in native)
 
 
-_RX_UPLOAD_VERBS = frozenset((
-    "upload", "uploading", "uplod", "uplode", "uploud", "send", "sends",
-    "sending", "attach", "attaches", "attaching", "share", "shares",
-    "sharing", "bhejna", "dalna", "daalna", "daalu", "dalu", "daalun",
-    "dalun"))
-_RX_UPLOAD_TARGETS = frozenset((
+_RX_UPLOAD_WORDS = frozenset((
+    "upload", "uploading", "uplod", "uplode", "uploud", "attach",
+    "attaches", "attaching"))
+_RX_SEND_WORDS = frozenset(("send", "sends", "sending", "share", "shares",
+                            "sharing"))
+_RX_PHOTO_WORDS = frozenset((
     "photo", "photos", "image", "images", "pic", "pics", "screenshot",
-    "screenshots", "parchi", "slip"))
-_RX_UPLOAD_TARGET_PHRASES = (
+    "screenshots"))
+_RX_EYE_NUMBER_PHRASES = (
     "eye number", "eyes number", "aankh ka number", "ankh ka number",
     "aankhon ka number", "ankhon ka number", "aankho ka number",
     "ankho ka number")
+_RX_UPLOAD_CUES = ("can i", "can we", "want to", "wan to", "have to",
+                   "need to", "should i", "do i")
 
 
 def is_rx_upload_request(text):
@@ -505,17 +507,24 @@ def is_rx_upload_request(text):
     normalized = unicodedata.normalize("NFKC", text or "").lower()
     normalized = re.sub(r"[^\w]+", " ", normalized)
     words = normalized.split()
+    word_set = set(words)
     _, latin = _norm_for_match(normalized)
-    has_upload_verb = any(
-        word in _RX_UPLOAD_VERBS or word.startswith("bhej")
-        for word in words)
-    has_upload_verb = has_upload_verb or "photo kaise" in normalized
-    has_rx_word = (_hit(_C_RX, normalized, latin)
-                   or _hit(_C_POWER, normalized, latin)
-                   or bool(set(words) & _RX_UPLOAD_TARGETS)
-                   or any(phrase in normalized
-                          for phrase in _RX_UPLOAD_TARGET_PHRASES))
-    return has_upload_verb and has_rx_word
+    rx = (_hit(_C_RX, normalized, latin)
+          or _hit(_C_POWER, normalized, latin)
+          or bool(word_set & {"parchi", "slip"})
+          or any(phrase in normalized for phrase in _RX_EYE_NUMBER_PHRASES))
+    photo = bool(word_set & _RX_PHOTO_WORDS)
+    upload = bool(word_set & _RX_UPLOAD_WORDS)
+    bhej = (any(word.startswith("bhej") for word in words)
+            or bool(word_set & {"dalna", "daalna", "daalu", "dalu",
+                                "daalun", "dalun"})
+            or "photo kaise" in normalized)
+    send = bool(word_set & _RX_SEND_WORDS)
+    cue = (bool(word_set & {"how", "where", "kaise", "kahan"})
+           or any(phrase in normalized for phrase in _RX_UPLOAD_CUES))
+    return ((upload and (rx or photo))
+            or (bhej and rx)
+            or (send and rx and cue))
 
 
 def classify_intent(text):

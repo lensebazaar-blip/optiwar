@@ -71,6 +71,12 @@ class EvalSuiteTests(unittest.TestCase):
                 "show my saved prescription",
                 "what is my prescription on order EXXYXS-826552",
                 "send me round frames",
+                "send me a photo of this frame",
+                "can you share the power range",
+                "share more pics of the frame",
+                "photo bhejo is frame ki",
+                "can you send my prescription to my email",
+                "what power lenses do you have, send details",
                 "upload",
                 "i uploaded the photo",
                 "yes"):
