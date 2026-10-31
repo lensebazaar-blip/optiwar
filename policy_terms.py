@@ -411,13 +411,33 @@ ACCEPTANCE_COM = (
 )
 ACCEPTANCE_TEXT = {SITE_IN: ACCEPTANCE_IN, SITE_COM: ACCEPTANCE_COM}
 
+# AI Glasses (ai_glasses.py, optiwar.in only). The clause and the acceptance
+# sentence join the .in policy when the release flag goes on, as a new version;
+# until then .in stays on its sealed 2026-10-03 version.
+AIG_FLAG = "AI_GLASSES_IN_ENABLED"
+AIG_RETURNS_VERSION_DATE = "2026-10-31"
+AIG_CLAUSE_BEFORE = "14. RETURN DECISIONS ARE PRODUCT-SPECIFIC"
+AIG_CLAUSE = """\
+13A. AI GLASSES (SMART EYEWEAR) — DEAD ON ARRIVAL ONLY
+
+AI Glasses are sold separately from Optiwar frames, with their own lens options, and are not part of Optiwar's complimentary-lens offer.
+
+AI Glasses are returnable only if the product is dead on arrival (DOA): it does not switch on or work when first received. The customer must report it to Optiwar customer service with the order number on receipt, using the return request in My Orders within the return-request period. A DOA claim is subject to inspection.
+
+AI Glasses are not accepted for discretionary return, including after prescription lenses have been fitted.
+
+Incorrectly supplied goods will be reviewed separately.
+
+"""
+AIG_ACCEPTANCE_IN = " AI Glasses are returnable only if dead on arrival (DOA)."
+
 FORM_FIELD = "terms_accepted"
 FORM_VERSION_FIELD = "returns_policy_version"
 
 # Disclosure flags recorded YES/NO against the order.
 DISCLOSURES = ("lens_deduction_shown", "reverse_charge_shown",
                "contact_lens_hygiene_shown", "international_non_returnable_shown",
-               "returned_parcel_holding_shown")
+               "returned_parcel_holding_shown", "ai_glasses_doa_shown")
 
 SCHEMA_VERSIONS = """
 CREATE TABLE IF NOT EXISTS policy_versions (
@@ -482,19 +502,37 @@ def terms_text():
         return fh.read()
 
 
+def _aig_live(key):
+    return key == SITE_IN and os.environ.get(AIG_FLAG, "") == "1"
+
+
+def returns_text(key):
+    """The returns policy in force for a site key, with the AI Glasses clause once live."""
+    text = RETURNS_TEXT[key]
+    if _aig_live(key) and AIG_CLAUSE_BEFORE in text:
+        text = text.replace(AIG_CLAUSE_BEFORE, AIG_CLAUSE + AIG_CLAUSE_BEFORE, 1)
+    return text
+
+
+def acceptance_text(key):
+    return ACCEPTANCE_TEXT[key] + (AIG_ACCEPTANCE_IN if _aig_live(key) else "")
+
+
 def current(site):
     """Versions in force for a storefront: {kind: {version, sha256, text}}."""
     key = site_key(site)
-    returns = RETURNS_TEXT[key] + "\n\nACCEPTANCE TEXT:\n" + ACCEPTANCE_TEXT[key]
+    accept = acceptance_text(key)
+    returns = returns_text(key) + "\n\nACCEPTANCE TEXT:\n" + accept
     terms_body = terms_text()
+    version_date = AIG_RETURNS_VERSION_DATE if _aig_live(key) else RETURNS_VERSION_DATE[key]
     return {
         "site": key,
         "terms": {"version": TERMS_VERSION_DATE, "sha256": sha(terms_body),
                   "text": terms_body},
-        "returns": {"version": "%s-%s" % (RETURNS_VERSION_DATE[key], key),
+        "returns": {"version": "%s-%s" % (version_date, key),
                     "sha256": sha(returns), "text": returns},
-        "acceptance_text": ACCEPTANCE_TEXT[key],
-        "acceptance_sha256": sha(ACCEPTANCE_TEXT[key]),
+        "acceptance_text": accept,
+        "acceptance_sha256": sha(accept),
     }
 
 
@@ -593,10 +631,14 @@ def disclosures_for(cart, site):
     """Which disclosures the checkout shows for this cart on this site — all
     flags present, YES/NO, so the record says what was *not* shown too."""
     key = site_key(site)
-    has_custom = any(s["customized"] for s in spectacle_summary(cart))
+    # AI Glasses are DOA-only, so the discretionary lens deduction is about frames.
+    frames = [i for i in cart or [] if not i.get("ai_glasses")]
+    has_custom = any(s["customized"] for s in spectacle_summary(frames))
     has_cl = any(is_contact_lens(i) for i in cart or [])
+    has_aig = any(i.get("ai_glasses") for i in cart or [])
     intl = key == SITE_COM
     return {
+        "ai_glasses_doa_shown": bool(has_aig and not intl),
         "lens_deduction_shown": bool(has_custom and not intl),
         "reverse_charge_shown": not intl,
         "contact_lens_hygiene_shown": has_cl,
@@ -745,4 +787,4 @@ def render_html(text):
 
 
 def returns_html(site):
-    return render_html(RETURNS_TEXT[site_key(site)])
+    return render_html(returns_text(site_key(site)))

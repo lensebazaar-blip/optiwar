@@ -648,11 +648,19 @@ def ops_preview_link():
                     "expires_in_days": PREVIEW_DAYS})
 
 
+# A fully refunded order (refunds.FULL, accepted or done by the provider) no longer
+# counts as sold. A partial refund names no line, so its pairs stay counted.
+_REFUNDED_IN_FULL = ("SELECT 1 FROM order_refunds r WHERE r.order_id = o.order_id "
+                     "AND r.refund_type = 'FULL' AND r.status IN ('PENDING', 'PROCESSED')")
+
+
 def sold_counts(cursor):
-    """Units sold per product: fulfilled (paid) lines, excluding test orders."""
+    """Units sold per product: fulfilled (paid) lines, excluding test orders and
+    orders refunded in full."""
     cursor.execute("SELECT o.product_id, SUM(o.order_quantity) AS sold FROM orders o "
                    "JOIN ai_glasses_products a ON a.product_id = o.product_id "
                    "WHERE o.fulfillment_status = 'fulfilled' AND o.is_test = 0 AND o.archived = 0 "
+                   "AND NOT EXISTS (" + _REFUNDED_IN_FULL + ") "
                    "GROUP BY o.product_id")
     return {int(r["product_id"]): int(r["sold"] or 0) for r in cursor.fetchall()}
 
