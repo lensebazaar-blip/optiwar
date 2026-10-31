@@ -109,7 +109,10 @@ DEPLOY_SET = ("__init__.py", "log_hygiene.py", "pricing.py", "acr.py", "ai_api.p
               "templates/_product_reviews.html", "templates/_picture.html",
               "templates/base.html", "static/js/chat-widget.js",
               "templates/all_frames.html", "templates/guide_frame_shapes.html",
-              "templates/ai_faq.html")
+              "templates/ai_faq.html",
+              # AI Glasses (optiwar.in, behind AI_GLASSES_IN_ENABLED) + the .in homepage JSON-LD currency fix
+              "ai_glasses.py", "templates/ai_glasses/landing.html", "templates/ai_glasses/product.html",
+              "static/ai-glasses/aig.css", "static/ai-glasses/aig.js", "templates/index.html")
 
 # Files that do not exist in production yet. Absence is otherwise a block, so
 # that a path typo or a file missing from the release cannot be mistaken for a
@@ -140,7 +143,9 @@ NEW_IN_RELEASE = ("log_hygiene.py", "test_identity.py", "ai_language.py", "rx_lo
                   "templates/lens_select.html",
                   "templates/_lens_eye_cards.html",
                   "templates/product_page_lens.html",
-                  "templates/_product_reviews.html")
+                  "templates/_product_reviews.html",
+                  "ai_glasses.py", "templates/ai_glasses/landing.html", "templates/ai_glasses/product.html",
+                  "static/ai-glasses/aig.css", "static/ai-glasses/aig.js")
 
 # Running content that matches no commit but has been read line by line and
 # found safe to replace, keyed by md5. The provenance guard exists to stop a
@@ -553,6 +558,25 @@ def catalogue_columns():
     raise SystemExit("catalogue.py no longer defines GMC_COLUMNS")
 
 
+def ai_glasses_tables():
+    """``ai_glasses.TABLES``, read from the source without importing flask.
+
+    The two DDL strings are module-level constants, so they are evaluated from
+    the parsed source and paired with their table names.
+    """
+    with open(os.path.join(REPO, "ai_glasses.py"), encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    consts = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant) \
+                and isinstance(node.value.value, str):
+            for t in node.targets:
+                if getattr(t, "id", None):
+                    consts[t.id] = node.value.value
+    return [("ai_glasses_products", consts["SCHEMA"]),
+            ("ai_glasses_status_log", consts["STATUS_LOG_SCHEMA"])]
+
+
 def migration():
     """The additive schema as (label, DDL), in application order.
 
@@ -595,6 +619,8 @@ def migration():
               for name, ddl in face_cart_module().TABLES]
     items += [("%s (table)" % name, " ".join(ddl.split()))
               for name, ddl in favorites_module().TABLES]
+    items += [("%s (table)" % name, " ".join(ddl.split()))
+              for name, ddl in ai_glasses_tables()]
     ordx = order_rx_documents_module()
     items += [("%s (table)" % name, " ".join(ddl.split()))
               for name, ddl in ordx.TABLES]
@@ -1050,6 +1076,8 @@ def cmd_apply(args):
     remote("ln -sfn %s %s/previous" % (shlex.quote(rel), RELEASES))
     print("backed up to %s" % rel)
 
+    for folder in sorted({os.path.dirname(name) for name, _o, _n, _r in rows} - {""}):
+        remote("mkdir -p %s/%s" % (APP_DIR, shlex.quote(folder)))
     for name, _o, _n, _r in rows:
         subprocess.run(["scp", "-q", os.path.join(REPO, name),
                         "%s:%s/%s" % (HOST, APP_DIR, name)], check=True)

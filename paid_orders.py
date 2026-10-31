@@ -206,12 +206,21 @@ def deduct_stock(cursor, order_id, currency, site, logger=None):
         return result
 
     cursor.execute(
-        "SELECT order_line_id, product_id, order_quantity, order_total "
-        "FROM orders WHERE order_id=%s", (order_id,))
+        "SELECT o.order_line_id, o.product_id, o.order_quantity, o.order_total, "
+        "p.product_vertical FROM orders o LEFT JOIN products p ON p.product_id = o.product_id "
+        "WHERE o.order_id=%s", (order_id,))
     for line in cursor.fetchall():
         pid = line['product_id']
         qty = line['order_quantity'] or 0
         line_total = line['order_total'] or 0
+        if line.get('product_vertical') == 'SMART_EYEWEAR':
+            # AI Glasses: fixed stock, never reduced; staff set the sales status instead
+            # (ai_glasses.py). The line is fulfilled and counts as sold.
+            result['fulfilled_count'] += 1
+            cursor.execute(
+                "UPDATE orders SET fulfillment_status='fulfilled' WHERE order_line_id=%s",
+                (line['order_line_id'],))
+            continue
         cursor.execute(
             "UPDATE products SET product_quantity = product_quantity - %s "
             "WHERE product_id = %s AND product_quantity >= %s", (qty, pid, qty))

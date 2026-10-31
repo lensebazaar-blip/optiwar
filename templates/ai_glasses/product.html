@@ -1,0 +1,144 @@
+{% extends 'base.html' %}
+{# AI Glasses product page for optiwar.in (ai_glasses.product): own lens set and Ray-Ban prescription limits. #}
+{% block title %}{{ p.product_name }} | Optiwar{% endblock %}
+{% block meta_description %}{{ p.description_seo }}{% endblock %}
+{% block og_title %}{{ p.product_name }} | Optiwar{% endblock %}
+{% block og_url %}{{ site_url }}{{ p.url }}{% endblock %}
+{% block robots %}{{ robots }}{% endblock %}
+{% block canonical_url %}{{ site_url }}{{ p.url }}{% endblock %}
+{% block hreflang_in %}{{ site_url }}{{ p.url }}{% endblock %}
+{% block hreflang_default %}{{ site_url }}{{ p.url }}{% endblock %}
+{% block lens_types_header %}{% endblock %}
+{% block frame_filter_bar %}{% endblock %}
+{% block footer_about %}<p class="ow-footer-text">AI glasses are sold separately from Optiwar frames, with their own lens options. Optiwar frames include complimentary prescription lenses.</p>{% endblock %}
+
+{% block jsonld_extra %}
+<script type="application/ld+json">
+{{ {"@context": "https://schema.org/", "@type": "Product", "name": p.product_name, "image": p.images,
+    "description": p.product_details, "sku": p.product_code, "mpn": p.mpn, "gtin13": p.gtin,
+    "brand": {"@type": "Brand", "name": p.brand}, "color": p.frame_colour ~ " / " ~ p.lens_colour,
+    "size": p.size_label ~ " (" ~ p.size_spec ~ ")",
+    "offers": {"@type": "Offer", "url": site_url ~ p.url, "priceCurrency": "INR", "price": p.price,
+               "availability": {"PREORDER": "https://schema.org/PreOrder", "SELLING_FAST": "https://schema.org/InStock", "SOLD_OUT": "https://schema.org/OutOfStock"}[p.dispatch.status],
+               "itemCondition": "https://schema.org/NewCondition",
+               "seller": {"@type": "Organization", "name": "Optiwar"}}}|tojson }}
+</script>
+{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='ai-glasses/aig.css') }}?v=2">
+<div class="aig aig-pdp" id="aig-pdp">
+  {% if preview %}<div class="aig-preview">Preview: AI Glasses are not live on optiwar.in yet. This page is hidden from customers and search engines.</div>{% endif %}
+  <nav class="aig-crumbs"><a href="/">Home</a> / <a href="{{ url_for('ai_glasses.landing') }}">AI Glasses</a> / {{ p.family_title }}</nav>
+
+  <div class="aig-pdp__grid">
+    <div class="aig-gallery">
+      <div class="aig-gallery__main"><img id="aig-main-img" src="{{ p.images[0] }}" alt="{{ p.product_name }}"></div>
+      <div class="aig-gallery__thumbs">
+        {% for img in p.images %}<button type="button" class="aig-thumb{% if loop.first %} is-active{% endif %}" data-src="{{ img }}"><img src="{{ img }}" alt=""></button>{% endfor %}
+      </div>
+    </div>
+
+    <form class="aig-buy" method="post" action="{{ url_for('ai_glasses.add_to_bag') }}" id="aig-form" novalidate>
+      <input type="hidden" name="product_id" value="{{ p.product_id }}">
+      <div class="aig-buy__top">
+        <span class="aig-buy__brand">{{ p.brand }}</span>
+        <span class="aig-badge aig-badge--{{ p.dispatch.status|lower }}">{{ p.dispatch.badge }}</span>
+      </div>
+      <h1 class="aig-buy__title">{{ p.brand }} {{ p.family_title }}</h1>
+      <p class="aig-buy__variant">{{ p.frame_colour }} · {{ p.lens_colour }} · {{ p.size_label }}</p>
+
+      <div class="aig-price">
+        <div class="aig-price__main" id="aig-price" data-base="{{ p.price }}">{{ p.price|aig_money }}</div>
+        {% if p.off %}<div class="aig-price__mrp"><s>MRP {{ p.mrp|aig_money }}</s> <em>{{ p.off }}% off</em></div>
+        <div class="aig-price__note">Introductory offer, inclusive of all taxes</div>
+        {% else %}<div class="aig-price__note">MRP, inclusive of all taxes</div>{% endif %}
+        <div class="aig-price__dispatch">{{ p.dispatch.text }}</div>
+      </div>
+
+      <div class="aig-field">
+        <span class="aig-field__label">Style</span>
+        <div class="aig-swatches">
+          {% for s in swatches %}<a class="aig-swatch{% if s.product_id == p.product_id %} is-active{% endif %}" href="{{ s.url }}" title="{{ s.frame_colour }} / {{ s.lens_colour }}"><img src="{{ s.images[0] }}" alt="{{ s.frame_colour }} / {{ s.lens_colour }}"></a>{% endfor %}
+        </div>
+        <p class="aig-field__value">Frame: <strong>{{ p.frame_colour }}</strong> · Lens: <strong>{{ p.lens_colour }}</strong></p>
+      </div>
+
+      <div class="aig-field">
+        <span class="aig-field__label">Frame size <small>lens width - bridge - temple (mm)</small></span>
+        <div class="aig-sizebox">
+          {% for s in sizes %}{% set v = fit.sizes[s.product_id] if fit.state == 'checked' else none %}<a class="aig-sizebox__opt{% if s.product_id == p.product_id %} is-active{% endif %}" href="{{ s.url }}"><strong>{{ s.size_label }}</strong><span>{{ s.size_spec }}</span>{% if v %}<em class="aig-fit {{ 'is-match' if v.matched else 'is-miss' }}">{{ v.label if v.matched else 'Not a match' }}</em>{% endif %}</a>{% endfor %}
+        </div>
+        <p class="aig-fit__note">
+          {% if fit.state == 'checked' %}Face fit{% if fit.person %} for {{ fit.person }}{% endif %}, from your Optiwar face scan.{% if not fit.sizes[p.product_id].matched %} {{ fit.sizes[p.product_id].reasons|join('; ') }}.{% endif %}
+          {% elif fit.state == 'no_scan' %}<a href="/tryon">Scan your face</a> to check which size fits you.
+          {% elif fit.state == 'signed_out' %}<a href="/auth/login?next={{ p.url }}">Sign in</a> and <a href="/tryon">scan your face</a> to check which size fits you.
+          {% endif %}
+        </p>
+      </div>
+
+      <fieldset class="aig-field aig-lenses">
+        <legend class="aig-field__label">Lenses</legend>
+        {% for lens in lenses %}
+        <label class="aig-choice">
+          <input type="radio" name="lens" value="{{ lens.key }}" data-price="{{ lens.price }}" data-rx="{{ 1 if lens.rx else 0 }}"{% if loop.first %} checked{% endif %}>
+          <span class="aig-choice__head"><strong>{{ lens.label }}</strong><em>{{ ('+ ' ~ (lens.price|aig_money)) if lens.price else 'Included' }}</em></span>
+          <span class="aig-choice__help">{{ lens.help }}</span>
+        </label>
+        {% endfor %}
+      </fieldset>
+
+      {% if p.rx_allowed %}
+      <div class="aig-rx" id="aig-rx" hidden>
+        <div class="aig-rx__mode">
+          <label><input type="radio" name="rx_mode" value="now" checked> Enter prescription now</label>
+          <label><input type="radio" name="rx_mode" value="later"> Send it after ordering</label>
+        </div>
+        <div class="aig-rx__table" id="aig-rx-table">
+          <table>
+            <thead><tr><th></th><th>SPH</th><th>CYL</th><th>AXIS</th><th class="aig-add">ADD</th></tr></thead>
+            <tbody>
+              {% for eye, label in [('right', 'Right (OD)'), ('left', 'Left (OS)')] %}
+              <tr>
+                <th>{{ label }}</th>
+                <td><select name="{{ eye }}_sph">{% for i in range((rx_limits.sph[0]*4)|int, (rx_limits.sph[1]*4)|int + 1) %}{% set v = i / 4 %}<option value="{{ '%.2f'|format(v) }}"{% if i == 0 %} selected{% endif %}>{{ '%+.2f'|format(v) if v else '0.00' }}</option>{% endfor %}</select></td>
+                <td><select name="{{ eye }}_cyl">{% for i in range((rx_limits.cyl[1]*4)|int, (rx_limits.cyl[0]*4)|int - 1, -1) %}{% set v = i / 4 %}<option value="{{ '%.2f'|format(v) }}">{{ '%.2f'|format(v) }}</option>{% endfor %}</select></td>
+                <td><select name="{{ eye }}_axis"><option value="0">-</option>{% for a in range(5, 181, 5) %}<option value="{{ a }}">{{ a }}</option>{% endfor %}</select></td>
+                <td class="aig-add"><select name="{{ eye }}_add"><option value="0">-</option>{% for i in range((rx_limits.add[0]*4)|int, (rx_limits.add[1]*4)|int + 1) %}<option value="{{ '%.2f'|format(i / 4) }}">+{{ '%.2f'|format(i / 4) }}</option>{% endfor %}</select></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <label class="aig-pd">Pupillary distance (PD, mm)
+            <select name="pd">{% for d in range(rx_limits.pd[0], rx_limits.pd[1] + 1) %}<option value="{{ d }}"{% if d == 63 %} selected{% endif %}>{{ d }}</option>{% endfor %}</select>
+          </label>
+          <p class="aig-rx__note">Accepted for this model: total power (SPH + CYL) {{ '%+.2f'|format(rx_limits.total[0]) }} to {{ '%+.2f'|format(rx_limits.total[1]) }}. Our opticians confirm every prescription with you before the lenses are made.</p>
+        </div>
+        <p class="aig-rx__later" id="aig-rx-later" hidden>After ordering, send a photo of your prescription with your order number. We confirm it with you before the lenses are made.</p>
+      </div>
+      {% endif %}
+
+      {% with messages = get_flashed_messages() %}{% if messages %}<ul class="aig-errors">{% for m in messages %}<li>{{ m }}</li>{% endfor %}</ul>{% endif %}{% endwith %}
+
+      {% if p.dispatch.can_buy %}
+      <button type="submit" class="aig-btn aig-btn--accent aig-btn--block">Add to bag · <span id="aig-total">{{ p.price|aig_money }}</span></button>
+      {% else %}
+      <button type="button" class="aig-btn aig-btn--block" disabled>Sold out</button>
+      {% endif %}
+
+      <details class="aig-acc" open><summary>About this product</summary><p>{{ p.product_details }}</p></details>
+      <details class="aig-acc"><summary>Specifications</summary>
+        <dl class="aig-specs">
+          <div><dt>Brand</dt><dd>{{ p.brand }}</dd></div>
+          <div><dt>Model</dt><dd>{{ p.mpn }}</dd></div>
+          <div><dt>Frame / lens</dt><dd>{{ p.frame_colour }} / {{ p.lens_colour }}</dd></div>
+          <div><dt>Size</dt><dd>{{ p.size_label }} ({{ p.size_spec }})</dd></div>
+          {% if p.gtin %}<div><dt>EAN</dt><dd>{{ p.gtin }}</dd></div>{% endif %}
+        </dl>
+      </details>
+      <details class="aig-acc"><summary>Returns</summary><p>Returns are accepted only if the product is dead on arrival (DOA). Contact customer service with your order number on receipt.</p></details>
+    </form>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='ai-glasses/aig.js') }}?v=1" defer></script>
+{% endblock %}

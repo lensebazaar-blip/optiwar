@@ -1,0 +1,112 @@
+{% extends 'base.html' %}
+{# AI Glasses launch page for optiwar.in (ai_glasses.landing). Own lens set; no free-lens scheme. #}
+{% block title %}AI Glasses - Ray-Ban Meta Wayfarer Gen 2 | Optiwar{% endblock %}
+{% block meta_description %}Ray-Ban Meta Wayfarer (Gen 2) AI glasses in India at Optiwar.{% if offer_off %} Introductory {{ offer_off }}% off MRP.{% endif %} Prescription lenses fitted by our opticians. Prices include GST.{% endblock %}
+{% block meta_keywords %}ai glasses, ray-ban meta, ray-ban meta wayfarer gen 2, smart glasses india, prescription ai glasses{% endblock %}
+{% block og_title %}AI Glasses - Ray-Ban Meta | Optiwar{% endblock %}
+{% block og_url %}{{ site_url }}/ai-glasses{% endblock %}
+{% block robots %}{{ robots }}{% endblock %}
+{% block canonical_url %}{{ site_url }}/ai-glasses{% endblock %}
+{% block hreflang_in %}{{ site_url }}/ai-glasses{% endblock %}
+{% block hreflang_default %}{{ site_url }}/ai-glasses{% endblock %}
+{% block lens_types_header %}{% endblock %}
+{% block frame_filter_bar %}{% endblock %}
+{% block footer_about %}<p class="ow-footer-text">AI glasses are sold separately from Optiwar frames, with their own lens options. Optiwar frames include complimentary prescription lenses.</p>{% endblock %}
+
+{% block jsonld_extra %}
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "ItemList", "name": "AI Glasses at Optiwar",
+ "itemListElement": [{% for p in products %}{"@type": "ListItem", "position": {{ loop.index }}, "url": "{{ site_url }}{{ p.url }}", "name": {{ p.product_name|tojson }}}{{ "," if not loop.last }}{% endfor %}]}
+</script>
+{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='ai-glasses/aig.css') }}?v=2">
+<div class="aig" id="aig-plp">
+  {% if preview %}<div class="aig-preview">Preview: AI Glasses are not live on optiwar.in yet. This page is hidden from customers and search engines.</div>{% endif %}
+
+  <section class="aig-hero">
+    <div class="aig-hero__copy">
+      <p class="aig-hero__eyebrow">AI Glasses · New at Optiwar</p>
+      <h1 class="aig-hero__title">AI glasses, made for your eyes</h1>
+      <p class="aig-hero__sub">Ray-Ban Meta{% if offer_off %} at an introductory {{ offer_off }}% off MRP{% endif %}, with prescription lenses fitted by our opticians.</p>
+      <a class="aig-btn aig-btn--light" href="#family-{{ families[0].code if families else '' }}">Shop Ray-Ban Meta</a>
+      <ul class="aig-hero__chips">
+        <li>Genuine{% if offer_off %}, {{ offer_off }}% off MRP{% endif %}</li>
+        <li>Prescription lenses</li>
+        <li>GST invoice</li>
+        <li>Free shipping in India</li>
+      </ul>
+    </div>
+    {% if products %}
+    <div class="aig-hero__visual" aria-hidden="true">
+      <svg class="aig-hero__rings" viewBox="0 0 400 400"><circle cx="200" cy="200" r="190"/><circle cx="200" cy="200" r="140"/><circle cx="200" cy="200" r="90"/></svg>
+      <img src="{{ products[0].images[0] }}" alt="">
+    </div>
+    {% endif %}
+  </section>
+
+  {% for fam in families %}
+  <section class="aig-family" id="family-{{ fam.code }}">
+    <div class="aig-family__head">
+      <div>
+        <p class="aig-family__brand">{{ fam.brand }}</p>
+        <h2 class="aig-family__title">{{ fam.title }}</h2>
+        <p class="aig-family__blurb">Two sizes, {{ fam.styles|length }} lens styles{% if fam.rx %}, and ready for your prescription{% endif %}.</p>
+      </div>
+      <p class="aig-family__meta"><strong>From {{ fam.price_from|aig_money }}</strong><span>{{ fam.styles|length }} styles</span></p>
+    </div>
+
+    <div class="aig-grid">
+      {% for style in fam.styles %}{% set first = style.sizes[0] %}
+      <article class="aig-card">
+        <a class="aig-card__media{% if first.images|length > 1 %} has-alt{% endif %}" href="{{ first.url }}" data-card-link>
+          <span class="aig-badge aig-badge--{{ first.dispatch.status|lower }}" data-card-badge>{{ first.dispatch.badge }}</span>
+          {% if first.rx_allowed %}<span class="aig-badge aig-badge--rx">Rx ready</span>{% endif %}
+          <img class="aig-card__img" src="{{ first.images[0] }}" alt="{{ first.product_name }}" loading="lazy">
+          {% if first.images|length > 1 %}<img class="aig-card__img aig-card__img--alt" src="{{ first.images[1] }}" alt="" loading="lazy">{% endif %}
+        </a>
+        <div class="aig-card__body">
+          <p class="aig-card__brand">{{ fam.brand }}</p>
+          <h3 class="aig-card__title"><a href="{{ first.url }}" data-card-link>{{ fam.title }}</a></h3>
+          <p class="aig-card__variant">{{ style.title }}</p>
+          {% if style.sizes|length > 1 %}
+          <div class="aig-sizes" role="group" aria-label="Size">
+            {% for s in style.sizes %}
+            <button type="button" class="aig-size{% if loop.first %} is-active{% endif %}" data-href="{{ s.url }}"
+                    data-price="{{ s.price|aig_money }}" data-mrp="{{ s.mrp|aig_money if s.off else '' }}" data-off="{{ (s.off ~ '% off') if s.off else '' }}"
+                    data-dispatch="{{ s.dispatch.text }}" data-badge="{{ s.dispatch.badge }}" data-status="{{ s.dispatch.status|lower }}"
+                    title="{{ s.size_spec }}">{{ s.size_label }}</button>
+            {% endfor %}
+          </div>
+          {% endif %}
+          <p class="aig-card__dispatch" data-card-dispatch>{{ first.dispatch.text }}</p>
+          <div class="aig-card__foot">
+            <span class="aig-card__prices">
+              <span class="aig-card__price" data-card-price>{{ first.price|aig_money }}</span>
+              <span class="aig-card__mrp"{% if not first.off %} hidden{% endif %}><s data-card-mrp>{{ first.mrp|aig_money }}</s> <em data-card-off>{{ first.off }}% off</em></span>
+            </span>
+            <a class="aig-btn aig-btn--accent" href="{{ first.url }}" data-card-link>View</a>
+          </div>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% else %}
+  <p class="aig-empty">AI glasses are coming soon.</p>
+  {% endfor %}
+
+  <section class="aig-faq">
+    <h2>Questions, answered</h2>
+    <details><summary>Are these genuine Ray-Ban Meta glasses?</summary><p>Yes. Optiwar sells genuine products with a GST invoice.</p></details>
+    <details><summary>Do AI glasses come with Optiwar's free lenses?</summary><p>No. AI glasses are sold separately with their own lens options: as supplied (non-prescription), single vision or progressive lenses fitted by our opticians.</p></details>
+    <details><summary>Can I get my prescription in AI glasses?</summary><p>Yes, within the manufacturer's range for each model. Choose single vision or progressive lenses on the product page, then enter your prescription or send it after ordering.</p></details>
+    <details><summary>When will my order be dispatched?</summary><p>Each product shows its dispatch time. Pre-order models are dispatched within {{ 30 }} days of the order.</p></details>
+    <details><summary>How can I pay?</summary><p>Pay online by card, UPI, net banking or wallet.</p></details>
+    <details><summary>Can I return AI glasses?</summary><p>Returns are accepted only if the product is dead on arrival (DOA). Contact customer service with your order number on receipt.</p></details>
+  </section>
+  <p class="aig-disclaimer">Ray-Ban and Meta are trademarks of their respective owners. Optiwar is an independent reseller.</p>
+</div>
+<script src="{{ url_for('static', filename='ai-glasses/aig.js') }}?v=1" defer></script>
+{% endblock %}

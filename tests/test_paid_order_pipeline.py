@@ -98,8 +98,10 @@ DDL = [
         status_changed_at DATETIME NULL,
         status_changed_by VARCHAR(100) NULL,
         status_reason     VARCHAR(255) NULL,
-        sold_out_at       DATETIME NULL
+        sold_out_at       DATETIME NULL,
+        product_vertical  VARCHAR(32) NOT NULL DEFAULT 'EYEWEAR'
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS product_vertical VARCHAR(32) NOT NULL DEFAULT 'EYEWEAR'",
     """CREATE TABLE IF NOT EXISTS sales_log (
         id         BIGINT AUTO_INCREMENT PRIMARY KEY,
         order_id   VARCHAR(64) NOT NULL,

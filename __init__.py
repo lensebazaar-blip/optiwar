@@ -391,6 +391,10 @@ def create_app(test_config=None):
     from . import ai_api
     app.register_blueprint(ai_api.bp)
 
+    # AI Glasses (Ray-Ban Meta), optiwar.in only, behind AI_GLASSES_IN_ENABLED
+    from . import ai_glasses
+    app.register_blueprint(ai_glasses.bp)
+
     # Its face_scan_requests table is not on production; My Faces links
     # (face_scan_invites) are the live path.
     if os.environ.get('FACE_SCAN_LINK_ENABLED', '').strip().lower() in ('1', 'true', 'yes'):
