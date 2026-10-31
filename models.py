@@ -4182,9 +4182,13 @@ def success(order_id):
         _placed = order_details[0].get('date_created') if order_details else None
         _placed = _placed if isinstance(_placed, datetime) else None
         cursor.execute("SELECT product_id FROM orders WHERE order_id = %s", (order_id,))
-        _ship, _ = _ship_date_for(cursor, [r['product_id'] for r in cursor.fetchall()], _placed)
+        _aig, _ = ai_glasses.dispatch_date(cursor, [r['product_id'] for r in cursor.fetchall()], _placed)
     except Exception:
-        _ship = dispatch_date_obj().date()
+        _aig = None
+    # A regular order keeps today's estimate; an AI Glasses one counts from when it was placed.
+    _ship = dispatch_date_obj().date()
+    if _aig and _aig > _ship:
+        _ship = _aig
     ship_date = _ship.strftime('%A, %d %B %Y')
 
     # Google Customer Reviews opt-in fields (order confirmation page).
