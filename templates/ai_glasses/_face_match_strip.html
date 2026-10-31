@@ -1,0 +1,37 @@
+{# AI Glasses that fit the face being shopped for, on the Face Match frames page (ai_glasses.face_matches).
+   Shown with the Face Match filter only; a strip of its own, never a frame card (no free lenses). #}
+<link rel="stylesheet" href="{{ url_for('static', filename='ai-glasses/aig.css') }}?v=3">
+<section class="aig aig-fitstrip" id="aig-fitstrip"{% if request.args.get('filter') != 'facematch' %} hidden{% endif %}>
+  <div class="aig-fitstrip__head">
+    <h3 class="aig-fitstrip__title">AI Glasses that fit {{ aig_fit.person or 'you' }}</h3>
+    <a class="aig-fitstrip__all" href="{{ url_for('ai_glasses.landing') }}">All AI Glasses</a>
+  </div>
+  <p class="aig-fitstrip__note">Sold separately with their own lens options. Optiwar's complimentary lenses are for Optiwar frames.</p>
+  <div class="aig-fitstrip__row">
+    {% for p in aig_fit['items'] %}
+    <a class="aig-card aig-fitstrip__card" href="{{ p.url }}">
+      <span class="aig-card__media">
+        <span class="aig-badge aig-badge--fit">Face fit: {{ p.fit_label }}</span>
+        <img class="aig-card__img" src="{{ p.images[0] }}" alt="{{ p.product_name }}" loading="lazy">
+      </span>
+      <span class="aig-card__body">
+        <span class="aig-card__title">{{ p.product_name }}</span>
+        <span class="aig-card__variant">{{ p.size_label }} {{ p.size_spec }} · {{ p.dispatch.badge }}</span>
+        <span class="aig-card__prices">
+          <span class="aig-card__price">{{ p.price|aig_money }}</span>
+          {% if p.off %}<span class="aig-card__mrp"><s>{{ p.mrp|aig_money }}</s> <em>{{ p.off }}% off</em></span>{% endif %}
+        </span>
+      </span>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+<script>
+(function () {
+  var strip = document.getElementById('aig-fitstrip'), btn = document.getElementById('owFltFace');
+  if (!strip || !btn) { return; }
+  btn.addEventListener('click', function () {
+    setTimeout(function () { strip.hidden = !btn.classList.contains('active'); }, 0);
+  });
+})();
+</script>

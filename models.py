@@ -3,7 +3,7 @@ import random
 import functools
 from .mail import send_order_confirmation
 from .payments import initiate_payment, PaytmChecksum, verify_payment_status, create_razorpay_order, verify_razorpay_payment, fetch_razorpay_payment, fetch_razorpay_order, verify_razorpay_webhook, verify_razorpay_payment_link
-from .paid_orders import (apply_paid_order, order_payment_state)
+from .paid_orders import (apply_paid_order, order_payment_state, seal_aig_dispatch)
 from .razorpay_events import PAID_EVENTS
 from .razorpay_settlement import (resolve_order_reference, settle, notify_paid_order,
                                   APPLIED, DUPLICATE, NOT_CAPTURED, UNKNOWN_ORDER,
@@ -1564,7 +1564,13 @@ def all_spectacle_frames():
         except Exception:
             pass
 
-    return render_template("all_frames.html", products=products, total_count=total_count, rand_seed=seed, matching_ids=matching_ids, face_meas=face_meas)
+    # AI Glasses whose size fits this face: a strip of their own, never a frame card
+    # (no free lenses). Empty unless AI Glasses are visible on this site.
+    try:
+        aig_fit = ai_glasses.face_matches() if 'user_id' in session else {"items": []}
+    except Exception:
+        aig_fit = {"items": []}
+    return render_template("all_frames.html", products=products, total_count=total_count, rand_seed=seed, matching_ids=matching_ids, face_meas=face_meas, aig_fit=aig_fit)
 
 
 @bp.route("/api/frames")
@@ -3734,6 +3740,7 @@ def test_checkout():
             "INSERT INTO payment_collector (order_id, payment_dump, status) VALUES (%s, %s, %s)",
             (order_id, test_dump, 'TXN_SUCCESS')
         )
+        seal_aig_dispatch(cursor, order_id)
 
         order_rx_documents.attach_for_order(cursor, order_id, customer_id, cart)
         db.commit()
@@ -4179,16 +4186,18 @@ def success(order_id):
         return "There is something wrong, why not contact customer service at +91-8010077770", 500
 
     try:
-        _placed = order_details[0].get('date_created') if order_details else None
-        _placed = _placed if isinstance(_placed, datetime) else None
-        cursor.execute("SELECT product_id FROM orders WHERE order_id = %s", (order_id,))
-        _aig, _ = ai_glasses.dispatch_date(cursor, [r['product_id'] for r in cursor.fetchall()], _placed)
+        # The date sealed at payment wins; before payment, the live sales status.
+        _aig = ai_glasses.promised_dispatch(cursor, order_id)
+        if not _aig:
+            _placed = order_details[0].get('date_created') if order_details else None
+            _placed = _placed if isinstance(_placed, datetime) else None
+            cursor.execute("SELECT product_id FROM orders WHERE order_id = %s", (order_id,))
+            _aig, _ = ai_glasses.dispatch_date(cursor, [r['product_id'] for r in cursor.fetchall()], _placed)
     except Exception:
         _aig = None
-    # A regular order keeps today's estimate; an AI Glasses one counts from when it was placed.
-    _ship = dispatch_date_obj().date()
-    if _aig and _aig > _ship:
-        _ship = _aig
+    # A regular order keeps today's estimate; an AI Glasses one keeps the date it
+    # was promised when placed, even once that date is near or past.
+    _ship = _aig or dispatch_date_obj().date()
     ship_date = _ship.strftime('%A, %d %B %Y')
 
     # Google Customer Reviews opt-in fields (order confirmation page).

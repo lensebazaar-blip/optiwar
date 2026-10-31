@@ -92,7 +92,22 @@ CREATE TABLE IF NOT EXISTS ai_glasses_status_log (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 """
 
-TABLES = (("ai_glasses_products", SCHEMA), ("ai_glasses_status_log", STATUS_LOG_SCHEMA))
+# The dispatch date each paid AI Glasses line was promised, sealed at payment
+# (paid_orders.seal_aig_dispatch) so a later sales-status change never moves it.
+DISPATCH_SCHEMA = """
+CREATE TABLE IF NOT EXISTS ai_glasses_order_dispatch (
+    order_line_id BIGINT NOT NULL PRIMARY KEY,
+    order_id VARCHAR(18) NOT NULL,
+    product_id INT NOT NULL,
+    sales_status VARCHAR(16) NOT NULL,
+    dispatch_date DATE NOT NULL,
+    sealed_at DATETIME NOT NULL,
+    KEY ix_aig_dispatch_order (order_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+"""
+
+TABLES = (("ai_glasses_products", SCHEMA), ("ai_glasses_status_log", STATUS_LOG_SCHEMA),
+          ("ai_glasses_order_dispatch", DISPATCH_SCHEMA))
 
 _SCHEMA_READY = False
 
@@ -217,6 +232,17 @@ def dispatch_date(cursor, product_ids, start=None):
             continue
         best = date if best is None or date > best else best
     return best, preorder
+
+
+def promised_dispatch(cursor, order_id):
+    """The latest sealed dispatch date of this order's AI Glasses lines, or None."""
+    try:
+        cursor.execute("SELECT MAX(dispatch_date) AS d FROM ai_glasses_order_dispatch WHERE order_id = %s",
+                       (order_id,))
+        row = cursor.fetchone()
+    except Exception:  # noqa: BLE001
+        return None
+    return row.get("d") if row else None
 
 
 def _price(row):
@@ -440,6 +466,29 @@ def face_fit_for(sizes):
     except Exception:  # noqa: BLE001 - a fit problem must never break the product page
         current_app.logger.exception("AI Glasses: face fit unavailable")
         return {"state": "unavailable"}
+
+
+def face_matches():
+    """AI Glasses that fit the person being shopped for, for the Face Match frames
+    page: one card per style, the first matching size. Empty unless visible here."""
+    if not is_visible():
+        return {"person": None, "items": []}
+    cur = _db().cursor()
+    try:
+        products = load_products(cur)
+    finally:
+        cur.close()
+    fit = face_fit_for(products)
+    if fit.get("state") != "checked":
+        return {"person": None, "items": []}
+    items, seen = [], set()
+    for p in products:
+        verdict = fit["sizes"].get(p["product_id"]) or {}
+        key = (p["family"], p["style_code"])
+        if verdict.get("matched") and key not in seen and p["dispatch"]["can_buy"]:
+            seen.add(key)
+            items.append(dict(p, fit_label=verdict["label"]))
+    return {"person": fit.get("person"), "items": items}
 
 
 @bp.route(PAGE_PATH + "/add", methods=["POST"])

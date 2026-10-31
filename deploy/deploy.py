@@ -112,6 +112,7 @@ DEPLOY_SET = ("__init__.py", "log_hygiene.py", "pricing.py", "acr.py", "ai_api.p
               "templates/ai_faq.html",
               # AI Glasses (optiwar.in, behind AI_GLASSES_IN_ENABLED) + the .in homepage JSON-LD currency fix
               "ai_glasses.py", "templates/ai_glasses/landing.html", "templates/ai_glasses/product.html",
+              "templates/ai_glasses/_face_match_strip.html",
               "static/ai-glasses/aig.css", "static/ai-glasses/aig.js", "templates/index.html")
 
 # Files that do not exist in production yet. Absence is otherwise a block, so
@@ -145,6 +146,7 @@ NEW_IN_RELEASE = ("log_hygiene.py", "test_identity.py", "ai_language.py", "rx_lo
                   "templates/product_page_lens.html",
                   "templates/_product_reviews.html",
                   "ai_glasses.py", "templates/ai_glasses/landing.html", "templates/ai_glasses/product.html",
+                  "templates/ai_glasses/_face_match_strip.html",
                   "static/ai-glasses/aig.css", "static/ai-glasses/aig.js")
 
 # Running content that matches no commit but has been read line by line and
@@ -574,7 +576,8 @@ def ai_glasses_tables():
                 if getattr(t, "id", None):
                     consts[t.id] = node.value.value
     return [("ai_glasses_products", consts["SCHEMA"]),
-            ("ai_glasses_status_log", consts["STATUS_LOG_SCHEMA"])]
+            ("ai_glasses_status_log", consts["STATUS_LOG_SCHEMA"]),
+            ("ai_glasses_order_dispatch", consts["DISPATCH_SCHEMA"])]
 
 
 def migration():

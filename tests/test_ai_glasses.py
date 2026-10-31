@@ -207,5 +207,103 @@ class DispatchDateTest(unittest.TestCase):
         self.assertEqual(aig.dispatch_date(None, ["7"], self.START), (None, False))
 
 
+_po_spec = importlib.util.spec_from_file_location(
+    "paid_orders_under_test",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "paid_orders.py"))
+paid_orders = importlib.util.module_from_spec(_po_spec)
+_po_spec.loader.exec_module(paid_orders)
+
+
+class _Recorder:
+    def __init__(self, fail=False, row=None):
+        self.calls, self.fail, self.row = [], fail, row
+
+    def execute(self, sql, args=None):
+        if self.fail:
+            raise RuntimeError("Table 'optiwar2.ai_glasses_order_dispatch' doesn't exist")
+        self.calls.append((sql, args))
+
+    def fetchone(self):
+        return self.row
+
+
+class SealedDispatchTest(unittest.TestCase):
+    """A paid AI Glasses line keeps the dispatch date it was promised (Devin Review on #235)."""
+
+    def test_paid_orders_counts_the_same_days_as_ai_glasses(self):
+        self.assertEqual(paid_orders.AIG_PREORDER_DAYS, aig.PREORDER_DAYS)
+        self.assertEqual(paid_orders.AIG_SELLING_FAST_DAYS, aig.SHIP_DAYS[1])
+
+    def test_sealed_from_the_order_date_once_and_never_for_sold_out(self):
+        cur = _Recorder()
+        paid_orders.seal_aig_dispatch(cur, "ABCDEF-123456")
+        sql, args = cur.calls[0]
+        self.assertIn("INSERT IGNORE INTO ai_glasses_order_dispatch", sql)
+        self.assertIn("DATE(o.date_created)", sql)
+        self.assertIn("IN ('PREORDER', 'SELLING_FAST')", sql)
+        self.assertEqual(args, (7, 30, "ABCDEF-123456"))
+
+    def test_a_missing_table_never_breaks_the_payment(self):
+        paid_orders.seal_aig_dispatch(_Recorder(fail=True), "ABCDEF-123456")
+        self.assertIsNone(aig.promised_dispatch(_Recorder(fail=True), "ABCDEF-123456"))
+
+    def test_the_order_page_reads_the_sealed_date(self):
+        day = datetime.date(2026, 11, 30)
+        self.assertEqual(aig.promised_dispatch(_Recorder(row={"d": day}), "ABCDEF-123456"), day)
+        self.assertIsNone(aig.promised_dispatch(_Recorder(row={"d": None}), "ABCDEF-123456"))
+        import ast
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models.py")
+        with open(path) as fh:
+            source = fh.read()
+        fn = next(n for n in ast.walk(ast.parse(source))
+                  if isinstance(n, ast.FunctionDef) and n.name == "success")
+        body = ast.get_source_segment(source, fn)
+        self.assertLess(body.index("promised_dispatch"), body.index("ai_glasses.dispatch_date"))
+        self.assertIn("_ship = _aig or dispatch_date_obj().date()", body)
+
+    def test_ddl_is_additive(self):
+        ddl = dict(aig.TABLES)["ai_glasses_order_dispatch"]
+        self.assertIn("CREATE TABLE IF NOT EXISTS", ddl)
+        self.assertNotIn("ALTER", ddl.upper())
+
+
+class FaceMatchStripTest(unittest.TestCase):
+    """AI Glasses on the Face Match frames page: only sizes that fit, one card per style."""
+
+    def _run(self, visible, fit, products):
+        saved = (aig.is_visible, aig._db, aig.load_products, aig.face_fit_for)
+
+        class _Db:
+            def cursor(self):
+                return type("C", (), {"close": lambda self: None})()
+        aig.is_visible = lambda: visible
+        aig._db = lambda: _Db()
+        aig.load_products = lambda cur: products
+        aig.face_fit_for = lambda sizes: fit
+        try:
+            return aig.face_matches()
+        finally:
+            aig.is_visible, aig._db, aig.load_products, aig.face_fit_for = saved
+
+    def _p(self, pid, style, can_buy=True):
+        return {"product_id": pid, "family": "WAYFARER_G2", "style_code": style,
+                "dispatch": {"can_buy": can_buy}}
+
+    def test_nothing_unless_visible_or_scanned(self):
+        prods = [self._p(1, "A")]
+        fit = {"state": "checked", "sizes": {1: {"matched": True, "label": "GOOD"}}}
+        self.assertEqual(self._run(False, fit, prods)["items"], [])
+        self.assertEqual(self._run(True, {"state": "no_scan"}, prods)["items"], [])
+
+    def test_first_fitting_size_per_style_and_never_sold_out(self):
+        prods = [self._p(1, "A"), self._p(2, "A"), self._p(3, "B"), self._p(4, "C", can_buy=False)]
+        fit = {"state": "checked", "person": "Raj", "sizes": {
+            1: {"matched": False, "label": "Not a match"}, 2: {"matched": True, "label": "GOOD"},
+            3: {"matched": True, "label": "EXCELLENT"}, 4: {"matched": True, "label": "GOOD"}}}
+        out = self._run(True, fit, prods)
+        self.assertEqual(out["person"], "Raj")
+        self.assertEqual([(i["product_id"], i["fit_label"]) for i in out["items"]], [(2, "GOOD"), (3, "EXCELLENT")])
+
+
 if __name__ == "__main__":
     unittest.main()
