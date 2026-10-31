@@ -178,5 +178,17 @@ class RevalidateTest(unittest.TestCase):
         self.assertEqual(self.run_on("optiwar.in", [aig_line()], [dict(ROW, rx_allowed=0)])[0], [])
 
 
+
+class FrameListingTest(unittest.TestCase):
+    def test_the_all_frames_page_filters_both_its_queries_by_site(self):
+        import ast
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models.py")
+        with open(path) as fh:
+            source = fh.read()
+        fn = next(n for n in ast.walk(ast.parse(source))
+                  if isinstance(n, ast.FunctionDef) and n.name == "all_spectacle_frames")
+        self.assertEqual(ast.get_source_segment(source, fn).count("catalogue_site_filter()"), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

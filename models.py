@@ -1470,14 +1470,16 @@ def all_spectacle_frames():
         "AND product_image != '' AND product_image != 'NULL' "
         "AND product_quantity > 0 "
         "AND product_category NOT IN ('Contact Lenses', 'Hearing Aids')"
+        + catalogue_site_filter()
     )
     total_count = cursor.fetchone()['cnt']
     cursor.execute(
         "SELECT * FROM products WHERE product_image IS NOT NULL "
         "AND product_image != '' AND product_image != 'NULL' "
         "AND product_quantity > 0 "
-        "AND product_category NOT IN ('Contact Lenses', 'Hearing Aids') "
-        "ORDER BY RAND(%s) "
+        "AND product_category NOT IN ('Contact Lenses', 'Hearing Aids')"
+        + catalogue_site_filter() +
+        " ORDER BY RAND(%s) "
         "LIMIT 20",
         (seed,)
     )
