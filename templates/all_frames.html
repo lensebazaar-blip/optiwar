@@ -124,6 +124,7 @@
 <h2>{{ _('All Spectacle Frames') }}</h2>
 <div id="ow-filter-status" style="display:none;text-align:center;padding:10px 16px;margin:8px auto 4px;font-family:Inter,Arial,sans-serif;font-size:15px;font-weight:500;color:#6366f1;background:linear-gradient(135deg,#f0f0ff,#faf5ff);border:1px solid #e0e7ff;border-radius:12px;max-width:600px;"></div>
 
+{% if aig_fit and aig_fit['items'] %}{% include 'ai_glasses/_face_match_strip.html' %}{% endif %}
 <ul id="frames-list">
  {% for product in products %}
     {% set card_index = loop.index %}

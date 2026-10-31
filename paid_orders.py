@@ -268,6 +268,35 @@ def deduct_stock(cursor, order_id, currency, site, logger=None):
     return result
 
 
+# ai_glasses.PREORDER_DAYS and ai_glasses.SHIP_DAYS[1], mirrored here because this
+# module stays free of Flask (tests keep the two in step).
+AIG_PREORDER_DAYS = 30
+AIG_SELLING_FAST_DAYS = 7
+
+
+def seal_aig_dispatch(cursor, order_id):
+    """Store the dispatch date each AI Glasses line was promised, at payment.
+
+    Counted from when the order was placed, with the sales status in force now;
+    a sold-out product gets no row (it uses the usual date). Already sealed
+    lines are kept (INSERT IGNORE). It runs inside the payment's transaction,
+    so it never raises: without the table the order page uses the live status.
+    """
+    try:
+        cursor.execute(
+            "INSERT IGNORE INTO ai_glasses_order_dispatch "
+            "(order_line_id, order_id, product_id, sales_status, dispatch_date, sealed_at) "
+            "SELECT o.order_line_id, o.order_id, o.product_id, a.sales_status, "
+            "DATE(o.date_created) + INTERVAL IF(a.sales_status = 'SELLING_FAST', %s, %s) DAY, NOW() "
+            "FROM orders o JOIN products p ON p.product_id = o.product_id "
+            "JOIN ai_glasses_products a ON a.product_id = o.product_id "
+            "WHERE o.order_id = %s AND p.product_vertical = 'SMART_EYEWEAR' "
+            "AND a.sales_status IN ('PREORDER', 'SELLING_FAST')",
+            (AIG_SELLING_FAST_DAYS, AIG_PREORDER_DAYS, order_id))
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def apply_paid_order(db, order_id, payment_ref, payment_dump, currency, site,
                      gateway='razorpay', source='storefront', logger=None):
     """Record a successful payment and everything that follows from it.
@@ -289,6 +318,7 @@ def apply_paid_order(db, order_id, payment_ref, payment_dump, currency, site,
                 'status_appended': False}
     try:
         stock = deduct_stock(cursor, order_id, currency, site, logger=logger)
+        seal_aig_dispatch(cursor, order_id)
         appended = append_status(
             cursor, order_id, PAID_STATUS, source=source,
             note='payment received - %s %s' % (gateway, payment_ref))
