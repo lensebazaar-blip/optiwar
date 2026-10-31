@@ -189,6 +189,36 @@ def _dispatch(row, today=None):
             "date": date.isoformat(), "can_buy": True}
 
 
+def dispatch_date(cursor, product_ids, start=None):
+    """The latest dispatch date of the AI Glasses among these products, counted
+    from start (default today), and whether one is a pre-order. (None, False)
+    when there are none, so the caller keeps its usual date."""
+    ids = sorted({str(i) for i in product_ids if str(i or "").isdigit()})
+    if not ids:
+        return None, False
+    marks = ",".join(["%s"] * len(ids))
+    try:
+        cursor.execute("SELECT a.sales_status FROM products p JOIN ai_glasses_products a ON a.product_id = p.product_id "
+                       "WHERE p.product_vertical = %%s AND p.product_id IN (%s)" % marks, [VERTICAL] + ids)
+        rows = cursor.fetchall()
+    except Exception:
+        return None, False
+    start = start or datetime.date.today()
+    if isinstance(start, datetime.datetime):
+        start = start.date()
+    best, preorder = None, False
+    for r in rows:
+        status = r.get("sales_status") or PREORDER
+        if status == PREORDER:
+            date, preorder = start + datetime.timedelta(days=PREORDER_DAYS), True
+        elif status == SELLING_FAST:
+            date = start + datetime.timedelta(days=SHIP_DAYS[1])
+        else:
+            continue
+        best = date if best is None or date > best else best
+    return best, preorder
+
+
 def _price(row):
     mrp = int(row.get("product_price") or 0)
     sell = int(row.get("product_special_price") or 0) or mrp

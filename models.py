@@ -208,6 +208,16 @@ def dispatch_date_obj(start_date=None):
 def calculate_ship_date(start_date=None):
     return dispatch_date_obj(start_date).strftime('%A, %d %B %Y')
 
+
+def _ship_date_for(cursor, product_ids, start_date=None):
+    """The dispatch date for these lines: the usual one, or an AI Glasses
+    line's later one (a pre-order ships weeks out). Returns (date, is_preorder)."""
+    usual = dispatch_date_obj(start_date).date()
+    aig, preorder = ai_glasses.dispatch_date(cursor, product_ids, start_date)
+    if aig and aig > usual:
+        return aig, preorder
+    return usual, False
+
 def safe_float(val, default=0.0):
     try:
         return float(val)
@@ -3003,11 +3013,10 @@ def checkout_page():
     cyl_range = []   # 0.00 to -8.00 in steps of 0.25
     axis_range = []               # 0 to 180 in steps of 5
     add_range = []   # +1.00 to +3.00 in steps of 0.25
-    ship_days = calculate_ship_date()
-
-
     db = get_db()
     cursor = db.cursor()
+    _ship, ship_is_preorder = _ship_date_for(cursor, [item.get('product_id') for item in cart])
+    ship_days = _ship.strftime('%A, %d %B %Y')
 
     product_ids = [item.get('product_id') for item in cart if item.get('product_id')]
     product_image_map = {}
@@ -3144,7 +3153,7 @@ def checkout_page():
     import uuid as _uuid
     session['checkout_token'] = str(_uuid.uuid4())
     _acr_stage(acr.STAGE_CHECKOUT)
-    return render_template('checkout.html', cart=cart,ship_days=ship_days, face_lines=face_lines,product_image_map=product_image_map, grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, right_eye=right_eye, left_eye=left_eye,right_pwr=right_pwr, right_lens_color=right_lens_color, right_cyl=right_cyl, right_qty=right_qty, right_axis=right_axis, right_add=right_add, left_pwr=left_pwr, left_lens_color=left_lens_color, left_cyl=left_cyl, left_qty=left_qty, left_axis=left_axis, left_add=left_add, lens_recommendations=lens_recommendations, prefill=prefill, saved_addresses=saved_addresses, lens_removal_pending=lens_removal_pending, lens_removal_confirm_text=lens_cart.CONFIRM_REMOVAL, rx_documents=rx_documents, **policy_terms.checkout_context(cart, _get_site_from()))
+    return render_template('checkout.html', cart=cart,ship_days=ship_days, ship_is_preorder=ship_is_preorder, face_lines=face_lines,product_image_map=product_image_map, grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, right_eye=right_eye, left_eye=left_eye,right_pwr=right_pwr, right_lens_color=right_lens_color, right_cyl=right_cyl, right_qty=right_qty, right_axis=right_axis, right_add=right_add, left_pwr=left_pwr, left_lens_color=left_lens_color, left_cyl=left_cyl, left_qty=left_qty, left_axis=left_axis, left_add=left_add, lens_recommendations=lens_recommendations, prefill=prefill, saved_addresses=saved_addresses, lens_removal_pending=lens_removal_pending, lens_removal_confirm_text=lens_cart.CONFIRM_REMOVAL, rx_documents=rx_documents, **policy_terms.checkout_context(cart, _get_site_from()))
 
 """
 @bp.route('/initiate-payment', methods=['POST'])
@@ -4169,7 +4178,14 @@ def success(order_id):
         print(f"Error retreiving your order info: {e}")
         return "There is something wrong, why not contact customer service at +91-8010077770", 500
 
-    ship_date = calculate_ship_date()
+    try:
+        _placed = order_details[0].get('date_created') if order_details else None
+        _placed = _placed if isinstance(_placed, datetime) else None
+        cursor.execute("SELECT product_id FROM orders WHERE order_id = %s", (order_id,))
+        _ship, _ = _ship_date_for(cursor, [r['product_id'] for r in cursor.fetchall()], _placed)
+    except Exception:
+        _ship = dispatch_date_obj().date()
+    ship_date = _ship.strftime('%A, %d %B %Y')
 
     # Google Customer Reviews opt-in fields (order confirmation page).
     gcr = None
@@ -4183,7 +4199,7 @@ def success(order_id):
         # domestic India vs. international (shipped from India).
         _transit = (current_app.config['GCR_TRANSIT_DAYS_IN'] if _country == 'IN'
                     else current_app.config['GCR_TRANSIT_DAYS_INTL'])
-        _delivery = _add_business_days(dispatch_date_obj(), _transit)
+        _delivery = _add_business_days(_ship, _transit)
         gcr = {
             'merchant_id': current_app.config['GCR_MERCHANT_ID'],
             'order_id': str(order_id),
