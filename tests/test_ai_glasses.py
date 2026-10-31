@@ -190,5 +190,22 @@ class FrameListingTest(unittest.TestCase):
         self.assertEqual(ast.get_source_segment(source, fn).count("catalogue_site_filter()"), 2)
 
 
+
+class DispatchDateTest(unittest.TestCase):
+    START = datetime.date(2026, 10, 31)
+
+    def test_a_preorder_ships_thirty_days_out(self):
+        self.assertEqual(aig.dispatch_date(_Cursor([ROW]), ["7", "99"], self.START),
+                         (datetime.date(2026, 11, 30), True))
+
+    def test_selling_fast_uses_the_longest_window(self):
+        row = dict(ROW, sales_status="SELLING_FAST")
+        self.assertEqual(aig.dispatch_date(_Cursor([row]), ["7"], self.START), (datetime.date(2026, 11, 7), False))
+
+    def test_no_ai_glasses_or_a_failing_query_keeps_the_usual_date(self):
+        self.assertEqual(aig.dispatch_date(_Cursor([ROW]), ["99"], self.START), (None, False))
+        self.assertEqual(aig.dispatch_date(None, ["7"], self.START), (None, False))
+
+
 if __name__ == "__main__":
     unittest.main()

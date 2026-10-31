@@ -1795,7 +1795,10 @@ footer{ display:none !important; }
         </div>
         {% if ship_days %}
         <div class="ow-ck-line">
-          {% if is_india %}
+          {% if ship_is_preorder %}
+          <span>Pre-order dispatch</span>
+          <strong>{{ ship_days }}</strong>
+          {% elif is_india %}
           <span>Est. Delivery</span>
           <strong>{{ ship_days }}</strong>
           {% else %}
