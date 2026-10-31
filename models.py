@@ -15,6 +15,7 @@ from . import policy_terms
 from .pricing import pricing_file as _pricing_file
 from . import reship, reship_api, return_fee
 from . import test_identity
+from . import ai_glasses
 from flaskr.notifications import notify_payment_attempted, notify_payment_success, notify_payment_failed, notify_order_confirmed, notify_order_shipped
 import os
 import MySQLdb
@@ -1469,14 +1470,16 @@ def all_spectacle_frames():
         "AND product_image != '' AND product_image != 'NULL' "
         "AND product_quantity > 0 "
         "AND product_category NOT IN ('Contact Lenses', 'Hearing Aids')"
+        + catalogue_site_filter()
     )
     total_count = cursor.fetchone()['cnt']
     cursor.execute(
         "SELECT * FROM products WHERE product_image IS NOT NULL "
         "AND product_image != '' AND product_image != 'NULL' "
         "AND product_quantity > 0 "
-        "AND product_category NOT IN ('Contact Lenses', 'Hearing Aids') "
-        "ORDER BY RAND(%s) "
+        "AND product_category NOT IN ('Contact Lenses', 'Hearing Aids')"
+        + catalogue_site_filter() +
+        " ORDER BY RAND(%s) "
         "LIMIT 20",
         (seed,)
     )
@@ -2939,6 +2942,9 @@ def checkout_page():
         cart, lens_cart.load_products(get_db().cursor(), cart), current_site())
     if _dropped:
         flash(lens_cart.describe_removed(_dropped))
+    cart, _aig_removed = ai_glasses.revalidate(get_db().cursor(), cart)
+    if _aig_removed:
+        flash(ai_glasses.describe_removed(_aig_removed))
     lens_removal_pending = session.get('lens_removal_pending')
     session['cart'] = cart  # Clean up session too
     _host = request.host
@@ -3224,6 +3230,12 @@ def checkout():
         _persist_cart(cart)
         flash(lens_cart.describe_removed(_dropped))
         return redirect(url_for('main.checkout_page'))
+    cart, _aig_removed = ai_glasses.revalidate(get_db().cursor(), cart)
+    if _aig_removed:
+        _persist_cart(cart)
+        flash(ai_glasses.describe_removed(_aig_removed))
+        return redirect(url_for('main.checkout_page'))
+    session.modified = True
     # No acceptance, no order: the box is unchecked by default and the server
     # is the one that refuses, whatever the page did.
     try:
@@ -3573,6 +3585,12 @@ def test_checkout():
     if not cart:
         flash('Your cart is empty.')
         return redirect(url_for('main.index'))
+    cart, _aig_removed = ai_glasses.revalidate(get_db().cursor(), cart)
+    if _aig_removed:
+        _persist_cart(cart)
+        flash(ai_glasses.describe_removed(_aig_removed))
+        return redirect(url_for('main.checkout_page'))
+    session.modified = True
     try:
         policy_terms.require(request.form, _get_site_from())
     except policy_terms.NotAccepted as _na:
