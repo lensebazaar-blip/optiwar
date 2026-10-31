@@ -117,5 +117,66 @@ class VisibilityTest(unittest.TestCase):
             self.assertEqual(aig.prompt_section(None, True), "")
 
 
+
+class _Cursor:
+    """Answers the two queries revalidate makes: which ids are AI Glasses, then their rows."""
+    def __init__(self, rows):
+        self.rows, self._out = rows, []
+
+    def execute(self, sql, args):
+        ids = {str(a) for a in args[1:]}
+        hits = [r for r in self.rows if str(r["product_id"]) in ids]
+        self._out = [{"product_id": r["product_id"]} for r in hits] if "SELECT product_id FROM" in sql else hits
+
+    def fetchall(self):
+        return self._out
+
+
+ROW = dict(PRODUCT, product_id=7, product_name="Wayfarer Gen 2")
+
+
+def aig_line(**kw):
+    line = {"product_id": "7", "product_name": "Wayfarer Gen 2", "ai_glasses": 1, "aig_lens": "single",
+            "order_quantity": 1, "product_special_price": 1, "lens_price": 0, "server_total_price": 1}
+    line.update(kw)
+    return line
+
+
+class RevalidateTest(unittest.TestCase):
+    def setUp(self):
+        self.app = Flask(__name__)
+        self.app.config["SECRET_KEY"] = "test"
+        os.environ[aig.FLAG] = "1"
+
+    def tearDown(self):
+        os.environ.pop(aig.FLAG, None)
+
+    def run_on(self, host, cart, rows=(ROW,)):
+        with self.app.test_request_context("/", base_url="https://" + host):
+            return aig.revalidate(_Cursor(list(rows)), cart)
+
+    def test_repriced_from_the_database_for_every_pair(self):
+        cart, removed = self.run_on("optiwar.in", [aig_line(order_quantity=3), {"product_id": "99"}])
+        self.assertEqual(removed, [])
+        self.assertEqual(cart[0]["server_total_price"], (29925 + 4900) * 3)
+        self.assertEqual(cart[0]["product_special_price"], 29925)
+        self.assertEqual(cart[1], {"product_id": "99"})
+
+    def test_removed_on_com_and_with_the_flag_off(self):
+        self.assertEqual(self.run_on("optiwar.com", [aig_line()])[0], [])
+        os.environ.pop(aig.FLAG)
+        cart, removed = self.run_on("optiwar.in", [aig_line()])
+        self.assertEqual((cart, removed), ([], ["Wayfarer Gen 2"]))
+
+    def test_a_line_from_the_older_cart_routes_is_removed(self):
+        legacy = {"product_id": "7", "product_name": "Wayfarer Gen 2", "server_total_price": 100}
+        self.assertEqual(self.run_on("optiwar.in", [legacy])[0], [])
+
+    def test_sold_out_or_unknown_lens_is_removed(self):
+        self.assertEqual(self.run_on("optiwar.in", [aig_line()], [dict(ROW, sales_status="SOLD_OUT")])[0], [])
+        self.assertEqual(self.run_on("optiwar.in", [aig_line(aig_lens="free")])[0], [])
+        self.assertEqual(self.run_on("optiwar.in", [aig_line()], [dict(ROW, rx_allowed=0)])[0], [])
+
+
 if __name__ == "__main__":
     unittest.main()

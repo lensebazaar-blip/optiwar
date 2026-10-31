@@ -485,6 +485,57 @@ def add_to_bag():
 
 # ---- owner preview ------------------------------------------------------------------
 
+def revalidate(cursor, cart):
+    """Reprice every AI Glasses line from the database, and remove one this
+    request may not buy: the other storefront or the flag off, sold out, or a
+    line that did not come through add_to_bag (the older cart routes take their
+    prices from the form). Returns (cart, names of the removed lines)."""
+    ids = sorted({str(i.get("product_id")) for i in cart if str(i.get("product_id") or "").isdigit()})
+    if not ids:
+        return cart, []
+    marks = ",".join(["%s"] * len(ids))
+    cursor.execute("SELECT product_id FROM products WHERE product_vertical = %%s AND product_id IN (%s)" % marks,
+                   [VERTICAL] + ids)
+    ours = {str(r["product_id"]) for r in cursor.fetchall()}
+    if not ours:
+        return cart, []
+    rows = {}
+    if is_visible():
+        cursor.execute(_SELECT + " AND p.product_id IN (%s)" % marks, [VERTICAL] + ids)
+        rows = {str(r["product_id"]): r for r in cursor.fetchall()}
+    kept, removed = [], []
+    for item in cart:
+        pid = str(item.get("product_id"))
+        if pid not in ours:
+            kept.append(item)
+            continue
+        row = rows.get(pid)
+        lens = LENS_BY_KEY.get(item.get("aig_lens"))
+        if (not row or not item.get("ai_glasses") or not lens
+                or (lens["rx"] and not row["rx_allowed"]) or not _dispatch(row)["can_buy"]):
+            removed.append(item.get("product_name") or "AI Glasses")
+            continue
+        price = _price(row)
+        try:
+            qty = max(1, int(item.get("order_quantity") or 1))
+        except (TypeError, ValueError):
+            qty = 1
+        item.update(order_quantity=qty, product_special_price=price["price"], product_price=price["mrp"],
+                    lens_price=lens["price"], cyl_price_increase=0, add_price_increase=0,
+                    addon_1_price=0, addon_2_price=0, addon_3_price=0,
+                    server_total_price=(price["price"] + lens["price"]) * qty,
+                    full_product_price=price["mrp"] + lens["price"],
+                    total_savings=price["mrp"] - price["price"])
+        item.pop("ATC_total", None)
+        item.pop("ATC_WCL", None)
+        kept.append(item)
+    return kept, removed
+
+
+def describe_removed(names):
+    return "Removed from your bag, as it can't be bought here right now: %s." % ", ".join(names)
+
+
 @bp.route(PAGE_PATH + "/preview/<token>")
 def preview(token):
     from itsdangerous import BadSignature, SignatureExpired
