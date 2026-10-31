@@ -145,7 +145,8 @@ class Disclosures(unittest.TestCase):
         self.assertEqual(d, {"lens_deduction_shown": True, "reverse_charge_shown": True,
                              "contact_lens_hygiene_shown": False,
                              "international_non_returnable_shown": False,
-                             "returned_parcel_holding_shown": True})
+                             "returned_parcel_holding_shown": True,
+                             "ai_glasses_doa_shown": False})
 
     def test_in_plain_frame_has_no_lens_deduction(self):
         d = pt.disclosures_for([PLAIN], "optiwar.in")
@@ -157,7 +158,8 @@ class Disclosures(unittest.TestCase):
         self.assertEqual(d, {"lens_deduction_shown": False, "reverse_charge_shown": False,
                              "contact_lens_hygiene_shown": True,
                              "international_non_returnable_shown": True,
-                             "returned_parcel_holding_shown": False})
+                             "returned_parcel_holding_shown": False,
+                             "ai_glasses_doa_shown": False})
 
     def test_contact_lens_hygiene_on_in_too(self):
         self.assertTrue(pt.disclosures_for([LENS], "in")["contact_lens_hygiene_shown"])
@@ -224,7 +226,8 @@ class Snapshot(unittest.TestCase):
                          {"lens_deduction_shown": "YES", "reverse_charge_shown": "YES",
                           "contact_lens_hygiene_shown": "NO",
                           "international_non_returnable_shown": "NO",
-                          "returned_parcel_holding_shown": "YES"})
+                          "returned_parcel_holding_shown": "YES",
+                          "ai_glasses_doa_shown": "NO"})
         self.assertEqual(out["returns_policy_version"], ind["returns"]["version"])
         # the full text is sealed so the accepted document can be reproduced
         self.assertEqual(pt.sealed_text(cur, "returns", ind["returns"]["sha256"]),

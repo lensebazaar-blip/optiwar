@@ -1838,9 +1838,12 @@ footer{ display:none !important; }
           {% if policy_is_international %}
           <p><strong>International order &mdash; non-returnable and non-refundable.</strong> Orders on optiwar.com are exported from India and cannot be returned or refunded once placed. Please check every frame, prescription and lens selection now.</p>
           {% else %}
+          {% if disclosures.ai_glasses_doa_shown %}
+          <p><strong>AI Glasses &mdash; returnable only if dead on arrival (DOA).</strong> If they do not switch on or work when first received, report it from My Orders with your order number. AI Glasses are not accepted for any other return, including after prescription lenses are fitted.</p>
+          {% endif %}
           {% if disclosures.lens_deduction_shown %}
           <p><strong>Customized prescription lenses:</strong> Optiwar does not offer change-of-mind returns. If a discretionary return of prescription spectacles is approved, up to {{ lens_deduction_cap_percent }}% of the relevant returned spectacle value may be deducted for the customized lenses after inspection.</p>
-          {% else %}
+          {% elif not disclosures.ai_glasses_doa_shown %}
           <p><strong>No change-of-mind returns.</strong> Correctly supplied products are returnable only with Optiwar's written authorization, subject to inspection.</p>
           {% endif %}
           <p>Return or reverse-pickup charges are payable by the customer unless Optiwar confirms otherwise in writing.</p>

@@ -33,5 +33,8 @@
   btn.addEventListener('click', function () {
     setTimeout(function () { strip.hidden = !btn.classList.contains('active'); }, 0);
   });
+  // ✕ Clear resets every filter without clicking Face Match, so hide the strip too.
+  var reset = document.getElementById('owFltReset');
+  if (reset) { reset.addEventListener('click', function () { strip.hidden = true; }); }
 })();
 </script>
