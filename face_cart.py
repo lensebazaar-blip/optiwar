@@ -78,6 +78,7 @@ class LineError(fp.ProfileError):
 # --------------------------------------------------------------------------
 
 FRAME_CATEGORY = "Spectacles Frame"
+AI_GLASSES_CATEGORY = "AI Glasses"
 
 
 def is_frame_line(item):
@@ -85,7 +86,8 @@ def is_frame_line(item):
     (not a contact lens, not a hearing aid, not an uncategorised line)."""
     if lens_cart.is_lens(item):
         return False
-    return str(item.get("product_category") or "").strip() == FRAME_CATEGORY
+    # AI Glasses (ai_glasses.py) are frames a face is fitted to as well
+    return str(item.get("product_category") or "").strip() in (FRAME_CATEGORY, AI_GLASSES_CATEGORY)
 
 
 def _normalise(value):

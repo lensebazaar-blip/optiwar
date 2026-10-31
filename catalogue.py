@@ -25,6 +25,7 @@ from flask import request
 
 EYEWEAR = "EYEWEAR"
 CONTACT_LENS = "CONTACT_LENS"
+SMART_EYEWEAR = "SMART_EYEWEAR"   # AI Glasses (ai_glasses.py)
 
 SITE_COM = "optiwar.com"
 SITE_IN = "in.optiwar.com"
@@ -33,7 +34,7 @@ SITE_IN = "in.optiwar.com"
 # than a default so adding a vertical is a decision per site.
 SITE_VERTICALS = {
     SITE_COM: (EYEWEAR, CONTACT_LENS),
-    SITE_IN: (EYEWEAR,),
+    SITE_IN: (EYEWEAR, SMART_EYEWEAR),
 }
 
 SITE_COLUMN = {SITE_COM: "sell_on_com", SITE_IN: "sell_on_in"}
@@ -73,7 +74,10 @@ def catalogue_site_filter(site=None, alias=None):
     frame result.
     """
     col = site_column(site)
-    return " AND %s%s = 1" % (("%s." % alias) if alias else "", col)
+    prefix = ("%s." % alias) if alias else ""
+    # AI Glasses have their own page and lens set: frame listings, search, feeds
+    # and APIs never return them (ai_glasses.py is their only read surface).
+    return " AND %s%s = 1 AND %sproduct_vertical <> '%s'" % (prefix, col, prefix, SMART_EYEWEAR)
 
 
 def vertical(product):
@@ -93,6 +97,13 @@ def is_product_allowed(product, site=None):
     if not product:
         return False
     site = site or current_site()
+    if vertical(product) == SMART_EYEWEAR:
+        try:
+            from . import ai_glasses
+        except ImportError:   # loaded outside the package (tools, some tests): fail closed
+            return False
+        if site != SITE_IN or not ai_glasses.is_visible():
+            return False
     flag = product.get(SITE_COLUMN[site])
     if flag not in (None, ""):
         try:

@@ -704,8 +704,21 @@ def index():
     _store_avg_rating = round(_sr['avg_r'], 1) if _sr and _sr['avg_r'] else 0
     _store_cursor.close()
 
+    # Category offer range in the homepage JSON-LD: the published EUR range on
+    # optiwar.com, the live INR frame prices on optiwar.in (was hard-coded EUR on both).
+    _offer_range = {'low': '34.99', 'high': '39.99', 'currency': 'EUR'}
+    if _req_is_india():
+        _range_cursor = db.cursor()
+        _range_cursor.execute("SELECT MIN(product_special_price) AS lo, MAX(product_special_price) AS hi FROM products "
+                              "WHERE product_vertical = 'EYEWEAR' AND product_status = 'ACTIVE' "
+                              "AND product_quantity > 0 AND product_special_price > 0" + catalogue_site_filter())
+        _rr = _range_cursor.fetchone() or {}
+        _range_cursor.close()
+        if _rr.get('lo'):
+            _offer_range = {'low': str(int(_rr['lo'])), 'high': str(int(_rr['hi'])), 'currency': 'INR'}
+
     response = make_response(render_template('index.html', products=products, products_js=products_js,
-                                             meta=meta, lens_prices=_lens_prices,
+                                             meta=meta, lens_prices=_lens_prices, offer_range=_offer_range,
                                              store_review_count=_store_review_count, store_avg_rating=_store_avg_rating))
     return response
 
@@ -3684,6 +3697,10 @@ def test_checkout():
 
         policy_terms.record(cursor, order_id, _get_site_from(), cart,
                             customer_id=customer_id, ip_address=client_ip)
+        if user_id and face_profiles_api.gate_enabled():
+            # Same sealing as the real checkout, so a TEST order shows the person
+            # and face fit each frame (and AI Glasses) line was bought for.
+            face_cart.record(db, cursor, order_id, user_id, cart)
         import json as _json
         test_dump = _json.dumps({'method': 'TEST_BUY', 'amount': str(grand_total), 'test': True})
         cursor.execute(

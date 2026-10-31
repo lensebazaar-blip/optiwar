@@ -1092,6 +1092,16 @@ CUSTOMER'S FACE MEASUREMENTS (from AI Face Measurement tool):
 
     # Build lens catalog (what we don't sell + power recommendations)
     contact_lens_section = _build_contact_lens_section(is_india)
+    try:
+        from . import ai_glasses
+        if is_india and (ai_glasses.is_live() or ai_glasses.preview_active()):
+            _aig_db = _get_db()
+            try:
+                contact_lens_section += ai_glasses.prompt_section(_aig_db.cursor(), is_india)
+            finally:
+                _aig_db.close()
+    except Exception:  # noqa: BLE001
+        pass
     contact_lens_section += ai_language.LANGUAGE_RULES + ''.join(extra_sections)
 
     lens_avail_section = ''

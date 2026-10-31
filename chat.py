@@ -246,6 +246,11 @@ def _build_system_prompt(user_name, user_email, user_phone):
     catalog_text = _build_catalog_prompt()
     knowledge_text = _build_knowledge_summary()
     contact_lens_text = _build_contact_lens_prompt(is_india)
+    try:
+        from . import ai_glasses
+        contact_lens_text += ai_glasses.prompt_section(get_db().cursor(), is_india)
+    except Exception as e:  # noqa: BLE001
+        current_app.logger.warning('[Chat] AI Glasses section unavailable: %s', e)
 
     system = f"""You are Optiwar AI Assistant — a friendly, knowledgeable eyewear sales advisor for {site_url}.
 You help customers find frames, answer questions about products/policies/lenses, and handle support requests.

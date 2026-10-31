@@ -550,6 +550,23 @@ def spectacle_summary(cart):
     for item in cart or []:
         if not is_spectacle(item):
             continue
+        if item.get("ai_glasses"):
+            # AI Glasses (ai_glasses.py): the glasses at their price, the lens option
+            # as the customization; server_total_price is their sum, as at checkout.
+            qty = int(item.get("order_quantity") or 1)
+            lens = _f(item.get("lens_price")) * qty
+            total = _f(item.get("server_total_price"))
+            out.append({
+                "product_name": item.get("product_name"),
+                "quantity": qty,
+                "frame": total - lens,
+                "lens": lens,
+                "lens_label": item.get("aig_lens_label") or None,
+                "others": [],
+                "total": total,
+                "customized": lens > 0,
+            })
+            continue
         frame = _f(item.get("ATC_total"))
         lens = _f(item.get("server_total_price"))
         others = []
