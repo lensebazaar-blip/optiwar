@@ -252,7 +252,14 @@
   // assistant opens. Navigated here by AI (hash #owchat): compact nav mode.
   var supportEntry = (window.location.search.match(/[?&]support=([a-z_]{1,32})/) || [])[1];
   if (supportEntry) {
-    setTimeout(function() { window.owChatOpen('text', supportEntry); }, 600);
+    setTimeout(function() {
+      window.owChatOpen('text', supportEntry);
+      // An old /search?q= link: the words are typed in, never sent.
+      var carried = '';
+      try { carried = (new URLSearchParams(window.location.search).get('q') || ''); } catch (e) {}
+      carried = carried.replace(/\s+/g, ' ').trim().slice(0, 200);
+      if (carried && !input.value) input.value = carried;
+    }, 600);
   } else if (window.location.hash === '#owchat') {
     setTimeout(function() {
       setMode('nav');

@@ -38,10 +38,55 @@ class SearchChatRetired(unittest.TestCase):
 
     def test_search_opens_the_assistant(self):
         fn = _route(_read("models.py"), "search_products")
-        self.assertIn('redirect("/?support=legacy_search")', fn)
+        self.assertIn('target = "/?support=legacy_search"', fn)
+        self.assertIn("return redirect(target)", fn)
         self.assertIn("EV_LEGACY_SUPPORT_ROUTE", fn)
         self.assertNotIn("render_template", fn)
         self.assertNotIn("extract_search_intent", fn)
+
+    def _search_redirect(self, args):
+        import textwrap
+        import types
+        from urllib.parse import urlencode
+        src = textwrap.dedent(_route(_read("models.py"), "search_products"))
+        events = []
+
+        class _Db:
+            def commit(self):
+                pass
+
+        ns = {
+            "request": types.SimpleNamespace(args=args, method="GET"),
+            "redirect": lambda url: url,
+            "get_db": _Db,
+            "urlencode": urlencode,
+            "current_app": types.SimpleNamespace(logger=types.SimpleNamespace(warning=print)),
+            "acr": types.SimpleNamespace(
+                EV_LEGACY_SUPPORT_ROUTE="LEGACY_SUPPORT_ROUTE", STAGE_SUPPORT="support",
+                log_event=lambda db, ev, journey_stage, payload: events.append(payload)),
+        }
+        exec(src, ns)
+        return ns["search_products"](), events
+
+    def test_the_search_words_are_carried_into_the_assistant(self):
+        url, events = self._search_redirect({"q": "  gold   round "})
+        self.assertEqual(url, "/?support=legacy_search&q=gold+round")
+        self.assertEqual(events, [{"route": "search", "method": "GET", "has_query": True}])
+        url, _ = self._search_redirect({"query": "cat-eye & red"})
+        self.assertEqual(url, "/?support=legacy_search&q=cat-eye+%26+red")
+        url, events = self._search_redirect({})
+        self.assertEqual(url, "/?support=legacy_search")
+        self.assertFalse(events[0]["has_query"])
+        url, _ = self._search_redirect({"q": "x" * 500})
+        self.assertEqual(url, "/?support=legacy_search&q=" + "x" * 200)
+
+    def test_the_widget_types_the_carried_words_without_sending(self):
+        js = _read("static/js/chat-widget.js")
+        block = js[js.index("if (supportEntry) {"):js.index("} else if (window.location.hash === '#owchat')")]
+        self.assertIn("get('q')", block)
+        self.assertIn("input.value = carried", block)
+        self.assertNotIn("sendMessage", block)
+        self.assertNotIn("innerHTML", block)
 
     def test_old_chat_routes_call_no_model_and_file_nothing(self):
         chat = _read("chat.py")
