@@ -87,6 +87,11 @@ class SearchChatRetired(unittest.TestCase):
         self.assertIn("input.value = carried", block)
         self.assertNotIn("sendMessage", block)
         self.assertNotIn("innerHTML", block)
+        # The words leave the address bar before the chat opens, so the
+        # page_url the session, events and attachments store never has them.
+        strip = block.index("history.replaceState(")
+        self.assertIn("params.delete('q')", block[:strip])
+        self.assertLess(strip, block.index("window.owChatOpen('text', supportEntry)"))
 
     def test_old_chat_routes_call_no_model_and_file_nothing(self):
         chat = _read("chat.py")
