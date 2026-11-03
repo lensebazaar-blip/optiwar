@@ -387,7 +387,7 @@
         </div>
       </a>
       {% endblock %}
-      <a href="{{ url_for('main.search_products') }}" class="header-btn" title="Search">
+      <a href="{{ url_for('main.search_products') }}" class="header-btn" title="Search" onclick="if (window.owChatOpen) { window.owChatOpen('text', 'header_search'); return false; }">
         <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35" stroke-linecap="round"/></svg>
         <span class="btn-label">{{ _('Search') }}</span>
       </a>
@@ -816,7 +816,7 @@
 				<ul class="ow-footer-links">
 					<li><a href="/lenses">{{ _('All Lenses') }}</a></li>
 					<li><a href="/tryon">{{ _('AI Face Measurement') }}</a></li>
-					<li><a href="{{ url_for('main.search_products') }}">{{ _('Search Products') }}</a></li>
+					<li><a href="{{ url_for('main.search_products') }}" onclick="if (window.owChatOpen) { window.owChatOpen('text', 'footer_search'); return false; }">{{ _('Search Products') }}</a></li>
 					<li><a href="{{ url_for('main.terms_and_conditions') }}">{{ _('Terms & Conditions') }}</a></li>
 					<li><a href="{{ url_for('main.privacy_policy') }}">{{ _('Privacy Policy') }}</a></li>
 					<li><a href="javascript:void(0)" onclick="openContactChoice()">{{ _('Contact Us') }}</a></li>

@@ -384,268 +384,29 @@ def _save_chat_to_db(chat_session, status='completed'):
 
 # ─── Routes ───
 
+# The old chat (/chat and the /search page) is retired: it kept the
+# conversation only in the browser session and filed tickets with no
+# transcript and no KET ticket. Every chat is the assistant (chat_gateway).
+ASSISTANT_URL = "/?support=legacy_search"
+LEGACY_REPLY = ("This chat has moved. Tap the chat button at the bottom right of any page "
+                "and tell it what you need.")
+
+
 @bp.route('/')
 def chat_page():
-    """Render the AI chat page. Accessible to all, but search requires login."""
-    user_info = None
-    if 'user_id' in session:
-        db = get_db()
-        cursor = db.cursor()
-        cursor.execute(
-            'SELECT customer_name, customer_email, customer_phone FROM customers WHERE customer_id = %s',
-            (session['user_id'],)
-        )
-        row = cursor.fetchone()
-        if row:
-            user_info = {
-                'name': row.get('customer_name', '') if isinstance(row, dict) else row[0],
-                'email': row.get('customer_email', '') if isinstance(row, dict) else row[1],
-                'phone': row.get('customer_phone', '') if isinstance(row, dict) else row[2]
-            }
-    return render_template('chat.html', user_info=user_info)
+    return redirect(ASSISTANT_URL)
 
 
 @bp.route('/api/message', methods=['POST'])
 def chat_message():
-    """Handle a chat message. Requires login."""
-    if 'user_id' not in session:
-        return jsonify({'error': 'login_required', 'redirect': url_for('auth.login', next=request.referrer or '/chat')}), 401
-
-    data = request.get_json()
-    if not data or not data.get('message', '').strip():
-        return jsonify({'error': 'Empty message'}), 400
-
-    user_msg = data['message'].strip()
-    client_message_id = str(data.get('client_message_id', '')).strip()[:64]
-    chat_session = _get_chat_session()
-
-    # Check timeout
-    started = datetime.fromisoformat(chat_session['started_at'])
-    if (datetime.now() - started) > timedelta(minutes=CHAT_TIMEOUT_MINUTES):
-        # Auto-save and create ticket
-        chat_session['messages'].append({'role': 'user', 'content': user_msg, 'ts': datetime.now().isoformat()})
-        ticket_id = _save_chat_to_db(chat_session, status='timeout')
-        session.pop('chat_session', None)
-        session.modified = True
-        return jsonify({
-            'reply': f"This chat session has exceeded {CHAT_TIMEOUT_MINUTES} minutes and has been converted to support ticket #{ticket_id}. Our team will get in touch with you. Make sure your contact details are correct.",
-            'action': 'timeout',
-            'ticket_id': ticket_id
-        })
-
-    # Add user message to history (idempotent on client_message_id so a soft-retry
-    # after a retryable 503 does not duplicate the customer message)
-    _msgs = chat_session['messages']
-    _is_retry = bool(client_message_id) and _msgs and _msgs[-1].get('cmid') == client_message_id
-    if not _is_retry:
-        _msgs.append({'role': 'user', 'content': user_msg, 'ts': datetime.now().isoformat(),
-                      'cmid': client_message_id or None})
-        session.modified = True
-
-    # Get user info for system prompt
-    user_name = session.get('user_name', 'Customer')
-    user_email = session.get('user_email', '')
-    user_phone = ''
-    try:
-        db = get_db()
-        cursor = db.cursor()
-        cursor.execute('SELECT customer_phone FROM customers WHERE customer_id = %s', (session['user_id'],))
-        row = cursor.fetchone()
-        if row:
-            user_phone = row.get('customer_phone', '') if isinstance(row, dict) else row[0]
-    except:
-        pass
-
-    # Build messages for DeepSeek
-    system_prompt = _build_system_prompt(user_name, user_email, user_phone)
-    api_messages = [{'role': 'system', 'content': system_prompt}]
-
-    # Add conversation history (last 20 messages to stay within context)
-    for msg in chat_session['messages'][-20:]:
-        api_messages.append({'role': msg['role'], 'content': msg['content']})
-
-    # Call DeepSeek (wrapper when gated for this route; otherwise config-driven
-    # direct SDK with explicit non-thinking mode so the successor model behaves
-    # like the retired deepseek-chat alias).
-    _rid = getattr(g, "request_id", "-")
-    _model = current_app.config.get("DEEPSEEK_CHAT_MODEL") or "deepseek-chat"
-    _eb = {"thinking": {"type": "disabled"}} if str(
-        current_app.config.get("AI_DEEPSEEK_THINKING", "disabled")).lower() == "disabled" else {}
-    try:
-        if wrapper_enabled_for(session.get("_id") or _rid, endpoint="chat.chat_message"):
-            response = call_model(
-                workload="deepseek_chat",
-                messages=api_messages,
-                max_tokens=500,
-                temperature=0.7,
-                endpoint="chat.chat_message",
-                request_id=_rid,
-            )
-        else:
-            client = _get_deepseek_client()
-            response = client.chat.completions.create(
-                model=_model,
-                messages=api_messages,
-                max_tokens=500,
-                temperature=0.7,
-                extra_body=_eb
-            )
-        reply = response.choices[0].message.content.strip()
-    except ModelError as e:
-        status, body, headers = http_error_for(e, request_id=_rid)
-        return jsonify(body), status, headers
-    except Exception as e:
-        current_app.logger.error(f"DeepSeek API error: {e}")
-        reply = "I'm sorry, I'm having trouble processing your request right now. Please try again or call our specialist at 9355380318."
-
-    # Parse actions from reply
-    action = None
-    product_ids = []
-
-    if '[ACTION:CREATE_TICKET]' in reply:
-        reply = reply.replace('[ACTION:CREATE_TICKET]', '').strip()
-        action = 'create_ticket'
-
-    if '[ACTION:CONTACT_REQUEST]' in reply:
-        reply = reply.replace('[ACTION:CONTACT_REQUEST]', '').strip()
-        action = 'contact_request'
-
-    # Extract product IDs from [PRODUCTS:] tag
-    import re
-    product_match = re.search(r'\[PRODUCTS:([\d,]+)\]', reply)
-    if product_match:
-        reply = re.sub(r'\[PRODUCTS:[\d,]+\]', '', reply).strip()
-        product_ids = [int(x) for x in product_match.group(1).split(',') if x.strip().isdigit()]
-    
-    # Fallback: extract product codes from text (e.g. Code: AB29) and look up IDs
-    if not product_ids:
-        code_matches = re.findall(r'Code:\s*([A-Z]{2}\d{2,3})', reply)
-        if code_matches:
-            try:
-                db2 = get_db()
-                cur2 = db2.cursor()
-                placeholders2 = ','.join(['%s'] * len(code_matches[:20]))
-                cur2.execute(f'SELECT product_id FROM products WHERE product_code IN ({placeholders2}) AND product_quantity > 0' + catalogue_site_filter(), code_matches[:20])
-                product_ids = [row['product_id'] if isinstance(row, dict) else row[0] for row in cur2.fetchall()]
-            except:
-                pass
-
-    # Fetch product details if IDs found
-    products = []
-    if product_ids:
-        try:
-            db = get_db()
-            cursor = db.cursor()
-            placeholders = ','.join(['%s'] * len(product_ids[:20]))
-            cursor.execute(f"""
-                SELECT product_id, product_code, product_name, product_category, product_slug,
-                       product_color, product_size, product_price, product_special_price,
-                       product_price_eur, product_special_price_eur,
-                       product_quantity, product_image, product_type
-                FROM products WHERE product_id IN ({placeholders})
-                AND product_quantity > 0
-                {catalogue_site_filter()}
-            """, product_ids[:20])
-            products = cursor.fetchall()
-            # Convert to serializable
-            serialized = []
-            for p in products:
-                sp = {}
-                for k, v in p.items():
-                    if isinstance(v, (int, float, str, bool, type(None))):
-                        sp[k] = v
-                    else:
-                        sp[k] = str(v)
-                serialized.append(sp)
-            products = serialized
-        except Exception as e:
-            current_app.logger.error(f"Failed to fetch products: {e}")
-
-    # Save assistant reply to history
-    chat_session['messages'].append({'role': 'assistant', 'content': reply, 'ts': datetime.now().isoformat()})
-    session.modified = True
-
-    response_data = {
-        'reply': reply,
-        'products': products,
-        'action': action
-    }
-
-    # Calculate remaining time
-    elapsed = (datetime.now() - started).total_seconds()
-    remaining = max(0, CHAT_TIMEOUT_MINUTES * 60 - elapsed)
-    response_data['remaining_seconds'] = int(remaining)
-
-    return jsonify(response_data)
+    """A cached old chat page: no model call, no ticket."""
+    return jsonify({'reply': LEGACY_REPLY, 'action': 'timeout', 'products': []})
 
 
 @bp.route('/api/contact-request', methods=['POST'])
 def contact_request():
-    """Create a contact/callback request ticket."""
-    if 'user_id' not in session:
-        return jsonify({'error': 'login_required'}), 401
-
-    data = request.get_json() or {}
-    message = data.get('message', 'Customer requested a callback via AI chat.')
-
-    user_name = session.get('user_name', 'Customer')
-    user_email = session.get('user_email', '')
-
-    # Get phone from DB (profile phone)
-    profile_phone = ''
-    try:
-        db = get_db()
-        cursor = db.cursor()
-        cursor.execute('SELECT customer_phone FROM customers WHERE customer_id = %s', (session['user_id'],))
-        row = cursor.fetchone()
-        if row:
-            profile_phone = row.get('customer_phone', '') if isinstance(row, dict) else row[0]
-    except:
-        pass
-
-    # Extract phone number from customer's message (they may have typed a different number)
-    import re as _re
-    msg_phone_match = _re.search(r'\b(\+?\d[\d\s\-]{7,14}\d)\b', message)
-    message_phone = msg_phone_match.group(1).strip() if msg_phone_match else ''
-    # Use the phone from the message if provided, otherwise fall back to profile
-    phone = message_phone or profile_phone
-
-    # Get chat history for transcript
-    chat_session = _get_chat_session()
-    chat_history = chat_session.get('messages', [])
-
-    try:
-        ticket_id = create_ticket_in_db(user_name, user_email, 'Contact Request via AI Chat', message)
-
-        # Email notification to admin@optiwar.com
-        send_contact_email(user_name, user_email, phone, 'Contact Request via AI Chat', message, ticket_id)
-
-        # EWS notification (WhatsApp + SMS) to customer
-        try:
-            site = _get_site_from()
-            notify_support_ticket_created(
-                customer_email=user_email,
-                customer_phone=phone,
-                customer_name=user_name,
-                ticket_id=ticket_id,
-                subject_text='Contact Request via AI Chat',
-                site_host=site or 'optiwar.com',
-            )
-        except Exception as _ews_e:
-            current_app.logger.error(f"EWS:ERROR ticket_created {_ews_e}")
-
-        # Log in chat session
-        chat_session = _get_chat_session()
-        chat_session['messages'].append({
-            'role': 'system', 'content': f'Contact request ticket #{ticket_id} created.',
-            'ts': datetime.now().isoformat()
-        })
-        session.modified = True
-
-        return jsonify({'success': True, 'ticket_id': ticket_id, 'callback_phone': phone})
-    except Exception as e:
-        current_app.logger.error(f"Failed to create contact request: {e}")
-        return jsonify({'error': 'Failed to create request'}), 500
+    """A cached old chat page: no ticket is filed here."""
+    return jsonify({'error': 'retired', 'redirect': ASSISTANT_URL}), 410
 
 
 @bp.route('/api/upload-prescription', methods=['POST'])

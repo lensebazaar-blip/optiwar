@@ -539,7 +539,7 @@ def support_lifecycle_email(event, customer_name, ticket_id, site_host):
         <p>Hi {customer_name or 'there'},</p>
         <p>Your support ticket <strong>#{ticket_id}</strong> has been resolved.</p>
         <p>If you need further assistance, feel free to start a new chat or contact us anytime.</p>
-        <p style="margin-top:20px;"><a href="https://{site_host}/search" style="background:#4f46e5;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;">Chat With Us</a></p>
+        <p style="margin-top:20px;"><a href="https://{site_host}/?support=ticket_resolved" style="background:#4f46e5;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;">Chat With Us</a></p>
         <p style="color:#64748b;font-size:13px;margin-top:30px;">&mdash; Optiwar Support</p>
     </div>
     """)
