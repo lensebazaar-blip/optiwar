@@ -42,6 +42,7 @@ import copy
 from .cl_range_model import add_prescription_of_cl
 from .country_iso import country_to_iso2
 import re
+from urllib.parse import urlencode
 import ast
 from datetime import datetime, timedelta
 from .ai_client import call_model, pop_calls
@@ -371,14 +372,19 @@ def build_product_meta(product):
 def search_products():
     """Retired AI search page: a bookmark, the header button or Google's
     search box lands on a page with the assistant open."""
+    term = ' '.join((request.args.get('q') or request.args.get('query') or '').split())[:200]
     try:
         db = get_db()
         acr.log_event(db, acr.EV_LEGACY_SUPPORT_ROUTE, journey_stage=acr.STAGE_SUPPORT,
-                      payload={'route': 'search', 'method': request.method})
+                      payload={'route': 'search', 'method': request.method,
+                               'has_query': bool(term)})
         db.commit()
     except Exception as e:  # noqa: BLE001 - a retired route still answers
         current_app.logger.warning("legacy search route event not stored: %s", e)
-    return redirect("/?support=legacy_search")
+    target = "/?support=legacy_search"
+    if term:
+        target += "&" + urlencode({'q': term})
+    return redirect(target)
 
 
 
