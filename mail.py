@@ -418,3 +418,41 @@ def send_ip_notice(ref, holder_email, holder_name, text, holder_text=None, recip
                 time.sleep(min(attempt, 3))
     current_app.logger.error("IP notice mail permanently failed ref=%s", ref)
     return False
+
+
+def send_supplier_signup(ref, supplier_email, business_name, text, letter, recipients=None):
+    """Two mails for a supplier application, in one SMTP session: the application
+    to Optiwar's admin mailboxes (Reply-To the supplier) and the signup
+    confirmation letter to the supplier (Cc the admins). Never raises."""
+    recipients = list(recipients or ("admin@optiwar.com", "admin@lensbazaar.com"))
+    sender = f"Optiwar Sourcing <{current_app.config['MAIL_USERNAME']}>"
+    internal = EmailMessage()
+    internal['Subject'] = "[Optiwar] Supplier application %s - %s" % (ref, business_name)
+    internal['From'] = sender
+    internal['To'] = ", ".join(recipients)
+    internal['Reply-To'] = supplier_email
+    internal.set_content("A business applied to supply Optiwar through the website form.\n\n%s\n" % text)
+    confirmation = EmailMessage()
+    confirmation['Subject'] = "Welcome to Optiwar sourcing - your application %s" % ref
+    confirmation['From'] = sender
+    confirmation['To'] = supplier_email
+    confirmation['Cc'] = ", ".join(recipients)
+    confirmation['Reply-To'] = recipients[0]
+    confirmation.set_content(letter)
+    timeout = float(current_app.config.get('MAIL_TIMEOUT', 5))
+    for attempt in range(1, 4):
+        try:
+            with smtplib.SMTP(current_app.config['MAIL_SERVER'], current_app.config['MAIL_PORT'],
+                              timeout=timeout) as server:
+                server.starttls()
+                server.login(current_app.config['MAIL_USERNAME'], current_app.config['MAIL_PASSWORD'])
+                server.send_message(internal)
+                server.send_message(confirmation)
+            current_app.logger.info("Supplier signup mails sent ref=%s (attempt %d)", ref, attempt)
+            return True
+        except Exception as e:  # noqa: BLE001
+            current_app.logger.warning("Supplier signup mail attempt %d/3 failed ref=%s: %s", attempt, ref, e)
+            if attempt < 3:
+                time.sleep(min(attempt, 3))
+    current_app.logger.error("Supplier signup mail permanently failed ref=%s", ref)
+    return False

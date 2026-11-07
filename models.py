@@ -36,7 +36,7 @@ from .catalogue import (
 from . import face_cart, face_fit, face_profiles, face_profiles_api, face_scan_groups_api, face_scan_invites_api, favorites_api, order_face_scan, order_rx_documents
 from . import (acr, lens_cart, lens_config, lens_documents, lens_feed,
                lens_order, lens_preview, lens_rx, lens_seo, lens_upload,
-               lens_view, rx_photo, ip_notice, shipping_options)
+               lens_view, rx_photo, ip_notice, shipping_options, supplier_signup)
 from .cart_persist import save_cart_to_db, clear_cart_in_db
 import copy
 from .cl_range_model import add_prescription_of_cl
@@ -66,6 +66,8 @@ lens_upload.register(bp)
 rx_photo.register(bp)
 # Trademark / copyright holder notice form (ip_notice.py), for the same reason.
 ip_notice.register(bp)
+# Become a supplier (supplier_signup.py), for the same reason.
+supplier_signup.register(bp)
 # Face profiles (My Faces), for the same reason.
 face_profiles_api.register(bp)
 # Remote one-time scan requests (owner API + no-login guest scanner).
