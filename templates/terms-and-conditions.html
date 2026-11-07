@@ -13,11 +13,32 @@
 
 
 {% block content %}
-<div class="terms-section">
+{% from '_pagenav.html' import pagenav %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/legal.css') }}?v=3">
+{{ pagenav([(_('Terms and Conditions'), None)], back_label=_('Back')) }}
+<div class="ow-legal" id="owLegal">
+  <div class="ow-legal__head">
     <h1>{{ _('Terms and Conditions') }}</h1>
-     <p><strong> Latest updated: 15th September 2026</strong></p>
-     <p><em> Previously updated: 12th June 2025</em> </p>
-     <p><em> Last Updated: 30th September 2024</em> </p>
+    <p class="ow-legal__lead">{{ _('How buying from Optiwar works: cancellations, returns, shipping, and your rights and ours. Please read the returns policy before you order.') }}</p>
+    <ul class="ow-legal__meta">
+      <li><strong>{{ _('Updated') }}</strong> 15 September 2026</li>
+      <li>{{ _('Previously') }} 12 June 2025 &middot; 30 September 2024</li>
+      <li>{{ _('Returns policy') }} v{{ returns_policy_version }}</li>
+      <li>{{ _('Terms') }} v{{ terms_version }}</li>
+    </ul>
+    <div class="ow-legal__tools">
+      <a class="ow-legal__btn" href="#returns">{{ _('Jump to returns policy') }}</a>
+      <button type="button" class="ow-legal__btn" id="owLegalListen" hidden aria-pressed="false">&#9654; {{ _('Listen') }}</button>
+      <button type="button" class="ow-legal__btn" onclick="window.print()">{{ _('Print') }}</button>
+    </div>
+  </div>
+  <div class="ow-legal__grid">
+    <details class="ow-legal__toc" id="owLegalToc" open>
+      <summary>{{ _('Contents') }}</summary>
+      <ol></ol>
+    </details>
+    <article class="ow-legal__doc" id="owLegalDoc">
+<div class="terms-section">
 
     <p>Welcome to Optiwar ("the Website"). These Terms and Conditions ("Terms") govern your use of the Website, operated by Krishna Ecommerce Technologies Private Limited ("Company", "we", "us", or "our"), located at Godown Village Fazilpur, Badshahpur Tethar(222), Badshahpur, Gurgaon-122101 India. By accessing or using the Website, you agree to comply with and be bound by these Terms. If you do not agree with these Terms, please do not use the Website.</p>
 
@@ -31,7 +52,7 @@
     <h2> Eligibility</h2>
     <p>You must be at least 18 years of age to use the Website. By using the Website, you represent and warrant that you have the legal capacity to enter into this agreement and abide by these Terms.</p>
     </li>
-    <li>
+    <li class="ow-legal__note">
 	<sup>1</sup> Limited prescriptions changes as per system automation proces
     </li>
     <li> 
@@ -126,5 +147,45 @@
     </li>
 </ol>
 </div>
+      <a class="ow-legal__top" href="#owLegal">&uarr; {{ _('Back to top') }}</a>
+    </article>
+  </div>
+</div>
+<script>
+(function () {
+  var doc = document.getElementById('owLegalDoc'), toc = document.querySelector('#owLegalToc ol');
+  if (!doc || !toc) return;
+  var heads = doc.querySelectorAll('h2'), links = [];
+  heads.forEach(function (h, i) {
+    var text = h.textContent.replace(/\s+/g, ' ').trim();
+    var host = h.closest('li') || h;
+    if (!host.id) host.id = 'sec-' + (i + 1) + '-' + text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+    var label = (text === text.toUpperCase() && text.length > 12) ? text.toLowerCase().replace(/(^|\s|&\s)([a-z])/g, function (m) { return m.toUpperCase(); }) : text;
+    var a = document.createElement('a'); a.href = '#' + host.id; a.textContent = label;
+    var li = document.createElement('li'); li.appendChild(a); toc.appendChild(li); links.push([host, a]);
+    a.addEventListener('click', function () { if (window.innerWidth < 900) document.getElementById('owLegalToc').open = false; });
+  });
+  if (window.innerWidth < 900) document.getElementById('owLegalToc').open = false;
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { if (e.isIntersecting) links.forEach(function (p) { p[1].classList.toggle('is-active', p[0] === e.target); }); });
+    }, { rootMargin: '-80px 0px -70% 0px' });
+    links.forEach(function (p) { io.observe(p[0]); });
+  }
+  var btn = document.getElementById('owLegalListen');
+  if (btn && 'speechSynthesis' in window) {
+    btn.hidden = false;
+    var speaking = false;
+    btn.addEventListener('click', function () {
+      if (speaking) { window.speechSynthesis.cancel(); speaking = false; btn.classList.remove('is-on'); btn.setAttribute('aria-pressed', 'false'); btn.innerHTML = '&#9654; {{ _('Listen') }}'; return; }
+      var u = new SpeechSynthesisUtterance(doc.innerText.replace(/\s+/g, ' '));
+      u.lang = document.documentElement.lang || 'en-IN'; u.rate = 1;
+      u.onend = function () { speaking = false; btn.classList.remove('is-on'); btn.setAttribute('aria-pressed', 'false'); btn.innerHTML = '&#9654; {{ _('Listen') }}'; };
+      window.speechSynthesis.cancel(); window.speechSynthesis.speak(u);
+      speaking = true; btn.classList.add('is-on'); btn.setAttribute('aria-pressed', 'true'); btn.innerHTML = '&#9632; {{ _('Stop') }}';
+    });
+    window.addEventListener('pagehide', function () { window.speechSynthesis.cancel(); });
+  }
+})();
+</script>
 {% endblock %}
-

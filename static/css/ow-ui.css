@@ -564,12 +564,21 @@ h1.pdp-title { font-size: 22px !important; margin: 2px 0 8px !important; }
   .ow-ck #owPayBtn { display: none !important; }   /* the fixed bar pays on phones */
 }
 
-/* ---- no-returns notice on the home page (under the trust strip) ---- */
-.ow-noreturn { display: flex; align-items: flex-start; gap: 12px; margin: 12px 0 0; padding: 12px 14px; border: 1.5px solid #fca5a5; border-left-width: 5px; border-radius: var(--ow-r); background: #fff5f5; color: #7f1d1d; font-family: var(--ow-font); font-size: 13.5px; line-height: 1.5; }
-.ow-noreturn__icon { flex-shrink: 0; color: #dc2626; margin-top: 1px; }
-.ow-noreturn__text strong { display: block; font-size: 15px; font-weight: 800; color: #991b1b; margin-bottom: 2px; text-transform: uppercase; letter-spacing: .02em; }
-.ow-noreturn__text a { display: inline-block; margin-top: 4px; color: #991b1b; font-weight: 700; text-decoration: underline; }
-@media (min-width: 768px) { .ow-noreturn { margin-top: 14px; padding: 14px 18px; font-size: 14.5px; align-items: center; } .ow-noreturn__icon { width: 28px; height: 28px; } .ow-noreturn__text strong { display: inline; margin-right: 6px; } }
+/* ---- no-returns notice on the home page: one slim line, opens on tap ---- */
+.ow-noreturn { margin: 10px 0 0; border: 1px solid var(--ow-line); border-radius: var(--ow-r-pill); background: #fff; font-family: var(--ow-font); color: var(--ow-ink-2); overflow: hidden; }
+.ow-noreturn summary { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 6px 12px 6px 8px; cursor: pointer; list-style: none; font-size: 12.5px; line-height: 1.3; }
+.ow-noreturn summary::-webkit-details-marker { display: none; }
+.ow-noreturn__icon { width: 26px; height: 26px; border-radius: 50%; background: #fff7ed; color: #ea580c; display: inline-grid; place-items: center; flex-shrink: 0; }
+.ow-noreturn__title { font-weight: 800; color: var(--ow-ink); white-space: nowrap; }
+.ow-noreturn__sub { color: var(--ow-ink-2); min-width: 0; }
+.ow-noreturn__more { margin-left: auto; flex-shrink: 0; padding: 3px 10px; border-radius: var(--ow-r-pill); background: var(--ow-brand-soft, #eef2ff); color: var(--ow-brand); font-weight: 700; font-size: 12px; }
+.ow-noreturn[open] .ow-noreturn__more { background: var(--ow-brand); color: #fff; }
+.ow-noreturn__body { padding: 0 14px 12px 46px; font-size: 13px; line-height: 1.5; color: var(--ow-ink-2); }
+.ow-noreturn__body p { margin: 0 0 6px; }
+.ow-noreturn__body a { color: var(--ow-brand); font-weight: 700; text-decoration: none; }
+.ow-noreturn__body a:hover { text-decoration: underline; }
+@media (max-width: 599px) { .ow-noreturn__sub { display: none; } .ow-noreturn__body { padding-left: 14px; } }
+@media (min-width: 768px) { .ow-noreturn { margin-top: 12px; } .ow-noreturn summary { font-size: 13.5px; padding: 7px 14px 7px 10px; } .ow-noreturn__body { font-size: 14px; padding-bottom: 14px; } }
 
 /* ---- page nav: back link + breadcrumb, the same row on every page (templates/_pagenav.html) ---- */
 .ow-pagenav { max-width: var(--ow-max); margin: 0 auto; padding: 8px var(--ow-gutter) 0; display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; font-family: var(--ow-font); }

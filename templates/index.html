@@ -212,15 +212,19 @@
   <li><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="12" cy="11" r="3"/><path d="M6 19c1.5-3 4-4 6-4s4.5 1 6 4"/></svg><span>{{ _('AI face fit') }}<small>{{ _('Measure once, shop sizes that fit') }}</small></span></li>
 </ul>
 
-<!-- No-returns notice: factory-outlet prices are final (owner's wording, 7 Nov 2026) -->
-<aside class="ow-noreturn" role="note" aria-label="{{ _('No returns policy') }}">
-  <svg class="ow-noreturn__icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M4.9 4.9l14.2 14.2"/><path d="M9 10l-2-2 2-2"/><path d="M7 8h7a3 3 0 0 1 3 3v1"/></svg>
-  <div class="ow-noreturn__text">
-    <strong>{{ _('No returns policy.') }}</strong>
-    {{ _('Factory-outlet prices are final: frames and lenses are not returnable or exchangeable, even for minor defects or cosmetic marks. If you want end-to-end fitting and adjustments in person, we recommend buying from a physical optical store.') }}
-    <a href="{{ url_for('main.terms_and_conditions') }}#returns">{{ _('Read the full returns policy') }}</a>
+<!-- No-returns notice: small, folded; factory-outlet prices are final (owner's wording, 7 Nov 2026) -->
+<details class="ow-noreturn">
+  <summary>
+    <span class="ow-noreturn__icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4L13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg></span>
+    <span class="ow-noreturn__title">{{ _('No returns policy') }}</span>
+    <span class="ow-noreturn__sub">{{ _('Factory-outlet prices are final. No returns or exchanges.') }}</span>
+    <span class="ow-noreturn__more">{{ _('Why?') }}</span>
+  </summary>
+  <div class="ow-noreturn__body">
+    <p>{{ _('Our prices run up to 70%% below retail because every sale is final: frames and lenses cannot be returned or exchanged, even for minor defects or cosmetic marks. If you prefer end-to-end fitting and adjustments in person, we recommend buying from a physical optical store.') }}</p>
+    <a href="{{ url_for('main.terms_and_conditions') }}#returns">{{ _('Read the full returns policy') }} &rarr;</a>
   </div>
-</aside>
+</details>
 
 <!-- ═══ SHOP BY SHAPE ═══ -->
 <section class="ow-section">

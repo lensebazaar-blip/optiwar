@@ -2,7 +2,7 @@
 {% block title %} Prescription lenses for {{ product_name }} - Optiwar {% endblock %}
 {% block frame_filter_bar %}{% endblock %}
 {% block content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/rx-page.css') }}?v=3">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/rx-page.css') }}?v=6">
 
 <div class="rxp" id="rxPage">
     <!-- where you are: back to the frame, and the three steps to the cart -->
@@ -284,7 +284,6 @@
                     </div>
                 </div>
             </label>
-        </div>
             <label class="rx-modal-opt">
                 <input type="radio" name="add_selections" value="polarized04" data-price="{% if is_india %}800{% else %}10{% endif %}">
                 <div class="rx-modal-opt-body">
@@ -298,6 +297,7 @@
                     </div>
                 </div>
             </label>
+        </div>
         <div class="rx-modal-foot">
             <button type="button" class="rx-modal-btn-skip" onclick="clearCoating(); closeModal('coatingModal');">Skip Coating</button>
             <button type="button" class="rx-modal-btn-ok" onclick="applyCoating(); closeModal('coatingModal');">Apply Selection</button>
@@ -827,6 +827,19 @@ window.onload = function() {
                 say(unsure ? 'warn' : 'ok', html);
                 done();
             }, function () { say('err', 'We could not reach the reader. Please type the values below.'); done(); });
+    });
+})();
+
+/* ===== ONE TAP: choosing an option applies it and closes the sheet (the footer buttons still work) ===== */
+(function () {
+    var map = { add_selections: ['applyCoating', 'coatingModal'], add_selections2: ['applyThickness', 'thicknessModal'], addon_3: ['applyBifocal', 'bifocalModal'] };
+    Object.keys(map).forEach(function (name) {
+        document.querySelectorAll('input[name="' + name + '"]').forEach(function (radio) {
+            radio.addEventListener('change', function () {
+                if (!radio.checked) return;
+                setTimeout(function () { window[map[name][0]](); closeModal(map[name][1]); }, 120);
+            });
+        });
     });
 })();
 
