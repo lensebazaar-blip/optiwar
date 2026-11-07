@@ -36,14 +36,43 @@ function closeCategories() {
 (function() {
   var hc = document.getElementById('heroCarousel');
   if (!hc) return;
+  /* A copy served from the page cache (nginx, 10 min) would show the same eight
+     frames to everyone; if the HTML is older than a minute, redraw the hero from
+     the inlined productsData with eight fresh random frames. */
+  (function () {
+    var rendered = +hc.getAttribute('data-rendered') || 0;
+    var list = (typeof productsData !== 'undefined') ? productsData : window.productsData;  // index.html declares it with let
+    if (!rendered || !list || list.length < 8 || (Date.now() / 1000 - rendered) < 60) return;
+    var pool = list.slice(), pick = [];
+    while (pick.length < 8 && pool.length) pick.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+    var eur = (typeof owIsEur !== 'undefined' && owIsEur);
+    function esc(t) { var d = document.createElement('div'); d.textContent = t == null ? '' : String(t); return d.innerHTML; }
+    var html = '';
+    pick.forEach(function (p, i) {
+      var cls = i === 0 ? 'active' : '';
+      var opts = { alt: (p.product_name || '') + ' ' + (p.product_code || ''), cls: cls, width: 400, height: 400, sizes: '(max-width:767px) 92vw, 560px', eager: i === 0 };
+      if (p.media && p.media.length && window.owPictureList) html += window.owPictureList(p.media.slice(0, 1), opts);
+      else html += '<img src="/static/' + esc((p.product_image || 'new-logo.png').split(',')[0].trim()) + '" alt="' + esc(opts.alt) + '" class="' + cls + '" loading="' + (i === 0 ? 'eager' : 'lazy') + '" width="400" height="400">';
+    });
+    pick.forEach(function (p, i) {
+      var url = '/categories/' + esc(String(p.product_category || '').toLowerCase().replace(/\s+/g, '-')) + '/' + esc(p.product_slug) + '?pid=' + esc(p.product_id);
+      var price = eur ? '\u20ac' + esc(p.product_special_price_eur) : '\u20b9' + esc(p.product_special_price);
+      var mrp = eur ? (p.product_price_eur > p.product_special_price_eur ? '<s>\u20ac' + esc(p.product_price_eur) + '</s>' : '')
+                    : (p.product_price > p.product_special_price ? '<s>\u20b9' + esc(p.product_price) + '</s>' : '');
+      html += '<a class="ow-hero-cap' + (i === 0 ? ' active' : '') + '" href="' + url + '"><span class="ow-hero-cap__name">' + esc(p.product_name) + (p.product_code ? ' ' + esc(p.product_code) : '') + '</span><span class="ow-hero-cap__price">' + price + ' ' + mrp + '</span><span class="ow-hero-cap__cta">View \u2192</span></a>';
+    });
+    hc.querySelectorAll('img, picture, .ow-hero-cap').forEach(function (n) { n.remove(); });
+    hc.insertAdjacentHTML('afterbegin', html);
+    hc.setAttribute('data-start', '0');
+  })();
   var hImgs = hc.querySelectorAll('img');
   var hDotsEl = document.getElementById('heroCarouselDots');
   if (!hDotsEl || !hImgs.length) return;
-  var hCurr = 0;
+  var hCurr = Math.min(+hc.getAttribute('data-start') || 0, hImgs.length - 1);
   var hTimer;
   for (var i = 0; i < hImgs.length; i++) {
     var d = document.createElement('span');
-    if (i === 0) d.className = 'active';
+    if (i === hCurr) d.className = 'active';
     d.setAttribute('data-idx', i);
     d.addEventListener('click', function() { heroGo(+this.getAttribute('data-idx')); });
     hDotsEl.appendChild(d);

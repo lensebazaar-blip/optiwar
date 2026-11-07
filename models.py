@@ -728,9 +728,14 @@ def index():
         if _rr.get('lo'):
             _offer_range = {'low': str(int(_rr['lo'])), 'high': str(int(_rr['hi'])), 'currency': 'INR'}
 
+    # hero_ts lets the page tell a cached copy (nginx caches pages for 10 min) from a
+    # fresh render; on a cached copy scripts.js redraws the hero from productsData so
+    # every visit shows different frames.
+    import time as _time_idx
     response = make_response(render_template('index.html', products=products, products_js=products_js,
                                              meta=meta, lens_prices=_lens_prices, offer_range=_offer_range,
-                                             store_review_count=_store_review_count, store_avg_rating=_store_avg_rating))
+                                             store_review_count=_store_review_count, store_avg_rating=_store_avg_rating,
+                                             hero_ts=int(_time_idx.time())))
     return response
 
 @bp.route('/add_to_cart', methods=['POST'])

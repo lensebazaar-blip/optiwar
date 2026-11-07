@@ -167,7 +167,7 @@
   </div>
   <div class="ow-hero__media">
     <span class="ow-badge ow-badge--sale ow-hero__tag">{{ _('Up to 70%% off retail') }}</span>
-    <div class="hero-carousel" id="heroCarousel">
+    <div class="hero-carousel" id="heroCarousel" data-rendered="{{ hero_ts|default(0) }}">
       {% for product in products[:8] %}
       {% set img = product.product_image.split(',')[0].strip() if product.product_image else 'new-logo.png' %}
       {% if product.product_image %}
@@ -189,6 +189,18 @@
       <button class="hero-carousel-btn next" onclick="heroSlide(1)" aria-label="{{ _('Next') }}">&rsaquo;</button>
       <div class="hero-carousel-dots" id="heroCarouselDots"></div>
     </div>
+    <script>
+    /* Random starting slide on every load, chosen before first paint (scripts.js reads data-start). */
+    (function () {
+      var c = document.getElementById('heroCarousel'); if (!c) return;
+      var imgs = c.querySelectorAll('img'), caps = c.querySelectorAll('.ow-hero-cap');
+      if (imgs.length < 2) return;
+      var r = Math.floor(Math.random() * imgs.length); if (!r) return;
+      imgs[0].classList.remove('active'); imgs[r].classList.add('active'); imgs[r].loading = 'eager';
+      if (caps[0]) caps[0].classList.remove('active'); if (caps[r]) caps[r].classList.add('active');
+      c.setAttribute('data-start', r);
+    })();
+    </script>
   </div>
 </section>
 
