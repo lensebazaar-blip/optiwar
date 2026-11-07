@@ -101,7 +101,7 @@
     </style>
 	<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=5">
 	<link rel="stylesheet" href="{{ url_for('static', filename='glassmorphism.css') }}?v=17">
-	<link rel="stylesheet" href="{{ url_for('static', filename='css/ow-ui.css') }}?v=6">
+	<link rel="stylesheet" href="{{ url_for('static', filename='css/ow-ui.css') }}?v=7">
 
         <!-- JSON-LD Structured Data: Organization + WebSite -->
         <script type="application/ld+json">
@@ -286,7 +286,7 @@
 }
 </style>
 </head>
-<body>
+<body{% if request.path == '/' %} class="ow-home-page"{% endif %}>
 
 <!-- Decorative blobs -->
 <div class="blob blob-1"></div>
@@ -388,6 +388,12 @@
         </div>
       </a>
       {% endblock %}
+      {% if ai_glasses_nav %}
+      <a href="{{ url_for('ai_glasses.landing') }}" class="header-btn ow-desktop-only" title="AI Glasses">
+        <svg viewBox="0 0 24 24"><rect x="2" y="9" width="8" height="6" rx="3"/><rect x="14" y="9" width="8" height="6" rx="3"/><path d="M10 11.5q2-1.5 4 0"/></svg>
+        <span class="btn-label">{{ _('AI Glasses') }}</span>
+      </a>
+      {% endif %}
       <a href="{{ url_for('main.search_products') }}" class="header-btn" title="Search">
         <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35" stroke-linecap="round"/></svg>
         <span class="btn-label">{{ _('Search') }}</span>
@@ -480,6 +486,8 @@
 
 <!-- ═══ HEADER 2: LENS TYPES (spectacle lenses; lens PDP overrides empty) ═══ -->
 {% block lens_types_header %}
+{# Lens-type strip is home-page furniture; every other page keeps only the header. #}
+{% if request.path == '/' %}
 <nav class="header2">
   <div class="header2-inner">
     <span class="header2-label">{{ _('Lens Types') }}</span>
@@ -611,6 +619,7 @@
     {% endif %}
   </div>
 </nav>
+{% endif %}
 {% endblock %}
 
 <!-- ═══ STICKY FILTER BAR ═══ -->

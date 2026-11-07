@@ -18,6 +18,7 @@
 {% block hreflang_in_tag %}{% if not lens %}<link rel="alternate" hreflang="en-in" href="https://optiwar.in/categories/{{ product.product_category|lower|replace(' ', '-') }}/{{ product.product_slug }}?pid={{ product.product_id }}">{% endif %}{% endblock %}
 {% block hreflang_default %}{% if lens %}https://optiwar.com/categories/contact-lenses/{{ product.product_slug }}?pid={{ product.product_id }}{% else %}https://optiwar.com/categories/{{ product.product_category|lower|replace(' ', '-') }}/{{ product.product_slug }}?pid={{ product.product_id }}{% endif %}{% endblock %}
 
+{% block frame_filter_bar %}{% endblock %}
 {% block jsonld_extra %}
 {# A box of contact lenses gets its own markup: the frame blocks below promise
    complimentary prescription lenses, brand=Optiwar, mpn=our code, a frame-size
