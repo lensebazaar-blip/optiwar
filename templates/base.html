@@ -101,7 +101,7 @@
     </style>
 	<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=5">
 	<link rel="stylesheet" href="{{ url_for('static', filename='glassmorphism.css') }}?v=17">
-	<link rel="stylesheet" href="{{ url_for('static', filename='css/ow-ui.css') }}?v=8">
+	<link rel="stylesheet" href="{{ url_for('static', filename='css/ow-ui.css') }}?v=9">
 
         <!-- JSON-LD Structured Data: Organization + WebSite -->
         <script type="application/ld+json">
@@ -486,8 +486,6 @@
 
 <!-- ═══ HEADER 2: LENS TYPES (spectacle lenses; lens PDP overrides empty) ═══ -->
 {% block lens_types_header %}
-{# Lens-type strip is home-page furniture; every other page keeps only the header. #}
-{% if request.path == '/' %}
 <nav class="header2">
   <div class="header2-inner">
     <span class="header2-label">{{ _('Lens Types') }}</span>
@@ -619,7 +617,6 @@
     {% endif %}
   </div>
 </nav>
-{% endif %}
 {% endblock %}
 
 <!-- ═══ STICKY FILTER BAR ═══ -->

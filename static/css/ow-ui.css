@@ -410,7 +410,9 @@ ul#product-list { display: grid !important; }
 .ow-hero-cap:hover { border-color: #c7d2fe; }
 @media (min-width: 900px) { .ow-hero-cap { left: 16px; right: 16px; bottom: 34px; padding: 10px 14px; font-size: 14px; } .ow-hero-cap__price { font-size: 17px; } }
 
-/* lens strip is home-only: the filter bar sits straight under the header elsewhere */
+/* the lens-type strip is home-page furniture: hidden everywhere else (base.html keeps the
+   block intact for the lens PDP test), and the filter bar then sits straight under the header */
+body:not(.ow-home-page) .header2 { display: none; }
 body:not(.ow-home-page) .ow-filter-bar { top: var(--ow-header-h); }
 
 /* ---- product page: one left edge, one rhythm ---- */
