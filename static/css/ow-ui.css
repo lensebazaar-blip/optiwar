@@ -412,3 +412,33 @@ ul#product-list { display: grid !important; }
 
 /* lens strip is home-only: the filter bar sits straight under the header elsewhere */
 body:not(.ow-home-page) .ow-filter-bar { top: var(--ow-header-h); }
+
+/* ---- product page: one left edge, one rhythm ---- */
+.pdp-wrap { padding: 8px 16px 30px; }
+.ow-breadcrumb + .pdp-wrap { padding-top: 6px; }
+.pdp-row { gap: 24px; }
+.pdp-hero { border-radius: var(--ow-r); padding: 6px; min-height: 240px; }
+.pdp-thumbstrip { gap: 8px; margin-top: 10px; }
+.pdp-thumbstrip img { width: 64px; height: 64px; max-width: 64px; max-height: 64px; border-radius: 10px; border-color: var(--ow-line); }
+h1.pdp-title { font-size: 22px !important; margin: 2px 0 8px !important; }
+.pdp-face-for { margin-bottom: 10px !important; }
+.pdp-face-unchecked, .pdp-face-match, #faceNoMatchBtn { margin-bottom: 10px !important; }
+.pdp-measure-link { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--ow-brand); text-decoration: none; }
+.pdp-measure-link:hover { text-decoration: underline; }
+.pdp-pricebox { padding: 14px; margin: 0 0 12px; border-radius: var(--ow-r); }
+.pdp-pricebox .price-note { margin-top: 6px; }
+.pdp-stock { margin: 0 0 12px; }
+.pdp-specs, .pdp-details, .pdp-acc { padding: 14px !important; margin: 0 0 12px !important; }
+.pdp-specs h3, .pdp-details h3 { margin: 0 0 10px !important; font-size: 14px !important; }
+.pdp-specs table td.lbl, .pdp-acc table td.lbl { padding-left: 0; }
+.pdp-size-row { margin-top: 12px; padding-top: 10px; }
+.pdp-cta { margin: 4px 0 14px; }
+.pdp-cta .btn-row { gap: 10px; }
+.pdp-share { padding: 10px 0; margin-bottom: 8px; border-top: 1px solid var(--ow-line-2); }
+.pdp-trust { padding: 0; gap: 8px; }
+@media (max-width: 767px) {
+  .pdp-row { gap: 12px; }
+  .pdp-hero { min-height: 220px; max-height: 300px; }
+  .pdp-thumbstrip img { width: 56px !important; height: 56px !important; max-width: 56px !important; max-height: 56px !important; }
+  h1.pdp-title { font-size: 20px !important; }
+}

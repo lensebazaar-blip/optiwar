@@ -322,10 +322,7 @@ h1.pdp-title { font-size:20px !important; font-weight:700 !important; color:#111
           <svg class="heart-outline" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.6 5.6 0 0 0-7.9 0L12 5.5l-.9-.9A5.6 5.6 0 0 0 3.2 12l8.8 8.8 8.8-8.8a5.6 5.6 0 0 0 0-7.9z"></path></svg>
           <svg class="heart-filled" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><path d="M20.8 4.6a5.6 5.6 0 0 0-7.9 0L12 5.5l-.9-.9A5.6 5.6 0 0 0 3.2 12l8.8 8.8 8.8-8.8a5.6 5.6 0 0 0 0-7.9z"></path></svg>
         </div>
-        {% if lens %}
-        {% elif product.product_quantity and product.product_quantity > 0 and product.product_quantity <= 3 %}
-        <span class="pdp-badge pdp-badge-low">Only {{ product.product_quantity }} left!</span>
-        {% elif product.product_quantity == 0 %}
+        {% if not lens and product.product_quantity == 0 %}
         <span class="pdp-badge pdp-badge-out">Sold Out</span>
         {% endif %}
       </div>
@@ -344,12 +341,8 @@ h1.pdp-title { font-size:20px !important; font-weight:700 !important; color:#111
     <!-- RIGHT: Product Info -->
     <div class="pdp-col-info">
       <div class="pdp-summary">
-      <div class="pdp-brand-row">
-        <span class="pdp-brand">{% if lens %}{{ lens.brand or product.product_name }}{% else %}{{ product.product_name }}{% endif %}</span>
-        <span class="pdp-code">{{ product.product_code }}</span>
-      </div>
+      {% if lens and lens.brand %}<div class="pdp-brand-row"><span class="pdp-brand">{{ lens.brand }}</span><span class="pdp-code">{{ product.product_code }}</span></div>{% endif %}
       <h1 class="pdp-title">{{ product.product_name }} {{ product.product_code }}
-        {% if product.product_category == 'Spectacles Frame' %}<span class="pdp-cat">Eyewear</span>{% endif %}
         {% if product.product_category == 'Hearing Aids' %}<span class="pdp-cat" style="background:#f0fdf4;color:#16a34a;">Hearing Aid</span>{% endif %}
         {% if product.product_category == 'Contact Lenses' %}<span class="pdp-cat" style="background:#eff6ff;color:#2563eb;">Contact Lens</span>{% endif %}
       </h1>
@@ -422,7 +415,7 @@ h1.pdp-title { font-size:20px !important; font-weight:700 !important; color:#111
       <script>document.getElementById('faceNoMatchBtn').addEventListener('click',function(){document.getElementById('faceNoMatchPopup').style.display='block';});</script>
       {% elif face_match_status == 'no_measurements' %}
       <div style="margin-bottom:10px;">
-        <a href="{% if face_context and face_context.active %}/tryon?profile={{ face_context.active.id }}{% else %}/tryon{% endif %}" style="display:inline-flex;align-items:center;gap:6px;background:#eff6ff;color:#2563eb;font-size:13px;font-weight:600;padding:5px 12px;border-radius:20px;text-decoration:none;">
+        <a href="{% if face_context and face_context.active %}/tryon?profile={{ face_context.active.id }}{% else %}/tryon{% endif %}" class="pdp-measure-link">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"/><path d="M3 21v-2a7 7 0 0114 0v2"/><path d="M16 11l2 2 4-4"/></svg>
           {% if face_who %}Measure {{ face_who }}'s Face{% else %}Measure your Face{% endif %}
         </a>
