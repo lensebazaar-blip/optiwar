@@ -1,6 +1,6 @@
 # lb-ai-glasses → Optiwar: storefront UI modernisation (7 Nov 2026)
 
-**Branch:** `ui/modernize-storefront`, built on `main` @ `ea494a8` (#238 merged). Opened as a draft PR for the Optiwar Devin agent to review, run CI on and merge on the owner's word. Nothing deployed.
+**Branch:** `ui/modernize-storefront`, with `main` @ `cd8a1ba` merged in (#242; the one conflict, the header Search link that now opens the assistant, was resolved keeping main's onclick). Opened as a draft PR for the Optiwar Devin agent to review, run CI on and merge on the owner's word. Nothing deployed.
 
 ## What this is
 A mobile-first UI/UX pass over the customer-facing storefront, including the AI Glasses pages, following the UI/UX team conventions (per-page CSS under `static/css/`, `?v=` cache keys, `DEPLOY_SET` entries in the same PR, no third-party scripts, `_()` kept on customer strings, Lighthouse baselines under `docs/lighthouse/`). Backend, routes, forms, JSON-LD and the chat/voice widgets are untouched.
