@@ -586,7 +586,8 @@ def ai_glasses_tables():
                     consts[t.id] = node.value.value
     return [("ai_glasses_products", consts["SCHEMA"]),
             ("ai_glasses_status_log", consts["STATUS_LOG_SCHEMA"]),
-            ("ai_glasses_order_dispatch", consts["DISPATCH_SCHEMA"])]
+            ("ai_glasses_order_dispatch", consts["DISPATCH_SCHEMA"]),
+            ("ai_glasses_order_dispatch_pref", consts["DISPATCH_PREF_SCHEMA"])]
 
 
 def migration():

@@ -522,7 +522,7 @@ h1.pdp-title { font-size: 22px !important; margin: 2px 0 8px !important; }
 /* ---------- checkout ---------- */
 .ow-ck .ow-ck-thumb { background: #fff !important; border: 1px solid var(--ow-line); }
 .ow-ck .ow-ck-thumb picture { display: contents; }
-.ow-ck .ow-ck-thumb img { width: 100% !important; height: 100% !important; max-width: none !important; max-height: none !important; object-fit: cover !important; margin: 0 !important; }
+.ow-ck .ow-ck-thumb img { width: 100% !important; height: 100% !important; max-width: none !important; max-height: none !important; object-fit: contain !important; margin: 0 !important; }
 .ow-ck .ow-ck-fold { border: 0; margin: 0 0 10px; }
 .ow-ck .ow-ck-fold > summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-radius: var(--ow-r-sm); background: #fff; border: 1px solid var(--ow-line); font-size: 13px; font-weight: 700; color: var(--ow-ink); }
 .ow-ck .ow-ck-fold > summary::-webkit-details-marker { display: none; }
@@ -560,9 +560,61 @@ h1.pdp-title { font-size: 22px !important; margin: 2px 0 8px !important; }
   .ow-ck .ow-ck-layout > .ow-ck-card.ow-mob-visible { min-height: 0 !important; display: block !important; }
   .ow-ck .ow-ck-lines { margin-top: 12px !important; }
   .ow-ck .ow-ck-policy { margin-top: 12px !important; }
-  .ow-ck .ow-ck-thumb { width: 72px !important; height: 72px !important; align-self: start !important; }
+  /* phones: one glance per item (image, name, lens line, price, qty); person / prescription options fold behind one button */
+  .ow-ck .ow-mob-stepper { padding: 8px 0 6px !important; margin-bottom: 0 !important; }
+  .ow-ck .ow-mob-step { font-size: 12px !important; gap: 5px !important; }
+  .ow-ck .ow-mob-step-num { width: 24px !important; height: 24px !important; font-size: 11.5px !important; border-width: 1.5px !important; }
+  .ow-ck .ow-mob-step-line { width: 14px !important; margin: 0 4px !important; }
+  .ow-ck .ow-ck-card > h2 { font-size: 18px !important; margin-bottom: 2px !important; }
+  .ow-ck .ow-mob-subtitle { display: none !important; }
+  .ow-ck .ow-ck-item { grid-template-columns: 72px minmax(0, 1fr) auto !important; grid-template-rows: auto !important; align-items: start !important; gap: 8px 12px !important; }
+  .ow-ck .ow-ck-thumb { width: 72px !important; height: 72px !important; align-self: start !important; border-radius: 10px; }
+  .ow-ck .ow-ck-thumb img { object-fit: contain !important; padding: 3px; }
+  .ow-ck .ow-ck-body { min-width: 0; }
+  .ow-ck .ow-ck-item h3 { font-size: 14px !important; margin: 0 0 2px !important; line-height: 1.3 !important; }
+  .ow-ck .ow-ck-lens { font-size: 12px !important; margin: 0 0 6px !important; }
+  .ow-ck .ow-ck-price { grid-column: 3 !important; grid-row: 1 !important; text-align: right !important; font-size: 15px !important; font-weight: 800 !important; white-space: nowrap; padding: 0 !important; margin: 0 !important; border: 0 !important; }
+  .ow-ck .ow-ck-price > *:not(:last-child) { display: none !important; }
+  .ow-ck .ow-ck-item:not(.ow-ck-item--open) .ow-ck-meta, .ow-ck .ow-ck-item:not(.ow-ck-item--open) .ow-ck-face, .ow-ck .ow-ck-item:not(.ow-ck-item--open) .ow-rx-upload,
+  .ow-ck .ow-ck-item:not(.ow-ck-item--open) .ow-rx-btn, .ow-ck .ow-ck-item:not(.ow-ck-item--open) .ow-rx-badge, .ow-ck .ow-ck-item:not(.ow-ck-item--open) .ow-ck-variant { display: none !important; }
+  .ow-ck .ow-ck-qty { margin-top: 4px !important; }
+  .ow-ck .ow-ck-more { display: inline-flex; align-items: center; gap: 4px; margin-top: 8px; padding: 0; border: 0; background: none; color: var(--ow-brand); font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+  .ow-ck .ow-ck-more::after { content: "\25BE"; font-size: 11px; }
+  .ow-ck .ow-ck-item--open .ow-ck-more::after { content: "\25B4"; }
+  .ow-ck .ow-ck-item--open .ow-ck-face { margin-top: 8px; }
+  /* address step: the saved address is a plain row with a small Default tag and a trash icon */
+  .ow-ck .ow-ck-quality-widget { padding: 2px 8px !important; border-radius: 999px !important; background: #ecfdf5 !important; border: 1px solid #a7f3d0 !important; box-shadow: none !important; }
+  .ow-ck .ow-ck-quality-icon, .ow-ck .ow-ck-quality-content small { display: none !important; }
+  .ow-ck .ow-ck-quality-content strong { font-size: 11px !important; color: #065f46 !important; }
+  .ow-ck .ow-ck-delete-btn { padding: 6px !important; min-width: 0 !important; border-radius: 10px !important; box-shadow: none !important; }
+  .ow-ck .ow-ck-del-text { display: none !important; }
+  .ow-ck .ow-ck-chip-actions { gap: 6px !important; }
+  .ow-ck .ow-mob-trust-bar, .ow-ck .ow-mob-footer-line { display: none !important; }   /* terms are a step of their own now */
+  .ow-ck .ow-ck-price > span, .ow-ck .ow-ck-price > small, .ow-ck .ow-ck-price > p { display: none !important; }
   .ow-ck #owPayBtn { display: none !important; }   /* the fixed bar pays on phones */
+  /* four steps on phones: Items, Address, Terms, Pay. Terms and Pay share the third card. */
+  .ow-ck.ow-mob-step-2 .ow-ck-layout > .ow-ck-card:nth-child(3) > :not(#owPolicyBlock) { display: none !important; }
+  .ow-ck.ow-mob-step-2 #owFoldBreakdown { display: none !important; }
+  .ow-ck.ow-mob-step-2 .ow-ck-terms-head { display: block; margin: 0 0 10px; font-size: 17px; font-weight: 800; color: var(--ow-ink); }
+  .ow-ck.ow-mob-step-2 .ow-ck-policy { margin-top: 0 !important; padding: 12px !important; }
+  .ow-ck.ow-mob-step-2 .ow-ck-policy-accept { margin-top: 14px; padding: 12px; border-radius: 10px; background: #fff; border: 1px solid var(--ow-line); font-size: 13px; }
+  .ow-ck.ow-mob-step-3 #owFoldPolicy, .ow-ck.ow-mob-step-3 .ow-ck-policy-accept { display: none !important; }
+  .ow-ck.ow-mob-step-3 .ow-ck-terms-ok { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 4px; padding: 10px 12px; border-radius: 10px; background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; font-size: 13px; font-weight: 700; }
+  .ow-ck.ow-mob-step-3 .ow-ck-terms-ok a { color: var(--ow-brand); font-weight: 700; text-decoration: underline; cursor: pointer; }
 }
+
+/* ---- checkout: mixed order (AI Glasses later + frames now) one-dispatch choice ---- */
+.ow-ck .ow-ck-dispatch { margin: 12px 0 4px; padding: 12px; border: 1px solid #fcd34d; border-radius: 12px; background: #fffbeb; font-family: var(--ow-font); }
+.ow-ck .ow-ck-dispatch__head { margin: 0 0 10px; font-size: 13px; line-height: 1.5; color: #78350f; font-weight: 600; }
+.ow-ck .ow-ck-dispatch__opt { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; margin: 0 0 8px; border: 1px solid var(--ow-line); border-radius: 10px; background: #fff; cursor: pointer; font-size: 13px; line-height: 1.4; color: var(--ow-ink); }
+.ow-ck .ow-ck-dispatch__opt:has(input:checked) { border-color: var(--ow-brand); box-shadow: 0 0 0 3px rgba(79,70,229,.12); }
+.ow-ck .ow-ck-dispatch__opt input { margin-top: 3px; width: 18px; height: 18px; flex: 0 0 18px; accent-color: var(--ow-brand); }
+.ow-ck .ow-ck-dispatch__opt strong { display: block; font-size: 13.5px; }
+.ow-ck .ow-ck-dispatch__opt small { display: block; color: var(--ow-ink-2); font-size: 12px; margin-top: 2px; }
+.ow-ck .ow-ck-dispatch__split { margin-top: 4px; display: grid; gap: 6px; }
+.ow-ck .ow-ck-dispatch__split[hidden] { display: none; }
+.ow-ck .ow-ck-terms-head, .ow-ck .ow-ck-terms-ok { display: none; }
+.ow-ck .ow-ck-dispatch__remove { display: block; padding: 10px 12px; border-radius: 10px; border: 1.5px solid #fca5a5; background: #fff; color: #991b1b; font-weight: 700; font-size: 13px; text-align: center; text-decoration: none; }
 
 /* ---- no-returns notice on the home page: one slim line, opens on tap ---- */
 .ow-noreturn { margin: 10px 0 0; border: 1px solid var(--ow-line); border-radius: var(--ow-r-pill); background: #fff; font-family: var(--ow-font); color: var(--ow-ink-2); overflow: hidden; }

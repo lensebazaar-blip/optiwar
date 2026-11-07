@@ -1,4 +1,5 @@
 import smtplib
+from html import escape as html_escape
 import time
 from email.message import EmailMessage
 from flask import current_app, request
@@ -85,9 +86,10 @@ def format_cart_details(cart):
     return cart_items
 '''
 
-def send_order_confirmation(to_email, to_cc, order_id, customer_name, cart):
+def send_order_confirmation(to_email, to_cc, order_id, customer_name, cart, dispatch_note=""):
     """ Sends an order confirmation email in HTML format """
     cart_details_html = format_cart_details(cart)
+    dispatch_html = ("<tr><td style=\"padding:0 20px 20px;\"><p style=\"margin:0;padding:12px 14px;border:1px solid #fcd34d;background:#fffbeb;color:#78350f;font-size:14px;\"><strong>Dispatch:</strong> %s</p></td></tr>" % html_escape(dispatch_note)) if dispatch_note else ""
 
     # Safe grand total computation
     try:
@@ -143,6 +145,7 @@ def send_order_confirmation(to_email, to_cc, order_id, customer_name, cart):
                         </p>
                     </td>
                 </tr>
+                {dispatch_html}
                 <tr>
                     <td align="center" style="padding: 20px;">
                         <p style="font-size: 16px; color:#333333;">

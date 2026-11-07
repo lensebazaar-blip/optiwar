@@ -1003,15 +1003,21 @@ footer{ display:none !important; }
   <!-- Mobile Step Indicator -->
   <div class="ow-mob-stepper" id="owMobStepper">
     <div class="ow-mob-step ow-mob-active" data-step="0">
-      <span class="ow-mob-step-num">1</span> Cart
+      <span class="ow-mob-step-num">1</span> Items
     </div>
     <div class="ow-mob-step-line"></div>
     <div class="ow-mob-step" data-step="1">
       <span class="ow-mob-step-num">2</span> Address
     </div>
+    {% if acceptance_text is defined %}
     <div class="ow-mob-step-line"></div>
     <div class="ow-mob-step" data-step="2">
-      <span class="ow-mob-step-num">3</span> Pay
+      <span class="ow-mob-step-num">3</span> Terms
+    </div>
+    {% endif %}
+    <div class="ow-mob-step-line"></div>
+    <div class="ow-mob-step" data-step="3">
+      <span class="ow-mob-step-num">{% if acceptance_text is defined %}4{% else %}3{% endif %}</span> Pay
     </div>
   </div>
 
@@ -1040,7 +1046,7 @@ footer{ display:none !important; }
           <div class="ow-ck-thumb">
             {% set pid = item.product_id|string %}
             {% if product_image_map.get(pid) %}
-            {{ product_picture(product_image_map[pid], item.product_name|default('Frame'), width=80, height=80, sizes='80px', eager=false) }}
+            {{ product_picture(product_image_map[pid], item.product_name|default('Frame'), width=160, height=160, sizes='(max-width: 767px) 96px, 140px', eager=false) }}
             {% else %}
             <span style="font-size:1.8rem;">👓</span>
             {% endif %}
@@ -1794,7 +1800,33 @@ footer{ display:none !important; }
           <span>Delivery</span>
           <strong style="color:#16a34a;">Free</strong>
         </div>
-        {% if ship_days %}
+        {% if mixed_dispatch %}
+        {# AI Glasses ship later than the frames: both dates, and one combined dispatch to confirm #}
+        <div class="ow-ck-line">
+          <span>Frames dispatch</span>
+          <strong>{{ ship_usual }}</strong>
+        </div>
+        <div class="ow-ck-line">
+          <span>AI Glasses {% if mixed_dispatch.preorder %}(pre-order) {% endif %}dispatch</span>
+          <strong>{{ ship_days }}</strong>
+        </div>
+        <div class="ow-ck-dispatch" id="owDispatchChoice">
+          <p class="ow-ck-dispatch__head">{{ _('Your AI Glasses ship later than your frames. We send an order as one parcel, never in parts.') }}</p>
+          <label class="ow-ck-dispatch__opt">
+            <input type="radio" name="dispatch_mode" value="TOGETHER" checked>
+            <span><strong>{{ _('Send everything together') }}</strong><small>{{ _('One dispatch by') }} {{ ship_days }}. {{ _('Your frames wait for the AI Glasses.') }}</small></span>
+          </label>
+          <label class="ow-ck-dispatch__opt">
+            <input type="radio" name="dispatch_mode" value="SPLIT">
+            <span><strong>{{ _('I want the frames sooner') }}</strong><small>{{ _('Take the AI Glasses out of this order, pay for the frames now, and order the AI Glasses separately.') }}</small></span>
+          </label>
+          <div class="ow-ck-dispatch__split" id="owDispatchSplit" hidden>
+            {% for line in mixed_dispatch.aig_lines %}
+            <a class="ow-ck-dispatch__remove" href="/remove_from_cart/{{ line.product_id }}/{{ line.product_category|default('AI Glasses') }}">{{ _('Remove') }} {{ line.product_name }} {{ _('from this order') }}</a>
+            {% endfor %}
+          </div>
+        </div>
+        {% elif ship_days %}
         <div class="ow-ck-line">
           {% if ship_is_preorder %}
           <span>Pre-order dispatch</span>
@@ -1819,6 +1851,7 @@ footer{ display:none !important; }
          long T&C page. The box is never pre-checked; the server refuses a
          checkout without it (policy_terms.require). #}
       <div class="ow-ck-policy" id="owPolicyBlock">
+        <p class="ow-ck-terms-head">{{ _('Please read and accept before you pay.') }}</p>
         {% if spectacle_summary %}
         <details class="ow-ck-fold" id="owFoldBreakdown" open>
         <summary>Price details <span class="ow-ck-fold__hint">{{ spectacle_summary|length }} item{{ 's' if spectacle_summary|length != 1 }}</span></summary>
@@ -1871,6 +1904,9 @@ footer{ display:none !important; }
       </div>
       {% endif %}
 
+      {% if acceptance_text is defined %}
+      <div class="ow-ck-terms-ok" id="owTermsOk"><span>&#10003; {{ _('Terms accepted') }}</span><a onclick="owMobGo(2)">{{ _('Change') }}</a></div>
+      {% endif %}
       <button type="submit" class="ow-ck-pay-btn" id="owPayBtn">
         <span class="ow-ck-btn-text">Pay {% if is_india %}Rs {{ grand_total|int }}{% else %}&euro;{{ '%.2f'|format(grand_total_eur|default(grand_total)) }}{% endif %}</span>
         <span class="ow-ck-spinner">
@@ -1937,16 +1973,22 @@ function owCloseRx(id){ document.getElementById(id).classList.remove('ow-rx-open
 
 
 
+var owHasTermsStep = !!document.getElementById('owPolicyBlock');
 function owMobGo(step){
   if(!owIsMobile()) return;
+  if (step === 2 && !owHasTermsStep) step = (owMobStep > 2) ? 1 : 3;   /* no terms block: skip that step */
   owMobStep = step;
   var cards = document.querySelectorAll('.ow-ck-layout > .ow-ck-card');
-  cards.forEach(function(c,i){ c.classList.toggle('ow-mob-visible', i === step); });
+  var cardIndex = Math.min(step, 2);                                     /* terms and pay share the third card */
+  cards.forEach(function(c,i){ c.classList.toggle('ow-mob-visible', i === cardIndex); });
+  var wrap = document.getElementById('owCheckout');
+  if (wrap) { wrap.classList.remove('ow-mob-step-0','ow-mob-step-1','ow-mob-step-2','ow-mob-step-3'); wrap.classList.add('ow-mob-step-' + step); }
   var steps = document.querySelectorAll('.ow-mob-step');
-  steps.forEach(function(s,i){
+  steps.forEach(function(s){
+    var n = +s.getAttribute('data-step');
     s.classList.remove('ow-mob-active','ow-mob-done');
-    if(i < step) s.classList.add('ow-mob-done');
-    else if(i === step) s.classList.add('ow-mob-active');
+    if(n < step) s.classList.add('ow-mob-done');
+    else if(n === step) s.classList.add('ow-mob-active');
   });
   window.scrollTo({top:0, behavior:'smooth'});
   if (window.owMobBarUpdate) window.owMobBarUpdate(step);
@@ -2211,7 +2253,7 @@ function owShowToast(msg) {
   var form = document.getElementById('owCheckoutForm'); if (!form) return;
   var grand = document.querySelector('.ow-ck-grand span:last-child');
   var total = grand ? grand.textContent.trim() : '';
-  var labels = ['Deliver to address', 'Continue to payment', 'Pay ' + total];
+  var labels = ['Confirm address', 'Read the terms', 'I agree, continue', 'Pay ' + total];
 
   /* prescription photo box: one line until tapped (upload hooks untouched) */
   document.querySelectorAll('.ow-rx-upload').forEach(function (box) {
@@ -2223,35 +2265,68 @@ function owShowToast(msg) {
     t.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
   });
 
+  /* phones: each item's person / prescription / lens-detail controls fold behind one button */
+  if (window.innerWidth < 768) document.querySelectorAll('.ow-ck-item').forEach(function (it) {
+    var body = it.querySelector('.ow-ck-body'); if (!body) return;
+    if (!body.querySelector('.ow-ck-face, .ow-rx-upload, .ow-rx-btn, .ow-rx-badge')) return;
+    var b = document.createElement('button'); b.type = 'button'; b.className = 'ow-ck-more'; b.textContent = 'Options'; b.setAttribute('aria-expanded', 'false');
+    b.addEventListener('click', function () { var open = it.classList.toggle('ow-ck-item--open'); b.setAttribute('aria-expanded', open ? 'true' : 'false'); b.textContent = open ? 'Hide options' : 'Options'; });
+    body.appendChild(b);
+  });
+
   /* fixed action bar (phones) */
   var bar = document.createElement('div'); bar.id = 'owMobBar'; bar.className = 'ow-mob-bar';
   bar.innerHTML = '<div class="ow-mob-bar__total"><span>Total</span><b>' + total + '</b></div><button type="button" class="ow-btn ow-btn--primary" id="owMobBarBtn"></button>';
   document.body.appendChild(bar);
   var btn = document.getElementById('owMobBarBtn');
+  /* mixed order: paying is only possible with one combined dispatch */
+  window.owDispatchOk = function () {
+    var split = document.querySelector('input[name="dispatch_mode"][value="SPLIT"]');
+    if (!split || !split.checked) return true;
+    var panel = document.getElementById('owDispatchSplit');
+    if (panel) { panel.hidden = false; panel.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    return false;
+  };
+  document.querySelectorAll('input[name="dispatch_mode"]').forEach(function (r) {
+    r.addEventListener('change', function () {
+      var panel = document.getElementById('owDispatchSplit'); if (panel) panel.hidden = (r.value !== 'SPLIT' || !r.checked);
+    });
+  });
+  var ckForm = document.getElementById('owCheckoutForm');
+  if (ckForm) ckForm.addEventListener('submit', function (e) { if (!window.owDispatchOk()) e.preventDefault(); }, true);
+  function termsOk() {
+    var terms = document.getElementById('owTermsAccepted');
+    if (!terms || terms.checked) return true;
+    var block = document.getElementById('owPolicyBlock');
+    if (block) { block.classList.add('ow-ck-policy-missing'); }
+    var lab = terms.closest('label'); if (lab) lab.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    terms.focus(); return false;
+  }
   btn.addEventListener('click', function () {
     var step = (typeof owMobStep === 'number') ? owMobStep : 0;
     if (step < 2) { owMobGo(step + 1); return; }
+    if (step === 2) { if (termsOk()) owMobGo(3); return; }
+    if (!termsOk()) { owMobGo(2); return; }
+    if (!window.owDispatchOk()) return;
     var pay = document.getElementById('owPayBtn');
-    var terms = document.getElementById('owTermsAccepted');
-    if (terms && !terms.checked) {
-      var block = document.getElementById('owPolicyBlock');
-      if (block) { block.classList.add('ow-ck-policy-missing'); block.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
-      terms.focus(); return;
-    }
-    if (pay) { btn.textContent = 'Processing\u2026'; btn.disabled = true; pay.click(); setTimeout(function () { btn.disabled = false; btn.textContent = labels[2]; }, 15000); }
+    if (pay) { btn.textContent = 'Processing\u2026'; btn.disabled = true; pay.click(); setTimeout(function () { btn.disabled = false; btn.textContent = labels[3]; }, 15000); }
   });
   window.owMobBarUpdate = function (step) {
     btn.textContent = labels[step] || labels[0];
-    btn.classList.toggle('ow-mob-bar__pay', step === 2);
-    [document.getElementById('owFoldBreakdown'), document.getElementById('owFoldPolicy')].forEach(function (d) { if (d && window.innerWidth < 768) d.removeAttribute('open'); });
+    btn.classList.toggle('ow-mob-bar__pay', step === 3);
+    var fb = document.getElementById('owFoldBreakdown'), fp = document.getElementById('owFoldPolicy');
+    if (window.innerWidth < 768) {
+      if (fb) fb.removeAttribute('open');
+      if (fp) { if (step === 2) fp.setAttribute('open', ''); else fp.removeAttribute('open'); }
+    }
   };
   if (typeof owMobStep === 'number') window.owMobBarUpdate(owMobStep);
 
   /* step chips go back; #step-N opens a step directly */
   document.querySelectorAll('.ow-mob-step').forEach(function (chip, i) {
-    chip.addEventListener('click', function () { if (i <= owMobStep) owMobGo(i); });
+    var n = +chip.getAttribute('data-step'); chip.addEventListener('click', function () { if (n <= owMobStep) owMobGo(n); });
   });
-  var m = /#step-([0-2])/.exec(location.hash); if (m && typeof owMobGo === 'function') owMobGo(+m[1]);
+  var m = /#step-([0-3])/.exec(location.hash); if (m && typeof owMobGo === 'function') owMobGo(+m[1]);
 })();
 </script>
 

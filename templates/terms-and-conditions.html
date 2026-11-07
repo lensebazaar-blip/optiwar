@@ -21,13 +21,14 @@
     <h1>{{ _('Terms and Conditions') }}</h1>
     <p class="ow-legal__lead">{{ _('How buying from Optiwar works: cancellations, returns, shipping, and your rights and ours. Please read the returns policy before you order.') }}</p>
     <ul class="ow-legal__meta">
-      <li><strong>{{ _('Updated') }}</strong> 15 September 2026</li>
-      <li>{{ _('Previously') }} 12 June 2025 &middot; 30 September 2024</li>
+      <li><strong>{{ _('Updated') }}</strong> 7 November 2026</li>
+      <li>{{ _('Previously') }} 15 September 2026 &middot; 12 June 2025 &middot; 30 September 2024</li>
       <li>{{ _('Returns policy') }} v{{ returns_policy_version }}</li>
       <li>{{ _('Terms') }} v{{ terms_version }}</li>
     </ul>
     <div class="ow-legal__tools">
       <a class="ow-legal__btn" href="#returns">{{ _('Jump to returns policy') }}</a>
+      <a class="ow-legal__btn" href="#ip-notice">{{ _('Brand and copyright notices') }}</a>
       <button type="button" class="ow-legal__btn" id="owLegalListen" hidden aria-pressed="false">&#9654; {{ _('Listen') }}</button>
       <button type="button" class="ow-legal__btn" onclick="window.print()">{{ _('Print') }}</button>
     </div>
@@ -128,9 +129,23 @@
     </li>
 
  
+    <li id="ip-notice">
+    <h2> Trademark and Copyright Holder Notices (Notice, Hold Period and Takedown)</h2>
+    <p>Optiwar is an online marketplace and factory-outlet storefront operated by Krishna Ecommerce Technologies Private Limited. Products, brand names, logos and images listed on the Website are supplied by manufacturers, authorised distributors and sellers, and are used for identification of the goods offered. Any brand, trademark or copyright remains the property of its respective owner.</p>
+    <h3>a. Mandatory prior notice</h3>
+    <p>If you are a trademark owner, copyright holder or their authorised agent ("Rights Holder") and you believe that a product, listing, image or text on the Website infringes your rights, you must first notify us in writing before initiating any complaint, claim, proceeding or action in any forum. Send the notice to Krishna Ecommerce Technologies Private Limited, Godown Village Fazilpur, Badshahpur Tethar(222), Badshahpur, Gurgaon-122101, India, or through the <a href="{{ url_for('crm.create_ticket') }}">contact form</a>, marked "IP Notice". By accessing or using the Website, or by listing, viewing or dealing with any product on it, a Rights Holder agrees to this notice procedure.</p>
+    <h3>b. What the notice must contain</h3>
+    <p>(i) the registered trademark or copyrighted work concerned, with registration numbers or proof of ownership; (ii) the exact listing URL(s) or product code(s) on the Website; (iii) the reason you believe the listing infringes your rights, including whether you contend the goods are counterfeit, grey-market, or lawfully sourced; (iv) the action you request (for example, correction of a listing, removal of an image, or withdrawal of a product); (v) your name, designation, company, address, email and telephone; and (vi) a statement, made in good faith, that the information in the notice is accurate and that you are the Rights Holder or authorised to act for them.</p>
+    <h3>c. Ninety-day hold period</h3>
+    <p>On receipt of a complete notice we will acknowledge it within 7 working days and may ask for further particulars. A hold period of ninety (90) days then runs from our acknowledgement, during which we will verify the listing and its sourcing with the supplier, and may correct, suspend or remove the listing, or explain in writing why we consider it lawful. During this period the Rights Holder agrees not to initiate or escalate any claim, complaint, proceeding or public action concerning the listing, and to engage with us in good faith to resolve the matter. Only if the matter remains unresolved after the hold period may the Rights Holder proceed, and then only before the courts named in the Governing Law and Jurisdiction section below. A notice that is incomplete, not made in good faith, or that is not followed by the hold period will be treated as non-compliant with these Terms.</p>
+    <h3>d. Our actions</h3>
+    <p>We may, at our discretion and without admitting any liability, correct a listing, remove an image or description, suspend or withdraw a product, or request documents from the supplier. Where goods are lawfully sourced (including genuine goods bought from the brand, its distributors or the open market), we may continue to list them and will say so in our reply. Nothing in this section limits any statutory obligation we may have to act within a shorter time where the law requires it, and nothing in it is an admission that any listing infringes any right.</p>
+    </li>
+
     <li>
-    <h2> Governing Law</h2>
-    <p>These Terms shall be governed by and construed in accordance with the laws of Haryana or New Delhi, India, without regard to its conflict of law principles.</p>
+    <h2> Governing Law and Jurisdiction</h2>
+    <p>These Terms, and every dispute, claim, notice or proceeding arising out of or in connection with the Website, its listings, any product bought through it, or any trademark or copyright notice concerning it, shall be governed by and construed in accordance with the laws of India.</p>
+    <p>The courts at New Delhi and the courts at Gurugram (Gurgaon), Haryana, shall have exclusive jurisdiction. By accessing or using the Website, by purchasing through it, or by sending any notice under these Terms, you agree that any complaint, claim, suit or proceeding shall be brought only before these courts, and you waive any objection to this forum. Any proceeding commenced in any other court or forum is, as between you and us, in breach of these Terms, and we may rely on this section to seek its dismissal, transfer or stay and to recover our costs.</p>
     </li>
 
     <li>
