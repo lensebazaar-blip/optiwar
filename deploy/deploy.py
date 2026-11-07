@@ -115,7 +115,8 @@ DEPLOY_SET = ("__init__.py", "log_hygiene.py", "pricing.py", "acr.py", "ai_api.p
               "templates/ai_glasses/_face_match_strip.html",
               "static/ai-glasses/aig.css", "static/ai-glasses/aig.js", "templates/index.html",
               # storefront UI layer (mobile-first modernisation)
-              "static/css/ow-ui.css", "templates/categories.html")
+              "static/css/ow-ui.css", "templates/categories.html",
+              "templates/my_orders.html")
 
 # Files that do not exist in production yet. Absence is otherwise a block, so
 # that a path typo or a file missing from the release cannot be mistaken for a
