@@ -564,6 +564,13 @@ h1.pdp-title { font-size: 22px !important; margin: 2px 0 8px !important; }
   .ow-ck #owPayBtn { display: none !important; }   /* the fixed bar pays on phones */
 }
 
+/* ---- no-returns notice on the home page (under the trust strip) ---- */
+.ow-noreturn { display: flex; align-items: flex-start; gap: 12px; margin: 12px 0 0; padding: 12px 14px; border: 1.5px solid #fca5a5; border-left-width: 5px; border-radius: var(--ow-r); background: #fff5f5; color: #7f1d1d; font-family: var(--ow-font); font-size: 13.5px; line-height: 1.5; }
+.ow-noreturn__icon { flex-shrink: 0; color: #dc2626; margin-top: 1px; }
+.ow-noreturn__text strong { display: block; font-size: 15px; font-weight: 800; color: #991b1b; margin-bottom: 2px; text-transform: uppercase; letter-spacing: .02em; }
+.ow-noreturn__text a { display: inline-block; margin-top: 4px; color: #991b1b; font-weight: 700; text-decoration: underline; }
+@media (min-width: 768px) { .ow-noreturn { margin-top: 14px; padding: 14px 18px; font-size: 14.5px; align-items: center; } .ow-noreturn__icon { width: 28px; height: 28px; } .ow-noreturn__text strong { display: inline; margin-right: 6px; } }
+
 /* ---- page nav: back link + breadcrumb, the same row on every page (templates/_pagenav.html) ---- */
 .ow-pagenav { max-width: var(--ow-max); margin: 0 auto; padding: 8px var(--ow-gutter) 0; display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; font-family: var(--ow-font); }
 .ow-pagenav__back { display: inline-flex; align-items: center; gap: 4px; min-height: 40px; font-size: 14px; font-weight: 600; color: var(--ow-brand); text-decoration: none; }
