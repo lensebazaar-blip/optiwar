@@ -397,3 +397,15 @@ ul#product-list { display: grid !important; }
   .pdp-stickybar__price { min-width: 60px; }
   .pdp-stickybar .ow-btn { padding: 0 8px; font-size: 13px; white-space: nowrap; }
 }
+
+/* hero carousel caption: name, outlet price, struck MRP; one per slide, toggled by heroGo */
+.ow-hero__media .hero-carousel { padding-bottom: 0; }
+.ow-hero__media .hero-carousel img { padding: 5% 5% 20%; }
+.ow-hero-cap { position: absolute; left: 10px; right: 10px; bottom: 28px; z-index: 3; display: none; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 10px; background: rgba(255,255,255,.92); border: 1px solid var(--ow-line); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); color: var(--ow-ink); text-decoration: none; font-size: 13px; line-height: 1.2; }
+.ow-hero-cap.active { display: flex; }
+.ow-hero-cap__name { flex: 1; min-width: 0; font-weight: 700; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ow-hero-cap__price { font-weight: 800; font-size: 15px; white-space: nowrap; }
+.ow-hero-cap__price s { margin-left: 4px; font-weight: 500; font-size: 12px; color: var(--ow-faint); }
+.ow-hero-cap__cta { font-weight: 700; color: var(--ow-brand); white-space: nowrap; }
+.ow-hero-cap:hover { border-color: #c7d2fe; }
+@media (min-width: 900px) { .ow-hero-cap { left: 16px; right: 16px; bottom: 34px; padding: 10px 14px; font-size: 14px; } .ow-hero-cap__price { font-size: 17px; } }

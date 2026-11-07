@@ -49,12 +49,15 @@ function closeCategories() {
     hDotsEl.appendChild(d);
   }
   var hDots = hDotsEl.querySelectorAll('span');
+  var hCaps = hc.querySelectorAll('.ow-hero-cap');   // per-slide name + price (index.html)
   function heroGo(idx) {
     hImgs[hCurr].classList.remove('active');
     hDots[hCurr].classList.remove('active');
+    if (hCaps[hCurr]) hCaps[hCurr].classList.remove('active');
     hCurr = ((idx % hImgs.length) + hImgs.length) % hImgs.length;
     hImgs[hCurr].classList.add('active');
     hDots[hCurr].classList.add('active');
+    if (hCaps[hCurr]) hCaps[hCurr].classList.add('active');
   }
   window.heroSlide = function(dir) {
     heroGo(hCurr + dir);

@@ -176,6 +176,15 @@
       <img src="{{ url_for('static', filename=img) }}" alt="{{ product.product_name }}" {% if loop.first %}class="active"{% endif %} loading="{% if loop.first %}eager{% else %}lazy{% endif %}" width="400" height="400">
       {% endif %}
       {% endfor %}
+      {% for product in products[:8] %}
+      <a class="ow-hero-cap{% if loop.first %} active{% endif %}" href="{{ url_for('main.product_page', category=product.product_category|lower|replace(' ', '-'), product_slug=product.product_slug, pid=product.product_id) }}">
+        <span class="ow-hero-cap__name">{{ product.product_name }}{% if product.product_code %} {{ product.product_code }}{% endif %}</span>
+        <span class="ow-hero-cap__price">{% if is_india %}&#8377;{{ product.product_special_price }}{% else %}&euro;{{ product.product_special_price_eur }}{% endif %}
+          {% if is_india and product.product_price and product.product_special_price and product.product_price > product.product_special_price %}<s>&#8377;{{ product.product_price }}</s>{% elif not is_india and product.product_price_eur and product.product_special_price_eur and product.product_price_eur > product.product_special_price_eur %}<s>&euro;{{ product.product_price_eur }}</s>{% endif %}
+        </span>
+        <span class="ow-hero-cap__cta">{{ _('View') }} &rarr;</span>
+      </a>
+      {% endfor %}
       <button class="hero-carousel-btn prev" onclick="heroSlide(-1)" aria-label="{{ _('Previous') }}">&lsaquo;</button>
       <button class="hero-carousel-btn next" onclick="heroSlide(1)" aria-label="{{ _('Next') }}">&rsaquo;</button>
       <div class="hero-carousel-dots" id="heroCarouselDots"></div>
