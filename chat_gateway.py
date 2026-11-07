@@ -26,6 +26,7 @@ from . import chat_vision
 from . import dev_defects
 from . import face_assistant
 from . import face_scan_invites
+from . import ip_notice
 from . import lens_config
 from . import lens_prompt
 from . import lens_order
@@ -3215,6 +3216,8 @@ def chat_message():
         contact_name, is_india, content, customer_id=customer_id,
         extra_sections=tuple(s for s in (lens_section, photo_section, face_section,
                                          faces_section, reship_section) if s))
+    # Brand / copyright complaints: courteous, and sent to the notice form (Terms).
+    system_prompt += ip_notice.prompt_section()
     history = _get_conversation_history(db, session_id)
     user_msgs = _customer_messages(history, content)
     understanding = ai_language.understand(user_msgs)

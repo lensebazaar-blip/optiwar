@@ -2,92 +2,64 @@
 
 {% block title %} My Orders - Optiwar {% endblock %}
 {% block content %}
-<!--
-{% with messages = get_flashed_messages() %}
-    {% if messages %}
-        <ul class="flashes">
-            {% for message in messages %}
-                <li>{{ message|safe }}</li>
-            {% endfor %}
-        </ul>
-    {% endif %}
-{% endwith %}
--->
-<div class="my-order-section">
-    <h1>Check Your Order Status</h1>
-
-<!-- OTP requesting section -->
-        {% if otp_required %}
-	<form id="otpform" action="{{ url_for('orders.my_order') }}" method="POST" >
-	<input type="hidden" name="contact" value="{{ contact }}">
-	<label for="otp" > Enter the OTP sent to your email: </label><br>
-	<input type="text" id="otp" name="otp" placeholder="Enter OTP received" required > <br> <br>
-	<button type="submit" > Verify OTP </button>
-	</form>
-
-
-	{% else %}
-
-
-
-    <form id="myorderform" action="{{ url_for('orders.my_order') }}" method="POST">
-        <label for="contact">Enter your email ID or phone number:</label><br>
-        <input type="text" id="contact" name="contact" placeholder="Enter either your email or phone number" required><br><br>
-	<!-- F Defence  -->
-	<div style="display: none;">
-	<label for="captcha"> Enter the Captcha here </label>
-	<input type="text" id="captcha" name="captcha" value="" >
-	</div>
-        <button type="submit">Check Status</button>
+{% from '_pagenav.html' import pagenav %}
+{{ pagenav([(_('Track your order'), None)], back_label=_('Back')) }}
+<div class="ow-lookup">
+  <div class="ow-lookup__card">
+    <h1>{{ _('Track your order') }}</h1>
+    <p class="ow-lookup__sub">{{ _('No account needed. Enter the email or phone you ordered with and we will send a one-time code.') }}</p>
+    {% if otp_required %}
+    <form id="otpform" action="{{ url_for('orders.my_order') }}" method="POST" class="ow-lookup__form">
+      <input type="hidden" name="contact" value="{{ contact }}">
+      <label for="otp">{{ _('Enter the code we sent to') }} <strong>{{ contact }}</strong></label>
+      <input type="text" id="otp" name="otp" inputmode="numeric" autocomplete="one-time-code" placeholder="{{ _('6-digit code') }}" required>
+      <button type="submit" class="ow-btn ow-btn--primary ow-btn--block">{{ _('Verify code') }}</button>
     </form>
-	{% endif %}
+    {% else %}
+    <form id="myorderform" action="{{ url_for('orders.my_order') }}" method="POST" class="ow-lookup__form">
+      <label for="contact">{{ _('Email or phone number') }}</label>
+      <input type="text" id="contact" name="contact" autocomplete="email" placeholder="{{ _('you@example.com or 98xxxxxxxx') }}" required>
+      <!-- F Defence -->
+      <div style="display:none;"><label for="captcha">Enter the Captcha here</label><input type="text" id="captcha" name="captcha" value=""></div>
+      <button type="submit" class="ow-btn ow-btn--primary ow-btn--block">{{ _('Check status') }}</button>
+    </form>
+    {% endif %}
+    {% if logged_in %}<p class="ow-lookup__hint"><a href="{{ url_for('profile.profile_page', tab='orders') }}">{{ _('Signed in? See all your orders in My Account') }} &rarr;</a></p>{% endif %}
+  </div>
 
-    <div id="order-details">
-	{% if submitted %}   
-	     {% if order_found %}
-	            <ul>
-	                {% for order in orders %}
-	                    <li>Order ID: {{ order['order_id'] }}      Status: {{ order['order_status_name'] }} <br> {{ order['date_created'].strftime('%Y-%m-%d %H:%M:%S') }} | <br>
-				Order Total: {{ order['order_total'] }} | Order Quantity: {{ order['order_quantity'] }} <br>
-				Product your bought : {{ order['product_name'] }} <br>
-	                        Price you paid: {{ order['product_special_price'] }} <br> <br>
-				 {% if order['product_image'] %}
-				 {% set image_paths = order['product_image'].split(',') %}
-	                        How it looks: <img id="product-image-{{ loop.index }}" src="{{ url_for('static', filename=image_paths[0].strip()) }}"> 
-			 {% else %} 
-			 		<p> No image found </p>
-	                 {% endif %}
-		
-			    </li>
-			    
-	                {% endfor %}
-	            </ul>
-	        {% else %}
-	            <p>{{ _('No orders found') }} for this contact. You may contact support for further assistance.</p>
-	        {% endif %}
-	{% endif %}
-	    </div>
+  <div id="order-details">
+    {% if submitted %}
+      {% if order_found %}
+      <h2 class="ow-lookup__h2">{{ _('Your orders') }}</h2>
+      <ul class="ow-lookup__orders">
+        {% for order in orders %}
+        <li class="ow-lookup__order">
+          {% if order['product_image'] %}{% set image_paths = order['product_image'].split(',') %}
+          <img class="ow-lookup__img" src="{{ url_for('static', filename=image_paths[0].strip()) }}" alt="{{ order['product_name'] }}" loading="lazy" width="96" height="96">
+          {% else %}<div class="ow-lookup__img ow-lookup__img--none"></div>{% endif %}
+          <div class="ow-lookup__body">
+            <div class="ow-lookup__top"><span class="ow-lookup__id">{{ order['order_id'] }}</span><span class="ow-badge ow-badge--ok">{{ order['order_status_name'] }}</span></div>
+            <div class="ow-lookup__name">{{ order['product_name'] }}</div>
+            <div class="ow-lookup__meta">{{ order['date_created'].strftime('%d %b %Y') }} · {{ order['order_quantity'] }} {{ _('item') }}{% if order['order_quantity']|int != 1 %}s{% endif %}</div>
+            <div class="ow-lookup__total">{% if is_india %}&#8377;{% else %}&euro;{% endif %}{{ order['order_total'] }}</div>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="ow-empty ow-empty--inline">
+        <h2>{{ _('No orders found') }}</h2>
+        <p>{{ _('Nothing matches that contact. Check the spelling, or message us and we will look it up for you.') }}</p>
+      </div>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  <a href="https://wa.me/919355380318?text=Hi%20Optiwar%20Team%2C%20I%20have%20a%20query%20about%20my%20order" target="_blank" rel="noopener" class="ow-whatsapp">
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.6.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.3-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.9 11.9 0 0 0 4.6 4c1.7.7 2.4.8 3.2.7a2.7 2.7 0 0 0 1.8-1.3 2.2 2.2 0 0 0 .2-1.3c-.1-.1-.3-.2-.5-.3z"/></svg>
+    {{ _('Chat with us on WhatsApp') }}
+  </a>
 </div>
-	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-
-<a href="https://wa.me/919355380318?text=Hi%20Optiwar%Team%2C%20I%20have%20a%20query" target="_blank"
-   class="whatsapp-button">
-   <i class="fab fa-whatsapp"></i> Chat with us on WhatsApp
-</a>
-
-<style>
-.whatsapp-button {
-    background-color: #25D366;
-    color: white;
-    padding: 10px 16px;
-    border-radius: 5px;
-    text-decoration: none;
-    font-size: 16px;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-}
-</style>
 {% endblock %}
 
 

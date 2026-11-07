@@ -1,0 +1,101 @@
+{% extends 'base.html' %}
+{% block title %} Become a supplier - OPTIWAR {% endblock %}
+{% block meta_description %} Manufacturers, wholesalers, distributors and importers: offer to supply Optiwar's inventory. Share your GST, factory and product details; our sourcing team replies within days. {% endblock %}
+{% block content %}
+{% from '_pagenav.html' import pagenav %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/legal.css') }}?v=3">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/ow-forms.css') }}?v=1">
+{{ pagenav([(_('Become a supplier'), None)], back_label=_('Back')) }}
+<div class="ow-legal" id="owLegal">
+  <div class="ow-legal__head">
+    <h1>{{ _('Become a supplier to Optiwar') }}</h1>
+    <p class="ow-legal__lead">{{ _('Optiwar buys and holds its own inventory of frames, sunglasses, lenses and eyewear accessories and sells directly to consumers at factory-outlet prices. If you manufacture, import or wholesale eyewear in India, tell us about your business. Our sourcing team reviews every application and replies within %(days)s working days.', days=review_days) }}</p>
+    <ul class="ow-legal__meta">
+      <li><strong>{{ _('We need') }}</strong> {{ _('a GST-registered business, a catalogue with wholesale prices, and samples') }}</li>
+      <li>{{ _('Factory outlet') }} &middot; {{ _('Direct to consumer') }} &middot; {{ _('Not a marketplace') }}</li>
+    </ul>
+  </div>
+
+  {% if sent %}
+  <div class="owf-ack" role="status">
+    <h2>{{ _('Application received. Welcome aboard the queue!') }}</h2>
+    <div class="ref">{{ ref }}</div>
+    <p style="margin:8px 0 0;">{{ _('Quote this reference in any follow-up.') }}
+      {% if mailed %}{{ _('Your signup confirmation letter has been emailed to') }} <strong>{{ data.email }}</strong>{{ _(', and your application has reached our sourcing team.') }}{% else %}{{ _('We could not send the email just now; your application is recorded under this reference and our team will write to you. Keep the letter below for your records.') }}{% endif %}
+    </p>
+    <ul class="owf-steps" style="margin-top:12px;">
+      <li><b>1</b><span>{{ _('Our sourcing team reviews your application and writes to you by') }} <strong>{{ review_by.strftime('%A, %d %B %Y') }}</strong>.</span></li>
+      <li><b>2</b><span>{{ _('Keep ready: GST certificate, PAN, a cancelled cheque or bank letter, your catalogue with wholesale prices, and samples of the lines you propose.') }}</span></li>
+      <li><b>3</b><span>{{ _('Terms of purchase, payment cycles and quality checks are agreed in writing before the first order.') }}</span></li>
+    </ul>
+    <div class="ow-legal__tools">
+      <button type="button" class="ow-legal__btn" onclick="window.print()">{{ _('Print / save as PDF') }}</button>
+      <a class="ow-legal__btn" href="{{ url_for('main.index') }}">{{ _('Back to Optiwar') }}</a>
+    </div>
+    <div class="owf-copy">{{ letter }}</div>
+  </div>
+
+  {% else %}
+  {% if errors.form %}<p class="owf-warn">{{ errors.form }}</p>{% endif %}
+  <ul class="owf-steps">
+    <li><b>1</b><span>{{ _('Your business and its GST registration (we read the GST state from the GSTIN).') }}</span></li>
+    <li><b>2</b><span>{{ _('Where you make or stock the goods, and what you can supply.') }}</span></li>
+    <li><b>3</b><span>{{ _('Send. You get a reference and a signup confirmation letter by email; our team replies within %(days)s working days.', days=review_days) }}</span></li>
+  </ul>
+  <form method="post" action="{{ url_for('main.supplier_signup_submit') }}" class="owf-form" novalidate>
+    <div class="owf-hp" aria-hidden="true"><label>Website <input type="text" name="website_url" tabindex="-1" autocomplete="off"></label></div>
+
+    <fieldset class="owf-fieldset"><legend>{{ _('Business') }}</legend>
+    <div class="owf-row owf-row--2">
+      <div class="owf-field{% if errors.business_name %} is-bad{% endif %}"><label for="business_name">{{ _('Business name') }} *</label><input type="text" id="business_name" name="business_name" value="{{ data.business_name }}" required autocomplete="organization">{% if errors.business_name %}<span class="owf-err">{{ errors.business_name }}</span>{% endif %}</div>
+      <div class="owf-field{% if errors.business_type %} is-bad{% endif %}"><label for="business_type">{{ _('Type of business') }} *</label>
+        <select id="business_type" name="business_type" required><option value="">{{ _('Choose') }}</option>{% for key, label in business_types %}<option value="{{ key }}"{% if data.business_type == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>{% if errors.business_type %}<span class="owf-err">{{ errors.business_type }}</span>{% endif %}</div>
+    </div>
+    <div class="owf-row owf-row--3">
+      <div class="owf-field{% if errors.gstin %} is-bad{% endif %}"><label for="gstin">GSTIN * <small>{{ _('15 characters') }}</small></label><input type="text" id="gstin" name="gstin" value="{{ data.gstin }}" required maxlength="15" style="text-transform:uppercase" placeholder="06AAHCK4567A1ZP">{% if errors.gstin %}<span class="owf-err">{{ errors.gstin }}</span>{% endif %}</div>
+      <div class="owf-field"><label for="website">{{ _('Website') }}</label><input type="text" id="website" name="website" value="{{ data.website }}" placeholder="https://"></div>
+      <div class="owf-field"><label for="years_in_business">{{ _('Years in business') }}</label><input type="text" id="years_in_business" name="years_in_business" value="{{ data.years_in_business }}" inputmode="numeric"></div>
+    </div>
+    </fieldset>
+
+    <fieldset class="owf-fieldset"><legend>{{ _('Registered address (as on the GST certificate)') }}</legend>
+    <div class="owf-field{% if errors.address %} is-bad{% endif %}"><label for="address">{{ _('Address') }} *</label><input type="text" id="address" name="address" value="{{ data.address }}" required autocomplete="street-address">{% if errors.address %}<span class="owf-err">{{ errors.address }}</span>{% endif %}</div>
+    <div class="owf-row owf-row--3">
+      <div class="owf-field{% if errors.city %} is-bad{% endif %}"><label for="city">{{ _('City') }} *</label><input type="text" id="city" name="city" value="{{ data.city }}" required autocomplete="address-level2">{% if errors.city %}<span class="owf-err">{{ errors.city }}</span>{% endif %}</div>
+      <div class="owf-field{% if errors.state %} is-bad{% endif %}"><label for="state">{{ _('State (GST location)') }} *</label>
+        <select id="state" name="state" required><option value="">{{ _('Choose') }}</option>{% for st in states %}<option value="{{ st }}"{% if data.state == st %} selected{% endif %}>{{ st }}</option>{% endfor %}</select>{% if errors.state %}<span class="owf-err">{{ errors.state }}</span>{% endif %}</div>
+      <div class="owf-field"><label for="pincode">{{ _('Pin code') }}</label><input type="text" id="pincode" name="pincode" value="{{ data.pincode }}" inputmode="numeric" autocomplete="postal-code"></div>
+    </div>
+    <div class="owf-field"><label for="factory_address">{{ _('Factory / warehouse address') }} <small>{{ _('if different') }}</small></label><input type="text" id="factory_address" name="factory_address" value="{{ data.factory_address }}"></div>
+    </fieldset>
+
+    <fieldset class="owf-fieldset"><legend>{{ _('What you can supply') }}</legend>
+    <div class="owf-field{% if errors.categories %} is-bad{% endif %}"><label>{{ _('Product categories') }} *</label>
+      <div class="owf-check-group">{% for key, label in categories %}<label><input type="checkbox" name="categories" value="{{ key }}"{% if key in data.categories %} checked{% endif %}> {{ label }}</label>{% endfor %}</div>
+      {% if errors.categories %}<span class="owf-err">{{ errors.categories }}</span>{% endif %}</div>
+    <div class="owf-row owf-row--2">
+      <div class="owf-field"><label for="brands">{{ _('Brands or lines you make / carry') }}</label><input type="text" id="brands" name="brands" value="{{ data.brands }}"></div>
+      <div class="owf-field"><label for="capacity">{{ _('Monthly capacity and minimum order') }}</label><input type="text" id="capacity" name="capacity" value="{{ data.capacity }}" placeholder="{{ _('e.g. 20,000 frames / month, MOQ 300') }}"></div>
+    </div>
+    </fieldset>
+
+    <fieldset class="owf-fieldset"><legend>{{ _('Contact person') }}</legend>
+    <div class="owf-row owf-row--2">
+      <div class="owf-field{% if errors.contact_name %} is-bad{% endif %}"><label for="contact_name">{{ _('Name') }} *</label><input type="text" id="contact_name" name="contact_name" value="{{ data.contact_name }}" required autocomplete="name">{% if errors.contact_name %}<span class="owf-err">{{ errors.contact_name }}</span>{% endif %}</div>
+      <div class="owf-field"><label for="designation">{{ _('Designation') }}</label><input type="text" id="designation" name="designation" value="{{ data.designation }}" autocomplete="organization-title"></div>
+    </div>
+    <div class="owf-row owf-row--2">
+      <div class="owf-field{% if errors.email %} is-bad{% endif %}"><label for="email">{{ _('Email') }} * <small>{{ _('the confirmation letter goes here') }}</small></label><input type="email" id="email" name="email" value="{{ data.email }}" required autocomplete="email">{% if errors.email %}<span class="owf-err">{{ errors.email }}</span>{% endif %}</div>
+      <div class="owf-field{% if errors.phone %} is-bad{% endif %}"><label for="phone">{{ _('Phone / WhatsApp') }} *</label><input type="tel" id="phone" name="phone" value="{{ data.phone }}" required autocomplete="tel">{% if errors.phone %}<span class="owf-err">{{ errors.phone }}</span>{% endif %}</div>
+    </div>
+    <div class="owf-field"><label for="message">{{ _('Anything else') }} <small>{{ _('certifications, lead times, existing retail partners...') }}</small></label><textarea id="message" name="message">{{ data.message }}</textarea></div>
+    </fieldset>
+
+    <label class="owf-check{% if errors.accept %} is-bad{% endif %}"><input type="checkbox" name="accept" value="1"{% if data.accept %} checked{% endif %}><span>{{ _('I confirm these details are true, that I am authorised to offer supply on behalf of this business, and that Optiwar may contact me about it.') }}{% if errors.accept %}<br><span class="owf-err">{{ errors.accept }}</span>{% endif %}</span></label>
+
+    <div><button type="submit" class="owf-submit">{{ _('Send my application') }}</button></div>
+    <p style="font-size:12.5px;color:#64748b;margin:0;">{{ _('Your application goes to our sourcing team and you receive a signup confirmation letter by email. Nothing is published.') }}</p>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

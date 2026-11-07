@@ -106,8 +106,25 @@ CREATE TABLE IF NOT EXISTS ai_glasses_order_dispatch (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 """
 
+# The customer's dispatch choice for a mixed order (AI Glasses that ship later +
+# frames that are ready): Optiwar sends one parcel, never a partial dispatch, so
+# the customer confirms at checkout that the whole order waits. Ops read it from
+# here (and from the order page / confirmation mail) before processing.
+DISPATCH_PREF_SCHEMA = """
+CREATE TABLE IF NOT EXISTS ai_glasses_order_dispatch_pref (
+    order_id VARCHAR(18) NOT NULL PRIMARY KEY,
+    mode VARCHAR(16) NOT NULL,
+    hold_until DATE NULL,
+    usual_date DATE NULL,
+    created_at DATETIME NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+"""
+MODE_TOGETHER = "TOGETHER"
+DISPATCH_MODES = (MODE_TOGETHER,)
+
 TABLES = (("ai_glasses_products", SCHEMA), ("ai_glasses_status_log", STATUS_LOG_SCHEMA),
-          ("ai_glasses_order_dispatch", DISPATCH_SCHEMA))
+          ("ai_glasses_order_dispatch", DISPATCH_SCHEMA),
+          ("ai_glasses_order_dispatch_pref", DISPATCH_PREF_SCHEMA))
 
 _SCHEMA_READY = False
 
@@ -232,6 +249,64 @@ def dispatch_date(cursor, product_ids, start=None):
             continue
         best = date if best is None or date > best else best
     return best, preorder
+
+
+def is_line(item):
+    """Whether a cart line is an AI Glasses line (add_to_bag marks them)."""
+    return bool(item.get("ai_glasses")) or item.get("vertical") == VERTICAL
+
+
+def mixed_dispatch(cursor, cart, usual, start=None):
+    """A cart that mixes AI Glasses shipping later with lines shipping on the
+    usual date: ``{"aig_date", "usual_date", "preorder", "aig_lines",
+    "other_count"}``; None when the cart is not mixed or nothing ships later."""
+    aig_lines = [i for i in (cart or []) if is_line(i)]
+    other = [i for i in (cart or []) if not is_line(i)]
+    if not aig_lines or not other:
+        return None
+    aig_date, preorder = dispatch_date(cursor, [i.get("product_id") for i in aig_lines], start)
+    if not aig_date or (usual and aig_date <= usual):
+        return None
+    return {"aig_date": aig_date, "usual_date": usual, "preorder": preorder,
+            "aig_lines": aig_lines, "other_count": len(other)}
+
+
+def record_dispatch_preference(cursor, order_id, mode, hold_until, usual_date, now=None):
+    """Store the customer's choice for a mixed order; False when refused or the table is missing."""
+    if mode not in DISPATCH_MODES:
+        return False
+    try:
+        cursor.execute(
+            "INSERT INTO ai_glasses_order_dispatch_pref (order_id, mode, hold_until, usual_date, created_at) "
+            "VALUES (%s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE mode = VALUES(mode), "
+            "hold_until = VALUES(hold_until), usual_date = VALUES(usual_date)",
+            (order_id, mode, hold_until, usual_date, now or datetime.datetime.now()))
+        return True
+    except Exception:  # noqa: BLE001 - never breaks the order
+        return False
+
+
+def dispatch_preference(cursor, order_id):
+    try:
+        cursor.execute("SELECT mode, hold_until, usual_date FROM ai_glasses_order_dispatch_pref "
+                       "WHERE order_id = %s", (order_id,))
+        return cursor.fetchone() or None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def dispatch_note(pref):
+    """One line for the order page, the confirmation mail and Ops; '' when none."""
+    if not pref or pref.get("mode") != MODE_TOGETHER:
+        return ""
+    day = pref.get("hold_until")
+    when = day.strftime("%A, %d %B %Y") if hasattr(day, "strftime") else str(day or "")
+    return ("ONE DISPATCH: the customer chose to hold every item and receive the whole order together"
+            + (" by %s" % when if when else "") + ". No partial dispatch.")
+
+
+def dispatch_note_for(cursor, order_id):
+    return dispatch_note(dispatch_preference(cursor, order_id))
 
 
 def promised_dispatch(cursor, order_id):

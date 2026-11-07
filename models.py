@@ -36,7 +36,7 @@ from .catalogue import (
 from . import face_cart, face_fit, face_profiles, face_profiles_api, face_scan_groups_api, face_scan_invites_api, favorites_api, order_face_scan, order_rx_documents
 from . import (acr, lens_cart, lens_config, lens_documents, lens_feed,
                lens_order, lens_preview, lens_rx, lens_seo, lens_upload,
-               lens_view)
+               lens_view, rx_photo, ip_notice, shipping_options, supplier_signup)
 from .cart_persist import save_cart_to_db, clear_cart_in_db
 import copy
 from .cl_range_model import add_prescription_of_cl
@@ -62,6 +62,12 @@ reship_api.register(bp)
 # Uploaded-prescription routes (customer upload + Ops signed download), for
 # the same reason.
 lens_upload.register(bp)
+# Eyeglasses prescription photo reader on the frames lens page (rx_photo.py).
+rx_photo.register(bp)
+# Trademark / copyright holder notice form (ip_notice.py), for the same reason.
+ip_notice.register(bp)
+# Become a supplier (supplier_signup.py), for the same reason.
+supplier_signup.register(bp)
 # Face profiles (My Faces), for the same reason.
 face_profiles_api.register(bp)
 # Remote one-time scan requests (owner API + no-login guest scanner).
@@ -218,6 +224,19 @@ def _ship_date_for(cursor, product_ids, start_date=None):
     if aig and aig > usual:
         return aig, preorder
     return usual, False
+
+def _dispatch_note_safe(order_id):
+    """The order's delivery notes for mails, pages and Ops (mixed-order dispatch
+    choice, paid delivery option); '' on any failure."""
+    notes = []
+    try:
+        cursor = get_db().cursor()
+        notes.append(ai_glasses.dispatch_note_for(cursor, order_id))
+        notes.append(shipping_options.note(shipping_options.read(cursor, order_id)))
+    except Exception:  # noqa: BLE001
+        pass
+    return " ".join(n for n in notes if n)
+
 
 def safe_float(val, default=0.0):
     try:
@@ -2917,6 +2936,15 @@ def checkout_page():
     cursor = db.cursor()
     _ship, ship_is_preorder = _ship_date_for(cursor, [item.get('product_id') for item in cart])
     ship_days = _ship.strftime('%A, %d %B %Y')
+    # A cart mixing AI Glasses (shipping later) with ready frames: both dates are
+    # shown and the customer confirms one combined dispatch (no partial dispatch).
+    _usual = dispatch_date_obj().date()
+    mixed_dispatch = ai_glasses.mixed_dispatch(cursor, cart, _usual)
+    ship_usual = _usual.strftime('%A, %d %B %Y')
+    # Delivery options (standard / expedite / 24-hour NCR): the page offers them by
+    # the address being typed; the POST validates the choice against the posted one.
+    shipping_allowed = bool(_req_is_india()) and not ship_is_preorder
+    shipping_rules = shipping_options.js_rules()
 
     product_ids = [item.get('product_id') for item in cart if item.get('product_id')]
     product_image_map = {}
@@ -3053,7 +3081,7 @@ def checkout_page():
     import uuid as _uuid
     session['checkout_token'] = str(_uuid.uuid4())
     _acr_stage(acr.STAGE_CHECKOUT)
-    return render_template('checkout.html', cart=cart,ship_days=ship_days, ship_is_preorder=ship_is_preorder, face_lines=face_lines,product_image_map=product_image_map, grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, right_eye=right_eye, left_eye=left_eye,right_pwr=right_pwr, right_lens_color=right_lens_color, right_cyl=right_cyl, right_qty=right_qty, right_axis=right_axis, right_add=right_add, left_pwr=left_pwr, left_lens_color=left_lens_color, left_cyl=left_cyl, left_qty=left_qty, left_axis=left_axis, left_add=left_add, lens_recommendations=lens_recommendations, prefill=prefill, saved_addresses=saved_addresses, lens_removal_pending=lens_removal_pending, lens_removal_confirm_text=lens_cart.CONFIRM_REMOVAL, rx_documents=rx_documents, **policy_terms.checkout_context(cart, _get_site_from()))
+    return render_template('checkout.html', cart=cart,ship_days=ship_days, ship_is_preorder=ship_is_preorder, mixed_dispatch=mixed_dispatch, ship_usual=ship_usual, shipping_allowed=shipping_allowed, shipping_rules=shipping_rules, face_lines=face_lines,product_image_map=product_image_map, grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, right_eye=right_eye, left_eye=left_eye,right_pwr=right_pwr, right_lens_color=right_lens_color, right_cyl=right_cyl, right_qty=right_qty, right_axis=right_axis, right_add=right_add, left_pwr=left_pwr, left_lens_color=left_lens_color, left_cyl=left_cyl, left_qty=left_qty, left_axis=left_axis, left_add=left_add, lens_recommendations=lens_recommendations, prefill=prefill, saved_addresses=saved_addresses, lens_removal_pending=lens_removal_pending, lens_removal_confirm_text=lens_cart.CONFIRM_REMOVAL, rx_documents=rx_documents, **policy_terms.checkout_context(cart, _get_site_from()))
 
 """
 @bp.route('/initiate-payment', methods=['POST'])
@@ -3178,6 +3206,17 @@ def checkout():
         grand_total = round(grand_total - eur_discount, 2)
         print(f"EUR Discount applied: -EUR {eur_discount}, frame_count={frame_count}")
 
+    # Delivery option: validated against the posted address (an AI Glasses
+    # pre-order keeps standard); the fee is part of what the gateway charges.
+    _ship_preorder = _ship_date_for(cursor, [item.get('product_id') for item in cart])[1] if cart else False
+    shipping_choice = shipping_options.choose(
+        request.form.get('shipping_option'), request.form.get('customer_state'),
+        request.form.get('customer_postcode'), _is_india, _ship_preorder, request.form.get('address', ''))
+    shipping_fee = float(shipping_choice['fee']) if _is_india else 0.0
+    if shipping_fee:
+        grand_total = round(grand_total + shipping_fee, 2)
+        current_app.logger.info(f"[{_host}] ACTIVITY:SHIPPING_OPTION user:{_uid} option:{shipping_choice['key']} fee:{shipping_fee}")
+
     # Collect customer info
     customer_name = request.form['name']
     customer_address = request.form['address']
@@ -3188,6 +3227,7 @@ def checkout():
     customer_postcode = request.form['customer_postcode']
     country = request.form['country']
     phone_code = request.form.get('phone_code', '')
+    dispatch_mode = (request.form.get('dispatch_mode') or '').strip().upper()
     # Build full delivery phone with country code
     delivery_phone_full = customer_phone if customer_phone.strip().startswith('+') else ((phone_code + ' ' + customer_phone).strip() if phone_code else customer_phone)
     client_ip = request.headers.get('X-Forwarded-For', request.headers.get('X-Real-IP', request.remote_addr))
@@ -3405,6 +3445,15 @@ def checkout():
                 ('Pending', order_id)
             )
 
+        # Mixed order (AI Glasses shipping later + ready frames): the customer's
+        # one-dispatch choice travels with the order for Ops.
+        shipping_options.record(cursor, order_id, shipping_choice,
+                                shipping_options.promised_date(datetime.now(), shipping_choice['key']),
+                                state=customer_state, zipcode=customer_postcode)
+        _mixed = ai_glasses.mixed_dispatch(cursor, cart, dispatch_date_obj().date())
+        if _mixed:
+            ai_glasses.record_dispatch_preference(cursor, order_id, dispatch_mode or ai_glasses.MODE_TOGETHER,
+                                                  _mixed["aig_date"], _mixed["usual_date"])
         policy_terms.record(cursor, order_id, _get_site_from(), cart,
                             checkout_token=_checkout_token, customer_id=customer_id,
                             ip_address=client_ip)
@@ -3761,7 +3810,8 @@ def payment_callback():
                                     to_cc='admin@lensbazaar.com',
                                     order_id=order_id,
                                     customer_name=customer_name,
-                                    cart=cart
+                                    cart=cart,
+                                    dispatch_note=_dispatch_note_safe(order_id)
                                 )
                                 current_app.logger.info(f"Sent order confirmation to {customer_email}")
                             except Exception as e:
@@ -3863,7 +3913,8 @@ def razorpay_verify():
                         to_cc='admin@lensbazaar.com',
                         order_id=order_id,
                         customer_name=mail_result['customer_name'],
-                        cart=cart
+                        cart=cart,
+                        dispatch_note=_dispatch_note_safe(order_id)
                     )
                     current_app.logger.info(f"Sent order confirmation to {mail_result['customer_email']}")
             except Exception as e:
@@ -4070,6 +4121,7 @@ def success(order_id):
        cursor.execute('''select sum(order_total) as grand_total from orders where order_id=%s''', (order_id,))
        grand_total_result = cursor.fetchone() 
        grand_total = int(grand_total_result['grand_total']) if grand_total_result and 'grand_total' in grand_total_result else 0
+       grand_total += int(round(shipping_options.fee_for(cursor, order_id)))
        print(f"Fetched Grand Total for display type is {type(grand_total)}")
 
        payment_state, latest_status = order_payment_state(cursor, order_id)
@@ -4092,7 +4144,11 @@ def success(order_id):
     # A regular order keeps today's estimate; an AI Glasses one keeps the date it
     # was promised when placed, even once that date is near or past.
     _ship = _aig or dispatch_date_obj().date()
+    _shipping_row = shipping_options.read(cursor, order_id)
+    if _shipping_row and _shipping_row.get('promised_date') and not _aig:
+        _ship = _shipping_row['promised_date']     # a paid delivery option carries its own promise
     ship_date = _ship.strftime('%A, %d %B %Y')
+    dispatch_note = _dispatch_note_safe(order_id)
 
     # Google Customer Reviews opt-in fields (order confirmation page).
     gcr = None
@@ -4122,7 +4178,7 @@ def success(order_id):
 
     if payment_state == 'paid':
         _acr_stage(acr.STAGE_PURCHASE, order_id=order_id)
-    return render_template('success.html', order_details=order_details, grand_total=grand_total,
+    return render_template('success.html', dispatch_note=dispatch_note, order_details=order_details, grand_total=grand_total,
                            ship_date=ship_date, gcr=gcr, payment_state=payment_state,
                            latest_status=latest_status)
 

@@ -282,6 +282,8 @@
 
 </style>
 
+{% from '_pagenav.html' import pagenav %}
+{{ pagenav([(_('My account'), None)], back_label=_('Back to shopping')) }}
 <div class="ow-profile-container">
 
   <!-- Profile Header Card -->
@@ -2228,7 +2230,7 @@ if (window.location.hash) {
     });
   }
 
-  var isIndia = window.location.host.indexOf('in.optiwar.com') >= 0 || window.location.host.indexOf('optiwar.in') >= 0;
+  var isIndia = {{ 'true' if is_india else 'false' }};  // the site decides, not the hostname (local builds use in.localhost)
   var defCode = isIndia ? '+91' : '+49';
 
   // Profile phone code

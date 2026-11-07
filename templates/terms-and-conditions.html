@@ -13,11 +13,33 @@
 
 
 {% block content %}
-<div class="terms-section">
+{% from '_pagenav.html' import pagenav %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/legal.css') }}?v=3">
+{{ pagenav([(_('Terms and Conditions'), None)], back_label=_('Back')) }}
+<div class="ow-legal" id="owLegal">
+  <div class="ow-legal__head">
     <h1>{{ _('Terms and Conditions') }}</h1>
-     <p><strong> Latest updated: 15th September 2026</strong></p>
-     <p><em> Previously updated: 12th June 2025</em> </p>
-     <p><em> Last Updated: 30th September 2024</em> </p>
+    <p class="ow-legal__lead">{{ _('How buying from Optiwar works: cancellations, returns, shipping, and your rights and ours. Please read the returns policy before you order.') }}</p>
+    <ul class="ow-legal__meta">
+      <li><strong>{{ _('Updated') }}</strong> 7 November 2026</li>
+      <li>{{ _('Previously') }} 15 September 2026 &middot; 12 June 2025 &middot; 30 September 2024</li>
+      <li>{{ _('Returns policy') }} v{{ returns_policy_version }}</li>
+      <li>{{ _('Terms') }} v{{ terms_version }}</li>
+    </ul>
+    <div class="ow-legal__tools">
+      <a class="ow-legal__btn" href="#returns">{{ _('Jump to returns policy') }}</a>
+      <a class="ow-legal__btn" href="#ip-notice">{{ _('Brand and copyright notices') }}</a>
+      <button type="button" class="ow-legal__btn" id="owLegalListen" hidden aria-pressed="false">&#9654; {{ _('Listen') }}</button>
+      <button type="button" class="ow-legal__btn" onclick="window.print()">{{ _('Print') }}</button>
+    </div>
+  </div>
+  <div class="ow-legal__grid">
+    <details class="ow-legal__toc" id="owLegalToc" open>
+      <summary>{{ _('Contents') }}</summary>
+      <ol></ol>
+    </details>
+    <article class="ow-legal__doc" id="owLegalDoc">
+<div class="terms-section">
 
     <p>Welcome to Optiwar ("the Website"). These Terms and Conditions ("Terms") govern your use of the Website, operated by Krishna Ecommerce Technologies Private Limited ("Company", "we", "us", or "our"), located at Godown Village Fazilpur, Badshahpur Tethar(222), Badshahpur, Gurgaon-122101 India. By accessing or using the Website, you agree to comply with and be bound by these Terms. If you do not agree with these Terms, please do not use the Website.</p>
 
@@ -31,7 +53,7 @@
     <h2> Eligibility</h2>
     <p>You must be at least 18 years of age to use the Website. By using the Website, you represent and warrant that you have the legal capacity to enter into this agreement and abide by these Terms.</p>
     </li>
-    <li>
+    <li class="ow-legal__note">
 	<sup>1</sup> Limited prescriptions changes as per system automation proces
     </li>
     <li> 
@@ -107,9 +129,23 @@
     </li>
 
  
+    <li id="ip-notice">
+    <h2> Trademark and Copyright Holder Notices (Notice, Hold Period and Takedown)</h2>
+    <p>Optiwar is not a marketplace. It is an inventory-led, direct-to-consumer factory-outlet storefront operated by Krishna Ecommerce Technologies Private Limited: the products listed on the Website are bought into and held in our own inventory from manufacturers and authorised distributors, and sold by us directly to consumers. Brand names, logos and images appear on the Website to identify the goods we hold and sell. Any brand, trademark or copyright remains the property of its respective owner.</p>
+    <h3>a. Mandatory prior notice</h3>
+    <p>If you are a trademark owner, copyright holder or their authorised agent ("Rights Holder") and you believe that a product, listing, image or text on the Website infringes your rights, you must first notify us in writing before initiating any complaint, claim, proceeding or action in any forum. Send the notice to Krishna Ecommerce Technologies Private Limited, Godown Village Fazilpur, Badshahpur Tethar(222), Badshahpur, Gurgaon-122101, India, or, preferably, through the <a href="{{ url_for('main.ip_notice') }}">trademark and copyright notice form</a>, which gives you a reference and emails a copy of the notice to you and to us. By accessing or using the Website, or by listing, viewing or dealing with any product on it, a Rights Holder agrees to this notice procedure.</p>
+    <h3>b. What the notice must contain</h3>
+    <p>(i) the registered trademark or copyrighted work concerned, with registration numbers or proof of ownership; (ii) the exact listing URL(s) or product code(s) on the Website; (iii) the reason you believe the listing infringes your rights, including whether you contend the goods are counterfeit, grey-market, or lawfully sourced; (iv) the action you request (for example, correction of a listing, removal of an image, or withdrawal of a product); (v) your name, designation, company, address, email and telephone; and (vi) a statement, made in good faith, that the information in the notice is accurate and that you are the Rights Holder or authorised to act for them.</p>
+    <h3>c. Ninety-day hold period</h3>
+    <p>On receipt of a complete notice we will acknowledge it within 7 working days and may ask for further particulars. A hold period of ninety (90) days then runs from our acknowledgement, during which we will verify the listing and its sourcing with the supplier, and may correct, suspend or remove the listing, or explain in writing why we consider it lawful. During this period the Rights Holder agrees not to initiate or escalate any claim, complaint, proceeding or public action concerning the listing, and to engage with us in good faith to resolve the matter. Only if the matter remains unresolved after the hold period may the Rights Holder proceed, and then only before the courts named in the Governing Law and Jurisdiction section below. A notice that is incomplete, not made in good faith, or that is not followed by the hold period will be treated as non-compliant with these Terms.</p>
+    <h3>d. Our actions</h3>
+    <p>We may, at our discretion and without admitting any liability, correct a listing, remove an image or description, suspend or withdraw a product, or request sourcing documents from the manufacturer or distributor we bought from. Where goods in our inventory are lawfully sourced (including genuine goods bought from the brand, its distributors or the open market), we may continue to list and sell them and will say so in our reply. Nothing in this section limits any statutory obligation we may have to act within a shorter time where the law requires it, and nothing in it is an admission that any listing infringes any right.</p>
+    </li>
+
     <li>
-    <h2> Governing Law</h2>
-    <p>These Terms shall be governed by and construed in accordance with the laws of Haryana or New Delhi, India, without regard to its conflict of law principles.</p>
+    <h2> Governing Law and Jurisdiction</h2>
+    <p>These Terms, and every dispute, claim, notice or proceeding arising out of or in connection with the Website, its listings, any product bought through it, or any trademark or copyright notice concerning it, shall be governed by and construed in accordance with the laws of India.</p>
+    <p>The courts at New Delhi and the courts at Gurugram (Gurgaon), Haryana, shall have exclusive jurisdiction. By accessing or using the Website, by purchasing through it, or by sending any notice under these Terms, you agree that any complaint, claim, suit or proceeding shall be brought only before these courts, and you waive any objection to this forum. Any proceeding commenced in any other court or forum is, as between you and us, in breach of these Terms, and we may rely on this section to seek its dismissal, transfer or stay and to recover our costs.</p>
     </li>
 
     <li>
@@ -126,5 +162,45 @@
     </li>
 </ol>
 </div>
+      <a class="ow-legal__top" href="#owLegal">&uarr; {{ _('Back to top') }}</a>
+    </article>
+  </div>
+</div>
+<script>
+(function () {
+  var doc = document.getElementById('owLegalDoc'), toc = document.querySelector('#owLegalToc ol');
+  if (!doc || !toc) return;
+  var heads = doc.querySelectorAll('h2'), links = [];
+  heads.forEach(function (h, i) {
+    var text = h.textContent.replace(/\s+/g, ' ').trim();
+    var host = h.closest('li') || h;
+    if (!host.id) host.id = 'sec-' + (i + 1) + '-' + text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+    var label = (text === text.toUpperCase() && text.length > 12) ? text.toLowerCase().replace(/(^|\s|&\s)([a-z])/g, function (m) { return m.toUpperCase(); }) : text;
+    var a = document.createElement('a'); a.href = '#' + host.id; a.textContent = label;
+    var li = document.createElement('li'); li.appendChild(a); toc.appendChild(li); links.push([host, a]);
+    a.addEventListener('click', function () { if (window.innerWidth < 900) document.getElementById('owLegalToc').open = false; });
+  });
+  if (window.innerWidth < 900) document.getElementById('owLegalToc').open = false;
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { if (e.isIntersecting) links.forEach(function (p) { p[1].classList.toggle('is-active', p[0] === e.target); }); });
+    }, { rootMargin: '-80px 0px -70% 0px' });
+    links.forEach(function (p) { io.observe(p[0]); });
+  }
+  var btn = document.getElementById('owLegalListen');
+  if (btn && 'speechSynthesis' in window) {
+    btn.hidden = false;
+    var speaking = false;
+    btn.addEventListener('click', function () {
+      if (speaking) { window.speechSynthesis.cancel(); speaking = false; btn.classList.remove('is-on'); btn.setAttribute('aria-pressed', 'false'); btn.innerHTML = '&#9654; {{ _('Listen') }}'; return; }
+      var u = new SpeechSynthesisUtterance(doc.innerText.replace(/\s+/g, ' '));
+      u.lang = document.documentElement.lang || 'en-IN'; u.rate = 1;
+      u.onend = function () { speaking = false; btn.classList.remove('is-on'); btn.setAttribute('aria-pressed', 'false'); btn.innerHTML = '&#9654; {{ _('Listen') }}'; };
+      window.speechSynthesis.cancel(); window.speechSynthesis.speak(u);
+      speaking = true; btn.classList.add('is-on'); btn.setAttribute('aria-pressed', 'true'); btn.innerHTML = '&#9632; {{ _('Stop') }}';
+    });
+    window.addEventListener('pagehide', function () { window.speechSynthesis.cancel(); });
+  }
+})();
+</script>
 {% endblock %}
-
