@@ -66,7 +66,8 @@ class DeployMigrationTest(unittest.TestCase):
         expected += ["%s (table)" % n for n, _d in self.fc.TABLES]
         expected += ["%s (table)" % n for n, _d in self.fav.TABLES]
         expected += ["ai_glasses_products (table)", "ai_glasses_status_log (table)",
-                     "ai_glasses_order_dispatch (table)"]
+                     "ai_glasses_order_dispatch (table)",
+                     "ai_glasses_order_dispatch_pref (table)"]
         expected += ["%s (table)" % n for n, _d in self.rx_docs.TABLES]
         for table, columns in self.rx_docs.ADDED_COLUMNS:
             expected += ["%s.%s (column)" % (table, n)
