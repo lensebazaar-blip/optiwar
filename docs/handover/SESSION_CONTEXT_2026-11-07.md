@@ -3,7 +3,7 @@
 Start here. This is everything a new Claude Code session (cloud, on another machine, or on the Optiwar server) or Devin needs to carry on without the laptop this was built on.
 
 ## State of the work
-- **PR #243** `ui/modernize-storefront` (draft): mobile-first storefront UI, with `main` @ cd8a1ba merged in (PRs #239–#242, the /search chat retirement). History is append-only: merge, not rebase, so two sessions can share the branch. Tests: 1735 OK locally (378 skipped without DB). Lighthouse mobile home 57 → 97. Full change list: `HANDOVER_UI_MODERNIZE_2026-11-07.md`. Before/after screenshots: `docs/screenshots/ui-modernize/`.
+- **PR #243** `ui/modernize-storefront` (draft): mobile-first storefront UI, with `main` @ cd8a1ba merged in (PRs #239–#242, the /search chat retirement). History is append-only: merge, not rebase, so two sessions can share the branch. Tests: 1745 OK locally (380 skipped without DB). Lighthouse mobile home 57 → 97. Full change list: `HANDOVER_UI_MODERNIZE_2026-11-07.md`. Before/after screenshots: `docs/screenshots/ui-modernize/`.
 - **Branch `aig-patch-4-wip`**: AI Glasses mixed-order return reasons, same as `optiwar_ai_glasses_4.patch` in `HANDOVER_4_TO_OPTIWAR_2026-10-31.md`. Independent of #243.
 - **What to pull, in order:** `DEVIN_PULL_LIST.md`.
 - **Owner's rules:** nothing merges or deploys without the owner saying so; #243 stays draft until the owner approves it for Devin.
