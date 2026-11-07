@@ -83,17 +83,34 @@ class ReturnRequestTest(unittest.TestCase):
                 "declarations": [str(i) for i in range(1, len(rreq.DECLARATIONS) + 1)]}
 
     def test_ai_glasses_orders_offer_doa_and_wrong_item_only(self):
-        codes = [r["code"] for r in rreq.form_context(ai_glasses=True)["reasons"]]
+        codes = [r["code"] for r in rreq.form_context(rreq.AIG_ONLY)["reasons"]]
         self.assertEqual(codes, ["DEAD_ON_ARRIVAL", "WRONG_ITEM"])
         self.assertNotIn("DEAD_ON_ARRIVAL", [r["code"] for r in rreq.form_context()["reasons"]])
 
+    def test_a_mixed_order_keeps_the_frame_reasons(self):
+        codes = [r["code"] for r in rreq.form_context(rreq.AIG_MIXED)["reasons"]]
+        self.assertEqual(codes, ["DEAD_ON_ARRIVAL"] + list(rreq.REASONS))
+        self.assertEqual(rreq._validate_form(self._form("MANUFACTURING_DEFECT"), rreq.AIG_MIXED)[0],
+                         "MANUFACTURING_DEFECT")
+
     def test_the_server_refuses_any_other_reason(self):
-        self.assertEqual(rreq._validate_form(self._form("DEAD_ON_ARRIVAL"), ai_glasses=True)[0], "DEAD_ON_ARRIVAL")
+        self.assertEqual(rreq._validate_form(self._form("DEAD_ON_ARRIVAL"), rreq.AIG_ONLY)[0], "DEAD_ON_ARRIVAL")
         with self.assertRaises(rp.ReversePickupError) as e:
-            rreq._validate_form(self._form("OTHER"), ai_glasses=True)
+            rreq._validate_form(self._form("OTHER"), rreq.AIG_ONLY)
         self.assertEqual(e.exception.code, "ai_glasses_doa_only")
         with self.assertRaises(rp.ReversePickupError):
             rreq._validate_form(self._form("DEAD_ON_ARRIVAL"))
+
+    def test_order_kinds(self):
+        class Cur:
+            def execute(self, sql, args):
+                self.sql = sql
+
+            def fetchall(self):
+                return [{"order_id": "A", "aig": 1, "n": 1}, {"order_id": "B", "aig": 1, "n": 2},
+                        {"order_id": "C", "aig": 0, "n": 1}]
+        self.assertEqual(rreq._ai_glasses_kinds(Cur(), ["A", "B", "C"]),
+                         {"A": rreq.AIG_ONLY, "B": rreq.AIG_MIXED})
 
 
 class SoldCountTest(unittest.TestCase):
