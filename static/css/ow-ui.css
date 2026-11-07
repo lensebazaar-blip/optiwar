@@ -444,3 +444,23 @@ h1.pdp-title { font-size: 22px !important; margin: 2px 0 8px !important; }
   .pdp-thumbstrip img { width: 56px !important; height: 56px !important; max-width: 56px !important; max-height: 56px !important; }
   h1.pdp-title { font-size: 20px !important; }
 }
+
+/* ---- product page gallery: a full-width 4:3 stage, photo fills it, thumbs centred ---- */
+.pdp-col-img { width: 100%; }
+.pdp-hero { width: 100%; aspect-ratio: 4 / 3; min-height: 0 !important; max-height: none !important; padding: 0 !important; background: #fff !important; border: 1px solid var(--ow-line); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.pdp-hero picture { display: contents; }
+.pdp-hero img.pdp-hero-img { width: 100% !important; height: 100% !important; max-width: none !important; max-height: none !important; object-fit: contain; padding: 4%; border-radius: 0; }
+.pdp-thumbstrip { justify-content: center; }
+@media (max-width: 768px) {
+  .pdp-row { align-items: stretch !important; }
+  .pdp-col-img, .pdp-col-info { width: 100%; }
+  .pdp-hero { border-radius: var(--ow-r); }
+  .pdp-trust { justify-content: center; }
+  .pdp-share { justify-content: center; }
+  .pdp-stock { display: block; width: max-content; }
+}
+@media (min-width: 769px) {
+  .pdp-col-img { top: calc(var(--ow-header-h) + 16px); }
+  .pdp-hero { border-radius: var(--ow-r-lg); }
+  .pdp-thumbstrip { justify-content: flex-start; }
+}
