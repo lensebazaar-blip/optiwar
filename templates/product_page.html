@@ -596,21 +596,43 @@ h1.pdp-title { font-size:20px !important; font-weight:700 !important; color:#111
         {% endif %}
       </div>
 
-      <!-- Share - constrained icons -->
+      <!-- Share: WhatsApp, Pinterest (with the photo + description), native share sheet / copy link -->
       <div class="pdp-share">
-        <span class="share-label">Share:</span>
+        <span class="share-label">{{ _('Share') }}:</span>
         {% set product_url = request.url %}
-        {% if is_india %}{% set whatsapp_text = ("Optiwar - " ~ product.product_name ~ " (" ~ product.product_code ~ ")%0APrice: Rs " ~ product.product_special_price ~ "%0A" ~ product_url) %}{% else %}{% set whatsapp_text = ("Optiwar - " ~ product.product_name ~ " (" ~ product.product_code ~ ")%0APrice: €" ~ product.product_special_price_eur|string ~ "%0A" ~ product_url) %}{% endif %}
-        <a href="https://wa.me/?text={{ whatsapp_text }}" target="_blank" title="WhatsApp" class="share-ico">
-          <img src="{{ url_for('static', filename='whatsapp.svg') }}" alt="WhatsApp" style="width:20px!important;height:20px!important;max-width:20px!important;max-height:20px!important;">
+        {% set share_title = product.product_name ~ ' ' ~ product.product_code ~ ' | Optiwar' %}
+        {% if is_india %}{% set share_text = ("Optiwar - " ~ product.product_name ~ " (" ~ product.product_code ~ ") at Rs " ~ product.product_special_price ~ ", prescription lenses included") %}{% else %}{% set share_text = ("Optiwar - " ~ product.product_name ~ " (" ~ product.product_code ~ ") at €" ~ product.product_special_price_eur|string ~ ", prescription lenses included") %}{% endif %}
+        {% set share_img = versioned_image_url(product.product_image.split(',')[0], site_url) if product.product_image else '' %}
+        <a href="https://wa.me/?text={{ (share_text ~ '\n' ~ product_url)|urlencode }}" target="_blank" rel="noopener" title="WhatsApp" class="share-ico" aria-label="{{ _('Share on WhatsApp') }}">
+          <img src="{{ url_for('static', filename='whatsapp.svg') }}" alt="" style="width:20px!important;height:20px!important;max-width:20px!important;max-height:20px!important;">
         </a>
-        <a href="https://pinterest.com/pin/create/button/?url={{ product_url | urlencode }}" target="_blank" title="Pinterest" class="share-ico">
-          <img src="{{ url_for('static', filename='pinterest.svg') }}" alt="Pinterest" style="width:20px!important;height:20px!important;max-width:20px!important;max-height:20px!important;">
+        <a href="https://pinterest.com/pin/create/button/?url={{ product_url|urlencode }}{% if share_img %}&media={{ share_img|urlencode }}{% endif %}&description={{ share_text|urlencode }}" target="_blank" rel="noopener" title="Pinterest" class="share-ico" aria-label="{{ _('Pin on Pinterest') }}">
+          <img src="{{ url_for('static', filename='pinterest.svg') }}" alt="" style="width:20px!important;height:20px!important;max-width:20px!important;max-height:20px!important;">
         </a>
-        <a href="#" onclick="copyToClipboard('{{ product_url }}');alert('Link copied!');return false;" title="Instagram" class="share-ico">
-          <img src="{{ url_for('static', filename='instagram.svg') }}" alt="Instagram" style="width:20px!important;height:20px!important;max-width:20px!important;max-height:20px!important;">
-        </a>
+        <button type="button" class="share-ico share-native" id="pdpShareBtn" title="{{ _('Share') }}" aria-label="{{ _('Share or copy link') }}"
+                data-title="{{ share_title }}" data-text="{{ share_text }}" data-url="{{ product_url }}">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>
+        </button>
+        <span class="share-toast" id="pdpShareToast" role="status" aria-live="polite"></span>
       </div>
+      <script>
+      (function () {
+        var b = document.getElementById('pdpShareBtn'), t = document.getElementById('pdpShareToast');
+        if (!b) return;
+        function say(m) { t.textContent = m; t.classList.add('is-on'); setTimeout(function () { t.classList.remove('is-on'); }, 2200); }
+        function copy(u) {
+          if (navigator.clipboard && navigator.clipboard.writeText) { return navigator.clipboard.writeText(u).then(function () { say('Link copied'); }); }
+          var i = document.createElement('input'); i.value = u; document.body.appendChild(i); i.select();
+          try { document.execCommand('copy'); say('Link copied'); } catch (e) { say('Copy the address bar link'); }
+          document.body.removeChild(i);
+        }
+        b.addEventListener('click', function () {
+          var d = { title: b.getAttribute('data-title'), text: b.getAttribute('data-text'), url: b.getAttribute('data-url') };
+          if (navigator.share) { navigator.share(d).catch(function () {}); } else { copy(d.url); }
+        });
+        if (!navigator.share) { b.setAttribute('title', 'Copy link'); }
+      })();
+      </script>
 
       <!-- Trust -->
       <div class="pdp-trust">

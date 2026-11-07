@@ -464,3 +464,11 @@ h1.pdp-title { font-size: 22px !important; margin: 2px 0 8px !important; }
   .pdp-hero { border-radius: var(--ow-r-lg); }
   .pdp-thumbstrip { justify-content: flex-start; }
 }
+
+/* product page share row */
+.pdp-share { position: relative; align-items: center; gap: 10px; }
+.pdp-share .share-ico.share-native { display: inline-flex !important; align-items: center !important; justify-content: center !important; width: 32px !important; height: 32px !important; min-height: 0 !important; padding: 0 !important; margin: 0 !important; border: 0 !important; border-radius: 50% !important; background: #f5f5f5 !important; box-shadow: none !important; color: var(--ow-ink-2) !important; cursor: pointer; font: inherit; transform: none !important; }
+.pdp-share .share-ico.share-native svg { width: 18px; height: 18px; }
+.pdp-share .share-ico.share-native:hover { background: var(--ow-brand-soft) !important; color: var(--ow-brand); }
+.pdp-share .share-toast { position: absolute; left: 50%; top: -34px; transform: translateX(-50%) translateY(6px); padding: 6px 12px; border-radius: var(--ow-r-pill); background: var(--ow-ink); color: #fff; font-size: 12px; font-weight: 600; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; white-space: nowrap; }
+.pdp-share .share-toast.is-on { opacity: 1; transform: translateX(-50%) translateY(0); }
