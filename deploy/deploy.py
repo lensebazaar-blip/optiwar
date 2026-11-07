@@ -117,7 +117,7 @@ DEPLOY_SET = ("__init__.py", "log_hygiene.py", "pricing.py", "acr.py", "ai_api.p
               # storefront UI layer (mobile-first modernisation)
               "static/css/ow-ui.css", "templates/categories.html",
               "rx_photo.py", "static/css/rx-page.css", "templates/prescription.html",
-              "templates/my_orders.html")
+              "templates/my_orders.html", "templates/_pagenav.html")
 
 # Files that do not exist in production yet. Absence is otherwise a block, so
 # that a path typo or a file missing from the release cannot be mistaken for a
@@ -154,7 +154,8 @@ NEW_IN_RELEASE = ("log_hygiene.py", "test_identity.py", "ai_language.py", "rx_lo
                   "static/ai-glasses/aig.css", "static/ai-glasses/aig.js",
                   # storefront UI layer: new stylesheet, absent in production until this release;
                   # eyeglasses prescription photo reader
-                   "static/css/ow-ui.css", "rx_photo.py", "static/css/rx-page.css")
+                   "static/css/ow-ui.css", "rx_photo.py", "static/css/rx-page.css",
+                   "templates/_pagenav.html")
 
 # Running content that matches no commit but has been read line by line and
 # found safe to replace, keyed by md5. The provenance guard exists to stop a

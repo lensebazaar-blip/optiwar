@@ -282,6 +282,8 @@
 
 </style>
 
+{% from '_pagenav.html' import pagenav %}
+{{ pagenav([(_('My account'), None)], back_label=_('Back to shopping')) }}
 <div class="ow-profile-container">
 
   <!-- Profile Header Card -->

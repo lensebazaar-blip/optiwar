@@ -2,6 +2,7 @@
 {% block title %} Favorites - OPTIWAR {% endblock %}
 {% block content %}
 {% from '_picture.html' import product_picture %}
+{% from '_pagenav.html' import pagenav %}
 <style>
 .scrolling-track picture{display:contents;}
 .ow-fav-face{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:8px 12px 0;font-size:12.5px}
@@ -11,6 +12,7 @@
 .ow-fav-face-fit[data-matched="1"]{color:#15803d;font-weight:600}
 .ow-fav-face-err{color:#b91c1c;flex-basis:100%}
 </style>
+{{ pagenav([(_('Favourites'), None)], back_label=_('Back to frames')) }}
 <div class="ow-listing-head"><h1>{{ _('Your favourites') }}</h1>{% if products %}<p>{{ products|length }} {{ _('saved frames, prescription lenses included') }}</p>{% endif %}</div>
 {% if products %}
 <ul id="frames-list">
