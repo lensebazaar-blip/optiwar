@@ -36,25 +36,57 @@ function closeCategories() {
 (function() {
   var hc = document.getElementById('heroCarousel');
   if (!hc) return;
+  /* A copy served from the page cache (nginx, 10 min) would show the same eight
+     frames to everyone; if the HTML is older than a minute, redraw the hero from
+     the inlined productsData with eight fresh random frames. */
+  (function () {
+    var rendered = +hc.getAttribute('data-rendered') || 0;
+    var list = (typeof productsData !== 'undefined') ? productsData : window.productsData;  // index.html declares it with let
+    if (!rendered || !list || list.length < 8 || (Date.now() / 1000 - rendered) < 60) return;
+    var pool = list.slice(), pick = [];
+    while (pick.length < 8 && pool.length) pick.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+    var eur = (typeof owIsEur !== 'undefined' && owIsEur);
+    function esc(t) { var d = document.createElement('div'); d.textContent = t == null ? '' : String(t); return d.innerHTML; }
+    var html = '';
+    pick.forEach(function (p, i) {
+      var cls = i === 0 ? 'active' : '';
+      var opts = { alt: (p.product_name || '') + ' ' + (p.product_code || ''), cls: cls, width: 400, height: 400, sizes: '(max-width:767px) 92vw, 560px', eager: i === 0 };
+      if (p.media && p.media.length && window.owPictureList) html += window.owPictureList(p.media.slice(0, 1), opts);
+      else html += '<img src="/static/' + esc((p.product_image || 'new-logo.png').split(',')[0].trim()) + '" alt="' + esc(opts.alt) + '" class="' + cls + '" loading="' + (i === 0 ? 'eager' : 'lazy') + '" width="400" height="400">';
+    });
+    pick.forEach(function (p, i) {
+      var url = '/categories/' + esc(String(p.product_category || '').toLowerCase().replace(/\s+/g, '-')) + '/' + esc(p.product_slug) + '?pid=' + esc(p.product_id);
+      var price = eur ? '\u20ac' + esc(p.product_special_price_eur) : '\u20b9' + esc(p.product_special_price);
+      var mrp = eur ? (p.product_price_eur > p.product_special_price_eur ? '<s>\u20ac' + esc(p.product_price_eur) + '</s>' : '')
+                    : (p.product_price > p.product_special_price ? '<s>\u20b9' + esc(p.product_price) + '</s>' : '');
+      html += '<a class="ow-hero-cap' + (i === 0 ? ' active' : '') + '" href="' + url + '"><span class="ow-hero-cap__name">' + esc(p.product_name) + (p.product_code ? ' ' + esc(p.product_code) : '') + '</span><span class="ow-hero-cap__price">' + price + ' ' + mrp + '</span><span class="ow-hero-cap__cta">View \u2192</span></a>';
+    });
+    hc.querySelectorAll('img, picture, .ow-hero-cap').forEach(function (n) { n.remove(); });
+    hc.insertAdjacentHTML('afterbegin', html);
+    hc.setAttribute('data-start', '0');
+  })();
   var hImgs = hc.querySelectorAll('img');
   var hDotsEl = document.getElementById('heroCarouselDots');
   if (!hDotsEl || !hImgs.length) return;
-  var hCurr = 0;
+  var hCurr = Math.min(+hc.getAttribute('data-start') || 0, hImgs.length - 1);
   var hTimer;
   for (var i = 0; i < hImgs.length; i++) {
     var d = document.createElement('span');
-    if (i === 0) d.className = 'active';
+    if (i === hCurr) d.className = 'active';
     d.setAttribute('data-idx', i);
     d.addEventListener('click', function() { heroGo(+this.getAttribute('data-idx')); });
     hDotsEl.appendChild(d);
   }
   var hDots = hDotsEl.querySelectorAll('span');
+  var hCaps = hc.querySelectorAll('.ow-hero-cap');   // per-slide name + price (index.html)
   function heroGo(idx) {
     hImgs[hCurr].classList.remove('active');
     hDots[hCurr].classList.remove('active');
+    if (hCaps[hCurr]) hCaps[hCurr].classList.remove('active');
     hCurr = ((idx % hImgs.length) + hImgs.length) % hImgs.length;
     hImgs[hCurr].classList.add('active');
     hDots[hCurr].classList.add('active');
+    if (hCaps[hCurr]) hCaps[hCurr].classList.add('active');
   }
   window.heroSlide = function(dir) {
     heroGo(hCurr + dir);
@@ -277,7 +309,7 @@ function loadProducts() {
 
               <div class="ow-card-includes">
                 <span class="ow-inc-icon"><svg viewBox="0 0 24 24"><path d="M12 4.5C7 4.5 2.7 7.6 1 12c1.7 4.4 6 7.5 11 7.5s9.3-3.1 11-7.5c-1.7-4.4-6-7.5-11-7.5zm0 12.5c-2.8 0-5-2.2-5-5s2.2-5 5-5 5 2.2 5 5-2.2 5-5 5zm0-8c-1.7 0-3 1.3-3 3s1.3 3 3 3 3-1.3 3-3-1.3-3-3-3z"/></svg></span>
-                <span class="ow-inc-text">INCLUDES FREE <span>| Plano Anti-Glare Lenses ✨</span></span>
+                <span class="ow-inc-text">Free lenses included <span>· plano anti-glare</span></span>
               </div>
               <div class="ow-card-shipping">
                 <svg viewBox="0 0 24 24"><path d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.7 1.3 3 3 3s3-1.3 3-3h6c0 1.7 1.3 3 3 3s3-1.3 3-3h2v-5l-3-4zM6 18.5c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5z"/></svg>
@@ -319,7 +351,7 @@ function loadProducts() {
                     ${commonInputs}
                     <button type="submit" class="ow-lens-btn ow-plano">
                       <span class="ow-spark"></span><span class="ow-spark"></span><span class="ow-spark"></span>
-                      <div class="ow-btn-left"><div class="ow-btn-icon">✨</div><div class="ow-btn-text"><h3>Buy Frame with Plano Anti-Glare</h3><p>Zero power lenses with premium anti-glare coating</p></div></div>
+                      <div class="ow-btn-left"><div class="ow-btn-icon">✨</div><div class="ow-btn-text"><h3>Frame Only</h3><p>Zero power lenses with premium anti-glare coating</p></div></div>
                       <div class="ow-btn-arrow">→</div>
                     </button>
                 </form>
@@ -327,7 +359,7 @@ function loadProducts() {
                     ${commonInputs}
                     <button type="submit" class="ow-lens-btn ow-special">
                       <span class="ow-spark"></span><span class="ow-spark"></span><span class="ow-spark"></span>
-                      <div class="ow-btn-left"><div class="ow-btn-icon">👓</div><div class="ow-btn-text"><h3>Buy Frame with Special Made Lenses</h3><p>Prescription, blue-cut & progressive lens options</p></div></div>
+                      <div class="ow-btn-left"><div class="ow-btn-icon">👓</div><div class="ow-btn-text"><h3>Buy with My Lenses</h3><p>Prescription, blue-cut & progressive lens options</p></div></div>
                       <div class="ow-btn-arrow">→</div>
                     </button>
                 </form>
