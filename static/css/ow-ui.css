@@ -235,7 +235,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .ow-hero__proof li::before { content: "\2713"; color: var(--ow-ok); font-weight: 800; }
 .ow-hero__media { position: relative; }
 .ow-hero__media .hero-carousel { max-width: none; aspect-ratio: 4 / 3; border-radius: var(--ow-r); border: 1px solid var(--ow-line); box-shadow: var(--ow-sh-2); background: #fff; }
-.ow-hero__media .hero-carousel img { transform: none; padding: 6%; }
+.ow-hero__media .hero-carousel img { transform: scale(1.55); padding: 4%; }  /* catalog masters carry wide white margins */
 .ow-hero__media .hero-carousel-btn { width: 36px; height: 36px; background: rgba(255,255,255,.9); color: var(--ow-ink); border: 1px solid var(--ow-line); backdrop-filter: none; }
 .ow-hero__media .hero-carousel-btn:hover { background: #fff; }
 .ow-hero__media .hero-carousel-dots span { background: #cbd5e1; }
