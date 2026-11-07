@@ -252,7 +252,21 @@
   // assistant opens. Navigated here by AI (hash #owchat): compact nav mode.
   var supportEntry = (window.location.search.match(/[?&]support=([a-z_]{1,32})/) || [])[1];
   if (supportEntry) {
-    setTimeout(function() { window.owChatOpen('text', supportEntry); }, 600);
+    // An old /search?q= link: the words are typed in, never sent. They leave
+    // the address bar first, so no page_url the chat stores carries them.
+    var carried = '';
+    try {
+      var params = new URLSearchParams(window.location.search);
+      carried = (params.get('q') || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+      if (params.has('q')) {
+        params.delete('q');
+        history.replaceState(history.state, '', window.location.pathname + '?' + params.toString() + window.location.hash);
+      }
+    } catch (e) {}
+    setTimeout(function() {
+      window.owChatOpen('text', supportEntry);
+      if (carried && !input.value) input.value = carried;
+    }, 600);
   } else if (window.location.hash === '#owchat') {
     setTimeout(function() {
       setMode('nav');

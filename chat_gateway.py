@@ -1464,7 +1464,7 @@ def _get_conversation_history(db, session_id, limit=20):
         """SELECT role, content FROM chat_messages
            WHERE session_id = %s AND source IN ('customer', 'ai')
            AND status != 'failed'
-           ORDER BY created_at DESC LIMIT %s""",
+           ORDER BY created_at DESC, id DESC LIMIT %s""",
         (session_id, limit)
     )
     rows = list(cur.fetchall())
@@ -3819,14 +3819,14 @@ def chat_messages(session_id):
         cur.execute(
             """SELECT id, source, role, content, status, metadata, created_at
                FROM chat_messages WHERE session_id = %s AND created_at > %s
-               ORDER BY created_at ASC LIMIT %s""",
+               ORDER BY created_at ASC, id ASC LIMIT %s""",
             (session_id, since, limit)
         )
     else:
         cur.execute(
             """SELECT id, source, role, content, status, metadata, created_at
                FROM chat_messages WHERE session_id = %s
-               ORDER BY created_at ASC LIMIT %s""",
+               ORDER BY created_at ASC, id ASC LIMIT %s""",
             (session_id, limit)
         )
 
@@ -4198,7 +4198,7 @@ def chat_active_sessions():
         # Get last 3 messages
         cur.execute(
             """SELECT role, content, created_at FROM chat_messages
-               WHERE session_id = %s ORDER BY created_at DESC LIMIT 3""",
+               WHERE session_id = %s ORDER BY created_at DESC, id DESC LIMIT 3""",
             (s['session_id'],)
         )
         last_msgs = list(cur.fetchall())

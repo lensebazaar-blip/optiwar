@@ -42,6 +42,7 @@ import copy
 from .cl_range_model import add_prescription_of_cl
 from .country_iso import country_to_iso2
 import re
+from urllib.parse import urlencode
 import ast
 from datetime import datetime, timedelta
 from .ai_client import call_model, pop_calls
@@ -369,136 +370,21 @@ def build_product_meta(product):
 
 @bp.route('/search')
 def search_products():
-    _host = request.host
-    _ip = request.headers.get('X-Forwarded-For', request.remote_addr)
-    _uid = session.get('user_id', 'anon')
-    db = get_db()
-    cursor = db.cursor()
-    query = request.args.get('query', '').strip()
-    current_app.logger.info(f"[{_host}] ACTIVITY:SEARCH IP:{_ip} user:{_uid} query:{query}")
-    products = []
-
-    # Get user info for chat template
-    _user_info = None
-    if 'user_id' in session:
-        try:
-            _cu2 = db.cursor()
-            _cu2.execute('SELECT customer_name, customer_email, customer_phone FROM customers WHERE customer_id = %s', (session['user_id'],))
-            _ur2 = _cu2.fetchone()
-            if _ur2:
-                _user_info = {
-                    "name": _ur2.get("customer_name", "") if isinstance(_ur2, dict) else _ur2[0],
-                    "email": _ur2.get("customer_email", "") if isinstance(_ur2, dict) else _ur2[1],
-                    "phone": _ur2.get("customer_phone", "") if isinstance(_ur2, dict) else _ur2[2]
-                }
-        except:
-            pass
-
-    if not query:
-        print("⚠️ Empty query received.")
-        return render_template('search.html', products=[], query=query, user_info=_user_info, chat_timeout_minutes=10)
-
-    print("🔍 Search query: %s", query)
-
-    # === Extract intent via GPT ===
-    intent = extract_search_intent(query)
-    tokens = intent.get("keywords", [])
-    filters = intent.get("filters", {})
-
-    print("🧠 Tokens: %s", tokens)
-    print("🔒 Filters: %s", filters)
-
-    # === Build LIKE clause from tokens ===
-    like_clauses = []
-    like_params = []
-    if "product_code" in filters:
-       raw_code = filters["product_code"]
-       fuzzy_code = raw_code.replace(" ", "").upper()
-       filters.pop("product_code")  # Remove exact match filter
-       tokens.append(fuzzy_code)    # Treat as keyword for LIKE
-       print("🔁 Fuzzy fallback: converted product_code '%s' to keyword token '%s'", raw_code, fuzzy_code)
-
-
-
-    for token in tokens:
-        like_clauses.append("""(LOWER(product_name) LIKE %s OR
-                                 LOWER(product_category) LIKE %s OR
-                                 LOWER(product_perception_value) LIKE %s OR
-                                 LOWER(product_code) LIKE %s OR
-                                 LOWER(product_color) LIKE %s)""")
-        like_params.extend([f"%{token}%"] * 5)
-
-    # === Build exact match filters ===
-    filter_clauses = []
-    filter_params = []
-    for key, val in filters.items():
-        filter_clauses.append(f"{key} = %s")
-        filter_params.append(val)
-
-    # Combine WHERE clause
-    where_parts = []
-    if like_clauses:
-        where_parts.append(f"({' OR '.join(like_clauses)})")
-    if filter_clauses:
-        where_parts.append(" AND ".join(filter_clauses))
-    where_clause = " AND ".join(where_parts)
-
-    # === SQL query ===
-    sql = f"""
-        SELECT * FROM products
-        WHERE {where_clause}
-        AND product_image IS NOT NULL AND product_image != '' AND product_image != 'NULL'
-        AND product_quantity > 0
-        {catalogue_site_filter()}
-        ORDER BY product_name
-        LIMIT 20
-    """
-
+    """Retired AI search page: a bookmark, the header button or Google's
+    search box lands on a page with the assistant open."""
+    term = ' '.join((request.args.get('q') or request.args.get('query') or '').split())[:200]
     try:
-        # Log search
-        user_ip = request.remote_addr
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        cursor.execute(
-            "INSERT INTO search_user_log (search_query, ip_address, search_time) VALUES (%s, %s, %s)",
-            (query, user_ip, timestamp)
-        )
+        db = get_db()
+        acr.log_event(db, acr.EV_LEGACY_SUPPORT_ROUTE, journey_stage=acr.STAGE_SUPPORT,
+                      payload={'route': 'search', 'method': request.method,
+                               'has_query': bool(term)})
         db.commit()
-
-        # Execute search
-        print("📄 SQL: %s", sql)
-        print("📦 Params: %s", like_params + filter_params)
-        cursor.execute(sql, like_params + filter_params)
-        products = cursor.fetchall()
-        print("✅ Found %d products for query: %s", len(products), query)
-
-    except Exception as e:
-        print("🔥 Search execution failed: %s", e)
-
-    # Generate AI summary for the results
-    ai_summary = ""
-    if products:
-        count = len(products)
-        categories = list(set(p.get('product_category', '') for p in products if p.get('product_category')))
-        cat_str = ", ".join(categories[:3]) if categories else "products"
-        if count == 1:
-            p = products[0]
-            ai_summary = f"I found exactly 1 match — {p.get('product_name', 'a product')} in {p.get('product_category', 'our catalog')}. Here it is:"
-        elif count <= 5:
-            ai_summary = f"I found {count} {cat_str} matching \"{query}\". Here are your results:"
-        else:
-            ai_summary = f"Great news! I found {count} {cat_str} matching \"{query}\". Browse through the results below:"
-        # Add price range info
-        prices = [p.get('product_special_price', 0) for p in products if p.get('product_special_price')]
-        if prices:
-            min_p, max_p = min(prices), max(prices)
-            if min_p != max_p:
-                ai_summary += f" Prices range from Rs {min_p} to Rs {max_p}."
-            else:
-                ai_summary += f" Priced at Rs {min_p}."
-    elif query:
-        ai_summary = f"I searched our catalog for \"{query}\" but couldn't find matching products. Try different keywords, or call our specialist at 9355380318."
-
-    return render_template('search.html', products=products, query=query, ai_summary=ai_summary, user_info=_user_info, chat_timeout_minutes=10)
+    except Exception as e:  # noqa: BLE001 - a retired route still answers
+        current_app.logger.warning("legacy search route event not stored: %s", e)
+    target = "/?support=legacy_search"
+    if term:
+        target += "&" + urlencode({'q': term})
+    return redirect(target)
 
 
 
