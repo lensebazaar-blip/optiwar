@@ -668,8 +668,11 @@ def autocomplete():
 def index():
     db = get_db()
     cursor = db.cursor()
+    # The home shows a hero of 8 and a collection grid that people scroll a few
+    # rows of before "View all"; 48 random frames is plenty, and inlining all
+    # ~700 made the page 4.7 MB (660 KB gzipped). The listing page has the lot.
     cursor.execute("SELECT * FROM products where product_image!='NULL' AND product_quantity!=0"
-                   + catalogue_site_filter() + " order by RAND()")
+                   + catalogue_site_filter() + " order by RAND() LIMIT 48")
     products = cursor.fetchall()
     # Homepage grid (scripts.js loadProducts) is inlined for ALL products.
     # Attach PRIMARY media only (limit=1), and dump a TRIMMED projection to JS
