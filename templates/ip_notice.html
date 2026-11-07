@@ -1,0 +1,114 @@
+{% extends 'base.html' %}
+{% block title %} Trademark and copyright notice - OPTIWAR {% endblock %}
+{% block meta_description %} Rights holders: notify Optiwar about a listing. The form the Terms require, with a copy of the notice sent to you. {% endblock %}
+{% block content %}
+{% from '_pagenav.html' import pagenav %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/legal.css') }}?v=3">
+<style>
+.ipn-form { display: grid; gap: 14px; }
+.ipn-row { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+.ipn-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.ipn-field label { font-size: 13px; font-weight: 700; color: #0f172a; }
+.ipn-field label small { font-weight: 500; color: #64748b; }
+.ipn-field input[type="text"], .ipn-field input[type="email"], .ipn-field input[type="tel"], .ipn-field textarea, .ipn-field select { width: 100%; min-height: 46px; padding: 10px 12px; border: 1.5px solid #cbd5e1; border-radius: 10px; font: inherit; font-size: 16px; color: #0f172a; background: #fff; box-sizing: border-box; }
+.ipn-field textarea { min-height: 110px; resize: vertical; line-height: 1.5; }
+.ipn-field input:focus, .ipn-field textarea:focus, .ipn-field select:focus { outline: none; border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,.12); }
+.ipn-field.is-bad input, .ipn-field.is-bad textarea, .ipn-field.is-bad select { border-color: #dc2626; }
+.ipn-err { font-size: 12.5px; color: #b91c1c; font-weight: 600; }
+.ipn-check { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border: 1.5px solid #e2e8f0; border-radius: 10px; background: #f8fafc; font-size: 13.5px; line-height: 1.5; color: #334155; cursor: pointer; }
+.ipn-check input { margin-top: 3px; width: 18px; height: 18px; flex: 0 0 18px; accent-color: #4f46e5; }
+.ipn-check.is-bad { border-color: #dc2626; }
+.ipn-submit { min-height: 50px; padding: 12px 22px; border: 0; border-radius: 12px; background: #4f46e5; color: #fff; font: inherit; font-size: 15px; font-weight: 800; cursor: pointer; box-shadow: 0 6px 18px rgba(79,70,229,.25); }
+.ipn-hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+.ipn-steps { margin: 0 0 14px; padding: 0; list-style: none; display: grid; gap: 8px; }
+.ipn-steps li { display: flex; gap: 10px; align-items: flex-start; margin: 0; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; font-size: 13.5px; line-height: 1.45; color: #334155; box-shadow: none; }
+.ipn-steps b { flex: 0 0 24px; height: 24px; border-radius: 50%; background: #eef2ff; color: #4f46e5; display: inline-grid; place-items: center; font-size: 12px; }
+.ipn-ack { padding: 16px; border: 1px solid #a7f3d0; border-radius: 14px; background: #ecfdf5; color: #065f46; }
+.ipn-ack h2 { margin: 0 0 6px; font-size: 20px; color: #065f46; text-align: left; }
+.ipn-ack .ref { font-size: 22px; font-weight: 900; letter-spacing: .04em; color: #064e3b; }
+.ipn-copy { margin-top: 14px; padding: 14px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; line-height: 1.5; color: #334155; overflow-wrap: anywhere; }
+.ipn-warn { padding: 12px 14px; border: 1px solid #fde68a; border-radius: 10px; background: #fffbeb; color: #92400e; font-size: 13.5px; }
+@media (min-width: 700px) { .ipn-row--2 { grid-template-columns: 1fr 1fr; } .ipn-row--3 { grid-template-columns: 1fr 1fr 1fr; } }
+</style>
+{{ pagenav([(_('Terms and Conditions'), url_for('main.terms_and_conditions')), (_('Trademark and copyright notice'), None)], back_label=_('Back')) }}
+<div class="ow-legal" id="owLegal">
+  <div class="ow-legal__head">
+    <h1>{{ _('Trademark and copyright holder notice') }}</h1>
+    <p class="ow-legal__lead">{{ _('If you own a trademark or copyright and believe a listing on Optiwar infringes it, this is the notice our Terms ask for. We acknowledge within %(ack)s working days; the %(hold)s-day hold period runs from that acknowledgement. A copy of your notice is emailed to you and to us.', ack=ack_days, hold=hold_days) }}</p>
+    <ul class="ow-legal__meta">
+      <li><a href="{{ url_for('main.terms_and_conditions') }}#ip-notice">{{ _('Terms: Trademark and Copyright Holder Notices') }}</a></li>
+      <li>{{ _('Courts') }}: New Delhi &middot; Gurugram</li>
+    </ul>
+  </div>
+
+  {% if sent %}
+  <div class="ipn-ack" role="status">
+    <h2>{{ _('Notice received.') }}</h2>
+    <div class="ref">{{ ref }}</div>
+    <p style="margin:8px 0 0;">{{ _('Quote this reference in any follow-up.') }}
+      {% if mailed %}{{ _('A copy has been emailed to') }} <strong>{{ data.email }}</strong> {{ _('and to Optiwar.') }}{% else %}{{ _('We could not send the email copy just now; the notice is recorded under this reference. Keep the text below for your records.') }}{% endif %}
+    </p>
+    <ul class="ipn-steps" style="margin-top:12px;">
+      <li><b>1</b><span>{{ _('Acknowledgement by') }} <strong>{{ ack_due.strftime('%A, %d %B %Y') }}</strong> ({{ ack_days }} {{ _('working days') }}).</span></li>
+      <li><b>2</b><span>{{ _('Hold period of') }} {{ hold_days }} {{ _('days from the acknowledgement; earliest end') }} <strong>{{ hold_until.strftime('%A, %d %B %Y') }}</strong>. {{ _('We verify the listing and the sourcing of the goods we hold and reply in writing.') }}</span></li>
+      <li><b>3</b><span>{{ _('Only if unresolved after the hold period may you proceed, and only before the New Delhi or Gurugram courts (Terms, Governing Law and Jurisdiction).') }}</span></li>
+    </ul>
+    <div class="ow-legal__tools">
+      <button type="button" class="ow-legal__btn" onclick="window.print()">{{ _('Print / save as PDF') }}</button>
+      <a class="ow-legal__btn" href="mailto:{{ data.email }}?subject={{ ('Optiwar IP notice ' ~ ref)|urlencode }}&body={{ notice_text|urlencode }}">{{ _('Email myself a copy') }}</a>
+    </div>
+    <div class="ipn-copy">{{ notice_text }}</div>
+  </div>
+
+  {% else %}
+  {% if errors.form %}<p class="ipn-warn">{{ errors.form }}</p>{% endif %}
+  <ul class="ipn-steps">
+    <li><b>1</b><span>{{ _('Tell us who you are and which right you hold.') }}</span></li>
+    <li><b>2</b><span>{{ _('Point to the exact listing(s) and say why they infringe and what you ask for.') }}</span></li>
+    <li><b>3</b><span>{{ _('Send. You get a reference and an emailed copy; we acknowledge within %(ack)s working days and the %(hold)s-day hold period runs from there.', ack=ack_days, hold=hold_days) }}</span></li>
+  </ul>
+  <form method="post" action="{{ url_for('main.ip_notice_submit') }}" class="ipn-form" novalidate>
+    <div class="ipn-hp" aria-hidden="true"><label>Website <input type="text" name="website_url" tabindex="-1" autocomplete="off"></label></div>
+
+    <div class="ipn-row ipn-row--2">
+      <div class="ipn-field{% if errors.holder_name %} is-bad{% endif %}"><label for="holder_name">{{ _('Your name') }} *</label><input type="text" id="holder_name" name="holder_name" value="{{ data.holder_name }}" required autocomplete="name">{% if errors.holder_name %}<span class="ipn-err">{{ errors.holder_name }}</span>{% endif %}</div>
+      <div class="ipn-field"><label for="designation">{{ _('Designation') }}</label><input type="text" id="designation" name="designation" value="{{ data.designation }}" autocomplete="organization-title"></div>
+    </div>
+    <div class="ipn-row ipn-row--2">
+      <div class="ipn-field"><label for="company">{{ _('Company / rights owner') }}</label><input type="text" id="company" name="company" value="{{ data.company }}" autocomplete="organization"></div>
+      <div class="ipn-field"><label for="phone">{{ _('Phone') }}</label><input type="tel" id="phone" name="phone" value="{{ data.phone }}" autocomplete="tel"></div>
+    </div>
+    <div class="ipn-row ipn-row--2">
+      <div class="ipn-field{% if errors.email %} is-bad{% endif %}"><label for="email">{{ _('Email') }} * <small>{{ _('your copy goes here') }}</small></label><input type="email" id="email" name="email" value="{{ data.email }}" required autocomplete="email">{% if errors.email %}<span class="ipn-err">{{ errors.email }}</span>{% endif %}</div>
+      <div class="ipn-field"><label for="address">{{ _('Postal address') }}</label><input type="text" id="address" name="address" value="{{ data.address }}" autocomplete="street-address"></div>
+    </div>
+
+    <div class="ipn-row ipn-row--2">
+      <div class="ipn-field{% if errors.rights_type %} is-bad{% endif %}"><label for="rights_type">{{ _('The right') }} *</label>
+        <select id="rights_type" name="rights_type" required>
+          <option value="">{{ _('Choose') }}</option>
+          {% for key, label in rights_types %}<option value="{{ key }}"{% if data.rights_type == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>{% if errors.rights_type %}<span class="ipn-err">{{ errors.rights_type }}</span>{% endif %}</div>
+      <div class="ipn-field"><label for="registration">{{ _('Registration number(s) or proof of ownership') }}</label><input type="text" id="registration" name="registration" value="{{ data.registration }}"></div>
+    </div>
+    <div class="ipn-field{% if errors.mark_or_work %} is-bad{% endif %}"><label for="mark_or_work">{{ _('Trademark or copyrighted work concerned') }} *</label><input type="text" id="mark_or_work" name="mark_or_work" value="{{ data.mark_or_work }}" required>{% if errors.mark_or_work %}<span class="ipn-err">{{ errors.mark_or_work }}</span>{% endif %}</div>
+    <div class="ipn-field{% if errors.listing_urls %} is-bad{% endif %}"><label for="listing_urls">{{ _('Listing URL(s) or product code(s) on the Website') }} * <small>{{ _('one per line') }}</small></label><textarea id="listing_urls" name="listing_urls" required placeholder="https://optiwar.in/categories/...">{{ data.listing_urls }}</textarea>{% if errors.listing_urls %}<span class="ipn-err">{{ errors.listing_urls }}</span>{% endif %}</div>
+    <div class="ipn-field{% if errors.reason %} is-bad{% endif %}"><label for="reason">{{ _('Why you believe the listing infringes your rights') }} * <small>{{ _('counterfeit, grey-market, lawfully sourced, image or text copied...') }}</small></label><textarea id="reason" name="reason" required>{{ data.reason }}</textarea>{% if errors.reason %}<span class="ipn-err">{{ errors.reason }}</span>{% endif %}</div>
+    <div class="ipn-row ipn-row--2">
+      <div class="ipn-field{% if errors.action_requested %} is-bad{% endif %}"><label for="action_requested">{{ _('Action you request') }} *</label>
+        <select id="action_requested" name="action_requested" required>
+          <option value="">{{ _('Choose') }}</option>
+          {% for key, label in actions %}<option value="{{ key }}"{% if data.action_requested == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>{% if errors.action_requested %}<span class="ipn-err">{{ errors.action_requested }}</span>{% endif %}</div>
+      <div class="ipn-field{% if errors.action_detail %} is-bad{% endif %}"><label for="action_detail">{{ _('Details of the action') }}</label><input type="text" id="action_detail" name="action_detail" value="{{ data.action_detail }}">{% if errors.action_detail %}<span class="ipn-err">{{ errors.action_detail }}</span>{% endif %}</div>
+    </div>
+
+    <label class="ipn-check{% if errors.declaration %} is-bad{% endif %}"><input type="checkbox" name="declaration" value="1"{% if data.declaration %} checked{% endif %}><span>{{ _('I state in good faith that the information in this notice is accurate and that I am the rights holder or authorised to act for the rights holder.') }}{% if errors.declaration %}<br><span class="ipn-err">{{ errors.declaration }}</span>{% endif %}</span></label>
+    <label class="ipn-check{% if errors.hold_agreed %} is-bad{% endif %}"><input type="checkbox" name="hold_agreed" value="1"{% if data.hold_agreed %} checked{% endif %}><span>{{ _('I have read the notice procedure in the Terms: Optiwar acknowledges within %(ack)s working days, a %(hold)s-day hold period then runs during which I will not initiate or escalate any claim, and any proceeding is brought only before the New Delhi or Gurugram courts.', ack=ack_days, hold=hold_days) }}{% if errors.hold_agreed %}<br><span class="ipn-err">{{ errors.hold_agreed }}</span>{% endif %}</span></label>
+
+    <div><button type="submit" class="ipn-submit">{{ _('Send the notice') }}</button></div>
+    <p class="rxp-help" style="font-size:12.5px;color:#64748b;margin:0;">{{ _('One email goes to Optiwar with a copy to your address. Nothing in this notice is published.') }}</p>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

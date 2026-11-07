@@ -1965,7 +1965,7 @@ footer{ display:none !important; }
 <script>
 /* ═══ MOBILE STEP WIZARD ═══ */
 var owMobStep = 0;
-function owIsMobile(){ return window.innerWidth <= 767; }
+function owIsMobile(){ return true; }   /* the step wizard runs at every width (owner, 7 Nov 2026) */
 
 /* Prescription modal open/close */
 function owShowRx(id){ document.getElementById(id).classList.add('ow-rx-open'); }
@@ -2266,7 +2266,7 @@ function owShowToast(msg) {
   });
 
   /* phones: each item's person / prescription / lens-detail controls fold behind one button */
-  if (window.innerWidth < 768) document.querySelectorAll('.ow-ck-item').forEach(function (it) {
+  document.querySelectorAll('.ow-ck-item').forEach(function (it) {
     var body = it.querySelector('.ow-ck-body'); if (!body) return;
     if (!body.querySelector('.ow-ck-face, .ow-rx-upload, .ow-rx-btn, .ow-rx-badge')) return;
     var b = document.createElement('button'); b.type = 'button'; b.className = 'ow-ck-more'; b.textContent = 'Options'; b.setAttribute('aria-expanded', 'false');
@@ -2315,10 +2315,8 @@ function owShowToast(msg) {
     btn.textContent = labels[step] || labels[0];
     btn.classList.toggle('ow-mob-bar__pay', step === 3);
     var fb = document.getElementById('owFoldBreakdown'), fp = document.getElementById('owFoldPolicy');
-    if (window.innerWidth < 768) {
-      if (fb) fb.removeAttribute('open');
-      if (fp) { if (step === 2) fp.setAttribute('open', ''); else fp.removeAttribute('open'); }
-    }
+    if (fb) fb.removeAttribute('open');
+    if (fp) { if (step === 2) fp.setAttribute('open', ''); else fp.removeAttribute('open'); }
   };
   if (typeof owMobStep === 'number') window.owMobBarUpdate(owMobStep);
 

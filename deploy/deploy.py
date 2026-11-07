@@ -118,7 +118,8 @@ DEPLOY_SET = ("__init__.py", "log_hygiene.py", "pricing.py", "acr.py", "ai_api.p
               "static/css/ow-ui.css", "templates/categories.html",
               "rx_photo.py", "static/css/rx-page.css", "templates/prescription.html",
               "templates/my_orders.html", "templates/_pagenav.html",
-              "static/css/legal.css", "templates/privacy_policy.html")
+              "static/css/legal.css", "templates/privacy_policy.html",
+              "ip_notice.py", "templates/ip_notice.html")
 
 # Files that do not exist in production yet. Absence is otherwise a block, so
 # that a path typo or a file missing from the release cannot be mistaken for a
@@ -156,7 +157,8 @@ NEW_IN_RELEASE = ("log_hygiene.py", "test_identity.py", "ai_language.py", "rx_lo
                   # storefront UI layer: new stylesheet, absent in production until this release;
                   # eyeglasses prescription photo reader
                    "static/css/ow-ui.css", "rx_photo.py", "static/css/rx-page.css",
-                   "templates/_pagenav.html", "static/css/legal.css")
+                   "templates/_pagenav.html", "static/css/legal.css",
+                   "ip_notice.py", "templates/ip_notice.html")
 
 # Running content that matches no commit but has been read line by line and
 # found safe to replace, keyed by md5. The provenance guard exists to stop a
@@ -508,6 +510,16 @@ def reship_module():
     return mod
 
 
+def ip_notice_module():
+    """ip_notice.py imports Flask only inside its functions; loaded plainly for its TABLES."""
+    spec = importlib.util.spec_from_file_location(
+        "ip_notice_deploy", os.path.join(REPO, "ip_notice.py"))
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def favorites_module():
     """favorites.py imports face_cart, face_fit and face_profiles from its
     package; reuse the throwaway package above."""
@@ -648,6 +660,8 @@ def migration():
         items += [("%s.%s (column)" % (table, name),
                    "ALTER TABLE %s ADD COLUMN %s %s" % (table, name, decl))
                   for name, decl in columns]
+    items += [("%s (table)" % name, " ".join(ddl.split()))
+              for name, ddl in ip_notice_module().TABLES]
     for table, columns in ca.SESSION_COLUMNS:
         items += [("%s.%s (column)" % (table, name),
                    "ALTER TABLE %s ADD COLUMN %s %s" % (table, name, decl))

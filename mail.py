@@ -377,3 +377,44 @@ def send_review_request(to_email, customer_name, product_name, product_code, pro
     except Exception as e:
         print(f"[ReviewRequest] Error sending email: {e}")
         return False
+
+def send_ip_notice(ref, holder_email, holder_name, text, holder_text=None, recipients=None):
+    """Two mails for a trademark / copyright notice, in one SMTP session:
+    the notice to Optiwar (To admin@optiwar.com and admin@lensbazaar.com,
+    Reply-To the Rights Holder) and a courteous acknowledgement to the Rights
+    Holder with the notice copy. Best effort with bounded retries; never
+    raises; True when both went."""
+    recipients = list(recipients or ("admin@optiwar.com", "admin@lensbazaar.com"))
+    sender = f"Optiwar Legal <{current_app.config['MAIL_USERNAME']}>"
+    internal = EmailMessage()
+    internal['Subject'] = "[Optiwar] Trademark / copyright notice %s" % ref
+    internal['From'] = sender
+    internal['To'] = ", ".join(recipients)
+    internal['Reply-To'] = holder_email
+    internal.set_content("A rights holder sent a notice through the website form.\n\n%s\n" % text)
+    holder = EmailMessage()
+    holder['Subject'] = "Your notice to Optiwar - reference %s" % ref
+    holder['From'] = sender
+    holder['To'] = holder_email
+    holder['Cc'] = ", ".join(recipients)
+    holder['Reply-To'] = recipients[0]
+    holder.set_content(holder_text or ("Dear %s,\n\nThank you for your notice (reference %s). We will reply in "
+                                       "writing; please hold any further action until you hear from us.\n\n%s\n"
+                                       % (holder_name, ref, text)))
+    timeout = float(current_app.config.get('MAIL_TIMEOUT', 5))
+    for attempt in range(1, 4):
+        try:
+            with smtplib.SMTP(current_app.config['MAIL_SERVER'], current_app.config['MAIL_PORT'],
+                              timeout=timeout) as server:
+                server.starttls()
+                server.login(current_app.config['MAIL_USERNAME'], current_app.config['MAIL_PASSWORD'])
+                server.send_message(internal)
+                server.send_message(holder)
+            current_app.logger.info("IP notice mails sent ref=%s (attempt %d)", ref, attempt)
+            return True
+        except Exception as e:  # noqa: BLE001
+            current_app.logger.warning("IP notice mail attempt %d/3 failed ref=%s: %s", attempt, ref, e)
+            if attempt < 3:
+                time.sleep(min(attempt, 3))
+    current_app.logger.error("IP notice mail permanently failed ref=%s", ref)
+    return False

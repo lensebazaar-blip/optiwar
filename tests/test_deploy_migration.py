@@ -46,6 +46,7 @@ class DeployMigrationTest(unittest.TestCase):
         self.fav = self.deploy.favorites_module()
         self.rs = self.deploy.reship_module()
         self.rx_docs = self.deploy.order_rx_documents_module()
+        self.ipn = self.deploy.ip_notice_module()
 
     def test_covers_every_column_and_index_ensure_schema_adds(self):
         labels = [label for label, _sql in self.deploy.migration()]
@@ -75,6 +76,7 @@ class DeployMigrationTest(unittest.TestCase):
         expected += ["%s (table)" % n for n, _d in self.rs.TABLES]
         for table, columns in self.rs.ADDED_COLUMNS:
             expected += ["%s.%s (column)" % (table, n) for n, _d in columns]
+        expected += ["%s (table)" % n for n, _d in self.ipn.TABLES]
         for table, columns in self.ca.SESSION_COLUMNS:
             expected += ["%s.%s (column)" % (table, n) for n, _d in columns]
         expected += ["products.%s (column)" % n
