@@ -1118,7 +1118,7 @@ footer{ display:none !important; }
             {% set rx_uploads = rx_documents.get(loop.index0, []) if rx_documents is defined else [] %}
             <section class="ow-rx-upload" data-rx-upload-line="{{ loop.index0 }}"
                      data-product-id="{{ item.product_id }}">
-              <strong>Have your prescription? Add a photo or screenshot (optional)</strong>
+              <strong class="ow-rx-upload__toggle" role="button" tabindex="0" aria-expanded="false">Add a prescription photo (optional)</strong>
               <p>Phone photos and screenshots work.</p>
               <input type="file" accept="image/*,application/pdf"
                      aria-label="Add a prescription photo or screenshot">
@@ -1819,6 +1819,8 @@ footer{ display:none !important; }
          checkout without it (policy_terms.require). #}
       <div class="ow-ck-policy" id="owPolicyBlock">
         {% if spectacle_summary %}
+        <details class="ow-ck-fold" id="owFoldBreakdown" open>
+        <summary>Price details <span class="ow-ck-fold__hint">{{ spectacle_summary|length }} item{{ 's' if spectacle_summary|length != 1 }}</span></summary>
         <div class="ow-ck-policy-summary">
           <strong>Your customized spectacles</strong>
           {% for sp in spectacle_summary %}
@@ -1833,7 +1835,10 @@ footer{ display:none !important; }
           </div>
           {% endfor %}
         </div>
+        </details>
         {% endif %}
+        <details class="ow-ck-fold" id="owFoldPolicy" open>
+        <summary>Returns and delivery terms <span class="ow-ck-fold__hint">please read</span></summary>
         <div class="ow-ck-policy-warn" role="note">
           {% if policy_is_international %}
           <p><strong>International order &mdash; non-returnable and non-refundable.</strong> Orders on optiwar.com are exported from India and cannot be returned or refunded once placed. Please check every frame, prescription and lens selection now.</p>
@@ -1855,6 +1860,7 @@ footer{ display:none !important; }
           <p><strong>Contact lenses:</strong> opened, worn, unsealed or tampered packs are hygiene-sensitive and cannot be returned. Please verify brand, power, cylinder, axis, ADD, BC and quantity before paying.</p>
           {% endif %}
         </div>
+        </details>
         <label class="ow-ck-policy-accept" for="owTermsAccepted">
           <input type="checkbox" id="owTermsAccepted" name="{{ terms_field }}" value="1" required>
           <span>{{ acceptance_text|replace("Terms & Conditions", '<a href="' ~ terms_url ~ '" target="_blank" rel="noopener">Terms &amp; Conditions</a>')|replace("Returns, Replacements & Limited Warranty Policy", '<a href="' ~ returns_url ~ '" target="_blank" rel="noopener">Returns, Replacements &amp; Limited Warranty Policy</a>')|safe }}</span>
@@ -1942,6 +1948,7 @@ function owMobGo(step){
     else if(i === step) s.classList.add('ow-mob-active');
   });
   window.scrollTo({top:0, behavior:'smooth'});
+  if (window.owMobBarUpdate) window.owMobBarUpdate(step);
 }
 
 function owMobInit(){
@@ -2195,6 +2202,56 @@ function owShowToast(msg) {
   clearTimeout(owShowToast._t);
   owShowToast._t = setTimeout(function() { t.classList.remove('ow-ck-show'); }, 2800);
 }
+</script>
+<script>
+/* ═══ Checkout usability: fixed step bar on phones, foldable breakdown/policy,
+   collapsed prescription-photo box, clickable step chips ═══ */
+(function () {
+  var form = document.getElementById('owCheckoutForm'); if (!form) return;
+  var grand = document.querySelector('.ow-ck-grand span:last-child');
+  var total = grand ? grand.textContent.trim() : '';
+  var labels = ['Deliver to address', 'Continue to payment', 'Pay ' + total];
+
+  /* prescription photo box: one line until tapped (upload hooks untouched) */
+  document.querySelectorAll('.ow-rx-upload').forEach(function (box) {
+    var t = box.querySelector('.ow-rx-upload__toggle'); if (!t) return;
+    var hasDocs = box.querySelectorAll('.ow-rx-upload-list li').length > 0;
+    box.classList.toggle('ow-rx-open', hasDocs); t.setAttribute('aria-expanded', hasDocs ? 'true' : 'false');
+    function flip() { var open = !box.classList.contains('ow-rx-open'); box.classList.toggle('ow-rx-open', open); t.setAttribute('aria-expanded', open ? 'true' : 'false'); if (open) { var f = box.querySelector('input[type=file]'); if (f) f.focus(); } }
+    t.addEventListener('click', flip);
+    t.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
+  });
+
+  /* fixed action bar (phones) */
+  var bar = document.createElement('div'); bar.id = 'owMobBar'; bar.className = 'ow-mob-bar';
+  bar.innerHTML = '<div class="ow-mob-bar__total"><span>Total</span><b>' + total + '</b></div><button type="button" class="ow-btn ow-btn--primary" id="owMobBarBtn"></button>';
+  document.body.appendChild(bar);
+  var btn = document.getElementById('owMobBarBtn');
+  btn.addEventListener('click', function () {
+    var step = (typeof owMobStep === 'number') ? owMobStep : 0;
+    if (step < 2) { owMobGo(step + 1); return; }
+    var pay = document.getElementById('owPayBtn');
+    var terms = document.getElementById('owTermsAccepted');
+    if (terms && !terms.checked) {
+      var block = document.getElementById('owPolicyBlock');
+      if (block) { block.classList.add('ow-ck-policy-missing'); block.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+      terms.focus(); return;
+    }
+    if (pay) { btn.textContent = 'Processing\u2026'; btn.disabled = true; pay.click(); setTimeout(function () { btn.disabled = false; btn.textContent = labels[2]; }, 15000); }
+  });
+  window.owMobBarUpdate = function (step) {
+    btn.textContent = labels[step] || labels[0];
+    btn.classList.toggle('ow-mob-bar__pay', step === 2);
+    [document.getElementById('owFoldBreakdown'), document.getElementById('owFoldPolicy')].forEach(function (d) { if (d && window.innerWidth < 768) d.removeAttribute('open'); });
+  };
+  if (typeof owMobStep === 'number') window.owMobBarUpdate(owMobStep);
+
+  /* step chips go back; #step-N opens a step directly */
+  document.querySelectorAll('.ow-mob-step').forEach(function (chip, i) {
+    chip.addEventListener('click', function () { if (i <= owMobStep) owMobGo(i); });
+  });
+  var m = /#step-([0-2])/.exec(location.hash); if (m && typeof owMobGo === 'function') owMobGo(+m[1]);
+})();
 </script>
 
 

@@ -513,3 +513,48 @@ h1.pdp-title { font-size: 22px !important; margin: 2px 0 8px !important; }
 .ow-whatsapp svg { width: 20px; height: 20px; }
 .ow-whatsapp:hover { background: #1ebe5d; }
 @media (min-width: 600px) { .ow-lookup { padding-top: 28px; } .ow-lookup__card { padding: 28px; } .ow-lookup__card h1 { font-size: 26px; } }
+
+/* ---------- checkout ---------- */
+.ow-ck .ow-ck-thumb { background: #fff !important; border: 1px solid var(--ow-line); }
+.ow-ck .ow-ck-thumb picture { display: contents; }
+.ow-ck .ow-ck-thumb img { width: 100% !important; height: 100% !important; max-width: none !important; max-height: none !important; object-fit: cover !important; margin: 0 !important; }
+.ow-ck .ow-ck-fold { border: 0; margin: 0 0 10px; }
+.ow-ck .ow-ck-fold > summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-radius: var(--ow-r-sm); background: #fff; border: 1px solid var(--ow-line); font-size: 13px; font-weight: 700; color: var(--ow-ink); }
+.ow-ck .ow-ck-fold > summary::-webkit-details-marker { display: none; }
+.ow-ck .ow-ck-fold > summary::after { content: "+"; font-size: 18px; line-height: 1; color: var(--ow-brand); margin-left: auto; }
+.ow-ck .ow-ck-fold[open] > summary::after { content: "\2212"; }
+.ow-ck .ow-ck-fold[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.ow-ck .ow-ck-fold__hint { font-weight: 500; color: var(--ow-muted); font-size: 12px; margin-right: 6px; }
+.ow-ck .ow-ck-fold > .ow-ck-policy-summary, .ow-ck .ow-ck-fold > .ow-ck-policy-warn { margin-top: 0 !important; border-top-left-radius: 0 !important; border-top-right-radius: 0 !important; }
+.ow-ck .ow-ck-policy-summary > strong { display: none !important; }
+.ow-ck .ow-rx-upload { padding: 10px 12px !important; margin: 8px 0 !important; }
+.ow-ck .ow-rx-upload__toggle { display: flex !important; align-items: center; justify-content: space-between; cursor: pointer; font-size: 13px; color: var(--ow-brand); }
+.ow-ck .ow-rx-upload__toggle::after { content: "+"; font-size: 18px; line-height: 1; }
+.ow-ck .ow-rx-upload.ow-rx-open .ow-rx-upload__toggle::after { content: "\2212"; }
+.ow-ck .ow-rx-upload:not(.ow-rx-open) > :not(.ow-rx-upload__toggle) { display: none !important; }
+@media (min-width: 768px) {
+  .ow-ck .ow-ck-item { gap: 12px 14px !important; padding: 14px !important; }
+  .ow-ck .ow-ck-thumb { border-radius: 12px; }
+}
+.ow-mob-bar { display: none; }
+@media (max-width: 767px) {
+  .ow-mob-bar { position: fixed; left: 0; right: 0; bottom: calc(var(--ow-tabbar-h) + env(safe-area-inset-bottom, 0px)); z-index: 1000; display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: rgba(255,255,255,.98); border-top: 1px solid var(--ow-line); box-shadow: 0 -6px 20px rgba(15,23,42,.06); }
+  .ow-mob-bar__total { display: flex; flex-direction: column; min-width: 86px; line-height: 1.1; }
+  .ow-mob-bar__total span { font-size: 11px; color: var(--ow-muted); font-weight: 600; }
+  .ow-mob-bar__total b { font-size: 17px; font-weight: 800; color: var(--ow-ink); }
+  .ow-mob-bar .ow-btn { flex: 1; min-height: 46px; font-size: 14px; }
+  .ow-mob-bar .ow-btn.ow-mob-bar__pay { background: linear-gradient(135deg, var(--ow-brand), #2563eb); }
+  body:has(#owMobBar) .ow-chat-btn { bottom: calc(var(--ow-tabbar-h) + env(safe-area-inset-bottom, 0px) + 76px) !important; }
+  body:has(#owMobBar) main { padding-bottom: 90px; }
+  .ow-ck .ow-mob-step-btn, .ow-ck .ow-mob-back-btn, .ow-ck .ow-mob-cancel-wrap, .ow-ck .ow-ck-next-btn { display: none !important; }
+  .ow-ck .ow-mob-step { cursor: pointer; }
+  .ow-ck .ow-ck-card { padding: 14px !important; }
+  .ow-ck .ow-ck-item { padding: 12px !important; }
+  .ow-ck .ow-ck-item h3 { font-size: 14px !important; }
+  /* content flows from the top of each step; nothing is pushed to the bottom of a viewport-high card */
+  .ow-ck .ow-ck-layout > .ow-ck-card.ow-mob-visible { min-height: 0 !important; display: block !important; }
+  .ow-ck .ow-ck-lines { margin-top: 12px !important; }
+  .ow-ck .ow-ck-policy { margin-top: 12px !important; }
+  .ow-ck .ow-ck-thumb { width: 72px !important; height: 72px !important; align-self: start !important; }
+  .ow-ck #owPayBtn { display: none !important; }   /* the fixed bar pays on phones */
+}
