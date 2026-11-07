@@ -1796,10 +1796,19 @@ footer{ display:none !important; }
           <strong>-&euro;{{ '%.2f'|format(eur_discount) }}</strong>
         </div>
         {% endif %}
+        {% if shipping_allowed %}
+        {# Delivery options: standard (free), Expedite, 24-hour Delhi NCR; the fee joins the total (shipping_options.py) #}
+        <div class="ow-ck-ship" id="owShip" data-rules='{{ shipping_rules|tojson|forceescape }}'>
+          <div class="ow-ck-ship__head"><span>Delivery</span><strong id="owShipFee" style="color:#16a34a;">Free</strong></div>
+          <div class="ow-ck-ship__opts" id="owShipOpts"></div>
+          <p class="ow-ck-ship__gst">{{ _('Paid delivery options include 18%% GST and appear on your invoice as a separate service line.') }}</p>
+        </div>
+        {% else %}
         <div class="ow-ck-line">
           <span>Delivery</span>
           <strong style="color:#16a34a;">Free</strong>
         </div>
+        {% endif %}
         {% if mixed_dispatch %}
         {# AI Glasses ship later than the frames: both dates, and one combined dispatch to confirm #}
         <div class="ow-ck-line">
@@ -1832,8 +1841,8 @@ footer{ display:none !important; }
           <span>Pre-order dispatch</span>
           <strong>{{ ship_days }}</strong>
           {% elif is_india %}
-          <span>Est. Delivery</span>
-          <strong>{{ ship_days }}</strong>
+          <span id="owShipEstLabel">Est. Delivery</span>
+          <strong id="owShipEst" data-standard="{{ ship_days }}">{{ ship_days }}</strong>
           {% else %}
           <span>Estimated Shipping</span>
           <strong class="ow-ship-est" onclick="document.getElementById('owShipPopup').style.display='flex'" style="cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px" title="Click for details">{{ ship_days }}</strong>
@@ -1842,7 +1851,7 @@ footer{ display:none !important; }
         {% endif %}
         <div class="ow-ck-line ow-ck-grand">
           <span>Grand Total</span>
-          <span>{% if is_india %}Rs {{ grand_total|int }}{% else %}&euro;{{ '%.2f'|format(grand_total_eur|default(grand_total)) }}{% endif %}</span>
+          <span id="owGrandTotal" data-base="{{ grand_total|int if is_india else grand_total_eur|default(grand_total) }}">{% if is_india %}Rs {{ grand_total|int }}{% else %}&euro;{{ '%.2f'|format(grand_total_eur|default(grand_total)) }}{% endif %}</span>
         </div>
       </div>
 
@@ -2034,6 +2043,7 @@ function owSelectAddr(radio) {
     if (cs.options[i].value === radio.dataset.country) { cs.selectedIndex = i; break; }
   }
   cs.dispatchEvent(new Event('change'));
+  if (window.owShipRender) window.owShipRender();
   owClearMissing();
   if(typeof owMobAddrCollapse === 'function') owMobAddrCollapse();
 }
@@ -2279,6 +2289,61 @@ function owShowToast(msg) {
   bar.innerHTML = '<div class="ow-mob-bar__total"><span>Total</span><b>' + total + '</b></div><button type="button" class="ow-btn ow-btn--primary" id="owMobBarBtn"></button>';
   document.body.appendChild(bar);
   var btn = document.getElementById('owMobBarBtn');
+  /* delivery options: offered by the address being typed; the fee joins the total shown and the bar */
+  (function () {
+    var box = document.getElementById('owShip'); if (!box) return;
+    var rules; try { rules = JSON.parse(box.getAttribute('data-rules')); } catch (e) { return; }
+    var opts = document.getElementById('owShipOpts'), feeEl = document.getElementById('owShipFee');
+    var grandEl = document.getElementById('owGrandTotal'), base = parseFloat(grandEl && grandEl.getAttribute('data-base')) || 0;
+    var est = document.getElementById('owShipEst');
+    function digits(v) { return String(v || '').replace(/\D/g, ''); }
+    function isNcr() {
+      var z = digits((document.getElementById('ck_postcode') || {}).value);
+      for (var i = 0; i < rules.zip_prefixes.length; i++) { if (z && z.indexOf(rules.zip_prefixes[i]) === 0) return true; }
+      if (z.length === 6) return false;
+      var st = String((document.getElementById('ck_state') || {}).value || '').trim().toLowerCase();
+      if (rules.states.indexOf(st) >= 0) return true;
+      var ad = String((document.getElementById('ck_address') || {}).value || '').toLowerCase();
+      for (var j = 0; j < rules.city_words.length; j++) { if (ad.indexOf(rules.city_words[j]) >= 0) return true; }
+      return false;
+    }
+    function promised(days) {
+      var d = new Date(); d.setDate(d.getDate() + days); if (d.getDay() === 0) d.setDate(d.getDate() + 1);
+      return d.toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+    }
+    function current() { var r = opts.querySelector('input[name="shipping_option"]:checked'); return r ? r.value : 'standard'; }
+    function apply() {
+      var key = current(), opt = null;
+      rules.options.forEach(function (o) { if (o.key === key) opt = o; });
+      if (!opt) return;
+      feeEl.textContent = opt.fee ? 'Rs ' + opt.fee : 'Free';
+      if (grandEl) grandEl.textContent = 'Rs ' + Math.round(base + opt.fee);
+      if (est) est.textContent = promised(opt.days);
+      var bar = document.querySelector('#owMobBar .ow-mob-bar__total b'); if (bar) bar.textContent = 'Rs ' + Math.round(base + opt.fee);
+      var btn = document.getElementById('owMobBarBtn'); if (btn && /^Pay /.test(btn.textContent)) btn.textContent = 'Pay Rs ' + Math.round(base + opt.fee);
+      window.owShipTotal = 'Rs ' + Math.round(base + opt.fee);
+    }
+    function render() {
+      var keep = current(), ncr = isNcr(), html = '';
+      rules.options.forEach(function (o) {
+        if (o.ncr_only && !ncr) return;
+        var checked = (o.key === keep) ? ' checked' : '';
+        html += '<label class="ow-ck-ship__opt"><input type="radio" name="shipping_option" value="' + o.key + '"' + checked + '>' +
+                '<span><strong>' + o.label + '</strong><small>' + o.blurb + '</small></span>' +
+                '<b>' + (o.fee ? 'Rs ' + o.fee : 'Free') + '</b></label>';
+      });
+      opts.innerHTML = html;
+      if (!opts.querySelector('input:checked')) { var first = opts.querySelector('input'); if (first) first.checked = true; }
+      opts.querySelectorAll('input').forEach(function (r) { r.addEventListener('change', apply); });
+      apply();
+    }
+    ['ck_postcode', 'ck_state', 'ck_address'].forEach(function (id) {
+      var el = document.getElementById(id); if (el) { el.addEventListener('input', render); el.addEventListener('change', render); }
+    });
+    window.owShipRender = render;
+    render();
+  })();
+
   /* mixed order: paying is only possible with one combined dispatch */
   window.owDispatchOk = function () {
     var split = document.querySelector('input[name="dispatch_mode"][value="SPLIT"]');
@@ -2312,7 +2377,7 @@ function owShowToast(msg) {
     if (pay) { btn.textContent = 'Processing\u2026'; btn.disabled = true; pay.click(); setTimeout(function () { btn.disabled = false; btn.textContent = labels[3]; }, 15000); }
   });
   window.owMobBarUpdate = function (step) {
-    btn.textContent = labels[step] || labels[0];
+    btn.textContent = (step === 3 && window.owShipTotal) ? 'Pay ' + window.owShipTotal : (labels[step] || labels[0]);
     btn.classList.toggle('ow-mob-bar__pay', step === 3);
     var fb = document.getElementById('owFoldBreakdown'), fp = document.getElementById('owFoldPolicy');
     if (fb) fb.removeAttribute('open');

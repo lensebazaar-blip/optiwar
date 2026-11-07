@@ -82,8 +82,16 @@ def order_amount_minor(cursor, order_id):
         "SELECT COALESCE(SUM(order_total), 0) AS total FROM orders WHERE order_id=%s",
         (order_id,))
     row = cursor.fetchone()
-    total = (row or {}).get('total') or 0
-    return int(round(float(total) * 100))
+    total = float((row or {}).get('total') or 0)
+    # A delivery option chosen at checkout (shipping_options.py) is paid with the
+    # order; without the table (older release) there is no fee to add.
+    try:
+        cursor.execute("SELECT fee FROM order_shipping WHERE order_id=%s", (order_id,))
+        fee_row = cursor.fetchone()
+        total += float((fee_row or {}).get('fee') or 0)
+    except Exception:  # noqa: BLE001
+        pass
+    return int(round(total * 100))
 
 
 def order_currency(cursor, order_id):

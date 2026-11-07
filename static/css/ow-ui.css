@@ -628,6 +628,20 @@ body:has(#owMobBar) main { padding-bottom: 90px; }
 
 .ow-ck .terms-widget, .ow-ck .ow-mob-trust-bar, .ow-ck .ow-mob-footer-line { display: none !important; }   /* terms are a step of the wizard */
 
+/* ---- checkout: delivery options (standard / expedite / 24-hour NCR) ---- */
+.ow-ck .ow-ck-ship { margin: 6px 0 4px; font-family: var(--ow-font); }
+.ow-ck .ow-ck-ship__head { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: 14px; color: var(--ow-ink-2); }
+.ow-ck .ow-ck-ship__head strong { color: var(--ow-ink); }
+.ow-ck .ow-ck-ship__opts { display: grid; gap: 6px; margin: 2px 0 8px; }
+.ow-ck .ow-ck-ship__opt { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--ow-line); border-radius: 10px; background: #fff; cursor: pointer; font-size: 13px; line-height: 1.35; color: var(--ow-ink); }
+.ow-ck .ow-ck-ship__opt:has(input:checked) { border-color: var(--ow-brand); box-shadow: 0 0 0 3px rgba(79,70,229,.12); }
+.ow-ck .ow-ck-ship__opt input { width: 18px; height: 18px; flex: 0 0 18px; accent-color: var(--ow-brand); margin: 0; }
+.ow-ck .ow-ck-ship__opt span { flex: 1; min-width: 0; }
+.ow-ck .ow-ck-ship__opt strong { display: block; font-size: 13.5px; }
+.ow-ck .ow-ck-ship__opt small { display: block; color: var(--ow-ink-2); font-size: 12px; }
+.ow-ck .ow-ck-ship__opt b { white-space: nowrap; font-weight: 800; }
+.ow-ck .ow-ck-ship__gst { margin: 0 0 6px; font-size: 11.5px; color: var(--ow-muted); }
+
 /* ---- checkout: mixed order (AI Glasses later + frames now) one-dispatch choice ---- */
 .ow-ck .ow-ck-dispatch { margin: 12px 0 4px; padding: 12px; border: 1px solid #fcd34d; border-radius: 12px; background: #fffbeb; font-family: var(--ow-font); }
 .ow-ck .ow-ck-dispatch__head { margin: 0 0 10px; font-size: 13px; line-height: 1.5; color: #78350f; font-weight: 600; }

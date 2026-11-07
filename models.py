@@ -36,7 +36,7 @@ from .catalogue import (
 from . import face_cart, face_fit, face_profiles, face_profiles_api, face_scan_groups_api, face_scan_invites_api, favorites_api, order_face_scan, order_rx_documents
 from . import (acr, lens_cart, lens_config, lens_documents, lens_feed,
                lens_order, lens_preview, lens_rx, lens_seo, lens_upload,
-               lens_view, rx_photo, ip_notice)
+               lens_view, rx_photo, ip_notice, shipping_options)
 from .cart_persist import save_cart_to_db, clear_cart_in_db
 import copy
 from .cl_range_model import add_prescription_of_cl
@@ -224,11 +224,16 @@ def _ship_date_for(cursor, product_ids, start_date=None):
     return usual, False
 
 def _dispatch_note_safe(order_id):
-    """The mixed-order dispatch note for mails and pages; '' on any failure."""
+    """The order's delivery notes for mails, pages and Ops (mixed-order dispatch
+    choice, paid delivery option); '' on any failure."""
+    notes = []
     try:
-        return ai_glasses.dispatch_note_for(get_db().cursor(), order_id)
+        cursor = get_db().cursor()
+        notes.append(ai_glasses.dispatch_note_for(cursor, order_id))
+        notes.append(shipping_options.note(shipping_options.read(cursor, order_id)))
     except Exception:  # noqa: BLE001
-        return ""
+        pass
+    return " ".join(n for n in notes if n)
 
 
 def safe_float(val, default=0.0):
@@ -2934,6 +2939,10 @@ def checkout_page():
     _usual = dispatch_date_obj().date()
     mixed_dispatch = ai_glasses.mixed_dispatch(cursor, cart, _usual)
     ship_usual = _usual.strftime('%A, %d %B %Y')
+    # Delivery options (standard / expedite / 24-hour NCR): the page offers them by
+    # the address being typed; the POST validates the choice against the posted one.
+    shipping_allowed = bool(_req_is_india()) and not ship_is_preorder
+    shipping_rules = shipping_options.js_rules()
 
     product_ids = [item.get('product_id') for item in cart if item.get('product_id')]
     product_image_map = {}
@@ -3070,7 +3079,7 @@ def checkout_page():
     import uuid as _uuid
     session['checkout_token'] = str(_uuid.uuid4())
     _acr_stage(acr.STAGE_CHECKOUT)
-    return render_template('checkout.html', cart=cart,ship_days=ship_days, ship_is_preorder=ship_is_preorder, mixed_dispatch=mixed_dispatch, ship_usual=ship_usual, face_lines=face_lines,product_image_map=product_image_map, grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, right_eye=right_eye, left_eye=left_eye,right_pwr=right_pwr, right_lens_color=right_lens_color, right_cyl=right_cyl, right_qty=right_qty, right_axis=right_axis, right_add=right_add, left_pwr=left_pwr, left_lens_color=left_lens_color, left_cyl=left_cyl, left_qty=left_qty, left_axis=left_axis, left_add=left_add, lens_recommendations=lens_recommendations, prefill=prefill, saved_addresses=saved_addresses, lens_removal_pending=lens_removal_pending, lens_removal_confirm_text=lens_cart.CONFIRM_REMOVAL, rx_documents=rx_documents, **policy_terms.checkout_context(cart, _get_site_from()))
+    return render_template('checkout.html', cart=cart,ship_days=ship_days, ship_is_preorder=ship_is_preorder, mixed_dispatch=mixed_dispatch, ship_usual=ship_usual, shipping_allowed=shipping_allowed, shipping_rules=shipping_rules, face_lines=face_lines,product_image_map=product_image_map, grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, right_eye=right_eye, left_eye=left_eye,right_pwr=right_pwr, right_lens_color=right_lens_color, right_cyl=right_cyl, right_qty=right_qty, right_axis=right_axis, right_add=right_add, left_pwr=left_pwr, left_lens_color=left_lens_color, left_cyl=left_cyl, left_qty=left_qty, left_axis=left_axis, left_add=left_add, lens_recommendations=lens_recommendations, prefill=prefill, saved_addresses=saved_addresses, lens_removal_pending=lens_removal_pending, lens_removal_confirm_text=lens_cart.CONFIRM_REMOVAL, rx_documents=rx_documents, **policy_terms.checkout_context(cart, _get_site_from()))
 
 """
 @bp.route('/initiate-payment', methods=['POST'])
@@ -3194,6 +3203,17 @@ def checkout():
     if eur_discount > 0:
         grand_total = round(grand_total - eur_discount, 2)
         print(f"EUR Discount applied: -EUR {eur_discount}, frame_count={frame_count}")
+
+    # Delivery option: validated against the posted address (an AI Glasses
+    # pre-order keeps standard); the fee is part of what the gateway charges.
+    _ship_preorder = _ship_date_for(cursor, [item.get('product_id') for item in cart])[1] if cart else False
+    shipping_choice = shipping_options.choose(
+        request.form.get('shipping_option'), request.form.get('customer_state'),
+        request.form.get('customer_postcode'), _is_india, _ship_preorder, request.form.get('address', ''))
+    shipping_fee = float(shipping_choice['fee']) if _is_india else 0.0
+    if shipping_fee:
+        grand_total = round(grand_total + shipping_fee, 2)
+        current_app.logger.info(f"[{_host}] ACTIVITY:SHIPPING_OPTION user:{_uid} option:{shipping_choice['key']} fee:{shipping_fee}")
 
     # Collect customer info
     customer_name = request.form['name']
@@ -3425,6 +3445,9 @@ def checkout():
 
         # Mixed order (AI Glasses shipping later + ready frames): the customer's
         # one-dispatch choice travels with the order for Ops.
+        shipping_options.record(cursor, order_id, shipping_choice,
+                                shipping_options.promised_date(datetime.now(), shipping_choice['key']),
+                                state=customer_state, zipcode=customer_postcode)
         _mixed = ai_glasses.mixed_dispatch(cursor, cart, dispatch_date_obj().date())
         if _mixed:
             ai_glasses.record_dispatch_preference(cursor, order_id, dispatch_mode or ai_glasses.MODE_TOGETHER,
@@ -4096,6 +4119,7 @@ def success(order_id):
        cursor.execute('''select sum(order_total) as grand_total from orders where order_id=%s''', (order_id,))
        grand_total_result = cursor.fetchone() 
        grand_total = int(grand_total_result['grand_total']) if grand_total_result and 'grand_total' in grand_total_result else 0
+       grand_total += int(round(shipping_options.fee_for(cursor, order_id)))
        print(f"Fetched Grand Total for display type is {type(grand_total)}")
 
        payment_state, latest_status = order_payment_state(cursor, order_id)
@@ -4118,6 +4142,9 @@ def success(order_id):
     # A regular order keeps today's estimate; an AI Glasses one keeps the date it
     # was promised when placed, even once that date is near or past.
     _ship = _aig or dispatch_date_obj().date()
+    _shipping_row = shipping_options.read(cursor, order_id)
+    if _shipping_row and _shipping_row.get('promised_date') and not _aig:
+        _ship = _shipping_row['promised_date']     # a paid delivery option carries its own promise
     ship_date = _ship.strftime('%A, %d %B %Y')
     dispatch_note = _dispatch_note_safe(order_id)
 
