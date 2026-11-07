@@ -257,7 +257,7 @@ class Wiring(unittest.TestCase):
         self.assertIn('"templates/prescription.html"', deploy)
         # new files must be declared new, or the deploy tool blocks on their absence
         new_block = deploy[deploy.index("NEW_IN_RELEASE = ("):]
-        new_block = new_block[:new_block.index(")\n")]
+        new_block = new_block[:new_block.index('")\n') + 2]
         for name in ('"rx_photo.py"', '"static/css/rx-page.css"', '"static/css/ow-ui.css"'):
             self.assertIn(name, new_block)
 
