@@ -113,7 +113,9 @@ DEPLOY_SET = ("__init__.py", "log_hygiene.py", "pricing.py", "acr.py", "ai_api.p
               # AI Glasses (optiwar.in, behind AI_GLASSES_IN_ENABLED) + the .in homepage JSON-LD currency fix
               "ai_glasses.py", "templates/ai_glasses/landing.html", "templates/ai_glasses/product.html",
               "templates/ai_glasses/_face_match_strip.html",
-              "static/ai-glasses/aig.css", "static/ai-glasses/aig.js", "templates/index.html")
+              "static/ai-glasses/aig.css", "static/ai-glasses/aig.js", "templates/index.html",
+              # storefront UI layer (mobile-first modernisation)
+              "static/css/ow-ui.css", "templates/categories.html")
 
 # Files that do not exist in production yet. Absence is otherwise a block, so
 # that a path typo or a file missing from the release cannot be mistaken for a

@@ -277,7 +277,7 @@ function loadProducts() {
 
               <div class="ow-card-includes">
                 <span class="ow-inc-icon"><svg viewBox="0 0 24 24"><path d="M12 4.5C7 4.5 2.7 7.6 1 12c1.7 4.4 6 7.5 11 7.5s9.3-3.1 11-7.5c-1.7-4.4-6-7.5-11-7.5zm0 12.5c-2.8 0-5-2.2-5-5s2.2-5 5-5 5 2.2 5 5-2.2 5-5 5zm0-8c-1.7 0-3 1.3-3 3s1.3 3 3 3 3-1.3 3-3-1.3-3-3-3z"/></svg></span>
-                <span class="ow-inc-text">INCLUDES FREE <span>| Plano Anti-Glare Lenses ✨</span></span>
+                <span class="ow-inc-text">Free lenses included <span>· plano anti-glare</span></span>
               </div>
               <div class="ow-card-shipping">
                 <svg viewBox="0 0 24 24"><path d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.7 1.3 3 3 3s3-1.3 3-3h6c0 1.7 1.3 3 3 3s3-1.3 3-3h2v-5l-3-4zM6 18.5c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5z"/></svg>
@@ -319,7 +319,7 @@ function loadProducts() {
                     ${commonInputs}
                     <button type="submit" class="ow-lens-btn ow-plano">
                       <span class="ow-spark"></span><span class="ow-spark"></span><span class="ow-spark"></span>
-                      <div class="ow-btn-left"><div class="ow-btn-icon">✨</div><div class="ow-btn-text"><h3>Buy Frame with Plano Anti-Glare</h3><p>Zero power lenses with premium anti-glare coating</p></div></div>
+                      <div class="ow-btn-left"><div class="ow-btn-icon">✨</div><div class="ow-btn-text"><h3>Frame Only</h3><p>Zero power lenses with premium anti-glare coating</p></div></div>
                       <div class="ow-btn-arrow">→</div>
                     </button>
                 </form>
@@ -327,7 +327,7 @@ function loadProducts() {
                     ${commonInputs}
                     <button type="submit" class="ow-lens-btn ow-special">
                       <span class="ow-spark"></span><span class="ow-spark"></span><span class="ow-spark"></span>
-                      <div class="ow-btn-left"><div class="ow-btn-icon">👓</div><div class="ow-btn-text"><h3>Buy Frame with Special Made Lenses</h3><p>Prescription, blue-cut & progressive lens options</p></div></div>
+                      <div class="ow-btn-left"><div class="ow-btn-icon">👓</div><div class="ow-btn-text"><h3>Buy with My Lenses</h3><p>Prescription, blue-cut & progressive lens options</p></div></div>
                       <div class="ow-btn-arrow">→</div>
                     </button>
                 </form>

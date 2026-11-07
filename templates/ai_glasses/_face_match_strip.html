@@ -1,6 +1,6 @@
 {# AI Glasses that fit the face being shopped for, on the Face Match frames page (ai_glasses.face_matches).
    Shown with the Face Match filter only; a strip of its own, never a frame card (no free lenses). #}
-<link rel="stylesheet" href="{{ url_for('static', filename='ai-glasses/aig.css') }}?v=3">
+<link rel="stylesheet" href="{{ url_for('static', filename='ai-glasses/aig.css') }}?v=4">
 <section class="aig aig-fitstrip" id="aig-fitstrip"{% if request.args.get('filter') != 'facematch' %} hidden{% endif %}>
   <div class="aig-fitstrip__head">
     <h3 class="aig-fitstrip__title">AI Glasses that fit {{ aig_fit.person or 'you' }}</h3>

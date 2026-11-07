@@ -580,7 +580,7 @@ h1.pdp-title { font-size:20px !important; font-weight:700 !important; color:#111
         </form>
         {% else %}
         <div class="btn-row">
-          <form action="{{ url_for('main.add_to_cart') }}" method="post">
+          <form action="{{ url_for('main.add_to_cart') }}" method="post" id="pdpFormPlano">
             <input type="hidden" name="product_id" value="{{ product.product_id }}">
             <input type="hidden" name="product_code" value="{{ product.product_code }}">
             <input type="hidden" name="product_name" value="{{ product.product_name }}">
@@ -589,7 +589,7 @@ h1.pdp-title { font-size:20px !important; font-weight:700 !important; color:#111
             <input type="hidden" name="product_category" value="{{ product.product_category }}">
             <button type="submit" class="btn-outline">Buy Frame Only</button>
           </form>
-          <form action="{{ url_for('main.add_prescription') }}" method="post">
+          <form action="{{ url_for('main.add_prescription') }}" method="post" id="pdpFormRx">
             <input type="hidden" name="product_id" value="{{ product.product_id }}">
             <input type="hidden" name="product_code" value="{{ product.product_code }}">
             <input type="hidden" name="product_name" value="{{ product.product_name }}">
@@ -627,6 +627,17 @@ h1.pdp-title { font-size:20px !important; font-weight:700 !important; color:#111
       </div>
     </div>
   </div>
+  {% if not lens and product.product_category == "Spectacles Frame" and product.product_quantity > 0 %}
+  {# phones: price + both buys stay reachable while the page scrolls (static/css/ow-ui.css) #}
+  <div class="pdp-stickybar" id="pdpStickyBar">
+    <div class="pdp-stickybar__price">
+      <b>{% if is_india %}&#8377;{{ product.product_special_price }}{% else %}&euro;{{ product.product_special_price_eur }}{% endif %}</b>
+      {% if product.product_price and product.product_special_price and product.product_price > product.product_special_price %}<s>{% if is_india %}&#8377;{{ product.product_price }}{% else %}&euro;{{ product.product_price_eur }}{% endif %}</s>{% endif %}
+    </div>
+    <button type="submit" form="pdpFormPlano" class="ow-btn ow-btn--ghost ow-btn--sm">Frame only</button>
+    <button type="submit" form="pdpFormRx" class="ow-btn ow-btn--primary ow-btn--sm">Add my lenses</button>
+  </div>
+  {% endif %}
 </div>
 
 <script>

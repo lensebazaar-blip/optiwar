@@ -148,94 +148,117 @@
 {% if is_india %}Optiwar is India's factory outlet eyewear store. Buy premium spectacle frames starting Rs 499 with free prescription lenses and free delivery. Over 700 frames in stock across Half Frame, Clubmaster, Round, Rectangle, Rimless, and Square styles. Save up to 70% compared to retail optical stores.{% else %}Optiwar is a global factory outlet eyewear store. Buy premium spectacle frames starting €34.99 with free prescription lenses and free worldwide delivery. Over 700 frames in stock across Half Frame, Clubmaster, Round, Rectangle, Rimless, and Square styles. Save up to 70% compared to retail optical stores.{% endif %}
 </div>
 
+<div class="ow-home">
 <!-- ═══ HERO ═══ -->
-<section class="hero">
-  <div class="hero-inner">
-    <h1>Frames including<br><span>Lenses as Complimentary</span></h1>
-    {% if not is_india %}
-    <div class="ow-hero-delivery">
-      <span class="ow-gift-icon">&#127873;</span>
-      + <span class="ow-free">FREE</span> Global Shipping &#127758;
+<section class="ow-hero">
+  <div class="ow-hero__copy">
+    <p class="ow-hero__eyebrow">{% if is_india %}{{ _('Factory outlet · India') }}{% else %}{{ _('Factory outlet · Worldwide') }}{% endif %}</p>
+    <h1>{{ _('Spectacle frames from') }} <em>{% if is_india %}&#8377;{{ offer_range.low }}{% else %}&euro;{{ offer_range.low }}{% endif %}</em>.<br>{{ _('Prescription lenses') }} <em>{{ _('free') }}</em>.</h1>
+    <p class="ow-hero__sub">{{ _('Every frame ships with complimentary single-vision lenses, fitted to your prescription. Factory outlet prices, up to 70%% below retail opticals') }}{% if is_india %}, {{ _('GST included') }}{% endif %}.</p>
+    <div class="ow-hero__cta">
+      <a class="ow-btn ow-btn--primary" href="/eyeglasses/all-spectacle-frames.html">{{ _('Shop all frames') }} &rarr;</a>
+      <a class="ow-btn ow-btn--ghost" href="/tryon">{{ _('Find my frame size') }}</a>
     </div>
-    {% endif %}
-    <a class="hero-cta" href="/eyeglasses/all-spectacle-frames.html">Explore Frames &rarr;</a>
+    <ul class="ow-hero__proof">
+      <li>{% if is_india %}{{ _('Free delivery across India') }}{% else %}{{ _('Free worldwide delivery') }}{% endif %}</li>
+      <li>{{ _('Free single-vision lenses') }}</li>
+      <li>700+ {{ _('frames in stock') }}</li>
+    </ul>
+  </div>
+  <div class="ow-hero__media">
+    <span class="ow-badge ow-badge--sale ow-hero__tag">{{ _('Up to 70%% off retail') }}</span>
     <div class="hero-carousel" id="heroCarousel">
       {% for product in products[:8] %}
       {% set img = product.product_image.split(',')[0].strip() if product.product_image else 'new-logo.png' %}
       {% if product.product_image %}
-      {{ product_picture(img, product.product_name ~ ' ' ~ (product.product_code or '') ~ ' ' ~ (product.product_category or ''), cls=('active' if loop.first else ''), width=400, height=400, sizes='(max-width:767px) 250px, 260px', eager=loop.first, priority=loop.first) }}
+      {{ product_picture(img, product.product_name ~ ' ' ~ (product.product_code or '') ~ ' ' ~ (product.product_category or ''), cls=('active' if loop.first else ''), width=400, height=400, sizes='(max-width:767px) 92vw, 560px', eager=loop.first, priority=loop.first) }}
       {% else %}
       <img src="{{ url_for('static', filename=img) }}" alt="{{ product.product_name }}" {% if loop.first %}class="active"{% endif %} loading="{% if loop.first %}eager{% else %}lazy{% endif %}" width="400" height="400">
       {% endif %}
       {% endfor %}
-      <button class="hero-carousel-btn prev" onclick="heroSlide(-1)" aria-label="Previous">&lsaquo;</button>
-      <button class="hero-carousel-btn next" onclick="heroSlide(1)" aria-label="Next">&rsaquo;</button>
+      <button class="hero-carousel-btn prev" onclick="heroSlide(-1)" aria-label="{{ _('Previous') }}">&lsaquo;</button>
+      <button class="hero-carousel-btn next" onclick="heroSlide(1)" aria-label="{{ _('Next') }}">&rsaquo;</button>
       <div class="hero-carousel-dots" id="heroCarouselDots"></div>
     </div>
   </div>
 </section>
 
-<!-- ═══ BANNER SOLO (rotating) ═══ -->
-<div class="ow-banner-solo" id="bannerSolo">
-  <a href="#" class="active" data-banner="0"><span class="banner-icon">&check;</span> {% if is_india %}All Prices include GST{% else %}All Taxes Included{% endif %}</a>
-  <a href="/tryon" data-banner="1"><span class="banner-icon">&#128248;</span> Measure your Face with our FACES <span class="banner-arrow">&rarr;</span></a>
-  <a href="#" data-banner="2"><span class="banner-icon">&#128666;</span> {% if is_india %}Free Shipping across India{% else %}Free Worldwide Shipping{% endif %}</a>
-  <a href="/lenses/polarized-lenses" data-banner="3"><span class="banner-icon">&#128374;</span> Polarized Lenses at fractions of price <span class="banner-arrow">&rarr;</span></a>
-  <a href="/lenses/blue-cut-lenses" data-banner="4"><span class="banner-icon">&#128187;</span> Blue Cut Lenses <span class="banner-arrow">&rarr;</span></a>
-</div>
+<!-- ═══ TRUST STRIP ═══ -->
+<ul class="ow-trust">
+  <li><svg viewBox="0 0 24 24"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7z"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/></svg><span>{% if is_india %}{{ _('Free shipping') }}<small>{{ _('All India, no minimum') }}</small>{% else %}{{ _('Free shipping') }}<small>{{ _('Worldwide, no minimum') }}</small>{% endif %}</span></li>
+  <li><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.3 2.3 4.7-5"/></svg><span>{{ _('Lenses included') }}<small>{{ _('Single vision, free') }}</small></span></li>
+  <li><svg viewBox="0 0 24 24"><path d="M4 20V9l8-5 8 5v11"/><path d="M9 20v-6h6v6"/></svg><span>{{ _('Factory outlet') }}<small>{{ _('Up to 70%% below retail') }}</small></span></li>
+  <li><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="12" cy="11" r="3"/><path d="M6 19c1.5-3 4-4 6-4s4.5 1 6 4"/></svg><span>{{ _('AI face fit') }}<small>{{ _('Measure once, shop sizes that fit') }}</small></span></li>
+</ul>
 
-<!-- ═══ BEST SELLING LENSES ═══ -->
-<section class="split" style="padding-bottom:24px;">
-  <div class="best-lenses" style="max-width:700px;margin:0 auto;">
-    <h3>Best Selling Lenses</h3>
-    <div class="lens-item"><span class="lens-name">Single Vision</span><span class="lens-price free">FREE</span></div>
-    <div class="lens-item"><span class="lens-name">Blue-Cut Lens</span><span class="lens-price">{% if is_india %}&#8377;{{ lens_prices["bcm02"]["price"] }}{% else %}&euro;{{ lens_prices["bcm02"]["price_eur"] }}{% endif %}</span></div>
-    <div class="lens-item"><span class="lens-name">Multi-Glare Protection Lenses</span><span class="lens-price">{% if is_india %}&#8377;{{ lens_prices["arcmat03"]["price"] }}{% else %}&euro;{{ lens_prices["arcmat03"]["price_eur"] }}{% endif %}</span></div>
-    <div class="lens-item"><span class="lens-name">Thin Lenses</span><span class="lens-price">{% if is_india %}&#8377;{{ lens_prices["opsix1"]["price"] }}{% else %}&euro;{{ lens_prices["opsix1"]["price_eur"] }}{% endif %}</span></div>
-    <div class="lens-item"><span class="lens-name">Extra-Thin Lenses</span><span class="lens-price">{% if is_india %}&#8377;{{ lens_prices["ops672"]["price"] }}{% else %}&euro;{{ lens_prices["ops672"]["price_eur"] }}{% endif %}</span></div>
-    <div class="lens-item"><span class="lens-name">Bifocal Round Top Lenses</span><span class="lens-price">{% if is_india %}&#8377;{{ lens_prices["crkt"]["price"] }}{% else %}&euro;{{ lens_prices["crkt"]["price_eur"] }}{% endif %}</span></div>
-    <div class="lens-item"><span class="lens-name">Photogrey Lenses</span><span class="lens-price">{% if is_india %}&#8377;{{ lens_prices["pcgreystyle"]["price"] }}{% else %}&euro;{{ lens_prices["pcgreystyle"]["price_eur"] }}{% endif %}</span></div>
-    <div class="lens-item"><span class="lens-name">Bifocal Flat-Top D Lenses</span><span class="lens-price">{% if is_india %}&#8377;{{ lens_prices["crd"]["price"] }}{% else %}&euro;{{ lens_prices["crd"]["price_eur"] }}{% endif %}</span></div>
-    <div class="lens-item"><span class="lens-name">Photo-Brown Lenses</span><span class="lens-price">{% if is_india %}&#8377;{{ lens_prices["pcbostyle"]["price"] }}{% else %}&euro;{{ lens_prices["pcbostyle"]["price_eur"] }}{% endif %}</span></div>
-    <div class="lens-item"><span class="lens-name">Polarized Lenses</span><span class="lens-price">{% if is_india %}&#8377;{{ lens_prices["polarized04"]["price"] }}{% else %}&euro;{{ lens_prices["polarized04"]["price_eur"] }}{% endif %}</span></div>
-    <div class="lens-item"><span class="lens-name">Progressive Lenses</span><span class="lens-price">{% if is_india %}&#8377;{{ lens_prices["prog01"]["price"] }}{% else %}&euro;{{ lens_prices["prog01"]["price_eur"] }}{% endif %}</span></div>
-    <a href="javascript:void(0)" class="browse-btn" onclick="document.getElementById('lens-grid-popup').style.display='flex'">Browse Lens Collections &rarr;</a>
+<!-- ═══ SHOP BY SHAPE ═══ -->
+<section class="ow-section">
+  <div class="ow-section__head"><div><h2>{{ _('Shop by shape') }}</h2><p>{{ _('Six families, sizes S to XL') }}</p></div><a href="/eyeglasses/all-spectacle-frames.html">{{ _('All frames') }} &rarr;</a></div>
+  <div class="ow-cats">
+    <a class="ow-cat" href="{{ url_for('main.categories', category='supra') }}"><svg viewBox="0 0 64 44"><path d="M2 4h60v3H2z" stroke-width="3"/><rect x="6" y="7" width="22" height="30" rx="4"/><rect x="36" y="7" width="22" height="30" rx="4"/></svg>{{ _('Half Frame') }}</a>
+    <a class="ow-cat" href="{{ url_for('main.categories', category='clubmaster') }}"><svg viewBox="0 0 64 44"><path d="M4 6h56v2H4z" stroke-width="3"/><rect x="4" y="8" width="56" height="28" rx="14"/></svg>{{ _('Clubmaster') }}</a>
+    <a class="ow-cat" href="{{ url_for('main.categories', category='round') }}"><svg viewBox="0 0 64 44"><circle cx="18" cy="22" r="15"/><circle cx="46" cy="22" r="15"/><path d="M33 20h-2"/></svg>{{ _('Round') }}</a>
+    <a class="ow-cat" href="{{ url_for('main.categories', category='rectangle') }}"><svg viewBox="0 0 64 44"><rect x="2" y="8" width="27" height="26" rx="5"/><rect x="35" y="8" width="27" height="26" rx="5"/><path d="M29 18h6"/></svg>{{ _('Rectangle') }}</a>
+    <a class="ow-cat" href="{{ url_for('main.categories', category='rimless') }}"><svg viewBox="0 0 64 44" stroke-dasharray="3 3"><path d="M4 12c0-3 2-5 5-5h16c3 0 5 2 5 5v14c0 6-4 10-10 10h-6C8 36 4 32 4 26z"/><path d="M34 12c0-3 2-5 5-5h16c3 0 5 2 5 5v14c0 6-4 10-10 10h-6c-6 0-10-4-10-10z"/></svg>{{ _('Rimless') }}</a>
+    <a class="ow-cat" href="{{ url_for('main.categories', category='square') }}"><svg viewBox="0 0 64 44"><rect x="3" y="6" width="26" height="30" rx="4"/><rect x="35" y="6" width="26" height="30" rx="4"/><path d="M29 18h6"/></svg>{{ _('Square') }}</a>
+  </div>
+</section>
+
+{% if ai_glasses_nav %}
+<!-- ═══ AI GLASSES (optiwar.in, visible only when the AI Glasses line is on) ═══ -->
+<section class="ow-section ow-aig-promo">
+  <div>
+    <span class="ow-chip">{{ _('New') }} · Ray-Ban Meta</span>
+    <h2 style="margin-top:10px;">{{ _('AI glasses, made for your eyes') }}</h2>
+    <p>{{ _('Genuine Ray-Ban Meta Wayfarer Gen 2 with prescription lenses fitted by our opticians. GST invoice, free shipping in India.') }}</p>
+    <a class="ow-btn ow-btn--light" href="{{ url_for('ai_glasses.landing') }}">{{ _('Explore AI Glasses') }} &rarr;</a>
+  </div>
+  <svg viewBox="0 0 320 160" aria-hidden="true" style="width:100%;max-width:360px;margin:0 auto;display:block;"><defs><linearGradient id="owAigG" x1="0" x2="1"><stop offset="0" stop-color="#9fd0ff"/><stop offset="1" stop-color="#ffffff"/></linearGradient></defs><rect x="20" y="52" width="120" height="70" rx="26" fill="none" stroke="url(#owAigG)" stroke-width="7"/><rect x="180" y="52" width="120" height="70" rx="26" fill="none" stroke="url(#owAigG)" stroke-width="7"/><path d="M140 78q20-16 40 0" fill="none" stroke="url(#owAigG)" stroke-width="7" stroke-linecap="round"/><circle cx="42" cy="70" r="6" fill="#9fd0ff"/><path d="M20 70 4 60M300 70l16-10" stroke="url(#owAigG)" stroke-width="7" stroke-linecap="round"/></svg>
+</section>
+{% endif %}
+
+<!-- ═══ LENS UPGRADES ═══ -->
+<section class="ow-section">
+  <div class="ow-section__head"><div><h2>{{ _('Lens upgrades') }}</h2><p>{{ _('Add to any frame at checkout') }}</p></div><a href="/lenses">{{ _('All lenses') }} &rarr;</a></div>
+  <div class="ow-lenses">
+    <a class="ow-lens ow-lens--feature" href="/eyeglasses/all-spectacle-frames.html"><span>{{ _('Single vision prescription lenses') }}</span><b class="free">{{ _('FREE') }}</b></a>
+    <a class="ow-lens" href="/lenses/blue-cut-lenses"><span>{{ _('Blue-cut') }}</span><b>{% if is_india %}&#8377;{{ lens_prices["bcm02"]["price"] }}{% else %}&euro;{{ lens_prices["bcm02"]["price_eur"] }}{% endif %}</b></a>
+    <a class="ow-lens" href="/lenses/multi-anti-glare-lenses"><span>{{ _('Multi anti-glare') }}</span><b>{% if is_india %}&#8377;{{ lens_prices["arcmat03"]["price"] }}{% else %}&euro;{{ lens_prices["arcmat03"]["price_eur"] }}{% endif %}</b></a>
+    <a class="ow-lens" href="/lenses/thin-lenses"><span>{{ _('Thin') }}</span><b>{% if is_india %}&#8377;{{ lens_prices["opsix1"]["price"] }}{% else %}&euro;{{ lens_prices["opsix1"]["price_eur"] }}{% endif %}</b></a>
+    <a class="ow-lens" href="/lenses/ultra-thin-lenses"><span>{{ _('Extra-thin') }}</span><b>{% if is_india %}&#8377;{{ lens_prices["ops672"]["price"] }}{% else %}&euro;{{ lens_prices["ops672"]["price_eur"] }}{% endif %}</b></a>
+    <a class="ow-lens" href="/lenses/photogrey-lenses"><span>{{ _('Photogrey') }}</span><b>{% if is_india %}&#8377;{{ lens_prices["pcgreystyle"]["price"] }}{% else %}&euro;{{ lens_prices["pcgreystyle"]["price_eur"] }}{% endif %}</b></a>
+    <a class="ow-lens" href="/lenses/photobrown-lenses"><span>{{ _('Photo-brown') }}</span><b>{% if is_india %}&#8377;{{ lens_prices["pcbostyle"]["price"] }}{% else %}&euro;{{ lens_prices["pcbostyle"]["price_eur"] }}{% endif %}</b></a>
+    <a class="ow-lens" href="/lenses/polarized-lenses"><span>{{ _('Polarized') }}</span><b>{% if is_india %}&#8377;{{ lens_prices["polarized04"]["price"] }}{% else %}&euro;{{ lens_prices["polarized04"]["price_eur"] }}{% endif %}</b></a>
+    <a class="ow-lens" href="/lenses/bifocal-round-lenses"><span>{{ _('Bifocal round top') }}</span><b>{% if is_india %}&#8377;{{ lens_prices["crkt"]["price"] }}{% else %}&euro;{{ lens_prices["crkt"]["price_eur"] }}{% endif %}</b></a>
+    <a class="ow-lens" href="/lenses/bifocal-flat-top-d-lenses"><span>{{ _('Bifocal flat-top D') }}</span><b>{% if is_india %}&#8377;{{ lens_prices["crd"]["price"] }}{% else %}&euro;{{ lens_prices["crd"]["price_eur"] }}{% endif %}</b></a>
+    <a class="ow-lens" href="/lenses/progressive-lenses"><span>{{ _('Progressive') }}</span><b>{% if is_india %}&#8377;{{ lens_prices["prog01"]["price"] }}{% else %}&euro;{{ lens_prices["prog01"]["price_eur"] }}{% endif %}</b></a>
   </div>
 </section>
 
 <!-- ═══ PRODUCTS ═══ -->
-<h2 class="section-title">Our Collection</h2>
-<ul id="product-list">
-</ul>
+<section class="ow-section">
+  <div class="ow-section__head"><div><h2>{{ _('Our collection') }}</h2><p>{{ _('Fresh from the factory floor') }}</p></div><a href="/eyeglasses/all-spectacle-frames.html">{{ _('View all') }} &rarr;</a></div>
+  <ul id="product-list"></ul>
+</section>
 
 <!-- ═══ REVIEWS + SOCIAL ═══ -->
-<section class="bottom-row">
-  <div class="bottom-grid">
-    <div class="reviews-box">
-      <h3>Customer Reviews</h3>
-      <div class="review-item">
-        <div class="review-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
-        <div class="review-text">Great quality frames at unbeatable prices</div>
-      </div>
-      <div class="review-item">
-        <div class="review-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
-        <div class="review-text">Fast delivery, exactly as described</div>
-      </div>
-      <div class="review-item">
-        <div class="review-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
-        <div class="review-text">Excellent lenses, very comfortable to wear</div>
-      </div>
-      <div class="review-note">Reviews shown only when verified purchases are available</div>
-    </div>
-    <div class="social-box">
-      <h3>Follow Us</h3>
-      <a href="https://www.instagram.com/optiwar_" target="_blank" rel="noopener" class="social-link">
-        <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="17.5" cy="6.5" r="1.5"/></svg>
-        <span>Instagram</span>
-      </a>
-    </div>
+<section class="ow-section ow-social-row">
+  <div class="reviews-box">
+    <h3>{{ _('Customer reviews') }}</h3>
+    <div class="review-item"><div class="review-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div><div class="review-text">Great quality frames at unbeatable prices</div></div>
+    <div class="review-item"><div class="review-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div><div class="review-text">Fast delivery, exactly as described</div></div>
+    <div class="review-item"><div class="review-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div><div class="review-text">Excellent lenses, very comfortable to wear</div></div>
+    <div class="review-note">{{ _('Reviews shown only when verified purchases are available') }}</div>
+  </div>
+  <div class="social-box">
+    <h3>{{ _('Follow us') }}</h3>
+    <a href="https://www.instagram.com/optiwar_" target="_blank" rel="noopener" class="social-link">
+      <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="17.5" cy="6.5" r="1.5"/></svg>
+      <span>Instagram</span>
+    </a>
   </div>
 </section>
+</div>
 
 <script>
     let productsData = {{ products_js | tojson | safe }};
