@@ -577,7 +577,7 @@ h1.pdp-title { font-size: 22px !important; margin: 2px 0 8px !important; }
 .ow-noreturn__body p { margin: 0 0 6px; }
 .ow-noreturn__body a { color: var(--ow-brand); font-weight: 700; text-decoration: none; }
 .ow-noreturn__body a:hover { text-decoration: underline; }
-@media (max-width: 599px) { .ow-noreturn__sub { display: none; } .ow-noreturn__body { padding-left: 14px; } }
+@media (max-width: 599px) { .ow-noreturn__sub { display: none; } .ow-noreturn__title { flex: 1; text-align: center; } .ow-noreturn__body { padding-left: 14px; text-align: left; } }
 @media (min-width: 768px) { .ow-noreturn { margin-top: 12px; } .ow-noreturn summary { font-size: 13.5px; padding: 7px 14px 7px 10px; } .ow-noreturn__body { font-size: 14px; padding-bottom: 14px; } }
 
 /* ---- page nav: back link + breadcrumb, the same row on every page (templates/_pagenav.html) ---- */
