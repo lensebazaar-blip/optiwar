@@ -8,8 +8,10 @@ Three choices on the Pay step, India storefront only:
   delivery address is in Delhi, Noida, Gurgaon (Gurugram) or Ghaziabad, judged by
   the pin code first and the state name second.
 
-An order that carries an AI Glasses pre-order (dispatch weeks out) keeps the
-standard option only; the global storefront keeps its own shipping terms.
+An order that carries any AI Glasses line with a dispatch date of its own
+(pre-order, weeks out; selling fast, up to a week) keeps the standard option
+only, as does any cart mixed with one; the global storefront keeps its own
+shipping terms and never gets a row here.
 
 The fee is part of the grand total the gateway charges, so
 ``paid_orders.order_amount_minor`` adds it from ``order_shipping`` (an additive
@@ -49,6 +51,20 @@ CREATE TABLE IF NOT EXISTS order_shipping (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 """
 TABLES = (("order_shipping", SCHEMA),)
+
+
+def ensure_schema(cursor):
+    """Create the table if it is not there; True when it can be used. The paid
+    options are only offered and charged when this is True, so a fee is never
+    taken that the payment check (``paid_orders.order_amount_minor``) cannot see."""
+    try:
+        for _name, ddl in TABLES:
+            cursor.execute(ddl)
+        cursor.execute("SELECT 1 FROM order_shipping LIMIT 1")
+        cursor.fetchall()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _digits(zipcode):
@@ -146,3 +162,62 @@ def js_rules():
     return {"zip_prefixes": list(NCR_ZIP_PREFIXES), "states": list(NCR_STATES), "city_words": list(NCR_CITY_WORDS),
             "options": [{"key": o["key"], "label": o["label"], "fee": o["fee"], "days": o["days"],
                          "blurb": o["blurb"], "ncr_only": o["ncr_only"]} for o in OPTIONS]}
+
+
+def fees_for(cursor, order_ids):
+    """{order_id: row} for the orders that carry a delivery choice; {} on any failure."""
+    ids = [str(i) for i in order_ids if i]
+    if not ids:
+        return {}
+    try:
+        cursor.execute("SELECT order_id, option_key, fee, promised_date FROM order_shipping "
+                       "WHERE order_id IN (%s)" % ",".join(["%s"] * len(ids)), ids)
+        return {str(r["order_id"]): r for r in cursor.fetchall()}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def attach_fees(orders, rows):
+    """Add the paid delivery option to each order dict (My Orders): the fee joins
+    grand_total and the label / promise are shown on their own line."""
+    for order in orders or []:
+        row = (rows or {}).get(str(order.get("order_id")))
+        fee = 0.0
+        try:
+            fee = float((row or {}).get("fee") or 0)
+        except (TypeError, ValueError):
+            fee = 0.0
+        order["shipping_fee"] = fee
+        order["shipping_label"] = BY_KEY.get((row or {}).get("option_key"), {}).get("label", "") if fee else ""
+        order["shipping_promised"] = (row or {}).get("promised_date") if fee else None
+        if fee:
+            order["grand_total"] = (order.get("grand_total") or 0) + fee
+    return orders
+
+
+def mail_cart(cart, row, dispatch_note=""):
+    """The cart for the order confirmation mail: a copy with a "Delivery" line for
+    a paid option (so the mail's total is the charged total) and a zero-value
+    line carrying the dispatch note. The stored cart is never changed, and no
+    mail template needs to know about delivery options."""
+    out = [dict(item) for item in (cart or [])]
+
+    def line(name, amount, detail):
+        return {"product_name": name, "order_quantity": 1, "product_special_price": amount,
+                "ATC_total": amount, "server_total_price": 0, "ATC_WCL": 0,
+                "product_category": "Service", "recommendations": detail,
+                "right_pwr": None, "left_pwr": None, "right_lens_color": "", "left_lens_color": "",
+                "right_qty": 0, "left_qty": 0}
+    try:
+        fee = float((row or {}).get("fee") or 0)
+    except (TypeError, ValueError):
+        fee = 0.0
+    if fee:
+        option = BY_KEY.get(row.get("option_key"), {})
+        when = row.get("promised_date")
+        when = when.strftime("%d %b %Y") if hasattr(when, "strftime") else ""
+        out.append(line("Delivery: %s" % option.get("label", "paid option"), int(fee) if fee == int(fee) else fee,
+                        "18% GST inclusive" + ("; promised by " + when if when else "")))
+    if dispatch_note:
+        out.append(line("Dispatch instruction", 0, dispatch_note))
+    return out

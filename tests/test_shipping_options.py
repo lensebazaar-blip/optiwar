@@ -97,12 +97,58 @@ class Storage(unittest.TestCase):
         cur = _Cursor([{"total": 599}])            # no shipping row
         self.assertEqual(paid_orders.order_amount_minor(cur, "X"), 59900)
 
+    def test_no_table_no_fee(self):
+        class Cur(_Cursor):
+            def fetchall(self):
+                return []
+        self.assertTrue(ship.ensure_schema(Cur()))
+        self.assertFalse(ship.ensure_schema(Cur(fail=True)))
+        models = open(os.path.join(REPO, "models.py"), encoding="utf-8").read()
+        # GET offers and POST charges only when the table is usable; a paid option that cannot be recorded stops the order
+        self.assertIn("and shipping_options.ensure_schema(cursor))", models)
+        self.assertIn("_shipping_ready = bool(_is_india) and shipping_options.ensure_schema(cursor)", models)
+        self.assertIn("shipping_fee = float(shipping_choice['fee']) if _shipping_ready else 0.0", models)
+        self.assertIn('raise RuntimeError("delivery option could not be recorded")', models)
+
     def test_ddl_is_additive_and_the_page_rules_carry_every_option(self):
         ddl = dict(ship.TABLES)["order_shipping"]
         self.assertIn("CREATE TABLE IF NOT EXISTS", ddl)
         rules = ship.js_rules()
         self.assertEqual([o["key"] for o in rules["options"]], ["standard", "expedite", "ncr24"])
         self.assertEqual(rules["zip_prefixes"], ["110", "122", "2010", "2011", "2013"])
+
+
+class ListsAndMail(unittest.TestCase):
+
+    def test_my_orders_totals_include_the_fee(self):
+        class Cur(_Cursor):
+            def fetchall(self):
+                return self.rows
+        rows = [{"order_id": "A1", "option_key": "expedite", "fee": 300, "promised_date": datetime.date(2026, 11, 9)}]
+        got = ship.fees_for(Cur(rows), ["A1", "B2"])
+        self.assertEqual(list(got), ["A1"])
+        self.assertEqual(ship.fees_for(Cur(fail=True), ["A1"]), {})
+        self.assertEqual(ship.fees_for(Cur(), []), {})
+        orders = [{"order_id": "A1", "grand_total": 599}, {"order_id": "B2", "grand_total": 699}]
+        ship.attach_fees(orders, got)
+        self.assertEqual((orders[0]["grand_total"], orders[0]["shipping_fee"], orders[0]["shipping_label"]), (899, 300.0, "Expedite"))
+        self.assertEqual((orders[1]["grand_total"], orders[1]["shipping_fee"], orders[1]["shipping_label"]), (699, 0.0, ""))
+
+    def test_the_confirmation_mail_cart_carries_the_fee_and_the_note_without_touching_the_cart(self):
+        cart = [{"product_name": "CE-I", "order_quantity": 1, "product_special_price": 599, "ATC_total": 599}]
+        row = {"option_key": "expedite", "fee": 300, "promised_date": datetime.date(2026, 11, 9)}
+        out = ship.mail_cart(cart, row, "ONE DISPATCH: hold everything.")
+        self.assertEqual(len(cart), 1)                                   # the stored cart is not changed
+        self.assertEqual([l["product_name"] for l in out], ["CE-I", "Delivery: Expedite", "Dispatch instruction"])
+        self.assertEqual(sum(l.get("ATC_total") or l.get("server_total_price") or 0 for l in out), 899)   # the charged total
+        self.assertIn("18% GST inclusive", out[1]["recommendations"])
+        self.assertEqual(out[2]["ATC_total"], 0)
+        # every key the mail's row builder reads is present on the added lines
+        for key in ("product_name", "order_quantity", "product_special_price", "recommendations", "right_pwr",
+                    "left_pwr", "right_lens_color", "left_lens_color", "right_qty", "left_qty", "product_category"):
+            self.assertIn(key, out[1])
+        self.assertEqual(ship.mail_cart(cart, None, ""), cart)
+        self.assertEqual(len(ship.mail_cart(cart, {"option_key": "standard", "fee": 0}, "")), 1)
 
 
 class Wiring(unittest.TestCase):
@@ -115,7 +161,14 @@ class Wiring(unittest.TestCase):
         models = open(os.path.join(REPO, "models.py"), encoding="utf-8").read()
         self.assertIn("shipping_options.choose(", models)
         self.assertIn("grand_total = round(grand_total + shipping_fee, 2)", models)
-        self.assertIn("shipping_options.record(cursor, order_id, shipping_choice", models)
+        self.assertIn("_ship_recorded = shipping_options.record(", models)
+        # India only: optiwar.com never gets a row (its success page keeps its own estimate)
+        self.assertIn("if _is_india:\n            # optiwar.com keeps its own shipping terms", models)
+        # any AI Glasses line with its own dispatch date (pre-order or selling fast) blocks the paid options, GET and POST
+        self.assertIn("shipping_allowed = (bool(_req_is_india()) and not _aig_dispatch", models)
+        self.assertIn("_shipping_ready, bool(_aig_dispatch), customer_address)", models)
+        profile = open(os.path.join(REPO, "profile.py"), encoding="utf-8").read()
+        self.assertIn("shipping_options.attach_fees(grouped_orders, shipping_options.fees_for(", profile)
         self.assertIn("shipping_options.fee_for(cursor, order_id)", models)
         self.assertIn("shipping_rules=shipping_rules", models)
         deploy = open(os.path.join(REPO, "deploy", "deploy.py"), encoding="utf-8").read()

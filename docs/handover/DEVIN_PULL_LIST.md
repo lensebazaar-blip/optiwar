@@ -11,3 +11,11 @@ Everything is on github.com/lensebazaar-blip/optiwar. Nothing is deployed; the o
 Not for the repo (local build only, in `optiwar_ai_glasses/` beside the checkout): `local_app.py` (launcher), `local_derivatives.py` (builds the AVIF/WebP/JPEG ladder from the May-2026 catalog backup), `run_local.sh`, `.env.local`.
 
 Order: #2 can merge any time; #1 after the owner's approval. If #2 merges first, #1 rebases cleanly (no overlapping files).
+
+## 9 Nov 2026 — review fixes pushed
+Reply to the ow-devin review: `docs/handover/REVIEW_RESPONSE_2026-11-09.md` (on the #244 branch). #243 head `cede432`
+(account access on phones/tablets, category filter bar hidden, Face Match section restored). #244 carries those plus:
+checkout POST fixed and proven, `notice_mail.py` (mail.py untouched), express gated on any AI Glasses dispatch date,
+India-only shipping rows, fee in the confirmation mail and My Orders, forms never acknowledge a lost submission,
+product codes accepted, mixed orders always record ONE DISPATCH, delivery fee charged only when `order_shipping` is
+usable, the Ops **Possible refunds** page (`shipping_refunds.py`), and the pay step labelled Razorpay.

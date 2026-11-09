@@ -37,3 +37,12 @@ The options re-render as the address is typed or a saved address is picked; the 
 `tests/test_shipping_options.py` (9): NCR rule by pin, state and city words; availability for NCR / other India /
 global / pre-order; posted choice validation; promised dates; storage never raising; the gateway amount includes the
 fee; DDL additive; wiring. `tests/test_deploy_migration` lists `order_shipping (table)`. Full suite 1786 OK.
+
+## Changes after the 9 Nov review
+* The fee is offered and charged only when `shipping_options.ensure_schema(cursor)` says the table is usable (checkout
+  GET and POST); a paid option that cannot be recorded stops the order. The migration is still listed, but money no
+  longer depends on it having run first.
+* Any AI Glasses line with a dispatch date of its own (PREORDER or SELLING_FAST) keeps the order on Standard.
+* optiwar.com orders get no `order_shipping` row.
+* The confirmation mail and My Orders show the delivery line and the charged total (`mail_cart`, `attach_fees`).
+* Ops: `/ops/possible-refunds` lists paid options that missed their promise; see REVIEW_RESPONSE_2026-11-09.md, item 9.

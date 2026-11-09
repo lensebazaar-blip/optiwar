@@ -902,8 +902,14 @@
             </div>
             {% endfor %}
 
+            {% if order.shipping_fee %}
+            <div class="oh-grand" style="font-weight:600;">
+              <span class="oh-grand-label">Delivery: {{ order.shipping_label }}{% if order.shipping_promised %} &middot; promised by {{ order.shipping_promised.strftime('%d %b %Y') }}{% endif %}</span>
+              <span class="oh-grand-val">Rs {{ order.shipping_fee|int }}</span>
+            </div>
+            {% endif %}
             <!-- Grand Total -->
-            {% if order['items']|length > 1 %}
+            {% if order['items']|length > 1 or order.shipping_fee %}
             <div class="oh-grand">
               <span class="oh-grand-label">Grand Total</span>
               <span class="oh-grand-val">{% if is_india %}Rs{% else %}&euro;{% endif %} {{ order.grand_total|int }}</span>

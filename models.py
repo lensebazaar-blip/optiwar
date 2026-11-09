@@ -36,7 +36,8 @@ from .catalogue import (
 from . import face_cart, face_fit, face_profiles, face_profiles_api, face_scan_groups_api, face_scan_invites_api, favorites_api, order_face_scan, order_rx_documents
 from . import (acr, lens_cart, lens_config, lens_documents, lens_feed,
                lens_order, lens_preview, lens_rx, lens_seo, lens_upload,
-               lens_view, rx_photo, ip_notice, shipping_options, supplier_signup)
+               lens_view, rx_photo, ip_notice, shipping_options, shipping_refunds,
+               supplier_signup)
 from .cart_persist import save_cart_to_db, clear_cart_in_db
 import copy
 from .cl_range_model import add_prescription_of_cl
@@ -68,6 +69,8 @@ rx_photo.register(bp)
 ip_notice.register(bp)
 # Become a supplier (supplier_signup.py), for the same reason.
 supplier_signup.register(bp)
+# Ops: paid delivery options that missed their promise (shipping_refunds.py).
+shipping_refunds.register(bp)
 # Face profiles (My Faces), for the same reason.
 face_profiles_api.register(bp)
 # Remote one-time scan requests (owner API + no-login guest scanner).
@@ -236,6 +239,18 @@ def _dispatch_note_safe(order_id):
     except Exception:  # noqa: BLE001
         pass
     return " ".join(n for n in notes if n)
+
+
+def _mail_cart(order_id, cart):
+    """The cart handed to the order confirmation mail: with a Delivery line for a
+    paid option and the dispatch instruction, so the mail shows the charged total
+    without the mail module knowing about either. The cart itself on any failure."""
+    try:
+        cursor = get_db().cursor()
+        return shipping_options.mail_cart(cart, shipping_options.read(cursor, order_id),
+                                          ai_glasses.dispatch_note_for(cursor, order_id))
+    except Exception:  # noqa: BLE001
+        return cart
 
 
 def safe_float(val, default=0.0):
@@ -2943,7 +2958,11 @@ def checkout_page():
     ship_usual = _usual.strftime('%A, %d %B %Y')
     # Delivery options (standard / expedite / 24-hour NCR): the page offers them by
     # the address being typed; the POST validates the choice against the posted one.
-    shipping_allowed = bool(_req_is_india()) and not ship_is_preorder
+    # Any AI Glasses line has a dispatch date of its own (pre-order: weeks; selling
+    # fast: up to a week), so an order carrying one cannot be sold a faster delivery.
+    _aig_dispatch = ai_glasses.dispatch_date(cursor, [item.get('product_id') for item in cart])[0]
+    shipping_allowed = (bool(_req_is_india()) and not _aig_dispatch
+                        and shipping_options.ensure_schema(cursor))   # no table, no paid options
     shipping_rules = shipping_options.js_rules()
 
     product_ids = [item.get('product_id') for item in cart if item.get('product_id')]
@@ -3206,17 +3225,6 @@ def checkout():
         grand_total = round(grand_total - eur_discount, 2)
         print(f"EUR Discount applied: -EUR {eur_discount}, frame_count={frame_count}")
 
-    # Delivery option: validated against the posted address (an AI Glasses
-    # pre-order keeps standard); the fee is part of what the gateway charges.
-    _ship_preorder = _ship_date_for(cursor, [item.get('product_id') for item in cart])[1] if cart else False
-    shipping_choice = shipping_options.choose(
-        request.form.get('shipping_option'), request.form.get('customer_state'),
-        request.form.get('customer_postcode'), _is_india, _ship_preorder, request.form.get('address', ''))
-    shipping_fee = float(shipping_choice['fee']) if _is_india else 0.0
-    if shipping_fee:
-        grand_total = round(grand_total + shipping_fee, 2)
-        current_app.logger.info(f"[{_host}] ACTIVITY:SHIPPING_OPTION user:{_uid} option:{shipping_choice['key']} fee:{shipping_fee}")
-
     # Collect customer info
     customer_name = request.form['name']
     customer_address = request.form['address']
@@ -3237,6 +3245,26 @@ def checkout():
     db = get_db()
     cursor = db.cursor()
     order_rx_documents.ensure_schema(cursor)
+
+    # Delivery option (India only), validated against the posted address. Any AI
+    # Glasses line with a dispatch date of its own keeps the order on standard.
+    # The fee is part of what the gateway charges, so it joins grand_total here,
+    # before the payment order is created. (Needs the cursor: keep it below it.)
+    _aig_dispatch = ai_glasses.dispatch_date(cursor, [item.get('product_id') for item in cart])[0]
+    # The table must exist before a fee is taken: the payment check totals the
+    # order from it, so without it the option is standard and nothing is charged.
+    _shipping_ready = bool(_is_india) and shipping_options.ensure_schema(cursor)
+    shipping_choice = shipping_options.choose(
+        request.form.get('shipping_option'), customer_state, customer_postcode,
+        _shipping_ready, bool(_aig_dispatch), customer_address)
+    shipping_fee = float(shipping_choice['fee']) if _shipping_ready else 0.0
+    try:
+        ai_glasses.ensure_schema(db)      # the mixed-order dispatch note has a table of its own
+    except Exception:  # noqa: BLE001
+        pass
+    if shipping_fee:
+        grand_total = round(grand_total + shipping_fee, 2)
+        current_app.logger.info(f"[{_host}] ACTIVITY:SHIPPING_OPTION user:{_uid} option:{shipping_choice['key']} fee:{shipping_fee}")
 
     # Checkout idempotency: bind this submission to a one-time token so a
     # double-submit reuses the same order instead of creating a second one.
@@ -3447,12 +3475,21 @@ def checkout():
 
         # Mixed order (AI Glasses shipping later + ready frames): the customer's
         # one-dispatch choice travels with the order for Ops.
-        shipping_options.record(cursor, order_id, shipping_choice,
-                                shipping_options.promised_date(datetime.now(), shipping_choice['key']),
-                                state=customer_state, zipcode=customer_postcode)
+        if _is_india:
+            # optiwar.com keeps its own shipping terms and its usual estimate: no row.
+            _ship_recorded = shipping_options.record(
+                cursor, order_id, shipping_choice,
+                shipping_options.promised_date(datetime.now(), shipping_choice['key']),
+                state=customer_state, zipcode=customer_postcode)
+            if shipping_fee and not _ship_recorded:
+                # A fee in the gateway amount with no row behind it would fail the
+                # payment check after the customer has paid: do not place the order.
+                raise RuntimeError("delivery option could not be recorded")
         _mixed = ai_glasses.mixed_dispatch(cursor, cart, dispatch_date_obj().date())
         if _mixed:
-            ai_glasses.record_dispatch_preference(cursor, order_id, dispatch_mode or ai_glasses.MODE_TOGETHER,
+            # One parcel is the only way a mixed order ships, so the note for Ops is
+            # recorded whatever the form posted (a page without JS can post SPLIT).
+            ai_glasses.record_dispatch_preference(cursor, order_id, ai_glasses.MODE_TOGETHER,
                                                   _mixed["aig_date"], _mixed["usual_date"])
         policy_terms.record(cursor, order_id, _get_site_from(), cart,
                             checkout_token=_checkout_token, customer_id=customer_id,
@@ -3810,8 +3847,7 @@ def payment_callback():
                                     to_cc='admin@lensbazaar.com',
                                     order_id=order_id,
                                     customer_name=customer_name,
-                                    cart=cart,
-                                    dispatch_note=_dispatch_note_safe(order_id)
+                                    cart=_mail_cart(order_id, cart)
                                 )
                                 current_app.logger.info(f"Sent order confirmation to {customer_email}")
                             except Exception as e:
@@ -3913,8 +3949,7 @@ def razorpay_verify():
                         to_cc='admin@lensbazaar.com',
                         order_id=order_id,
                         customer_name=mail_result['customer_name'],
-                        cart=cart,
-                        dispatch_note=_dispatch_note_safe(order_id)
+                        cart=_mail_cart(order_id, cart)
                     )
                     current_app.logger.info(f"Sent order confirmation to {mail_result['customer_email']}")
             except Exception as e:

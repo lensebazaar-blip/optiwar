@@ -44,7 +44,7 @@ class Parsing(unittest.TestCase):
 
     def test_the_terms_list_of_required_contents_is_enforced(self):
         for field, value in (("holder_name", ""), ("email", "nope"), ("rights_type", "patent"),
-                             ("mark_or_work", ""), ("listing_urls", "product 379"), ("reason", "copied"),
+                             ("mark_or_work", ""), ("listing_urls", "the blue one"), ("reason", "copied"),
                              ("action_requested", ""), ("declaration", ""), ("hold_agreed", "")):
             _d, errors = self.ipn.parse(good(**{field: value}))
             self.assertIn(field, errors, field)
@@ -97,6 +97,8 @@ class Route(unittest.TestCase):
 
         class Cursor:
             def execute(self, sql, args=None):
+                if not cls.db_ok[0]:
+                    raise RuntimeError("database is away")
                 cls.rows.append((sql, args))
 
         class DB:
@@ -107,11 +109,15 @@ class Route(unittest.TestCase):
                 pass
 
         db = types.ModuleType(pkg_name + ".db"); db.get_db = lambda: DB(); sys.modules[db.__name__] = db; pkg.db = db
-        mail = types.ModuleType(pkg_name + ".mail")
+        mail = types.ModuleType(pkg_name + ".notice_mail")
+
+        cls.mail_ok, cls.db_ok = [True], [True]
 
         def send_ip_notice(ref, email, name, text, holder_text=None, recipients=None):
+            if not cls.mail_ok[0]:
+                return False
             cls.mails.append((ref, email, name, text, holder_text, recipients)); return True
-        mail.send_ip_notice = send_ip_notice; sys.modules[mail.__name__] = mail; pkg.mail = mail
+        mail.send_ip_notice = send_ip_notice; sys.modules[mail.__name__] = mail; pkg.notice_mail = mail
         spec = importlib.util.spec_from_file_location(pkg_name + ".ip_notice", os.path.join(REPO, "ip_notice.py"))
         mod = importlib.util.module_from_spec(spec); sys.modules[spec.name] = mod; spec.loader.exec_module(mod)
         cls.ipn = mod
@@ -151,6 +157,26 @@ class Route(unittest.TestCase):
     def setUp(self):
         del self.mails[:]
         del self.rows[:]
+        self.mail_ok[0] = self.db_ok[0] = True
+
+    def test_a_notice_that_was_neither_stored_nor_mailed_is_not_acknowledged(self):
+        with self.client.session_transaction() as sess:
+            sess[self.ipn.SESSION_COUNT_KEY] = 0
+        self.mail_ok[0] = self.db_ok[0] = False
+        r = self.client.post("/ip-notice", data=good())
+        self.assertEqual(r.status_code, 503)
+        self.assertIn(b"nothing has been sent", r.data)
+        self.assertNotIn(b"Notice received", r.data)
+        with self.client.session_transaction() as sess:
+            self.assertEqual(sess.get(self.ipn.SESSION_COUNT_KEY), 0)  # the retry is not counted against them
+        self.mail_ok[0] = True                                          # mailed but not stored is still a receipt
+        self.assertEqual(self.client.post("/ip-notice", data=good()).status_code, 200)
+
+    def test_a_product_code_is_accepted_in_place_of_a_url(self):
+        r = self.client.post("/ip-notice", data=good(listing_urls="Product code AN12 and CE-I-379"))
+        self.assertEqual(r.status_code, 200, r.data[:200])
+        r = self.client.post("/ip-notice", data=good(listing_urls="your blue frame"))
+        self.assertEqual(r.status_code, 400)
 
     def test_the_form_is_served(self):
         r = self.client.get("/ip-notice")
@@ -177,9 +203,9 @@ class Route(unittest.TestCase):
         self.assertTrue(any(sql.startswith("UPDATE ip_notices SET mail_sent") for sql, _a in self.rows))
 
     def test_an_incomplete_notice_is_refused_with_the_fields_named(self):
-        r = self.client.post("/ip-notice", data=good(listing_urls="pid 379", hold_agreed=""))
+        r = self.client.post("/ip-notice", data=good(listing_urls="the blue one", hold_agreed=""))
         self.assertEqual(r.status_code, 400)
-        self.assertIn(b"full listing URL", r.data)
+        self.assertIn(b"listing URL", r.data)
         self.assertEqual(self.mails, [])
 
     def test_bots_and_floods_are_refused(self):
@@ -210,7 +236,13 @@ class Wiring(unittest.TestCase):
         self.assertIn('"ip_notice.py"', dep_block)
         self.assertIn('"templates/ip_notice.html"', dep_block)
         self.assertIn("ip_notice_module().TABLES", deploy)
-        mail = open(os.path.join(REPO, "mail.py"), encoding="utf-8").read()
+        # production's mail.py is outside the deploy set: the senders live in a module that ships
+        self.assertNotIn("send_ip_notice", open(os.path.join(REPO, "mail.py"), encoding="utf-8").read())
+        self.assertIn("from .notice_mail import send_ip_notice", open(os.path.join(REPO, "ip_notice.py"), encoding="utf-8").read())
+        mail = open(os.path.join(REPO, "notice_mail.py"), encoding="utf-8").read()
+        dep_block = deploy[deploy.index("DEPLOY_SET = ("):deploy.index("NEW_IN_RELEASE = (")]
+        self.assertIn('"notice_mail.py"', dep_block)
+        self.assertNotIn('"mail.py"', dep_block.replace('"notice_mail.py"', ''))
         self.assertIn("def send_ip_notice(ref, holder_email, holder_name, text, holder_text=None, recipients=None)", mail)
         self.assertIn("server.send_message(internal)", mail)
         self.assertIn("server.send_message(holder)", mail)

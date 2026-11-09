@@ -118,6 +118,8 @@ class Route(unittest.TestCase):
 
         class Cursor:
             def execute(self, sql, args=None):
+                if not cls.db_ok[0]:
+                    raise RuntimeError("database is away")
                 cls.rows.append((sql, args))
 
         class DB:
@@ -127,11 +129,15 @@ class Route(unittest.TestCase):
             def commit(self):
                 pass
         db = types.ModuleType(pkg_name + ".db"); db.get_db = lambda: DB(); sys.modules[db.__name__] = db; pkg.db = db
-        mail = types.ModuleType(pkg_name + ".mail")
+        mail = types.ModuleType(pkg_name + ".notice_mail")
+
+        cls.mail_ok, cls.db_ok = [True], [True]
 
         def send_supplier_signup(ref, email, business, text, letter, recipients=None):
+            if not cls.mail_ok[0]:
+                return False
             cls.mails.append((ref, email, business, text, letter, recipients)); return True
-        mail.send_supplier_signup = send_supplier_signup; sys.modules[mail.__name__] = mail; pkg.mail = mail
+        mail.send_supplier_signup = send_supplier_signup; sys.modules[mail.__name__] = mail; pkg.notice_mail = mail
         spec = importlib.util.spec_from_file_location(pkg_name + ".supplier_signup", os.path.join(REPO, "supplier_signup.py"))
         mod = importlib.util.module_from_spec(spec); sys.modules[spec.name] = mod; spec.loader.exec_module(mod)
         cls.sup = mod
@@ -160,6 +166,14 @@ class Route(unittest.TestCase):
     def setUp(self):
         del self.mails[:]
         del self.rows[:]
+        self.mail_ok[0] = self.db_ok[0] = True
+
+    def test_an_application_neither_stored_nor_mailed_is_not_confirmed(self):
+        self.mail_ok[0] = self.db_ok[0] = False
+        r = self.client.post("/become-a-supplier", data=good())
+        self.assertEqual(r.status_code, 503)
+        self.assertIn(b"nothing has been sent", r.data)
+        self.assertNotIn(b"Application received", r.data)
 
     def test_the_form_is_served(self):
         r = self.client.get("/become-a-supplier")
@@ -212,7 +226,10 @@ class Wiring(unittest.TestCase):
             self.assertIn(name, dep_block, name)
             self.assertIn(name, new_block, name)
         self.assertIn("supplier_signup_module().TABLES", deploy)
-        mail = open(os.path.join(REPO, "mail.py"), encoding="utf-8").read()
+        self.assertNotIn("send_supplier_signup", open(os.path.join(REPO, "mail.py"), encoding="utf-8").read())
+        self.assertIn('"notice_mail.py"', dep_block)
+        self.assertIn('"notice_mail.py"', new_block)
+        mail = open(os.path.join(REPO, "notice_mail.py"), encoding="utf-8").read()
         self.assertIn("def send_supplier_signup(ref, supplier_email, business_name, text, letter, recipients=None)", mail)
         ipn = open(os.path.join(REPO, "templates", "ip_notice.html"), encoding="utf-8").read()
         self.assertIn("css/ow-forms.css", ipn)

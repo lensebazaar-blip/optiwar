@@ -318,7 +318,7 @@ def register(bp):
             current_app.logger.exception("supplier_signup: store failed ref=%s", ref)
         sent = False
         try:
-            from .mail import send_supplier_signup  # noqa: PLC0415
+            from .notice_mail import send_supplier_signup  # noqa: PLC0415
             recipients = tuple(current_app.config.get("SUPPLIER_SIGNUP_RECIPIENTS") or RECIPIENTS)
             sent = send_supplier_signup(ref, data["email"], data["business_name"], text, letter, recipients)
             if sent and stored:
@@ -331,6 +331,11 @@ def register(bp):
                     pass
         except Exception:  # noqa: BLE001
             current_app.logger.exception("supplier_signup: mail failed ref=%s", ref)
+        if not stored and not sent:
+            current_app.logger.error("supplier_signup: LOST ref=%s (not stored, not mailed)", ref)
+            return render_template("supplier_signup.html", **_ctx(data, {
+                "form": "We could not record your application just now, so nothing has been sent. Please try again "
+                        "in a few minutes, or write to admin@optiwar.com."})), 503
         session[SESSION_COUNT_KEY] = used + 1
         session.modified = True
         current_app.logger.info("ACTIVITY:SUPPLIER_SIGNUP ref=%s gst_state=%s stored=%s mailed=%s site=%s",

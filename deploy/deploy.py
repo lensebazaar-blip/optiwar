@@ -120,7 +120,9 @@ DEPLOY_SET = ("__init__.py", "log_hygiene.py", "pricing.py", "acr.py", "ai_api.p
               "templates/my_orders.html", "templates/_pagenav.html",
               "static/css/legal.css", "templates/privacy_policy.html",
               "ip_notice.py", "templates/ip_notice.html", "shipping_options.py",
-              "supplier_signup.py", "templates/supplier_signup.html", "static/css/ow-forms.css")
+              "supplier_signup.py", "templates/supplier_signup.html", "static/css/ow-forms.css",
+              "notice_mail.py",
+              "shipping_refunds.py", "templates/ops_possible_refunds.html")
 
 # Files that do not exist in production yet. Absence is otherwise a block, so
 # that a path typo or a file missing from the release cannot be mistaken for a
@@ -160,7 +162,9 @@ NEW_IN_RELEASE = ("log_hygiene.py", "test_identity.py", "ai_language.py", "rx_lo
                    "static/css/ow-ui.css", "rx_photo.py", "static/css/rx-page.css",
                    "templates/_pagenav.html", "static/css/legal.css",
                    "ip_notice.py", "templates/ip_notice.html", "shipping_options.py",
-                   "supplier_signup.py", "templates/supplier_signup.html", "static/css/ow-forms.css")
+                   "supplier_signup.py", "templates/supplier_signup.html", "static/css/ow-forms.css",
+                   "notice_mail.py",
+                   "shipping_refunds.py", "templates/ops_possible_refunds.html")
 
 # Running content that matches no commit but has been read line by line and
 # found safe to replace, keyed by md5. The provenance guard exists to stop a

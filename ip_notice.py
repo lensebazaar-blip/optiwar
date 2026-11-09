@@ -67,6 +67,8 @@ TABLES = (("ip_notices", SCHEMA),)
 
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _URL = re.compile(r"https?://\S+", re.IGNORECASE)
+# A product code as the listing names it: letters / digits / dashes with at least one digit ("AN12", "CE-I-379").
+_CODE = re.compile(r"(?<![A-Za-z0-9])(?=[A-Za-z0-9\-]*\d)[A-Za-z0-9][A-Za-z0-9\-]{2,}(?![A-Za-z0-9])")
 
 FIELDS = ("holder_name", "company", "designation", "email", "phone", "address",
           "rights_type", "mark_or_work", "registration", "listing_urls", "reason",
@@ -93,8 +95,8 @@ def parse(form):
         errors["rights_type"] = "Say whether this is a trademark, a copyright, or both."
     if len(data["mark_or_work"]) < 2:
         errors["mark_or_work"] = "Name the registered trademark or the copyrighted work."
-    if not _URL.search(data["listing_urls"]):
-        errors["listing_urls"] = "Give at least one full listing URL on the Website (https://...)."
+    if not (_URL.search(data["listing_urls"]) or _CODE.search(data["listing_urls"])):
+        errors["listing_urls"] = "Give at least one listing URL on the Website (https://...) or a product code."
     if len(data["reason"]) < 20:
         errors["reason"] = "Explain, in a few sentences, why you believe the listing infringes your rights."
     if data["action_requested"] not in dict(ACTIONS):
@@ -310,7 +312,7 @@ def register(bp):
             current_app.logger.exception("ip_notice: store failed ref=%s", ref)
         sent = False
         try:
-            from .mail import send_ip_notice  # noqa: PLC0415
+            from .notice_mail import send_ip_notice  # noqa: PLC0415
             recipients = tuple(current_app.config.get("IP_NOTICE_RECIPIENTS") or RECIPIENTS)
             sent = send_ip_notice(ref, data["email"], data["holder_name"], text,
                                   holder_mail_text(data, ref, ack_due, hold_until, text), recipients)
@@ -324,6 +326,12 @@ def register(bp):
                     pass
         except Exception:  # noqa: BLE001
             current_app.logger.exception("ip_notice: mail failed ref=%s", ref)
+        if not stored and not sent:
+            # Neither recorded nor mailed: saying "received" would lose the notice.
+            current_app.logger.error("ip_notice: LOST ref=%s (not stored, not mailed)", ref)
+            return render_template("ip_notice.html", **_ctx(data, {
+                "form": "We could not record your notice just now, so nothing has been sent. Please try again in "
+                        "a few minutes, or write to admin@optiwar.com or the postal address in the Terms."})), 503
         session[SESSION_COUNT_KEY] = used + 1
         session.modified = True
         current_app.logger.info("ACTIVITY:IP_NOTICE ref=%s stored=%s mailed=%s site=%s", ref, stored, sent, site)

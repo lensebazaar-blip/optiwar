@@ -1715,10 +1715,11 @@ footer{ display:none !important; }
         {% if is_india %}
         <label class="ow-ck-gw ow-ck-gw-active" id="owGwPaytm">
           <input type="radio" name="gateway" value="paytm" checked>
-          <div class="ow-ck-gw-icon ow-ck-gw-paytm">P</div>
+          {# Payments on optiwar.in are Razorpay (owner, 9 Nov 2026); the id and the field value are legacy hooks. #}
+          <div class="ow-ck-gw-icon ow-ck-gw-paytm">R</div>
           <div>
-            <h3>Paytm</h3>
-            <p>UPI, Cards, Netbanking, Wallet</p>
+            <h3>Razorpay</h3>
+            <p>UPI, Cards, Netbanking, Wallets</p>
           </div>
           <span class="ow-ck-gw-arrow">&rsaquo;</span>
         </label>
