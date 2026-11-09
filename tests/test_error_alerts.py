@@ -116,6 +116,18 @@ class Alerts(AlertsBase):
         for fact in ("the customer's browser", "scripts.js:12 x is not a function"):
             self.assertIn(fact, body)
 
+    def test_notices_and_warnings_send_nothing_even_after_log_hygiene(self):
+        import logging
+        for handler in self.app.logger.handlers:
+            handler.setLevel(logging.INFO)
+        with self.app.test_request_context("/x"):
+            self.app.logger.info("ai-call endpoint=/x outcome=ok")
+            self.app.logger.warning("content_guard: Claude Haiku failed (AuthenticationError)")
+        self.assertEqual(self.mails, [])
+        with self.app.test_request_context("/x"):
+            self.app.logger.error("could not sync the order")
+        self.assertEqual(len(self.mails), 1)
+
     def test_business_events_and_healthy_pages_send_nothing(self):
         self.client.get("/flagged")
         self.client.get("/fine")
