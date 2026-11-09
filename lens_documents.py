@@ -120,6 +120,7 @@ MAX_SIDE_PX = 2000
 MAX_STORED_BYTES = 2_000_000
 MAX_PDF_PAGES = 2
 PDF_RENDER_DPI = 150
+READ_RENDER_DPI = 200               # the one page the prescription reader reads closely
 JPEG_QUALITY = 85
 
 KIND_JPEG, KIND_PNG, KIND_WEBP, KIND_HEIC, KIND_PDF = (
@@ -196,8 +197,8 @@ def _image_to_jpeg(image, budget):
         "closer photo of just the prescription.")
 
 
-def _raster_pdf(data):
-    """The first pages of a PDF as JPEG bytes, or a refusal.
+def _open_pdf(data):
+    """A PyMuPDF document for these bytes, or a refusal.
 
     PyMuPDF is optional: a host without it refuses PDFs with a message that
     tells the customer what to do instead (photograph the paper), rather than
@@ -222,12 +223,18 @@ def _raster_pdf(data):
         raise Rejected("RX_UPLOAD_REJECTED",
                        "That PDF is password-protected. Please upload a photo "
                        "of your prescription instead.")
+    return doc
+
+
+def _raster_pdf(data, limit=MAX_PDF_PAGES):
+    """The first pages of a PDF as JPEG bytes, or a refusal."""
+    doc = _open_pdf(data)
     pages = []
     Image, _ = _pillow()
-    page_count = min(doc.page_count, MAX_PDF_PAGES)
+    page_count = min(doc.page_count, limit)
     if page_count < 1:
         raise Rejected("RX_UPLOAD_REJECTED", "That PDF has no pages.")
-    budget = MAX_STORED_BYTES // page_count
+    budget = MAX_STORED_BYTES // min(page_count, MAX_PDF_PAGES)
     for index in range(page_count):
         pix = doc[index].get_pixmap(dpi=PDF_RENDER_DPI, alpha=False)
         image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
@@ -235,12 +242,24 @@ def _raster_pdf(data):
     return pages
 
 
-def normalise(data):
+def pdf_page_count(data):
+    return _open_pdf(data).page_count
+
+
+def pdf_page_jpeg(data, index):
+    """One page of a PDF as a JPEG sharp enough for handwriting."""
+    Image, _ = _pillow()
+    pix = _open_pdf(data)[index].get_pixmap(dpi=READ_RENDER_DPI, alpha=False)
+    return _image_to_jpeg(Image.frombytes("RGB", (pix.width, pix.height), pix.samples), MAX_STORED_BYTES)
+
+
+def normalise(data, pdf_pages=MAX_PDF_PAGES):
     """``{"kind", "sha256", "pages": [jpeg bytes, ...]}`` for an accepted upload.
 
     The stored artefact is always JPEG this application encoded: the
     orientation is applied, the longest side is bounded, metadata is dropped.
     A PDF becomes one JPEG per page (bounded). Anything else is ``Rejected``.
+    ``pdf_pages`` is raised only by the prescription reader, which stores nothing.
     """
     size = len(data or b"")
     if size < MIN_UPLOAD_BYTES:
@@ -256,7 +275,7 @@ def normalise(data):
                        "Please upload a JPEG, PNG, WebP or PDF of your "
                        "prescription.")
     if kind == KIND_PDF:
-        pages = _raster_pdf(data)
+        pages = _raster_pdf(data, pdf_pages)
     else:
         if kind == KIND_HEIC:
             try:

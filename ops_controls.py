@@ -23,12 +23,15 @@ NCR24_FEE = "ncr24_fee"
 RX_PER_IP = "rx_reads_per_ip"
 RX_PER_DAY = "rx_reads_per_day"
 NCR24_ENABLED = "ncr24_enabled"
+RX_TWO_STEP = "rx_find_read_compare"
 
 SETTINGS = {
     NCR24_FEE: {"label": "24-hour delivery price (Rs, 18% GST inclusive)", "default": 1000, "min": 100, "max": 10000, "step": 50},
     RX_PER_IP: {"label": "Photo reader: reads per customer IP per day", "default": 20, "min": 1, "max": 500, "step": 5},
     RX_PER_DAY: {"label": "Photo reader: reads per day, all customers", "default": 300, "min": 10, "max": 20000, "step": 50},
     NCR24_ENABLED: {"label": "24-hour delivery service", "default": 1, "min": 0, "max": 1, "step": 1, "toggle": True},
+    RX_TWO_STEP: {"label": "Photo reader: Find, Read, Compare (off = the earlier single read)", "default": 1, "min": 0, "max": 1,
+                  "step": 1, "toggle": True},
 }
 NEAR_LIMIT = 0.8
 

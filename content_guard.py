@@ -166,11 +166,13 @@ def _setting(name, default=""):
     return current_app.config.get(name) or os.environ.get(name) or default
 
 
-def _ask_workload(workload, pages, mime, prompt, max_tokens, detail, seconds, endpoint):
+def _ask_workload(workload, pages, mime, prompt, max_tokens, detail, seconds, endpoint, label_pages=False):
     """The question through ai_client (DeepSeek and the configured provider)."""
     from . import ai_client  # noqa: PLC0415
     content = [{"type": "text", "text": prompt}]
-    for page in pages[:MAX_PAGES]:
+    for number, page in enumerate(pages[:MAX_PAGES], 1):
+        if label_pages:
+            content.append({"type": "text", "text": "Page %d:" % number})
         content.append({"type": "image_url", "image_url": {
             "url": "data:%s;base64,%s" % (mime, base64.b64encode(page).decode("ascii")), "detail": detail}})
     resp = ai_client.call_model(workload=workload, messages=[{"role": "user", "content": content}],
@@ -197,7 +199,7 @@ def _claude_label(model):
     return "Claude %s" % parts[1].title() if len(parts) > 1 else model
 
 
-def _ask_claude(pages, mime, model, prompt, max_tokens, seconds):
+def _ask_claude(pages, mime, model, prompt, max_tokens, seconds, effort="low", schema=None, label_pages=False):
     """The question through the Anthropic SDK. Thinking counts against max_tokens,
     so its limit is well above the answer's length. A refusal leaves no text, which reads as no
     answer, so the next model is asked. Haiku has no server-side fallback, so only
@@ -207,38 +209,78 @@ def _ask_claude(pages, mime, model, prompt, max_tokens, seconds):
     if not key:
         raise RuntimeError("ANTHROPIC_API_KEY is not set")
     import anthropic  # noqa: PLC0415
-    content = [{"type": "image", "source": {"type": "base64", "media_type": _media_type(page, mime),
-                                            "data": base64.b64encode(page).decode("ascii")}}
-               for page in pages[:MAX_PAGES]]
+    content = []
+    for number, page in enumerate(pages[:MAX_PAGES], 1):
+        if label_pages:
+            content.append({"type": "text", "text": "Page %d:" % number})
+        content.append({"type": "image", "source": {"type": "base64", "media_type": _media_type(page, mime),
+                                                    "data": base64.b64encode(page).decode("ascii")}})
     content.append({"type": "text", "text": prompt})
+    output_config = {"effort": effort}
+    if schema:
+        output_config["format"] = {"type": "json_schema", "schema": schema}
     client = anthropic.Anthropic(api_key=key, max_retries=0, timeout=float(seconds))
     fallback = {} if "haiku" in model else {"betas": ["server-side-fallback-2026-07-01"],
                                             "extra_body": {"fallbacks": "default"}}
-    resp = client.beta.messages.create(model=model, max_tokens=max_tokens, output_config={"effort": "low"},
+    resp = client.beta.messages.create(model=model, max_tokens=max_tokens, output_config=output_config,
                                        messages=[{"role": "user", "content": content}], **fallback)
     return next((block.text for block in resp.content if block.type == "text"), "")
 
 
-def ask_in_order(pages, mime, prompt, usable, max_tokens, detail, endpoint, claude_max_tokens, flagged=None):
+def claude_models():
+    """The Claude models in the owner's order, without repeats."""
+    return list(dict.fromkeys((_setting("CONTENT_GUARD_CLAUDE_MODEL", CLAUDE_MODEL),
+                               _setting("CONTENT_GUARD_CLAUDE_HIGHER_MODEL", CLAUDE_HIGHER_MODEL))))
+
+
+def ask_claude_together(pages, mime, prompt, max_tokens, effort, schema, seconds):
+    """Every Claude model at the same time, none seeing another's answer:
+    ``[(which AI, text)]`` in the owner's order, text "" for one that failed."""
+    import concurrent.futures  # noqa: PLC0415
+    import time  # noqa: PLC0415
+    from flask import current_app  # noqa: PLC0415
+    app = current_app._get_current_object()
+
+    def one(model):
+        with app.app_context():
+            return _ask_claude(pages, mime, model, prompt, max_tokens, seconds, effort=effort, schema=schema)
+    models = claude_models()
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=len(models))
+    jobs = [(_claude_label(m), pool.submit(one, m)) for m in models]
+    end, out = time.monotonic() + float(seconds) + 1, []
+    for name, job in jobs:
+        try:
+            out.append((name, job.result(timeout=max(0.1, end - time.monotonic())) or ""))
+        except Exception as exc:  # noqa: BLE001 - the other reader may still answer
+            app.logger.warning("content_guard: %s failed (%s)", name, type(exc).__name__)
+            out.append((name, ""))
+    pool.shutdown(wait=False)
+    return out
+
+
+def ask_in_order(pages, mime, prompt, usable, max_tokens, detail, endpoint, claude_max_tokens, flagged=None,
+                 effort="low", schema=None, label_pages=False, claude=True, budget=BUDGET):
     """``(text, which AI gave it)``: the first answer ``usable`` accepts, in the
     owner's order (see the top of this file). When none is usable the AI is None
     and the text is the last answer heard, "" if no provider answered at all.
     ``flagged(text)`` names the category an answer flags, if any: such a flag from
-    the cheapest Claude goes to the higher Claude first (``_second_opinion``)."""
+    the cheapest Claude goes to the higher Claude first (``_second_opinion``).
+    ``claude=False`` asks only the backups, within ``budget`` seconds."""
     import time  # noqa: PLC0415
     from flask import current_app  # noqa: PLC0415
     from . import lens_documents  # noqa: PLC0415
     primary = lens_documents.provider_name(_setting("LENS_RX_VISION_PROVIDER"))
-    models = dict.fromkeys((_setting("CONTENT_GUARD_CLAUDE_MODEL", CLAUDE_MODEL),
-                            _setting("CONTENT_GUARD_CLAUDE_HIGHER_MODEL", CLAUDE_HIGHER_MODEL)))
-    checkers = [(_claude_label(m), lambda s, m=m: _ask_claude(pages, mime, m, prompt, claude_max_tokens, s))
+    models = claude_models() if claude else []
+    checkers = [(_claude_label(m), lambda s, m=m: _ask_claude(pages, mime, m, prompt, claude_max_tokens, s, effort=effort,
+                                                              schema=schema, label_pages=label_pages))
                 for m in models]
-    checkers += [(label(name), lambda s, n=name: _ask_workload(n, pages, mime, prompt, max_tokens, detail, s, endpoint))
+    checkers += [(label(name), lambda s, n=name: _ask_workload(n, pages, mime, prompt, max_tokens, detail, s, endpoint,
+                                                               label_pages=label_pages))
                  for name in dict.fromkeys(("deepseek_vision", primary))]
     start, last = time.monotonic(), ""
     each = float(_setting("CONTENT_GUARD_DEADLINE", DEADLINE))
     for i, (name, ask) in enumerate(checkers):
-        left = BUDGET - (time.monotonic() - start)
+        left = budget - (time.monotonic() - start)
         if left < MIN_ATTEMPT:
             current_app.logger.warning("content_guard: out of time before %s", name)
             break
@@ -249,7 +291,7 @@ def ask_in_order(pages, mime, prompt, usable, max_tokens, detail, endpoint, clau
             continue
         if usable(text):
             if flagged and i == 0 and len(models) > 1 and flagged(text):
-                return _second_opinion(checkers[1], text, usable, flagged, BUDGET - (time.monotonic() - start), each)
+                return _second_opinion(checkers[1], text, usable, flagged, budget - (time.monotonic() - start), each)
             return text, name
         last = text or last
         current_app.logger.warning("content_guard: %s gave no usable answer", name)

@@ -169,7 +169,7 @@ class Routes(unittest.TestCase):
         _Cursor.flags[:] = [{"id": 4, "created_at": datetime.datetime(2026, 11, 9, 9, 0), "door": "chat", "category": "sexual",
                              "sha256": "a" * 64, "client_ip": "1.1.1.1", "customer_id": None}]
         j = self.client.get("/api/ops/controls").get_json()
-        self.assertEqual([s["value"] for s in j["settings"]], [1000, 20, 300, 1])
+        self.assertEqual([s["value"] for s in j["settings"]], [1000, 20, 300, 1, 1])
         self.assertTrue(j["indicators"]["day_blink"])
         page = self.client.get("/ops/controls")
         self.assertEqual(page.headers["Cache-Control"], "no-store")
