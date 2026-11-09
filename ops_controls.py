@@ -126,7 +126,7 @@ def indicators(cursor, per_ip, per_day, today=None):
     out["ip_blink"] = out["at_limit"] > 0
     out["flag_blink"] = out["open_flags"] > 0
     out["checks"] = ai_checks(cursor, today)
-    out["checks_blink"] = any(c["provider"] != "Claude" for c in out["checks"])
+    out["checks_blink"] = any(not c["provider"].startswith("Claude") for c in out["checks"])
     return out
 
 
