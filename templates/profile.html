@@ -282,6 +282,8 @@
 
 </style>
 
+{% from '_pagenav.html' import pagenav with context %}
+{{ pagenav([(_('My account'), None)], back_label=_('Back to shopping')) }}
 <div class="ow-profile-container">
 
   <!-- Profile Header Card -->
@@ -900,8 +902,14 @@
             </div>
             {% endfor %}
 
+            {% if order.shipping_fee %}
+            <div class="oh-grand" style="font-weight:600;">
+              <span class="oh-grand-label">Delivery: {{ order.shipping_label }}{% if order.shipping_promised %} &middot; promised by {{ order.shipping_promised.strftime('%d %b %Y') }}{% endif %}</span>
+              <span class="oh-grand-val">Rs {{ order.shipping_fee|int }}</span>
+            </div>
+            {% endif %}
             <!-- Grand Total -->
-            {% if order['items']|length > 1 %}
+            {% if order['items']|length > 1 or order.shipping_fee %}
             <div class="oh-grand">
               <span class="oh-grand-label">Grand Total</span>
               <span class="oh-grand-val">{% if is_india %}Rs{% else %}&euro;{% endif %} {{ order.grand_total|int }}</span>
@@ -1088,6 +1096,7 @@
                 </label>
                 <label>Photos <span class="oh-return-hint">(JPEG, PNG or WebP; up to {{ f.max_photos }}; at least 2 for a manufacturing defect)</span>
                   <input type="file" name="photos" accept="image/jpeg,image/png,image/webp" multiple>
+<p style="margin:6px 0;font-size:12px;line-height:1.45;color:#64748b;">Upload only photos of the product you are returning. Sexual, illegal or extremist content is prohibited, blocked and logged, and may be reported to Cyber Crime India.</p>
                 </label>
                 <input type="hidden" name="declarations_version" value="{{ f.declarations_version }}">
                 {% for d in f.declarations %}
@@ -2232,7 +2241,7 @@ if (window.location.hash) {
     });
   }
 
-  var isIndia = window.location.host.indexOf('in.optiwar.com') >= 0 || window.location.host.indexOf('optiwar.in') >= 0;
+  var isIndia = {{ 'true' if is_india else 'false' }};  // the site decides, not the hostname (local builds use in.localhost)
   var defCode = isIndia ? '+91' : '+49';
 
   // Profile phone code

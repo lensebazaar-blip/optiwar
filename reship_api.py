@@ -401,6 +401,11 @@ def register(bp):
         db = get_db()
         try:
             photos = return_request.prepare_photos(files)
+            if photos:
+                from . import content_guard  # noqa: PLC0415
+                refusal = content_guard.screen([p["data"] for p in photos], "return_photos", photos[0]["sha256"])
+                if refusal:
+                    return jsonify({"ok": False, "error": refusal.code, "message": refusal.message}), refusal.status
             case = return_request.submit(db, cid, order_id, form, photos, _client_ip(),
                                          _rp_upload_dir())
         except reverse_pickup.ReversePickupError as exc:

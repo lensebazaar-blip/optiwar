@@ -469,6 +469,18 @@ def upload_prescription():
             'error': 'File content does not match its extension. Please upload a genuine image or PDF.'
         }), 400
 
+    # Prohibited-content check, before anything is kept
+    from . import content_guard, lens_documents
+    _data = file.read()
+    file.seek(0)
+    try:
+        _norm = lens_documents.normalise(_data)
+    except lens_documents.Rejected as _rej:
+        return jsonify({'error': _rej.message}), 400
+    _refusal = content_guard.screen(_norm["pages"], "chat_legacy", _norm["sha256"])
+    if _refusal:
+        return jsonify({'error': _refusal.message}), _refusal.status
+
     # Save file securely (outside /static/ — not web-accessible)
     filename = (
         f"{session['user_id']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"

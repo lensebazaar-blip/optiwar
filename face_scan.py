@@ -296,6 +296,18 @@ def _valid_image(file_storage):
     return ext, size, None
 
 
+def _screen_upload(file_storage):
+    """The prohibited-content check; a file the validator would refuse is left to it."""
+    from . import content_guard, lens_documents  # noqa: PLC0415
+    data = file_storage.read()
+    file_storage.seek(0)
+    try:
+        norm = lens_documents.normalise(data)
+    except lens_documents.Rejected:
+        return None
+    return content_guard.screen(norm["pages"], "face_scan", norm["sha256"])
+
+
 def store_upload(db, row, file_storage, source=SRC_CUSTOMER_LINK, actor=None):
     """Save a validated photo against an open request. Returns (ok, error).
 
@@ -500,6 +512,9 @@ def upload_photo(token):
     file_storage = request.files.get('photo')
     if not file_storage or not file_storage.filename:
         return jsonify({'error': 'no_file'}), 400
+    refusal = _screen_upload(file_storage)
+    if refusal:
+        return jsonify({'error': refusal.code, 'message': refusal.message}), refusal.status
     ok, error = store_upload(db, row, file_storage)
     if not ok:
         return jsonify({'error': error}), 400

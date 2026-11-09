@@ -1,22 +1,39 @@
 {% extends 'base.html' %}
-{% block title %} Prescription for lenses - Optiwar {% endblock %}
+{% block title %} Prescription lenses for {{ product_name }} - Optiwar {% endblock %}
+{% block frame_filter_bar %}{% endblock %}
 {% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/rx-page.css') }}?v=7">
 
-<div class="rx-page">
-    <!-- Header -->
-    <div class="rx-head">
-        <div class="rx-head-orb"></div>
-        <div class="rx-head-orb rx-head-orb2"></div>
-        <div class="rx-head-inner">
-            <svg class="rx-head-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="12" r="4"/><circle cx="18" cy="12" r="4"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
-            <div>
-                <h1 class="rx-title">{{ product_name }}</h1>
-                <p class="rx-sub">Lenses are Complimentary &bull; Base Price {{ currency_symbol }} {{ product_special_price }}</p>
-            </div>
+<div class="rxp" id="rxPage">
+    <!-- where you are: back to the frame, and the three steps to the cart -->
+    <nav class="rxp-nav" aria-label="Where you are">
+        <a class="rxp-back" href="{{ url_for('main.index') }}" id="rxBackLink" onclick="if (document.referrer && window.history.length > 1) { window.history.back(); return false; }">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            Back to frame
+        </a>
+        <ol class="rxp-steps">
+            <li class="is-done"><span class="n">&#10003;</span>Frame</li>
+            <li class="is-now"><span class="n">2</span>Lenses</li>
+            <li><span class="n">3</span>Cart</li>
+        </ol>
+    </nav>
+
+    <!-- the frame these lenses go into -->
+    <header class="rxp-product">
+        <div class="rxp-product__icon" aria-hidden="true">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="12" r="4"/><circle cx="18" cy="12" r="4"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
         </div>
-    </div>
+        <div class="rxp-product__text">
+            <h1 class="rxp-product__name">{{ product_name }}</h1>
+            <p class="rxp-product__sub">Prescription lenses included{% if product_code %} &middot; {{ product_code }}{% endif %}</p>
+        </div>
+        <div class="rxp-product__price">
+            <small>Frame + lenses</small>
+            {{ currency_symbol }} {{ product_special_price }}
+        </div>
+    </header>
 
-    <form action="{{ url_for('main.add_to_cart_with_lenses') }}" method="post" id="rxForm" >
+    <form action="{{ url_for('main.add_to_cart_with_lenses') }}" method="post" id="rxForm">
         <!-- Hidden fields -->
         <input type="hidden" name="product_id" value="{{ product_id }}">
         <input type="hidden" name="product_name" value="{{ product_name }}">
@@ -33,87 +50,96 @@
         <input type="hidden" id="hiddenCylPrice" name="cyl_price_increase" value="0">
         <input type="hidden" id="hiddenAddPrice" name="add_price_increase" value="0">
 
+        <div class="rxp-grid">
+        <div class="rxp-main">
+
         <!-- STEP 1: Prescription -->
-        <div class="rx-card rx-anim-in">
+        <section class="rx-card" id="rxStep1">
             <div class="rx-card-head">
                 <span class="rx-step-badge">1</span>
-                <h2 class="rx-card-title">Your Prescription</h2>
+                <h2 class="rx-card-title">Your prescription</h2>
+                <span class="rx-optional">Eyeglasses</span>
             </div>
             <div class="rx-card-body">
-                <!-- RIGHT EYE -->
-                <div class="rx-eye-label">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M2 12s4-8 10-8 10 8 10 8-4 8-10 8-10-8-10-8z"/></svg>
-                    RIGHT EYE (OD)
-                </div>
-                <div class="rx-row">
-                    <div class="rx-field">
-                        <label>PWR</label>
-                        <select name="right_pwr" id="right_pwr">
-                            {% for option in pwr_range %}
-                            <option value="{{ option }}">{{ '+' if option|float > 0 else ''}}{{ '%.2f'|format(option|float) }}</option>
-                            {% endfor %}
-                        </select>
+
+                <!-- door 1: a photo of the paper, read by the vision model, proposed into the selects below -->
+                <div class="rxp-scan" id="rxScan">
+                    <input type="file" id="rxPhotoInput" accept="image/*,application/pdf" hidden>
+                    <button type="button" class="rxp-scan__btn" id="rxScanBtn">
+                        <span class="rxp-scan__icon" aria-hidden="true">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                        </span>
+                        <span class="rxp-scan__text">
+                            <strong>Scan your prescription</strong>
+                            <small>Photo or PDF of the paper. AI fills in the powers; you check and confirm.</small>
+                        </span>
+                        <span class="rxp-scan__go" aria-hidden="true">&rsaquo;</span>
+                    </button>
+                    <input type="text" id="rxPhotoHp" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px">
+                    <div class="rxp-human" id="rxHuman" hidden>
+                        <img id="rxHumanImg" alt="Security code">
+                        <input type="text" id="rxHumanCode" placeholder="Type the code" autocomplete="off" aria-label="Security code">
+                        <button type="button" id="rxHumanGo">Verify</button>
                     </div>
-                    <div class="rx-field">
-                        <label>CYL</label>
-                        <select name="right_cyl" id="right_cyl">
-                            {% for option in cyl_range %}
-                            <option value="{{ option }}">{{ option }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="rx-field">
-                        <label>AXIS</label>
-                        <select name="right_axis" id="right_axis">
-                            {% for option in axis_range %}
-                            <option value="{{ option }}">{{ option }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
+                    <div class="rxp-scan__status" id="rxScanStatus" role="status" aria-live="polite" hidden></div>
+                    <p class="rxp-scan__rule">Upload only your eyeglasses prescription. Sexual, illegal or extremist content is prohibited, blocked and logged, and may be reported to Cyber Crime India.</p>
                 </div>
 
-                <!-- LEFT EYE -->
-                <div class="rx-eye-label" style="margin-top:16px;">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M2 12s4-8 10-8 10 8 10 8-4 8-10 8-10-8-10-8z"/></svg>
-                    LEFT EYE (OS)
-                </div>
-                <div class="rx-row">
-                    <div class="rx-field">
-                        <label>PWR</label>
-                        <select name="left_pwr" id="left_pwr">
-                            {% for option in pwr_range %}
+                <div class="rxp-or"><span>or enter the values</span></div>
+
+                <!-- door 2: the selects (the cart route reads exactly these) -->
+                <div class="rxp-table">
+                    <div class="rxp-table__h" aria-hidden="true"></div>
+                    <div class="rxp-table__h">SPH <small>power</small></div>
+                    <div class="rxp-table__h">CYL</div>
+                    <div class="rxp-table__h">AXIS</div>
+                    <div class="rxp-eye"><span>Right</span><small>OD</small></div>
+                    <div class="rx-field"><select name="right_pwr" id="right_pwr">
+{% for option in pwr_range %}
                             <option value="{{ option }}">{{ '+' if option|float > 0 else ''}}{{ '%.2f'|format(option|float) }}</option>
                             {% endfor %}
-                        </select>
-                    </div>
-                    <div class="rx-field">
-                        <label>CYL</label>
-                        <select name="left_cyl" id="left_cyl">
-                            {% for option in cyl_range %}
+</select></div>
+                    <div class="rx-field"><select name="right_cyl" id="right_cyl">
+{% for option in cyl_range %}
                             <option value="{{ option }}">{{ option }}</option>
                             {% endfor %}
-                        </select>
-                    </div>
-                    <div class="rx-field">
-                        <label>AXIS</label>
-                        <select name="left_axis" id="left_axis">
-                            {% for option in axis_range %}
+</select></div>
+                    <div class="rx-field"><select name="right_axis" id="right_axis">
+{% for option in axis_range %}
                             <option value="{{ option }}">{{ option }}</option>
                             {% endfor %}
-                        </select>
-                    </div>
+</select></div>
+                    <div class="rxp-eye"><span>Left</span><small>OS</small></div>
+                    <div class="rx-field"><select name="left_pwr" id="left_pwr">
+{% for option in pwr_range %}
+                            <option value="{{ option }}">{{ '+' if option|float > 0 else ''}}{{ '%.2f'|format(option|float) }}</option>
+                            {% endfor %}
+</select></div>
+                    <div class="rx-field"><select name="left_cyl" id="left_cyl">
+{% for option in cyl_range %}
+                            <option value="{{ option }}">{{ option }}</option>
+                            {% endfor %}
+</select></div>
+                    <div class="rx-field"><select name="left_axis" id="left_axis">
+{% for option in axis_range %}
+                            <option value="{{ option }}">{{ option }}</option>
+                            {% endfor %}
+</select></div>
                 </div>
 
                 <!-- ADD (Reading Addition) -->
-                <div id="addSection" style="margin-top:14px;">
+                <div id="addSection">
                     <button type="button" class="rx-add-toggle" id="addToggleBtn" onclick="showAddDropdowns()">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                         Add Reading/Bifocal Power (ADD)
                     </button>
                     <div id="addFields" class="rx-add-fields" style="display:none;">
-                        <div class="rx-row">
+                        <div class="rxp-table rxp-table--add">
+                            <div class="rxp-table__h" aria-hidden="true"></div>
+                            <div class="rxp-table__h">Right ADD</div>
+                            <div class="rxp-table__h">Left ADD</div>
+                            <div class="rxp-eye"><span>Near</span><small>ADD</small></div>
                             <div class="rx-field">
-                                <label>Right ADD</label>
                                 <select name="right_add" id="right_add">
                                     <option value="">Select</option>
                                     {% for option in add_range %}
@@ -122,7 +148,6 @@
                                 </select>
                             </div>
                             <div class="rx-field">
-                                <label>Left ADD</label>
                                 <select name="left_add" id="left_add">
                                     <option value="">Select</option>
                                     {% for option in add_range %}
@@ -133,14 +158,15 @@
                         </div>
                     </div>
                 </div>
+                <p class="rxp-help">Not sure how to read your paper? <a href="{{ url_for('main.guide_prescription_reading') }}" target="_blank" rel="noopener">See the guide</a> or ask us in the chat.</p>
             </div>
-        </div>
+        </section>
 
         <!-- STEP 2: Lens Options Cards -->
-        <div class="rx-card rx-anim-in" style="animation-delay:0.1s;">
+        <section class="rx-card" id="rxStep2">
             <div class="rx-card-head">
                 <span class="rx-step-badge">2</span>
-                <h2 class="rx-card-title">Lens Options</h2>
+                <h2 class="rx-card-title">Lens options</h2>
                 <span class="rx-optional">Optional upgrades</span>
             </div>
             <div class="rx-card-body">
@@ -150,8 +176,10 @@
                         <div class="rx-opt-icon" style="background:linear-gradient(135deg,#6366f1,#818cf8);">
                             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12z"/><path d="M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>
                         </div>
-                        <span class="rx-opt-name">Lens Coating</span>
-                        <span class="rx-opt-desc">Anti-Glare, Blue Cut, Multi</span>
+                        <span class="rx-opt-text">
+                            <span class="rx-opt-name">Lens coating</span>
+                            <span class="rx-opt-desc">Anti-glare, blue cut, multi, polarized</span>
+                        </span>
                         <span class="rx-opt-sel" id="coatingSelected">Not selected</span>
                     </button>
 
@@ -160,8 +188,10 @@
                         <div class="rx-opt-icon" style="background:linear-gradient(135deg,#8b5cf6,#a78bfa);">
                             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M4 4h16v16H4z"/><line x1="4" y1="12" x2="20" y2="12"/></svg>
                         </div>
-                        <span class="rx-opt-name">Lens Thickness</span>
-                        <span class="rx-opt-desc">Thin, Extra-Thin, Photochromic</span>
+                        <span class="rx-opt-text">
+                            <span class="rx-opt-name">Lens thickness</span>
+                            <span class="rx-opt-desc">Thin, extra-thin, photochromic</span>
+                        </span>
                         <span class="rx-opt-sel" id="thicknessSelected">Not selected</span>
                     </button>
 
@@ -170,31 +200,48 @@
                         <div class="rx-opt-icon" style="background:linear-gradient(135deg,#f59e0b,#fbbf24);">
                             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="2" x2="12" y2="22"/></svg>
                         </div>
-                        <span class="rx-opt-name">Bifocal / Progressive</span>
-                        <span class="rx-opt-desc">KT, D-Type, Progressive</span>
+                        <span class="rx-opt-text">
+                            <span class="rx-opt-name">Bifocal / progressive</span>
+                            <span class="rx-opt-desc">KT, D-type, progressive</span>
+                        </span>
                         <span class="rx-opt-sel" id="bifocalSelected">Not selected</span>
                     </button>
                 </div>
             </div>
-        </div>
+        </section>
 
+        </div><!-- /rxp-main -->
+
+        <aside class="rxp-aside">
         <!-- STEP 3: Summary & Checkout -->
-        <div class="rx-card rx-anim-in" style="animation-delay:0.2s;">
+        <section class="rx-card" id="rxStep3">
             <div class="rx-card-head">
                 <span class="rx-step-badge">3</span>
                 <h2 class="rx-card-title">Summary</h2>
             </div>
             <div class="rx-card-body">
+                <dl class="rxp-sum">
+                    <div><dt>Frame + lenses</dt><dd>{{ currency_symbol }} {{ product_special_price }}</dd></div>
+                </dl>
                 <div id="lensRecommendation" class="rx-summary">
-                    <p>Start building your specs</p>
+                    <p>Please enter your prescription</p>
                 </div>
                 <div class="rx-actions">
-                    <input type="submit" id="checkoutButton" class="rx-btn-primary" value="Checkout frames with lenses now">
-                    <button type="button" class="rx-btn-secondary" onclick="resetForm()">Re-build</button>
+                    <input type="submit" id="checkoutButton" class="rx-btn-primary" value="Add to cart with lenses">
+                    <button type="button" class="rx-btn-secondary" onclick="resetForm()">Reset</button>
                 </div>
+                <p class="rxp-trust">Lenses are fitted by our opticians and checked before dispatch. Free delivery across India.</p>
             </div>
-        </div>
+        </section>
+        </aside>
+        </div><!-- /rxp-grid -->
     </form>
+
+    <!-- phones: one bar, one tap -->
+    <div class="rxp-bar" id="rxStickyBar">
+        <div class="rxp-bar__total"><small>Total</small><span id="rxBarTotal">{{ currency_symbol }} {{ product_special_price }}</span></div>
+        <button type="button" class="rxp-bar__btn" id="rxStickyBtn">Add to cart</button>
+    </div>
 </div>
 
 <!-- ========== COATING MODAL ========== -->
@@ -244,7 +291,6 @@
                     </div>
                 </div>
             </label>
-        </div>
             <label class="rx-modal-opt">
                 <input type="radio" name="add_selections" value="polarized04" data-price="{% if is_india %}800{% else %}10{% endif %}">
                 <div class="rx-modal-opt-body">
@@ -258,6 +304,7 @@
                     </div>
                 </div>
             </label>
+        </div>
         <div class="rx-modal-foot">
             <button type="button" class="rx-modal-btn-skip" onclick="clearCoating(); closeModal('coatingModal');">Skip Coating</button>
             <button type="button" class="rx-modal-btn-ok" onclick="applyCoating(); closeModal('coatingModal');">Apply Selection</button>
@@ -388,464 +435,6 @@
     </div>
 </div>
 
-<style>
-/* ===== PRESCRIPTION V2 — GLASSMORPHISM + MODALS ===== */
-.rx-page { max-width: 600px; margin: -20px auto 30px; padding: 0 12px; }
-
-/* Header */
-.rx-head {
-    position: relative;
-    padding: 20px 18px;
-    background: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.07));
-    border-radius: 16px 16px 0 0;
-    border: 1px solid rgba(99,102,241,0.12);
-    backdrop-filter: blur(16px);
-    overflow: hidden;
-}
-.rx-head-orb {
-    position: absolute; width: 100px; height: 100px; border-radius: 50%;
-    background: radial-gradient(circle, rgba(99,102,241,0.2), transparent 70%);
-    top: -30px; right: -15px; animation: rxOrb 6s ease-in-out infinite;
-}
-.rx-head-orb2 {
-    width: 70px; height: 70px;
-    background: radial-gradient(circle, rgba(139,92,246,0.15), transparent 70%);
-    top: auto; bottom: -15px; right: auto; left: 15px;
-    animation: rxOrb 8s ease-in-out infinite reverse;
-}
-@keyframes rxOrb { 0%,100%{transform:translate(0,0) scale(1)} 50%{transform:translate(8px,-12px) scale(1.12)} }
-.rx-head-inner { display: flex; align-items: center; gap: 12px; position: relative; z-index: 1; }
-.rx-head-icon { color: #6366f1; }
-.rx-title { font-size: 18px; font-weight: 700; color: #1e293b; margin: 0; line-height: 1.2; }
-.rx-sub { font-size: 13px; color: #6366f1; margin: 3px 0 0; font-weight: 500; }
-
-/* Cards */
-.rx-card {
-    background: rgba(255,255,255,0.8);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(99,102,241,0.1);
-    border-top: none;
-    padding: 0;
-}
-.rx-card:last-of-type { border-radius: 0 0 16px 16px; }
-.rx-card-head {
-    display: flex; align-items: center; gap: 10px;
-    padding: 14px 18px;
-    border-bottom: 1px solid rgba(99,102,241,0.08);
-}
-.rx-step-badge {
-    width: 26px; height: 26px; border-radius: 50%;
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
-    color: #fff; font-size: 13px; font-weight: 700;
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
-}
-.rx-card-title { font-size: 15px; font-weight: 600; color: #1e293b; margin: 0; }
-.rx-optional { font-size: 11px; color: #94a3b8; margin-left: auto; }
-.rx-card-body { padding: 16px 18px; }
-
-/* Prescription fields */
-.rx-eye-label {
-    display: flex; align-items: center; gap: 6px;
-    font-size: 12px; font-weight: 600; color: #6366f1;
-    text-transform: uppercase; letter-spacing: 0.5px;
-    margin-bottom: 8px;
-}
-.rx-row { display: flex; gap: 10px; }
-.rx-field { flex: 1; }
-.rx-field label {
-    display: block; font-size: 10px; font-weight: 600;
-    color: #64748b; text-transform: uppercase;
-    letter-spacing: 0.5px; margin-bottom: 4px;
-}
-.rx-field select {
-    width: 100%; padding: 10px 8px;
-    border: 1.5px solid rgba(99,102,241,0.15);
-    border-radius: 10px; font-size: 14px;
-    background: rgba(248,250,252,0.8);
-    color: #1e293b; outline: none;
-    transition: all 0.2s;
-    -webkit-appearance: none;
-    appearance: none;
-}
-.rx-field select:focus {
-    border-color: #6366f1;
-    box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
-}
-
-/* ADD toggle */
-.rx-add-toggle {
-    display: flex; align-items: center; gap: 8px;
-    padding: 10px 16px; width: 100%;
-    background: rgba(99,102,241,0.05);
-    border: 1.5px dashed rgba(99,102,241,0.25);
-    border-radius: 10px; cursor: pointer;
-    color: #6366f1; font-size: 13px; font-weight: 500;
-    transition: all 0.2s;
-}
-.rx-add-toggle:hover { background: rgba(99,102,241,0.1); border-style: solid; }
-.rx-add-fields { margin-top: 12px; }
-
-/* Options grid */
-.rx-options-grid { display: flex; flex-direction: column; gap: 10px; }
-.rx-opt-card {
-    display: flex; align-items: center; gap: 12px;
-    padding: 14px 16px; width: 100%;
-    background: rgba(248,250,252,0.8);
-    border: 1.5px solid rgba(99,102,241,0.1);
-    border-radius: 12px; cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.16,1,0.3,1);
-    text-align: left;
-}
-.rx-opt-card:hover {
-    border-color: #6366f1;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 16px rgba(99,102,241,0.12);
-}
-.rx-opt-card:active { transform: scale(0.98); }
-.rx-opt-icon {
-    width: 42px; height: 42px; border-radius: 12px;
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
-}
-.rx-opt-name { font-size: 14px; font-weight: 600; color: #1e293b; }
-.rx-opt-desc { font-size: 11px; color: #64748b; display: block; margin-top: 1px; }
-.rx-opt-sel {
-    margin-left: auto; font-size: 11px; font-weight: 500;
-    padding: 3px 8px; border-radius: 8px;
-    background: rgba(99,102,241,0.06); color: #94a3b8;
-    white-space: nowrap;
-}
-.rx-opt-sel.active { background: rgba(22,163,74,0.1); color: #16a34a; }
-
-/* Summary */
-.rx-summary {
-    padding: 12px 16px; border-radius: 10px;
-    background: rgba(99,102,241,0.04);
-    border: 1px solid rgba(99,102,241,0.08);
-    font-size: 14px; color: #334155;
-    min-height: 44px;
-}
-.rx-summary p { margin: 0; }
-.rx-actions { display: flex; gap: 10px; margin-top: 14px; }
-.rx-btn-primary {
-    flex: 1; padding: 14px 20px; border: none;
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
-    color: #fff; font-size: 14px; font-weight: 600;
-    border-radius: 12px; cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.16,1,0.3,1);
-    box-shadow: 0 4px 16px rgba(99,102,241,0.25);
-}
-.rx-btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(99,102,241,0.35); }
-.rx-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-.rx-btn-secondary {
-    padding: 14px 20px; border: 1.5px solid rgba(99,102,241,0.2);
-    background: transparent; color: #6366f1;
-    font-size: 14px; font-weight: 600;
-    border-radius: 12px; cursor: pointer;
-    transition: all 0.2s;
-}
-.rx-btn-secondary:hover { background: rgba(99,102,241,0.05); }
-
-/* Animation */
-.rx-anim-in {
-    animation: rxSlideIn 0.5s cubic-bezier(0.16,1,0.3,1) forwards;
-    opacity: 0;
-}
-@keyframes rxSlideIn { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
-
-/* ===== MODAL ===== */
-.rx-modal-overlay {
-    display: none;
-    position: fixed; inset: 0;
-    background: rgba(0,0,0,0.4);
-    backdrop-filter: blur(4px);
-    z-index: 9999;
-    align-items: flex-end;
-    justify-content: center;
-    padding: 0;
-}
-.rx-modal-overlay.open { display: flex; }
-.rx-modal {
-    width: 100%; max-width: 500px;
-    max-height: 80vh;
-    background: rgba(255,255,255,0.95);
-    backdrop-filter: blur(20px);
-    border-radius: 20px 20px 0 0;
-    overflow: hidden;
-    display: flex; flex-direction: column;
-}
-.rx-modal-head {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 18px 20px;
-    border-bottom: 1px solid rgba(99,102,241,0.1);
-}
-.rx-modal-head h3 { font-size: 17px; font-weight: 700; color: #1e293b; margin: 0; }
-.rx-modal-close {
-    width: 32px; height: 32px; border-radius: 50%;
-    border: none; background: rgba(99,102,241,0.06);
-    font-size: 20px; color: #64748b; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    transition: all 0.2s;
-}
-.rx-modal-close:hover { background: rgba(99,102,241,0.15); }
-.rx-modal-body {
-    padding: 16px 20px;
-    overflow-y: auto; flex: 1;
-    display: flex; flex-direction: column; gap: 10px;
-}
-.rx-modal-opt {
-    display: block; cursor: pointer;
-}
-.rx-modal-opt input[type="radio"] { display: none; }
-.rx-modal-opt-body {
-    display: flex; align-items: center; gap: 14px;
-    padding: 14px 16px;
-    border: 1.5px solid rgba(99,102,241,0.1);
-    border-radius: 14px;
-    transition: all 0.25s cubic-bezier(0.16,1,0.3,1);
-    background: rgba(248,250,252,0.8);
-}
-.rx-modal-opt input:checked + .rx-modal-opt-body {
-    border-color: #6366f1;
-    background: rgba(99,102,241,0.06);
-    box-shadow: 0 2px 12px rgba(99,102,241,0.12);
-}
-.rx-modal-opt-icon {
-    width: 42px; height: 42px; border-radius: 12px;
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
-}
-.rx-modal-opt-icon span {
-    color: #fff; font-size: 14px; font-weight: 700;
-}
-.rx-modal-opt-info { flex: 1; }
-.rx-modal-opt-info strong { display: block; font-size: 14px; color: #1e293b; }
-.rx-modal-opt-price {
-    display: inline-block; font-size: 13px; font-weight: 700;
-    color: #6366f1; margin-top: 2px;
-}
-.rx-modal-opt-desc {
-    display: block; font-size: 11px; color: #64748b; margin-top: 2px;
-}
-.rx-modal-foot {
-    display: flex; gap: 10px;
-    padding: 14px 20px;
-    border-top: 1px solid rgba(99,102,241,0.08);
-}
-.rx-modal-btn-skip {
-    flex: 1; padding: 12px; border: 1.5px solid rgba(99,102,241,0.15);
-    background: transparent; color: #64748b;
-    font-size: 13px; font-weight: 600;
-    border-radius: 12px; cursor: pointer;
-    transition: all 0.2s;
-}
-.rx-modal-btn-skip:hover { background: rgba(99,102,241,0.04); }
-.rx-modal-btn-ok {
-    flex: 1; padding: 12px; border: none;
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
-    color: #fff; font-size: 13px; font-weight: 600;
-    border-radius: 12px; cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.16,1,0.3,1);
-}
-.rx-modal-btn-ok:hover { box-shadow: 0 4px 16px rgba(99,102,241,0.3); }
-
-/* Modal animation */
-.rx-anim-modal {
-    animation: rxModalSlide 0.35s cubic-bezier(0.16,1,0.3,1) forwards;
-}
-@keyframes rxModalSlide { from{transform:translateY(100%)} to{transform:translateY(0)} }
-
-/* Desktop modal - centered */
-@media (min-width: 600px) {
-    .rx-modal-overlay { align-items: center; padding: 20px; }
-    .rx-modal { border-radius: 20px; max-height: 70vh; }
-    @keyframes rxModalSlide { from{opacity:0;transform:scale(0.95)} to{opacity:1;transform:scale(1)} }
-}
-
-/* Mobile tweaks — full-width edge-to-edge stretch */
-@media (max-width: 767px) {
-    /* Hide header and lens-types ribbon on mobile for prescription page */
-    .header { display: none !important; }
-    .header2 { display: none !important; }
-
-    .container:has(.rx-page) { padding: 0 !important; }
-    main:has(.rx-page) { padding: 0 !important; }
-    .rx-page { max-width: 100%; width: 100%; margin: 0; padding: 0; box-sizing: border-box; }
-    .rx-head { padding: 16px 16px; border-radius: 0; margin: 0; }
-    .rx-card { border-radius: 0; border-left: none; border-right: none; margin: 0; }
-    .rx-card:last-of-type { border-radius: 0; }
-    .rx-title { font-size: 16px; }
-    .rx-card-head { padding: 18px 16px; }
-    .rx-card-body { padding: 14px 16px; }
-    .rx-row { gap: 6px; }
-    .rx-field select { padding: 9px 6px; font-size: 13px; }
-    .rx-summary-msg { padding: 12px 16px; }
-    .rx-summary-actions { padding: 12px 16px; gap: 8px; }
-    .rx-btn-checkout { padding: 14px 16px; font-size: 14px; width: 100%; }
-    .rx-btn-rebuild { padding: 14px 16px; width: 100%; }
-
-    /* Make step badges bigger and more prominent on mobile */
-    .rx-step-badge {
-        width: 36px; height: 36px;
-        font-size: 17px; font-weight: 800;
-        box-shadow: 0 2px 8px rgba(99,102,241,0.3);
-    }
-    .rx-card-title { font-size: 17px; font-weight: 700; }
-}
-@media (max-width: 380px) {
-    .rx-head { padding: 14px 12px; }
-    .rx-card-head { padding: 12px 12px; }
-    .rx-card-body { padding: 12px 12px; }
-    .rx-field select { padding: 8px 4px; font-size: 12px; }
-    .rx-summary-msg { padding: 10px 12px; }
-    .rx-summary-actions { padding: 10px 12px; }
-}
-
-/* ===== LARGE SCREEN / DESKTOP / SMART TV ===== */
-
-/* Tablet landscape & small desktop */
-@media (min-width: 768px) {
-    .rx-page { max-width: 700px; padding: 0 24px; }
-    .rx-head { padding: 24px 24px; }
-    .rx-title { font-size: 20px; }
-    .rx-sub { font-size: 14px; }
-    .rx-card-body { padding: 20px 24px; }
-    .rx-card-head { padding: 16px 24px; }
-    .rx-field select { padding: 12px 10px; font-size: 15px; }
-    .rx-eye-label { font-size: 13px; }
-    .rx-opt-card { padding: 16px 20px; }
-    .rx-opt-name { font-size: 15px; }
-    .rx-opt-desc { font-size: 12px; }
-    .rx-btn-primary { padding: 16px 24px; font-size: 15px; }
-    .rx-btn-secondary { padding: 16px 24px; font-size: 15px; }
-    .rx-summary { font-size: 15px; padding: 14px 20px; }
-    .rx-modal { max-width: 560px; }
-}
-
-/* Standard desktop */
-@media (min-width: 1024px) {
-    .rx-page { max-width: 780px; padding: 0 32px; margin-top: 0; }
-    .rx-head { padding: 28px 32px; border-radius: 20px 20px 0 0; }
-    .rx-title { font-size: 22px; }
-    .rx-sub { font-size: 15px; }
-    .rx-card-body { padding: 24px 32px; }
-    .rx-card-head { padding: 18px 32px; }
-    .rx-step-badge { width: 30px; height: 30px; font-size: 14px; }
-    .rx-card-title { font-size: 17px; }
-    .rx-field select { padding: 13px 12px; font-size: 16px; border-radius: 12px; }
-    .rx-field label { font-size: 11px; }
-    .rx-eye-label { font-size: 13px; margin-bottom: 10px; }
-    .rx-row { gap: 14px; }
-    .rx-opt-card { padding: 18px 22px; border-radius: 14px; }
-    .rx-opt-icon { width: 48px; height: 48px; border-radius: 14px; }
-    .rx-opt-name { font-size: 16px; }
-    .rx-opt-desc { font-size: 13px; }
-    .rx-opt-sel { font-size: 12px; padding: 4px 10px; }
-    .rx-btn-primary { padding: 18px 28px; font-size: 16px; border-radius: 14px; }
-    .rx-btn-secondary { padding: 18px 28px; font-size: 16px; border-radius: 14px; }
-    .rx-summary { font-size: 16px; padding: 16px 24px; border-radius: 12px; }
-    .rx-actions { gap: 14px; margin-top: 18px; }
-    .rx-add-toggle { padding: 12px 20px; font-size: 14px; }
-    .rx-modal { max-width: 620px; }
-    .rx-modal-head h3 { font-size: 19px; }
-    .rx-modal-opt-body { padding: 16px 20px; gap: 16px; }
-    .rx-modal-opt-info strong { font-size: 15px; }
-    .rx-modal-opt-price { font-size: 14px; }
-    .rx-modal-opt-desc { font-size: 12px; }
-}
-
-/* Large desktop / wide monitors */
-@media (min-width: 1400px) {
-    .rx-page { max-width: 860px; }
-    .rx-head { padding: 32px 36px; }
-    .rx-title { font-size: 24px; }
-    .rx-sub { font-size: 16px; }
-    .rx-card-body { padding: 28px 36px; }
-    .rx-card-head { padding: 20px 36px; }
-    .rx-step-badge { width: 32px; height: 32px; font-size: 15px; }
-    .rx-card-title { font-size: 18px; }
-    .rx-field select { padding: 14px 14px; font-size: 17px; }
-    .rx-field label { font-size: 12px; }
-    .rx-row { gap: 16px; }
-    .rx-opt-card { padding: 20px 24px; }
-    .rx-opt-icon { width: 52px; height: 52px; }
-    .rx-opt-name { font-size: 17px; }
-    .rx-opt-desc { font-size: 13px; }
-    .rx-btn-primary { padding: 20px 32px; font-size: 17px; }
-    .rx-btn-secondary { padding: 20px 32px; font-size: 17px; }
-    .rx-summary { font-size: 17px; padding: 18px 28px; }
-}
-
-/* Smart TV / 4K displays (1920px+) */
-@media (min-width: 1920px) {
-    .rx-page { max-width: 1000px; padding: 0 40px; margin-top: 20px; }
-    .rx-head { padding: 36px 40px; border-radius: 24px 24px 0 0; }
-    .rx-head-orb { width: 140px; height: 140px; }
-    .rx-head-orb2 { width: 100px; height: 100px; }
-    .rx-title { font-size: 28px; }
-    .rx-sub { font-size: 18px; }
-    .rx-head-icon { width: 36px; height: 36px; }
-    .rx-head-inner { gap: 16px; }
-    .rx-card-body { padding: 32px 40px; }
-    .rx-card-head { padding: 22px 40px; }
-    .rx-step-badge { width: 36px; height: 36px; font-size: 17px; }
-    .rx-card-title { font-size: 20px; }
-    .rx-field select { padding: 16px 16px; font-size: 18px; border-radius: 14px; }
-    .rx-field label { font-size: 13px; margin-bottom: 6px; }
-    .rx-eye-label { font-size: 14px; margin-bottom: 12px; }
-    .rx-row { gap: 20px; }
-    .rx-opt-card { padding: 22px 28px; border-radius: 16px; gap: 16px; }
-    .rx-opt-icon { width: 56px; height: 56px; border-radius: 16px; }
-    .rx-opt-name { font-size: 18px; }
-    .rx-opt-desc { font-size: 14px; margin-top: 2px; }
-    .rx-opt-sel { font-size: 13px; padding: 5px 12px; }
-    .rx-btn-primary { padding: 22px 36px; font-size: 18px; border-radius: 16px; }
-    .rx-btn-secondary { padding: 22px 36px; font-size: 18px; border-radius: 16px; }
-    .rx-summary { font-size: 18px; padding: 20px 32px; border-radius: 14px; }
-    .rx-actions { gap: 16px; margin-top: 22px; }
-    .rx-add-toggle { padding: 14px 24px; font-size: 16px; border-radius: 14px; }
-    .rx-card:last-of-type { border-radius: 0 0 24px 24px; }
-    .rx-modal { max-width: 700px; }
-    .rx-modal-head { padding: 22px 28px; }
-    .rx-modal-head h3 { font-size: 22px; }
-    .rx-modal-close { width: 40px; height: 40px; font-size: 24px; }
-    .rx-modal-body { padding: 20px 28px; gap: 14px; }
-    .rx-modal-opt-body { padding: 20px 24px; gap: 18px; border-radius: 16px; }
-    .rx-modal-opt-icon { width: 52px; height: 52px; border-radius: 14px; }
-    .rx-modal-opt-info strong { font-size: 17px; }
-    .rx-modal-opt-price { font-size: 16px; }
-    .rx-modal-opt-desc { font-size: 13px; }
-    .rx-modal-foot { padding: 18px 28px; gap: 14px; }
-    .rx-modal-btn-skip, .rx-modal-btn-ok { padding: 16px; font-size: 15px; border-radius: 14px; }
-}
-
-/* Ultra-wide / very large smart TVs (2560px+) */
-@media (min-width: 2560px) {
-    .rx-page { max-width: 1200px; padding: 0 48px; margin-top: 40px; }
-    .rx-head { padding: 44px 48px; }
-    .rx-title { font-size: 34px; }
-    .rx-sub { font-size: 20px; }
-    .rx-card-body { padding: 40px 48px; }
-    .rx-card-head { padding: 28px 48px; }
-    .rx-step-badge { width: 42px; height: 42px; font-size: 20px; }
-    .rx-card-title { font-size: 24px; }
-    .rx-field select { padding: 18px 18px; font-size: 22px; border-radius: 16px; }
-    .rx-field label { font-size: 15px; margin-bottom: 8px; }
-    .rx-eye-label { font-size: 16px; margin-bottom: 14px; }
-    .rx-row { gap: 24px; }
-    .rx-opt-card { padding: 28px 32px; border-radius: 20px; gap: 20px; }
-    .rx-opt-icon { width: 64px; height: 64px; border-radius: 18px; }
-    .rx-opt-name { font-size: 22px; }
-    .rx-opt-desc { font-size: 16px; }
-    .rx-btn-primary { padding: 26px 44px; font-size: 22px; border-radius: 18px; }
-    .rx-btn-secondary { padding: 26px 44px; font-size: 22px; border-radius: 18px; }
-    .rx-summary { font-size: 22px; padding: 24px 36px; }
-    .rx-add-toggle { padding: 18px 28px; font-size: 18px; }
-}
-
-</style>
-
 <script>var owIsIndia = {{ "true" if is_india else "false" }};</script>
 <script>
 /* ===== MODAL CONTROL ===== */
@@ -963,8 +552,8 @@ function resetForm() {
     document.getElementById('hiddenLensPrice').value = '0';
     document.getElementById('hiddenCylPrice').value = '0';
     document.getElementById('hiddenAddPrice').value = '0';
-    document.getElementById('lensRecommendation').innerHTML = '<p>Ok lets rebuild your lenses again</p>';
-    document.getElementById('checkoutButton').value = 'Checkout frames with lenses now';
+    document.getElementById('lensRecommendation').innerHTML = '<p>Cleared. Enter your prescription again.</p>';
+    document.getElementById('checkoutButton').value = 'Add to cart with lenses';
     document.getElementById('checkoutButton').disabled = false;
     localStorage.clear();
 }
@@ -1072,7 +661,7 @@ function calculateLensRecommendation() {
     if (add_fieldset_1 > 0) summary += '<p style="font-size:12px;color:#6366f1;">+ Coating ' + fmtPrice(add_fieldset_1) + '</p>';
     if (add_fieldset_2 > 0) summary += '<p style="font-size:12px;color:#8b5cf6;">+ Lens upgrade ' + fmtPrice(add_fieldset_2) + '</p>';
     document.getElementById('lensRecommendation').innerHTML = summary;
-    document.getElementById('checkoutButton').value = 'Checkout with lenses — Total ' + fmtPrice(totalPrice);
+    document.getElementById('checkoutButton').value = 'Add to cart — Total ' + fmtPrice(totalPrice);
 
     // Save to localStorage
     localStorage.setItem('rightPwr', rightPwr);
@@ -1173,14 +762,146 @@ window.onload = function() {
     const slp = localStorage.getItem('leftPwr');
     const sr = localStorage.getItem('recommendation');
     const stp = parseFloat(localStorage.getItem('totalPrice'));
-    if (sp && slp) {
-        document.getElementById('right_pwr').value = sp;
-        document.getElementById('left_pwr').value = slp;
+    if (sp && slp && !isNaN(parseFloat(sp)) && !isNaN(parseFloat(slp))) {
+        document.getElementById('right_pwr').value = parseFloat(sp).toFixed(2);
+        document.getElementById('left_pwr').value = parseFloat(slp).toFixed(2);
         if (sr) document.getElementById('lensRecommendation').innerHTML = '<p>' + sr + '</p>';
-        if (stp) document.getElementById('checkoutButton').value = 'Checkout Now — Total ' + fmtPrice(stp);
+        if (stp) document.getElementById('checkoutButton').value = 'Add to cart — Total ' + fmtPrice(stp);
     }
     // Always sync hidden fields on load so form values are never empty
     calculateLensRecommendation();
 };
+
+/* ===== PHOTO READER (eyeglasses only; proposes into the selects above) ===== */
+(function () {
+    var input = document.getElementById('rxPhotoInput');
+    var btn = document.getElementById('rxScanBtn');
+    var status = document.getElementById('rxScanStatus');
+    if (!input || !btn || !status) return;
+
+    function say(kind, html) {
+        status.hidden = false;
+        status.className = 'rxp-scan__status is-' + kind;
+        status.innerHTML = html;
+    }
+    function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+    function setSel(id, val) {
+        var el = document.getElementById(id);
+        if (!el || val === null || val === undefined || val === '') return false;
+        var ok = false;
+        for (var i = 0; i < el.options.length; i++) { if (el.options[i].value === val) { ok = true; break; } }
+        if (!ok) return false;
+        el.value = val;
+        el.classList.add('rxp-filled');
+        setTimeout(function () { el.classList.remove('rxp-filled'); }, 6000);
+        return true;
+    }
+    function done() { btn.disabled = false; btn.classList.remove('is-busy'); input.value = ''; }
+
+    /* bot checks: a token from this page, and for guests the site's own code, once per visit */
+    var token = '', needHuman = false, human = document.getElementById('rxHuman');
+    var humanImg = document.getElementById('rxHumanImg'), humanCode = document.getElementById('rxHumanCode');
+    function challenge() {
+        return fetch('/api/rx-photo/challenge', { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (j) {
+            token = j.token || ''; needHuman = !!j.captcha;
+            if (j.image) humanImg.src = 'data:image/png;base64,' + j.image;
+        });
+    }
+    challenge();
+    document.getElementById('rxHumanGo').addEventListener('click', function () {
+        fetch('/api/rx-photo/verify', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ captcha: humanCode.value }) })
+            .then(function (r) { return r.json(); }).then(function (j) {
+                humanCode.value = '';
+                if (j.ok) { needHuman = false; human.hidden = true; say('ok', 'Thank you. Tap <strong>Scan your prescription</strong> to choose the photo.'); }
+                else { if (j.image) humanImg.src = 'data:image/png;base64,' + j.image; say('err', esc(j.message || 'Please try again.')); }
+            });
+    });
+    btn.addEventListener('click', function () {
+        if (needHuman) { human.hidden = false; say('busy', 'Please type the code first. This keeps automated traffic out.'); humanCode.focus(); return; }
+        input.click();
+    });
+    input.addEventListener('change', function () {
+        var f = input.files && input.files[0];
+        if (!f) return;
+        if (f.size > 12 * 1024 * 1024) { say('err', 'That file is larger than 12 MB. Please choose a smaller photo.'); input.value = ''; return; }
+        btn.disabled = true; btn.classList.add('is-busy');
+        say('busy', '<span class="rxp-spin"></span> Reading your prescription&hellip; this can take up to 30 seconds.');
+        var fd = new FormData();
+        fd.append('rx_photo', f, f.name || 'rx.jpg');
+        fd.append('token', token);
+        fd.append('website_url', document.getElementById('rxPhotoHp').value);
+        fetch('/api/rx-photo/read', { method: 'POST', body: fd, credentials: 'same-origin' })
+            .then(function (r) { return r.json().then(function (j) { return j; }, function () { return {}; }); })
+            .then(function (j) {
+                if (!j || !j.ok) { say('err', esc((j && j.message) || 'We could not read that photo. Please type the values below.')); done(); return; }
+                var eyes = j.eyes || {};
+                var anyAdd = !!((eyes.right && eyes.right.add) || (eyes.left && eyes.left.add));
+                var addOpen = document.getElementById('addFields').style.display !== 'none';
+                if (anyAdd && !addOpen) showAddDropdowns();
+                var filled = 0;
+                ['right', 'left'].forEach(function (eye) {
+                    var v = eyes[eye]; if (!v) return;
+                    if (setSel(eye + '_pwr', v.sph)) filled++;
+                    if (setSel(eye + '_cyl', v.cyl)) filled++;
+                    if (setSel(eye + '_axis', v.axis)) filled++;
+                    if (anyAdd && v.add) setSel(eye + '_add', v.add);
+                });
+                calculateLensRecommendation();
+                var conf = (typeof j.confidence === 'number') ? j.confidence : null;
+                var unsure = conf !== null && conf < 0.6;
+                var html = '<strong>' + (unsure ? 'We read the photo but are not fully sure.' : 'Read from your photo.') + '</strong> ' +
+                           'Check every value against your paper before you continue' + (filled ? ' (' + filled + ' fields filled)' : '') + '.';
+                if (j.notes && j.notes.length) {
+                    html += '<ul>'; j.notes.forEach(function (n) { html += '<li>' + esc(n) + '</li>'; }); html += '</ul>';
+                }
+                say(unsure ? 'warn' : 'ok', html);
+                done();
+            }, function () { say('err', 'We could not reach the reader. Please type the values below.'); done(); });
+    });
+})();
+
+/* ===== ONE TAP: choosing an option applies it and closes the sheet (the footer buttons still work) ===== */
+(function () {
+    var map = { add_selections: ['applyCoating', 'coatingModal'], add_selections2: ['applyThickness', 'thicknessModal'], addon_3: ['applyBifocal', 'bifocalModal'] };
+    Object.keys(map).forEach(function (name) {
+        document.querySelectorAll('input[name="' + name + '"]').forEach(function (radio) {
+            radio.addEventListener('change', function () {
+                if (!radio.checked) return;
+                setTimeout(function () { window[map[name][0]](); closeModal(map[name][1]); }, 120);
+            });
+        });
+    });
+})();
+
+/* ===== PHONE BAR: mirrors the summary button ===== */
+(function () {
+    var bar = document.getElementById('rxStickyBar');
+    if (!bar) return;
+    var total = document.getElementById('rxBarTotal');
+    var go = document.getElementById('rxStickyBtn');
+    function sync() {
+        var t = parseFloat(document.getElementById('totalPrice').value);
+        if (!isNaN(t) && t > 0) total.textContent = fmtPrice(Math.round(t));
+        var ck = document.getElementById('checkoutButton');
+        go.classList.toggle('is-off', !!ck.disabled);
+    }
+    var orig = calculateLensRecommendation;
+    calculateLensRecommendation = function () { orig(); sync(); };
+    ['right_pwr','left_pwr','right_cyl','left_cyl','right_axis','left_axis','right_add','left_add'].forEach(function (id) {
+        var el = document.getElementById(id); if (el) el.addEventListener('change', sync);
+    });
+    go.addEventListener('click', function () {
+        var ck = document.getElementById('checkoutButton');
+        if (ck.disabled) {
+            var s = document.getElementById('lensRecommendation');
+            s.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            s.classList.remove('rxp-shake'); void s.offsetWidth; s.classList.add('rxp-shake');
+            return;
+        }
+        go.disabled = true; go.textContent = 'Adding…';
+        ck.click();
+    });
+    sync();
+})();
 </script>
 {% endblock %}

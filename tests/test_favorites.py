@@ -314,6 +314,7 @@ class FavoritesTests(unittest.TestCase):
         env.globals["url_for"] = lambda name, **kw: "/" + name
         env.globals["img_has_derivatives"] = lambda *a, **k: False
         env.globals["img_ver"] = lambda *a, **k: ""
+        env.globals["_"] = lambda s, **k: s          # the page is translated like the rest of the site
         for p in products:
             p.setdefault("product_image", "")
             p.setdefault("product_perception_value", "")

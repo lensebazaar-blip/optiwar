@@ -1,0 +1,30 @@
+/* Shared styling for the public forms (trademark/copyright notice, become a supplier). Loaded after legal.css. */
+.owf-form { display: grid; gap: 14px; }
+.owf-row { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+.owf-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.owf-field label { font-size: 13px; font-weight: 700; color: #0f172a; }
+.owf-field label small { font-weight: 500; color: #64748b; }
+.owf-field input[type="text"], .owf-field input[type="email"], .owf-field input[type="tel"], .owf-field textarea, .owf-field select { width: 100%; min-height: 46px; padding: 10px 12px; border: 1.5px solid #cbd5e1; border-radius: 10px; font: inherit; font-size: 16px; color: #0f172a; background: #fff; box-sizing: border-box; }
+.owf-field textarea { min-height: 110px; resize: vertical; line-height: 1.5; }
+.owf-field input:focus, .owf-field textarea:focus, .owf-field select:focus { outline: none; border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,.12); }
+.owf-field.is-bad input, .owf-field.is-bad textarea, .owf-field.is-bad select { border-color: #dc2626; }
+.owf-err { font-size: 12.5px; color: #b91c1c; font-weight: 600; }
+.owf-check { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border: 1.5px solid #e2e8f0; border-radius: 10px; background: #f8fafc; font-size: 13.5px; line-height: 1.5; color: #334155; cursor: pointer; }
+.owf-check input { margin-top: 3px; width: 18px; height: 18px; flex: 0 0 18px; accent-color: #4f46e5; }
+.owf-check.is-bad { border-color: #dc2626; }
+.owf-submit { min-height: 50px; padding: 12px 22px; border: 0; border-radius: 12px; background: #4f46e5; color: #fff; font: inherit; font-size: 15px; font-weight: 800; cursor: pointer; box-shadow: 0 6px 18px rgba(79,70,229,.25); }
+.owf-hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+.owf-steps { margin: 0 0 14px; padding: 0; list-style: none; display: grid; gap: 8px; }
+.owf-steps li { display: flex; gap: 10px; align-items: flex-start; margin: 0; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; font-size: 13.5px; line-height: 1.45; color: #334155; box-shadow: none; }
+.owf-steps b { flex: 0 0 24px; height: 24px; border-radius: 50%; background: #eef2ff; color: #4f46e5; display: inline-grid; place-items: center; font-size: 12px; }
+.owf-ack { padding: 16px; border: 1px solid #a7f3d0; border-radius: 14px; background: #ecfdf5; color: #065f46; }
+.owf-ack h2 { margin: 0 0 6px; font-size: 20px; color: #065f46; text-align: left; }
+.owf-ack .ref { font-size: 22px; font-weight: 900; letter-spacing: .04em; color: #064e3b; }
+.owf-copy { margin-top: 14px; padding: 14px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; line-height: 1.5; color: #334155; overflow-wrap: anywhere; }
+.owf-warn { padding: 12px 14px; border: 1px solid #fde68a; border-radius: 10px; background: #fffbeb; color: #92400e; font-size: 13.5px; }
+@media (min-width: 700px) { .owf-row--2 { grid-template-columns: 1fr 1fr; } .owf-row--3 { grid-template-columns: 1fr 1fr 1fr; } }
+.owf-check-group { display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+.owf-check-group label { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; font-size: 13.5px; cursor: pointer; }
+.owf-check-group input { width: 18px; height: 18px; accent-color: #4f46e5; margin: 0; }
+.owf-fieldset { margin: 6px 0 0; padding: 0; border: 0; }
+.owf-fieldset legend { font-size: 15px; font-weight: 800; color: #0f172a; padding: 0 0 6px; }

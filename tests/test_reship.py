@@ -116,6 +116,7 @@ def _app():
     app.secret_key = "test-only"
     app.config["OPS_API_TOKEN"] = TOKEN
     app.config["RAZORPAY_KEY_ID"] = "rzp_test_x"
+    app.config["CONTENT_GUARD_SKIP"] = True
     bp = Blueprint("main", __name__)
     reship_api.register(bp)
     app.register_blueprint(bp)
