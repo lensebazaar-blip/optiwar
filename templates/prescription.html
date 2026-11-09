@@ -809,6 +809,7 @@ window.onload = function() {
     var FIELD_IDS = { sph: '_pwr', cyl: '_cyl', axis: '_axis', add: '_add' };
     var checks = {};
     function checkCount() { return Object.keys(checks).length; }
+    function checksTitle(n) { return 'Please check ' + n + (n === 1 ? ' value' : ' values') + ' against your paper before you continue.'; }
     function clearTemp(el) { var t = el.querySelector('option[data-rx-temp]'); if (t) t.remove(); }
     function settle(id) {
         var el = document.getElementById(id);
@@ -817,10 +818,9 @@ window.onload = function() {
         var row = status.querySelector('[data-rx-check="' + id + '"]');
         if (row) row.remove();
         window.rxChecksOpen = checkCount();
-        if (!window.rxChecksOpen) {
-            var note = status.querySelector('[data-rx-check-title]');
-            if (note) { note.textContent = 'All values settled. Check them once more against your paper before you continue.'; status.className = 'rxp-scan__status is-ok'; }
-        }
+        var note = status.querySelector('[data-rx-check-title]');
+        if (note && window.rxChecksOpen) { note.textContent = checksTitle(window.rxChecksOpen); }
+        else if (note) { note.textContent = 'All values settled. Check them once more against your paper before you continue.'; status.className = 'rxp-scan__status is-ok'; }
         calculateLensRecommendation();
     }
     window.rxClearChecks = function () {
@@ -942,8 +942,7 @@ window.onload = function() {
                 window.rxChecksOpen = checkCount();
                 calculateLensRecommendation();
                 if (window.rxChecksOpen) {
-                    var nw = window.rxChecksOpen;
-                    var top = '<strong data-rx-check-title>Please check ' + nw + (nw === 1 ? ' value' : ' values') + ' against your paper before you continue.</strong>' + rows;
+                    var top = '<strong data-rx-check-title>' + checksTitle(window.rxChecksOpen) + '</strong>' + rows;
                     if (j.notes && j.notes.length) { top += '<ul>' + j.notes.map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('') + '</ul>'; }
                     say('warn', top);
                     done();

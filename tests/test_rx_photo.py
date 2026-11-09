@@ -843,6 +843,7 @@ class FindReadCompare(unittest.TestCase):
         page = open(os.path.join(REPO, "templates", "prescription.html"), encoding="utf-8").read()
         self.assertIn("if (window.rxChecksOpen) {", page)
         self.assertIn("if (window.rxChecksOpen) { e.preventDefault();", page)
+        self.assertIn("note.textContent = checksTitle(window.rxChecksOpen)", page)     # the count falls as each is settled
         self.assertIn("Which one should we use?", page)
         self.assertIn("Read this one", page)
         self.assertIn("css/rx-page.css') }}?v=8", page)
