@@ -92,6 +92,12 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .header .header-btn .btn-label { display: none; }
   .header .ow-nav-cart, .header .ow-desktop-only { display: none; }  /* cart + account live in the tab bar */
 }
+/* 768-899px: glassmorphism.css hides .ow-desktop-only up to 899px and the tab bar ends at 767px, so the
+   header keeps its login / account / logout buttons here or tablets would have no way to sign in or out. */
+@media (min-width: 768px) and (max-width: 899px) {
+  .header .ow-desktop-only { display: inline-flex !important; }
+  .header .header-btn { padding: 4px 8px; }
+}
 @media (min-width: 768px) {
   .header .header-btn { padding: 4px 12px; }
   .header .header-logo { font-size: 1.3rem; }
@@ -700,3 +706,7 @@ body:has(#owMobBar) main { padding-bottom: 90px; }
 @media (min-width: 1600px) { :root { --ow-max: 1440px; } #frames-list, #product-list { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 22px; } ul#product-list { grid-template-columns: repeat(5, minmax(0, 1fr)) !important; } .ow-profile-container { max-width: 1240px !important; } }
 @media (min-width: 1920px) { :root { --ow-max: 1640px; } #frames-list, #product-list { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 24px; } ul#product-list { grid-template-columns: repeat(6, minmax(0, 1fr)) !important; } .ow-hero h1 { font-size: 52px; } .ow-hero__sub { font-size: 18px; } .pdp-wrap { max-width: 1640px; margin: 0 auto; } }
 @media (min-width: 1024px) { .ow-profile-container { max-width: 1100px; } }
+/* profile: sign out from the page itself (the header button is hidden on phones) */
+.ow-profile-logout { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; align-self: center; padding: 8px 14px; border-radius: 999px; border: 1px solid rgba(255,255,255,.45); background: rgba(255,255,255,.14); color: #fff; font-size: 13px; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.ow-profile-logout:hover { background: rgba(255,255,255,.26); }
+@media (max-width: 480px) { .ow-profile-logout { padding: 7px 10px; font-size: 12px; } }

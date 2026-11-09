@@ -301,4 +301,88 @@
 })();
 </script>
 
+{% if matching_ids %}
+<script>
+/* Server-side matching IDs - bypasses session-dependent AJAX */
+(function(){
+  var ids = {{ matching_ids | tojson }};
+  if(ids && ids.length){
+    window.__owFaceIds = ids;
+    console.log("[FaceMatch] Server-side loaded " + ids.length + " matching IDs");
+    if(typeof window.applyBadges === 'function') window.applyBadges();
+  }
+})();
+</script>
+{% endif %}
+
+{% if face_meas %}
+<script>window.__owFaceMeas = {{ face_meas | tojson }};</script>
+{% endif %}
+
+<!-- Face Match Popup Overlay -->
+<div id="owFacePopup" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.45);align-items:center;justify-content:center;" onclick="closeFacePopup(event)">
+  <div id="owFacePopupCard" style="background:#fff;border-radius:20px;padding:28px 24px 24px;max-width:380px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.25);position:relative;text-align:center;animation:owPopIn 0.3s ease;">
+    <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#22c55e,#16a34a);margin:0 auto 16px;display:flex;align-items:center;justify-content:center;">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+    </div>
+    <h3 style="margin:0 0 8px;font-size:20px;font-weight:700;color:#1e293b;">Perfect Match!</h3>
+    <p style="margin:0 0 18px;font-size:14px;color:#64748b;line-height:1.6;">This frame matches your face measurements and you can choose it with confidence.</p>
+    <div style="background:#f8fafc;border-radius:12px;padding:16px;margin-bottom:18px;">
+      <div style="display:flex;justify-content:space-around;gap:12px;flex-wrap:wrap;">
+        <div style="text-align:center;min-width:80px;">
+          <div style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">PD</div>
+          <div id="owPopPD" style="font-size:22px;font-weight:800;color:#4f46e5;margin-top:2px;">--</div>
+          <div style="font-size:11px;color:#94a3b8;">mm</div>
+        </div>
+        <div style="width:1px;background:#e2e8f0;"></div>
+        <div style="text-align:center;min-width:80px;">
+          <div style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Face Width</div>
+          <div id="owPopFW" style="font-size:22px;font-weight:800;color:#4f46e5;margin-top:2px;">--</div>
+          <div style="font-size:11px;color:#94a3b8;">mm</div>
+        </div>
+        <div style="width:1px;background:#e2e8f0;"></div>
+        <div style="text-align:center;min-width:80px;">
+          <div style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Temple</div>
+          <div id="owPopTL" style="font-size:22px;font-weight:800;color:#4f46e5;margin-top:2px;">--</div>
+          <div style="font-size:11px;color:#94a3b8;">mm</div>
+        </div>
+      </div>
+    </div>
+    <button onclick="closeFacePopupBtn()" style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;border:none;border-radius:12px;padding:12px 32px;font-size:15px;font-weight:600;cursor:pointer;width:100%;transition:opacity 0.2s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">Got it!</button>
+  </div>
+</div>
+<style>
+@keyframes owPopIn{from{opacity:0;transform:scale(0.85);}to{opacity:1;transform:scale(1);}}
+#owFacePopup[style*="flex"]{display:flex!important;}
+</style>
+<script>
+function openFacePopup(){
+  var m = window.__owFaceMeas;
+  if(m){
+    document.getElementById("owPopPD").textContent = m.pd || "--";
+    document.getElementById("owPopFW").textContent = m.face_width || "--";
+    document.getElementById("owPopTL").textContent = m.temple_length || "--";
+  }
+  document.getElementById("owFacePopup").style.display = "flex";
+  document.body.style.overflow = "hidden";
+}
+function closeFacePopup(e){
+  if(e && e.target.id !== "owFacePopup") return;
+  document.getElementById("owFacePopup").style.display = "none";
+  document.body.style.overflow = "";
+}
+function closeFacePopupBtn(){
+  document.getElementById("owFacePopup").style.display = "none";
+  document.body.style.overflow = "";
+}
+/* Attach click handlers to all MATCHED badges */
+document.addEventListener("click", function(e){
+  var badge = e.target.closest(".ow-card-facefit-badge.visible");
+  if(badge && window.__owFaceMeas){
+    e.preventDefault();
+    e.stopPropagation();
+    openFacePopup();
+  }
+}, true);
+</script>
 {% endblock %}
