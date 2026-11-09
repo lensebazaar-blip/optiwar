@@ -204,6 +204,8 @@ class _AlertHandler(logging.Handler):
 
     def emit(self, record):
         try:
+            if record.levelno < logging.ERROR:  # log_hygiene resets every app.logger handler's level
+                return
             if getattr(_local, "delivering", False) or not self.app.config.get("ERROR_ALERTS_ENABLED", True):
                 return
             if self.app.testing and not self.app.config.get("ERROR_ALERTS_IN_TESTS"):
