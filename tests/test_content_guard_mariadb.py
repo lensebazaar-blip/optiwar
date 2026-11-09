@@ -69,9 +69,10 @@ class WhichAiOnRealMariaDB(unittest.TestCase):
 
     def test_todays_counts_and_the_blink(self):
         today = datetime.date.today()
-        for provider in ("Claude", "Claude"):
+        for provider in ("Claude Haiku", "Claude Haiku"):
             self.cg.count_check(self.db, self.cur, provider, today)
-        self.assertEqual(self.ops.ai_checks(self.cur, today), [{"provider": "Claude", "checks": 2}])
+        self.assertEqual(self.ops.ai_checks(self.cur, today), [{"provider": "Claude Haiku", "checks": 2}])
+        self.cg.count_check(self.db, self.cur, "Claude Opus", today)
         self.assertFalse(self.ops.indicators(self.cur, 20, 300, today)["checks_blink"])
-        self.cg.count_check(self.db, self.cur, "OpenAI", today)
+        self.cg.count_check(self.db, self.cur, "DeepSeek", today)
         self.assertTrue(self.ops.indicators(self.cur, 20, 300, today)["checks_blink"])

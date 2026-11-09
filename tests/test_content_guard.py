@@ -176,42 +176,55 @@ class Backups(Screen):
     def _workloads(self):
         return [c["workload"] for c in self.calls]
 
-    def test_claude_goes_first_and_costs_no_other_call(self):
+    def _claude_down(self):
+        self.claude_answers.extend([RuntimeError("down"), RuntimeError("down")])
+
+    def _models(self):
+        return [c["model"] for c in self.claude_calls]
+
+    def test_the_cheapest_claude_goes_first_and_costs_no_other_call(self):
         self.claude_answers.append("none")
         self.assertIsNone(self._screen())
         self.assertEqual(self._workloads(), [])
+        self.assertEqual(self._models(), ["claude-haiku-5-5"])
         call = self.claude_calls[0]
-        self.assertEqual(call["model"], "claude-opus-5-5")
         self.assertEqual(call["messages"][0]["content"][0]["type"], "image")
         self.assertEqual(self.claude_client["max_retries"], 0)
+        self.assertNotIn("extra_body", call)            # Haiku has no server-side fallback
 
-    def test_the_configured_provider_answers_when_claude_is_down(self):
-        self.claude_answers.append(RuntimeError("down"))
+    def test_the_higher_claude_answers_when_the_cheapest_fails(self):
+        self.claude_answers.extend([RuntimeError("down"), "none"])
+        self.assertIsNone(self._screen())
+        self.assertEqual(self._models(), ["claude-haiku-5-5", "claude-opus-5-5"])
+        self.assertEqual(self._workloads(), [])
+        self.assertEqual(self.claude_calls[1]["extra_body"], {"fallbacks": "default"})
+
+    def test_deepseek_answers_when_claude_is_down(self):
+        self._claude_down()
         self.answers.append("none")
         self.assertIsNone(self._screen())
-        self.assertEqual(self._workloads(), ["openai_vision"])
+        self.assertEqual(self._workloads(), ["deepseek_vision"])
 
-    def test_deepseek_is_last(self):
-        self.claude_answers.append(RuntimeError("down"))
+    def test_the_configured_provider_is_the_last_resort(self):
+        self._claude_down()
         self.answers.extend([RuntimeError("down"), "none"])
         self.assertIsNone(self._screen())
-        self.assertEqual(self._workloads(), ["openai_vision", "deepseek_vision"])
+        self.assertEqual(self._workloads(), ["deepseek_vision", "openai_vision"])
 
     def test_a_flag_says_which_ai_made_it(self):
-        self.claude_answers.append(RuntimeError("down"))
-        self.answers.extend([RuntimeError("down"), "extremist"])
+        self.claude_answers.extend([RuntimeError("down"), "extremist"])
         self.assertEqual(self._screen().code, "UPLOAD_BLOCKED")
         self.assertEqual(_Cursor.flags[0][1], "extremist")
-        self.assertEqual(_Cursor.flags[0][-1], "DeepSeek")
-        self.assertIn("Checked by: DeepSeek", self.alerts[0][2])
+        self.assertEqual(_Cursor.flags[0][-1], "Claude Opus")
+        self.assertIn("Checked by: Claude Opus", self.alerts[0][2])
 
     def test_the_days_count_goes_to_the_ai_that_answered(self):
         self.claude_answers.append("none")
         self._screen()
-        self.claude_answers.append(RuntimeError("down"))
+        self._claude_down()
         self.answers.append("none")
         self._screen()
-        self.assertEqual([a[1] for a in _Cursor.counts], ["Claude", "OpenAI"])
+        self.assertEqual([a[1] for a in _Cursor.counts], ["Claude Haiku", "DeepSeek"])
 
     def test_a_count_that_cannot_be_written_changes_nothing(self):
         def boom(*a):
@@ -219,19 +232,18 @@ class Backups(Screen):
         cursor = types.SimpleNamespace(execute=boom)
         self.assertIsNone(self.cg.count_check(_Db(), cursor, "Claude"))
 
-    def test_an_unclear_answer_goes_to_the_next_provider(self):
-        self.claude_answers.append("maybe")
-        self.answers.append("sexual")
+    def test_an_unclear_answer_goes_to_the_next_model(self):
+        self.claude_answers.extend(["maybe", "sexual"])
         self.assertEqual(self._screen().code, "UPLOAD_BLOCKED")
 
     def test_all_down_is_not_accepted_and_is_counted(self):
-        self.claude_answers.append(RuntimeError("down"))
+        self._claude_down()
         self.answers.extend([RuntimeError("down"), RuntimeError("down")])
         self.assertEqual(self._screen().code, "UPLOAD_CHECK_UNAVAILABLE")
         self.assertEqual([a[1] for a in _Cursor.counts], ["Not checked"])
 
     def test_a_claude_refusal_is_not_read_as_clean(self):
-        self.claude_answers.append(None)
+        self.claude_answers.extend([None, None])
         self.answers.extend([RuntimeError("down"), RuntimeError("down")])
         self.assertEqual(self._screen().code, "UPLOAD_CHECK_UNAVAILABLE")
 
@@ -246,7 +258,7 @@ class Backups(Screen):
         keep = ld.provider_name
         ld.provider_name = lambda c: "deepseek_vision"
         self.addCleanup(setattr, ld, "provider_name", keep)
-        self.claude_answers.append(RuntimeError("down"))
+        self._claude_down()
         self.answers.append(RuntimeError("down"))
         self.assertEqual(self._screen().status, 503)
         self.assertEqual(self._workloads(), ["deepseek_vision"])

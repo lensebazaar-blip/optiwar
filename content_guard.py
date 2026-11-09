@@ -7,8 +7,9 @@ gets the same verdict from its own reading call.
 * A flagged upload is refused, recorded in ``upload_flags`` (category, file
   hash, route, IP, customer: never the image), and that IP cannot upload for
   24 hours unless Ops mark the flag reviewed.
-* **Order (owner, 9 Nov 2026)**: Claude first, then the configured provider,
-  then DeepSeek; the next is asked only if one is down or gives no usable answer.
+* **Order (owner, 9 Nov 2026)**: Claude's cheapest model, a higher Claude model,
+  DeepSeek, then the configured provider if it is none of those. The next is
+  asked only if one is down or gives no usable answer.
 * **Which AI answered** is on every flag and its alert, and Ops see today's count
   per AI on /ops/controls (``upload_check_counts``). A clean image still leaves
   no row of its own.
@@ -26,7 +27,8 @@ CATEGORIES = ("child_sexual", "sexual", "extremist", "illegal", "graphic")
 BLOCK_HOURS = 24
 MAX_PAGES = 6
 DEADLINE = 15                       # seconds per provider, so three failing providers stay under a minute
-CLAUDE_MODEL = "claude-opus-5-5"
+CLAUDE_MODEL = "claude-haiku-5-5"
+CLAUDE_HIGHER_MODEL = "claude-opus-5-5"
 ALERT_TO = "admin@optiwar.com"
 
 Refusal = collections.namedtuple("Refusal", "code message status")
@@ -69,7 +71,6 @@ CREATE TABLE IF NOT EXISTS upload_check_counts (
 """
 TABLES = (("upload_flags", SCHEMA), ("upload_check_counts", COUNTS_SCHEMA))
 
-CLAUDE = "Claude"
 NOT_CHECKED = "Not checked"         # no AI could answer, so the upload was refused
 _LABELS = {"openai_vision": "OpenAI", "deepseek_vision": "DeepSeek"}
 
@@ -186,12 +187,18 @@ def _media_type(page, mime):
     return mime
 
 
-def _ask_claude(pages, mime):
-    """The question through the Anthropic SDK. Thinking is always on for this
-    model and counts against max_tokens, hence 1024 for a one-word answer. A
-    refusal leaves no text, which reads as no answer and so is not accepted.
-    fallbacks goes in extra_body because the SDK version that installs beside
-    our pinned typing_extensions predates the named argument."""
+def _claude_label(model):
+    """"Claude Haiku" for claude-haiku-5-5."""
+    parts = model.split("-")
+    return "Claude %s" % parts[1].title() if len(parts) > 1 else model
+
+
+def _ask_claude(pages, mime, model):
+    """The question through the Anthropic SDK. Thinking counts against max_tokens,
+    hence 1024 for a one-word answer. A refusal leaves no text, which reads as no
+    answer, so the next model is asked. Haiku has no server-side fallback, so only
+    the higher model sends it; it goes in extra_body because the SDK version that
+    installs beside our pinned typing_extensions predates the named argument."""
     key = _setting("ANTHROPIC_API_KEY")
     if not key:
         raise RuntimeError("ANTHROPIC_API_KEY is not set")
@@ -201,21 +208,24 @@ def _ask_claude(pages, mime):
                for page in pages[:MAX_PAGES]]
     content.append({"type": "text", "text": PROMPT})
     client = anthropic.Anthropic(api_key=key, max_retries=0, timeout=float(_setting("CONTENT_GUARD_DEADLINE", DEADLINE)))
-    resp = client.beta.messages.create(
-        model=_setting("CONTENT_GUARD_CLAUDE_MODEL", CLAUDE_MODEL), max_tokens=1024, output_config={"effort": "low"},
-        betas=["server-side-fallback-2026-07-01"], extra_body={"fallbacks": "default"}, messages=[{"role": "user", "content": content}])
+    fallback = {} if "haiku" in model else {"betas": ["server-side-fallback-2026-07-01"],
+                                            "extra_body": {"fallbacks": "default"}}
+    resp = client.beta.messages.create(model=model, max_tokens=1024, output_config={"effort": "low"},
+                                       messages=[{"role": "user", "content": content}], **fallback)
     return next((block.text for block in resp.content if block.type == "text"), "")
 
 
 def ask_model(pages, mime):
-    """``(answer, which AI gave it)``: the first usable answer from Claude, the
-    configured provider, then DeepSeek. ``("", None)`` when none gave one."""
+    """``(answer, which AI gave it)``: the first usable answer in the owner's
+    order (see the top of this file). ``("", None)`` when none gave one."""
     from flask import current_app  # noqa: PLC0415
     from . import lens_documents  # noqa: PLC0415
     primary = lens_documents.provider_name(_setting("LENS_RX_VISION_PROVIDER"))
-    checkers = [(CLAUDE, lambda: _ask_claude(pages, mime))]
+    models = dict.fromkeys((_setting("CONTENT_GUARD_CLAUDE_MODEL", CLAUDE_MODEL),
+                            _setting("CONTENT_GUARD_CLAUDE_HIGHER_MODEL", CLAUDE_HIGHER_MODEL)))
+    checkers = [(_claude_label(m), lambda m=m: _ask_claude(pages, mime, m)) for m in models]
     checkers += [(label(name), lambda n=name: _ask_workload(n, pages, mime))
-                 for name in dict.fromkeys((primary, "deepseek_vision"))]
+                 for name in dict.fromkeys(("deepseek_vision", primary))]
     for name, ask in checkers:
         try:
             text = ask()
