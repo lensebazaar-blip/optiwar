@@ -26,7 +26,7 @@
 {% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='ai-glasses/aig.css') }}?v=2">
+<link rel="stylesheet" href="{{ url_for('static', filename='ai-glasses/aig.css') }}?v=4">
 <div class="aig aig-pdp" id="aig-pdp">
   {% if preview %}<div class="aig-preview">Preview: AI Glasses are not live on optiwar.in yet. This page is hidden from customers and search engines.</div>{% endif %}
   <nav class="aig-crumbs"><a href="/">Home</a> / <a href="{{ url_for('ai_glasses.landing') }}">AI Glasses</a> / {{ p.family_title }}</nav>

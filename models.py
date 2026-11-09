@@ -554,8 +554,11 @@ def autocomplete():
 def index():
     db = get_db()
     cursor = db.cursor()
+    # The home shows a hero of 8 and a collection grid that people scroll a few
+    # rows of before "View all"; 48 random frames is plenty, and inlining all
+    # ~700 made the page 4.7 MB (660 KB gzipped). The listing page has the lot.
     cursor.execute("SELECT * FROM products where product_image!='NULL' AND product_quantity!=0"
-                   + catalogue_site_filter() + " order by RAND()")
+                   + catalogue_site_filter() + " order by RAND() LIMIT 48")
     products = cursor.fetchall()
     # Homepage grid (scripts.js loadProducts) is inlined for ALL products.
     # Attach PRIMARY media only (limit=1), and dump a TRIMMED projection to JS
@@ -614,9 +617,14 @@ def index():
         if _rr.get('lo'):
             _offer_range = {'low': str(int(_rr['lo'])), 'high': str(int(_rr['hi'])), 'currency': 'INR'}
 
+    # hero_ts lets the page tell a cached copy (nginx caches pages for 10 min) from a
+    # fresh render; on a cached copy scripts.js redraws the hero from productsData so
+    # every visit shows different frames.
+    import time as _time_idx
     response = make_response(render_template('index.html', products=products, products_js=products_js,
                                              meta=meta, lens_prices=_lens_prices, offer_range=_offer_range,
-                                             store_review_count=_store_review_count, store_avg_rating=_store_avg_rating))
+                                             store_review_count=_store_review_count, store_avg_rating=_store_avg_rating,
+                                             hero_ts=int(_time_idx.time())))
     return response
 
 @bp.route('/add_to_cart', methods=['POST'])
