@@ -7,8 +7,10 @@ gets the same verdict from its own reading call.
 * A flagged upload is refused, recorded in ``upload_flags`` (category, file
   hash, route, IP, customer: never the image), and that IP cannot upload for
   24 hours unless Ops mark the flag reviewed.
-* **If an image cannot be checked it is not accepted**: the customer is asked
-  to try again. These routes keep files, so an unchecked file is the risk.
+* **Backups (owner, 9 Nov 2026)**: if the configured provider is down or gives
+  no usable answer, DeepSeek and then Claude are asked the same question.
+* **If no provider can check an image it is not accepted**: the customer is
+  asked to try again. These routes keep files, so an unchecked file is the risk.
 
 Stdlib at import, so the deploy tool can read ``TABLES`` plainly.
 """
@@ -20,6 +22,8 @@ import re
 CATEGORIES = ("child_sexual", "sexual", "extremist", "illegal", "graphic")
 BLOCK_HOURS = 24
 MAX_PAGES = 6
+DEADLINE = 15                       # seconds per provider, so three failing providers stay under a minute
+CLAUDE_MODEL = "claude-opus-5-5"
 ALERT_TO = "admin@optiwar.com"
 
 Refusal = collections.namedtuple("Refusal", "code message status")
@@ -111,20 +115,80 @@ def verdict(text):
     return word if word in CATEGORIES or word == "none" else None
 
 
-def ask_model(pages, mime):
-    """One small vision call on the image(s); returns the model's text."""
+def _setting(name, default=""):
     import os  # noqa: PLC0415
     from flask import current_app  # noqa: PLC0415
-    from . import ai_client, lens_documents  # noqa: PLC0415
+    return current_app.config.get(name) or os.environ.get(name) or default
+
+
+def _ask_workload(workload, pages, mime):
+    """The question through ai_client (the configured provider and DeepSeek)."""
+    from . import ai_client  # noqa: PLC0415
     content = [{"type": "text", "text": PROMPT}]
     for page in pages[:MAX_PAGES]:
         content.append({"type": "image_url", "image_url": {
             "url": "data:%s;base64,%s" % (mime, base64.b64encode(page).decode("ascii")), "detail": "low"}})
-    workload = lens_documents.provider_name(current_app.config.get("LENS_RX_VISION_PROVIDER")
-                                            or os.environ.get("LENS_RX_VISION_PROVIDER"))
     resp = ai_client.call_model(workload=workload, messages=[{"role": "user", "content": content}],
-                                max_tokens=8, temperature=0, endpoint="/upload-screen")
+                                max_tokens=8, temperature=0, deadline=int(_setting("CONTENT_GUARD_DEADLINE", DEADLINE)),
+                                endpoint="/upload-screen")
     return resp.choices[0].message.content or ""
+
+
+def _media_type(page, mime):
+    """What the bytes are. Claude refuses an image whose declared type is wrong."""
+    if page[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if page[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if page[:4] == b"GIF8":
+        return "image/gif"
+    if page[:4] == b"RIFF" and page[8:12] == b"WEBP":
+        return "image/webp"
+    return mime
+
+
+def _ask_claude(pages, mime):
+    """The question through the Anthropic SDK. Thinking is always on for this
+    model and counts against max_tokens, hence 1024 for a one-word answer. A
+    refusal leaves no text, which reads as no answer and so is not accepted.
+    fallbacks goes in extra_body because the SDK version that installs beside
+    our pinned typing_extensions predates the named argument."""
+    key = _setting("ANTHROPIC_API_KEY")
+    if not key:
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
+    import anthropic  # noqa: PLC0415
+    content = [{"type": "image", "source": {"type": "base64", "media_type": _media_type(page, mime),
+                                            "data": base64.b64encode(page).decode("ascii")}}
+               for page in pages[:MAX_PAGES]]
+    content.append({"type": "text", "text": PROMPT})
+    client = anthropic.Anthropic(api_key=key, max_retries=0, timeout=float(_setting("CONTENT_GUARD_DEADLINE", DEADLINE)))
+    resp = client.beta.messages.create(
+        model=_setting("CONTENT_GUARD_CLAUDE_MODEL", CLAUDE_MODEL), max_tokens=1024, output_config={"effort": "low"},
+        betas=["server-side-fallback-2026-07-01"], extra_body={"fallbacks": "default"}, messages=[{"role": "user", "content": content}])
+    return next((block.text for block in resp.content if block.type == "text"), "")
+
+
+def ask_model(pages, mime):
+    """The first usable answer from the configured provider, then the backups;
+    "" when none of them gave one."""
+    from flask import current_app  # noqa: PLC0415
+    from . import lens_documents  # noqa: PLC0415
+    primary = lens_documents.provider_name(_setting("LENS_RX_VISION_PROVIDER"))
+    checkers = [(name, lambda n=name: _ask_workload(n, pages, mime))
+                for name in dict.fromkeys((primary, "deepseek_vision"))]
+    checkers.append(("claude", lambda: _ask_claude(pages, mime)))
+    for name, ask in checkers:
+        try:
+            text = ask()
+        except Exception as exc:  # noqa: BLE001 - the next provider may still answer
+            current_app.logger.warning("content_guard: %s failed (%s)", name, type(exc).__name__)
+            continue
+        if verdict(text) is not None:
+            if name != primary:
+                current_app.logger.warning("ACTIVITY:UPLOAD_CHECK_BACKUP provider=%s", name)
+            return text
+        current_app.logger.warning("content_guard: %s gave no usable answer", name)
+    return ""
 
 
 def _skipped():

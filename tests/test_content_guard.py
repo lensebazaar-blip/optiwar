@@ -142,6 +142,106 @@ class Screen(unittest.TestCase):
         self.assertIsNone(v(""))
 
 
+class Backups(Screen):
+    """A provider being down must not refuse the customer while another can answer."""
+
+    def setUp(self):
+        super().setUp()
+        self.claude_calls, self.claude_answers = [], []
+        guard = self
+
+        class Messages:
+            @staticmethod
+            def create(**kw):
+                guard.claude_calls.append(kw)
+                a = guard.claude_answers.pop(0)
+                if isinstance(a, Exception):
+                    raise a
+                blocks = [types.SimpleNamespace(type="thinking", thinking="")]
+                if a is not None:
+                    blocks.append(types.SimpleNamespace(type="text", text=a))
+                return types.SimpleNamespace(content=blocks)
+
+        def client(**kw):
+            guard.claude_client = kw
+            return types.SimpleNamespace(beta=types.SimpleNamespace(messages=Messages))
+        sys.modules["anthropic"] = types.SimpleNamespace(Anthropic=client)
+        self.addCleanup(sys.modules.pop, "anthropic", None)
+        self.app.config["ANTHROPIC_API_KEY"] = "k"
+        self.addCleanup(self.app.config.pop, "ANTHROPIC_API_KEY", None)
+
+    def test_the_primary_answer_costs_no_backup_call(self):
+        self.answers.append("none")
+        self.assertIsNone(self._screen())
+        self.assertEqual([c["workload"] for c in self.calls], ["openai_vision"])
+        self.assertEqual(self.claude_calls, [])
+
+    def test_deepseek_answers_when_the_primary_is_down(self):
+        self.answers.extend([RuntimeError("down"), "none"])
+        self.assertIsNone(self._screen())
+        self.assertEqual([c["workload"] for c in self.calls], ["openai_vision", "deepseek_vision"])
+        self.assertEqual(self.claude_calls, [])
+
+    def test_claude_answers_when_both_are_down(self):
+        self.answers.extend([RuntimeError("down"), RuntimeError("down")])
+        self.claude_answers.append("none")
+        self.assertIsNone(self._screen())
+        call = self.claude_calls[0]
+        self.assertEqual(call["model"], "claude-opus-5-5")
+        self.assertEqual(call["messages"][0]["content"][0]["type"], "image")
+        self.assertEqual(self.claude_client["max_retries"], 0)
+
+    def test_a_flag_from_a_backup_is_refused_and_alerted(self):
+        self.answers.extend([RuntimeError("down"), RuntimeError("down")])
+        self.claude_answers.append("extremist")
+        self.assertEqual(self._screen().code, "UPLOAD_BLOCKED")
+        self.assertEqual(_Cursor.flags[0][1], "extremist")
+        self.assertEqual(len(self.alerts), 1)
+
+    def test_an_unclear_answer_goes_to_the_next_provider(self):
+        self.answers.extend(["maybe", "sexual"])
+        self.assertEqual(self._screen().code, "UPLOAD_BLOCKED")
+
+    def test_all_down_is_still_not_accepted(self):
+        self.answers.extend([RuntimeError("down"), RuntimeError("down")])
+        self.claude_answers.append(RuntimeError("down"))
+        self.assertEqual(self._screen().code, "UPLOAD_CHECK_UNAVAILABLE")
+
+    def test_a_claude_refusal_is_not_read_as_clean(self):
+        self.answers.extend([RuntimeError("down"), RuntimeError("down")])
+        self.claude_answers.append(None)
+        self.assertEqual(self._screen().code, "UPLOAD_CHECK_UNAVAILABLE")
+
+    def test_without_a_claude_key_the_sdk_is_never_called(self):
+        self.app.config.pop("ANTHROPIC_API_KEY")
+        self.answers.extend([RuntimeError("down"), RuntimeError("down")])
+        self.assertEqual(self._screen().status, 503)
+        self.assertEqual(self.claude_calls, [])
+
+    def test_deepseek_is_not_asked_twice_when_it_is_the_primary(self):
+        ld = sys.modules["cg_pkg.lens_documents"]
+        keep = ld.provider_name
+        ld.provider_name = lambda c: "deepseek_vision"
+        self.addCleanup(setattr, ld, "provider_name", keep)
+        self.answers.append(RuntimeError("down"))
+        self.claude_answers.append("none")
+        self.assertIsNone(self._screen())
+        self.assertEqual([c["workload"] for c in self.calls], ["deepseek_vision"])
+
+    def test_claude_is_told_what_the_bytes_really_are(self):
+        self.assertEqual(self.cg._media_type(b"\x89PNG\r\n\x1a\nrest", "image/jpeg"), "image/png")
+        self.assertEqual(self.cg._media_type(b"unknown", "image/webp"), "image/webp")
+
+
+class PrivacyPolicy(unittest.TestCase):
+
+    def test_it_says_uploads_go_to_third_party_ai_checks(self):
+        text = open(os.path.join(REPO, "templates", "privacy_policy.html"), encoding="utf-8").read()
+        for words in ("face photos and face scans", "verified by third parties", "OpenAI, DeepSeek and Anthropic",
+                      "outside India"):
+            self.assertIn(words, text)
+
+
 class FaceScanUnreadable(Screen):
     """A file face_scan would keep but the check cannot open must not be stored unchecked."""
 
