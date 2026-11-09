@@ -46,6 +46,7 @@
     <div class="tile{% if indicators.day_blink %} blink{% endif %}"><b>{{ indicators.reads_today }} / {{ indicators.per_day }}</b><small>Photo reads today, all customers. Blinks from {{ (indicators.per_day * 0.8)|int }}; raise the limit below if genuine.</small></div>
     <div class="tile{% if indicators.ip_blink %} blink{% endif %}"><b>{{ indicators.at_limit }}</b><small>Customer IPs at their limit today ({{ indicators.near_limit }} more are near it)</small></div>
     <div class="tile{% if indicators.flag_blink %} blink{% endif %}"><b>{{ indicators.open_flags }}</b><small>Uploads refused as unlawful or sexual, waiting for review</small></div>
+    <div class="tile{% if indicators.checks_blink %} blink{% endif %}"><b style="font-size:18px">{% for c in indicators.checks %}{{ c.provider }} {{ c.checks }}{% if not loop.last %} · {% endif %}{% else %}None yet{% endfor %}</b><small>Which AI checked customer uploads today. Blinks when any check was not done by Claude, which means Claude could not answer.</small></div>
   </div>
 
   <h2>Settings</h2>
@@ -70,8 +71,8 @@
 
   <h2>Flagged uploads</h2>
   {% if flags %}
-  <table><thead><tr><th>When</th><th>Where</th><th>Category</th><th>IP</th><th>Customer</th><th>File hash</th><th></th></tr></thead><tbody>
-  {% for f in flags %}<tr><td>{{ f.created_at }}</td><td>{{ f.door }}</td><td>{% if f.category == "child_sexual" %}<strong style="color:var(--bad)">{{ f.category }}: report at cybercrime.gov.in</strong>{% else %}{{ f.category }}{% endif %}</td><td>{{ f.client_ip }}</td><td>{{ f.customer_id or 'guest' }}</td><td>{{ f.sha256 }}</td><td><button type="button" data-review="{{ f.id }}">Reviewed</button></td></tr>{% endfor %}
+  <table><thead><tr><th>When</th><th>Where</th><th>Category</th><th>Checked by</th><th>IP</th><th>Customer</th><th>File hash</th><th></th></tr></thead><tbody>
+  {% for f in flags %}<tr><td>{{ f.created_at }}</td><td>{{ f.door }}</td><td>{% if f.category == "child_sexual" %}<strong style="color:var(--bad)">{{ f.category }}: report at cybercrime.gov.in</strong>{% else %}{{ f.category }}{% endif %}</td><td>{{ f.checked_by or '-' }}</td><td>{{ f.client_ip }}</td><td>{{ f.customer_id or 'guest' }}</td><td>{{ f.sha256 }}</td><td><button type="button" data-review="{{ f.id }}">Reviewed</button></td></tr>{% endfor %}
   </tbody></table>
   <p style="color:var(--muted);font-size:12.5px">The image itself is never kept. Marking one reviewed also lifts the 24-hour block on that IP. Report unlawful content at cybercrime.gov.in or on helpline 1930.</p>
   {% else %}<div class="empty">Nothing waiting for review.</div>{% endif %}

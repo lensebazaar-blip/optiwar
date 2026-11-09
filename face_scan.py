@@ -297,14 +297,18 @@ def _valid_image(file_storage):
 
 
 def _screen_upload(file_storage):
-    """The prohibited-content check; a file the validator would refuse is left to it."""
+    """The prohibited-content check. A file the validator would refuse is left to
+    it; a file it would keep but the check cannot open (HEIC, on hosts without
+    pillow_heif) is refused, because it would otherwise be stored unchecked."""
     from . import content_guard, lens_documents  # noqa: PLC0415
     data = file_storage.read()
     file_storage.seek(0)
     try:
         norm = lens_documents.normalise(data)
-    except lens_documents.Rejected:
-        return None
+    except lens_documents.Rejected as exc:
+        error = _valid_image(file_storage)[2]
+        file_storage.seek(0)
+        return None if error else content_guard.unreadable(exc.code, exc.message)
     return content_guard.screen(norm["pages"], "face_scan", norm["sha256"])
 
 

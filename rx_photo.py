@@ -379,9 +379,10 @@ def _record_flag(category, sha256):
     try:
         from .db import get_db  # noqa: PLC0415
         db = get_db()
-        content_guard.flag(db.cursor(), category, sha256, _client_ip(), session.get("user_id"))
+        checked_by = content_guard.label(workload())
+        content_guard.flag(db.cursor(), category, sha256, _client_ip(), session.get("user_id"), checked_by=checked_by)
         db.commit()
-        content_guard.alert(category, "photo_reader", sha256, _client_ip(), session.get("user_id"))
+        content_guard.alert(category, "photo_reader", sha256, _client_ip(), session.get("user_id"), checked_by)
     except Exception:  # noqa: BLE001
         current_app.logger.exception("rx_photo: flag could not be recorded")
 
