@@ -41,9 +41,9 @@ class _QuotaCursor:
             self.counts[key] = self.counts.get(key, 0) + 1
         elif sql.startswith("SELECT read_count"):
             self._row = {"read_count": self.counts[(args[0], args[1])]}
-        elif sql.startswith("INSERT INTO rx_photo_flags"):
+        elif sql.startswith("INSERT INTO upload_flags"):
             self.flags.append(args)
-        elif "FROM rx_photo_flags" in sql:
+        elif "FROM upload_flags" in sql:
             self._row = {"n": sum(1 for f in self.flags if f[3] == args[0])}
         elif "FROM ops_settings" in sql and args[0] in self.settings:
             self._row = {"setting_value": self.settings[args[0]]}
@@ -91,6 +91,7 @@ def _load(call_model):
     sub("db", get_db=_QuotaDb)
     sub("captcha", CaptchaGenerator=lambda: types.SimpleNamespace(
         generate_captcha=lambda: "AB12", generate_captcha_image=lambda t: "IMG"))
+    real("content_guard")
     real("rx_photo_quota")
     real("ops_controls")
     real("dev_defects")

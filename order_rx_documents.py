@@ -716,6 +716,14 @@ def _queue(cursor, issue_links=True):
     return [_document_view(row, cursor, issue_links) for row in rows]
 
 
+def _content_guard():
+    try:
+        from . import content_guard
+    except ImportError:
+        import content_guard
+    return content_guard
+
+
 def _vision_read(pages, endpoint):
     try:
         from . import lens_upload
@@ -815,6 +823,9 @@ def register(bp):
         except lens_documents.Rejected as exc:
             return _json({"ok": False, "code": exc.code,
                           "message": exc.message}, 400)
+        refusal = _content_guard().screen(norm["pages"], "checkout_rx", norm["sha256"])
+        if refusal:
+            return _json({"ok": False, "code": refusal.code, "message": refusal.message}, refusal.status)
 
         now = datetime.datetime.now()
         cursor.execute(

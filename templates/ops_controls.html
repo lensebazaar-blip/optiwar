@@ -42,6 +42,7 @@
 
   <h2>Indicators</h2>
   <div class="grid">
+    <div class="tile{% if not indicators.ncr24_enabled %} blink{% endif %}"><b>{{ 'ON' if indicators.ncr24_enabled else 'OFF' }}</b><small>24-hour delivery service{% if not indicators.ncr24_enabled %}. Customers cannot choose it until it is turned back on.{% endif %}</small></div>
     <div class="tile{% if indicators.day_blink %} blink{% endif %}"><b>{{ indicators.reads_today }} / {{ indicators.per_day }}</b><small>Photo reads today, all customers. Blinks from {{ (indicators.per_day * 0.8)|int }}; raise the limit below if genuine.</small></div>
     <div class="tile{% if indicators.ip_blink %} blink{% endif %}"><b>{{ indicators.at_limit }}</b><small>Customer IPs at their limit today ({{ indicators.near_limit }} more are near it)</small></div>
     <div class="tile{% if indicators.flag_blink %} blink{% endif %}"><b>{{ indicators.open_flags }}</b><small>Uploads refused as unlawful or sexual, waiting for review</small></div>
@@ -49,6 +50,13 @@
 
   <h2>Settings</h2>
   {% for s in settings %}
+  {% if s.toggle %}
+  <div class="row"><label>{{ s.label }}<br><small style="color:var(--muted)">Turn off for holidays or when delivery staff are not available. Stays off until turned on.</small></label>
+    <strong class="{{ 'ok' if s.value else 'fail' }}">{{ 'ON' if s.value else 'OFF' }}</strong>
+    <button type="button" data-toggle="{{ s.key }}" data-next="{{ 0 if s.value else 1 }}">{{ 'Turn off' if s.value else 'Turn on' }}</button>
+    <div class="msg" data-msg></div>
+  </div>
+  {% else %}
   <div class="row" data-key="{{ s.key }}" data-step="{{ s.step }}">
     <label for="v-{{ s.key }}">{{ s.label }}<br><small style="color:var(--muted)">Allowed {{ s.min }} to {{ s.max }}</small></label>
     <button type="button" class="step" data-dir="-1" aria-label="Decrease">&minus;</button>
@@ -57,14 +65,15 @@
     <button type="button" data-save>Save</button>
     <div class="msg" data-msg></div>
   </div>
+  {% endif %}
   {% endfor %}
 
   <h2>Flagged uploads</h2>
   {% if flags %}
-  <table><thead><tr><th>When</th><th>Category</th><th>IP</th><th>Customer</th><th>File hash</th><th></th></tr></thead><tbody>
-  {% for f in flags %}<tr><td>{{ f.created_at }}</td><td>{{ f.category }}</td><td>{{ f.client_ip }}</td><td>{{ f.customer_id or 'guest' }}</td><td>{{ f.sha256 }}</td><td><button type="button" data-review="{{ f.id }}">Reviewed</button></td></tr>{% endfor %}
+  <table><thead><tr><th>When</th><th>Where</th><th>Category</th><th>IP</th><th>Customer</th><th>File hash</th><th></th></tr></thead><tbody>
+  {% for f in flags %}<tr><td>{{ f.created_at }}</td><td>{{ f.door }}</td><td>{% if f.category == "child_sexual" %}<strong style="color:var(--bad)">{{ f.category }}: report at cybercrime.gov.in</strong>{% else %}{{ f.category }}{% endif %}</td><td>{{ f.client_ip }}</td><td>{{ f.customer_id or 'guest' }}</td><td>{{ f.sha256 }}</td><td><button type="button" data-review="{{ f.id }}">Reviewed</button></td></tr>{% endfor %}
   </tbody></table>
-  <p style="color:var(--muted);font-size:12.5px">The image itself is never kept. Marking one reviewed also lifts the 24-hour block on that IP.</p>
+  <p style="color:var(--muted);font-size:12.5px">The image itself is never kept. Marking one reviewed also lifts the 24-hour block on that IP. Report unlawful content at cybercrime.gov.in or on helpline 1930.</p>
   {% else %}<div class="empty">Nothing waiting for review.</div>{% endif %}
 </div>
 <script>
@@ -74,7 +83,16 @@
     return fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Ops-Operator': who() }, body: JSON.stringify(body) })
       .then(function (r) { return r.json(); });
   }
-  document.querySelectorAll('.row').forEach(function (row) {
+  document.querySelectorAll('[data-toggle]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var msg = b.parentNode.querySelector('[data-msg]');
+      if (!who()) { msg.textContent = 'Enter who is making this change first.'; msg.className = 'msg fail'; return; }
+      send('/api/ops/controls', { key: b.dataset.toggle, value: b.dataset.next }).then(function (j) {
+        if (j.ok) location.reload(); else { msg.textContent = j.message || 'Not saved.'; msg.className = 'msg fail'; }
+      });
+    });
+  });
+  document.querySelectorAll('.row[data-key]').forEach(function (row) {
     var input = row.querySelector('input'), msg = row.querySelector('[data-msg]'), step = parseInt(row.dataset.step, 10);
     row.querySelectorAll('.step').forEach(function (b) {
       b.addEventListener('click', function () { input.value = (parseInt(input.value, 10) || 0) + step * parseInt(b.dataset.dir, 10); });

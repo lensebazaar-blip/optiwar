@@ -30,7 +30,7 @@ SITE_COM = "com"
 # ---------------------------------------------------------------------------
 # Terms & Conditions (shared)
 
-TERMS_VERSION_DATE = "2026-11-07"
+TERMS_VERSION_DATE = "2026-11-09"
 
 # ---------------------------------------------------------------------------
 # Returns, Replacements & Limited Warranty Policy — optiwar.in

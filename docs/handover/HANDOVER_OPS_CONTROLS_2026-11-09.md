@@ -1,7 +1,7 @@
 # 24-hour schedule, Ops controls, photo reader protection (9 Nov 2026, PR #244)
 
 ## Owner's answer to your question
-The Rs 1000 24-hour option is **not sold on Sunday**. On **Saturday** it is sold only for orders received by **11:45 India time**, and those orders are committed for 24 hours, so their promised date is Sunday. All times use India time whatever the server's zone. The rest of the week is unchanged.
+The Rs 1000 24-hour option is **not sold on Sunday**. On **Saturday** it is sold only for orders received by **11:45 India time**. Those orders are processed and shipped the same day, shown as "Same-day delivery", and **promised for that Saturday**. All times use India time whatever the server's zone. The rest of the week is unchanged.
 
 ## 24-hour visibility (`shipping_options.py`, `templates/checkout.html`)
 * Shown only after a **full 6-digit NCR pin and a state that agrees with it** are entered (110 Delhi; 122 Haryana / Gurgaon; 2010, 2011, 2013 Uttar Pradesh / Ghaziabad / Noida). The checkout has no city field, so the pin stands for the city.
@@ -23,6 +23,7 @@ The Rs 1000 24-hour option is **not sold on Sunday**. On **Saturday** it is sold
 | `ncr24_fee` (24-hour price, Rs, 18% GST inclusive) | 1000 | 100 to 10000 |
 | `rx_reads_per_ip` (photo reads per IP per day) | 20 | 1 to 500 |
 | `rx_reads_per_day` (photo reads per day, all customers) | 300 | 10 to 20000 |
+| `ncr24_enabled` (24-hour service on or off, for holidays or no delivery staff) | 1 | 0 or 1 |
 
 Every change is logged with who and when in `ops_settings_log`. Blink these in the dashboard, using the fields in `indicators`: `day_blink` (80% of the daily limit), `ip_blink` (a customer IP at its limit), `flag_blink` (flagged uploads waiting). A price change never alters orders already placed, because the fee is stored with the order.
 
@@ -31,9 +32,17 @@ Every change is logged with who and when in `ops_settings_log`. Blink these in t
 
 **Prohibited content:** the vision model also reports a `content_flag` (`child_sexual`, `sexual`, `extremist`, `illegal`, `graphic`). A flagged upload is refused, the IP is blocked from the reader for 24 hours, and `rx_photo_flags` keeps category, file hash, IP and customer id. The image is never stored. The page states the rule beside the Scan button.
 
-**Limits of this:** it is a model's judgement, so it can miss things or wrongly flag. It covers the photo reader only. These upload routes do not have it and they do store files: `order_rx_documents.py` (checkout prescription), `lens_upload.py`, `chat_gateway.py` (chat attachments), `face_scan.py`, `reship_api.py`. Owner to decide on extending it.
+## Content check on every customer upload (`content_guard.py`)
+Checkout prescription photos, contact lens uploads, both chat upload routes, return photos and the face-photo link are screened **before anything is stored**. One small extra vision call per upload (low detail, 8 tokens). The photo reader gets its verdict from its own call.
+* Flagged: refused, recorded in `upload_flags` (route, category, hash, IP, customer; never the image), that IP cannot upload for 24 hours, and **admin@optiwar.com is emailed**. The alert for `child_sexual` says it must be reported at cybercrime.gov.in (helpline 1930).
+* **If an image cannot be checked it is not accepted** and the customer is asked to retry, so a vision outage pauses these uploads.
+* Notices are shown at every upload, and the Terms have a new section, "Prohibited Uploads and Cyber Law Compliance" (terms version 2026-11-09).
+* `app.testing` skips the check, so test fixtures need no extra model answer.
+* The face-photo link (`face_scan.py`, off unless `FACE_SCAN_LINK_ENABLED`) is not in `DEPLOY_SET`. If that route is ever enabled in production, add it and `templates/face_scan_upload.html` to the deploy list first.
+
+**Limits:** this is a model's judgement, so it can miss things or wrongly flag them.
 
 ## Deploy
-New: `rx_photo_quota.py`, `ops_controls.py`, `templates/ops_controls.html` (in `DEPLOY_SET`, `NEW_IN_RELEASE`). PR #244 now has eight additive tables, all in `deploy.py migration()`: the earlier four plus `rx_photo_quota`, `rx_photo_flags`, `ops_settings`, `ops_settings_log`.
+New: `rx_photo_quota.py`, `ops_controls.py`, `templates/ops_controls.html`, `content_guard.py` (in `DEPLOY_SET`, `NEW_IN_RELEASE`). PR #244 now has eight additive tables, all in `deploy.py migration()`: the earlier four plus `rx_photo_quota`, `upload_flags`, `ops_settings`, `ops_settings_log`.
 
-On Saturdays Ops must be able to deliver these orders on Sunday, or they will appear under Possible refunds.
+Ops team: a Saturday order not delivered that Saturday appears under Possible refunds.

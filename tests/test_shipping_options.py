@@ -70,6 +70,15 @@ class Schedule(unittest.TestCase):
         self.assertEqual(ship.ncr24_seconds_left(SAT_PM), 0)
         self.assertFalse(ship.js_rules(1000, SUN)["ncr24_open"])
 
+    def test_saturday_wording_never_suggests_sunday(self):
+        got = ship.choose("ncr24", "Delhi", "110001", now=SAT_AM, ncr24_fee=1000)
+        self.assertEqual(got["label"], "Same-day delivery (Delhi NCR)")
+        self.assertIn("for delivery today", got["blurb"])
+        self.assertNotIn("24", got["label"])
+        self.assertTrue(ship.js_rules(1000, SAT_AM)["ncr24_same_day"])
+        self.assertFalse(ship.js_rules(1000, MON)["ncr24_same_day"])
+        self.assertEqual(ship.choose("ncr24", "Delhi", "110001", now=MON, ncr24_fee=1000)["label"], "24-hour delivery (Delhi NCR)")
+
     def test_india_time_whatever_the_server_zone(self):
         naive = ship.now_ist()
         utc = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
@@ -97,6 +106,13 @@ class Availability(unittest.TestCase):
         self.assertEqual(ship.choose("expedite", "Delhi", "110001", preorder=True, now=MON)["key"], "standard")
         self.assertEqual(ship.choose(None, "", "", now=MON)["key"], "standard")
 
+    def test_ops_can_switch_the_service_off(self):
+        keys = [o["key"] for o in ship.available("Delhi", "110001", now=MON, ncr24_enabled=False)]
+        self.assertEqual(keys, ["standard", "expedite"])
+        self.assertEqual(ship.choose("ncr24", "Delhi", "110001", now=MON, ncr24_enabled=False)["key"], "standard")
+        self.assertFalse(ship.js_rules(1000, MON, False)["ncr24_open"])
+        self.assertTrue(ship.js_rules(1000, MON, True)["ncr24_open"])
+
     def test_ops_price_is_what_is_shown_and_charged(self):
         got = ship.choose("ncr24", "Delhi", "110001", now=MON, ncr24_fee=1250)
         self.assertEqual((got["fee"], got["blurb"]), (1250, "Rs 1250. Delivered within 24 hours of your order."))
@@ -110,7 +126,8 @@ class Availability(unittest.TestCase):
         self.assertEqual(ship.promised_date(sat, "standard"), datetime.date(2026, 11, 12))
         self.assertEqual(ship.promised_date(sat, "expedite"), datetime.date(2026, 11, 9))   # Sunday pushed to Monday
         self.assertEqual(ship.promised_date(datetime.date(2026, 11, 9), "ncr24"), datetime.date(2026, 11, 10))
-        self.assertEqual(ship.promised_date(SAT_AM, "ncr24"), datetime.date(2026, 11, 15))   # 24 hours committed: not pushed
+        self.assertEqual(ship.promised_date(SAT_AM, "ncr24"), datetime.date(2026, 11, 14))   # Saturday: shipped and promised that day
+        self.assertEqual(ship.promised_date(datetime.datetime(2026, 11, 13, 18, 0), "ncr24"), datetime.date(2026, 11, 14))
 
 
 class Storage(unittest.TestCase):

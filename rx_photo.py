@@ -37,11 +37,12 @@ from urllib.parse import urlsplit
 from flask import current_app, jsonify, request, session
 
 try:
-    from . import ai_client, dev_defects, lens_documents, ops_controls, rx_photo_quota
+    from . import ai_client, content_guard, dev_defects, lens_documents, ops_controls, rx_photo_quota
 except ImportError:  # run as a plain module (tests)
     import ai_client
     import dev_defects
     import lens_documents
+    import content_guard
     import ops_controls
     import rx_photo_quota
 
@@ -58,7 +59,7 @@ TOKEN_SALT = "rx-photo-challenge"
 TOKEN_MIN_SECONDS = 1.5             # no person picks a file faster than this
 TOKEN_MAX_SECONDS = 2 * 60 * 60
 # What the model may report instead of "none". Each one refuses the upload.
-BLOCKED_CATEGORIES = ("sexual", "child_sexual", "extremist", "illegal", "graphic")
+BLOCKED_CATEGORIES = content_guard.CATEGORIES
 MAX_READS_PER_SESSION = 8
 EYES = ("right", "left")
 
@@ -361,7 +362,8 @@ def _reserve_read():
         db = get_db()
         cursor = db.cursor()
         rx_photo_quota.ensure_schema(cursor)
-        if rx_photo_quota.is_blocked(cursor, _client_ip()):
+        content_guard.ensure_schema(cursor)
+        if content_guard.is_blocked(cursor, _client_ip()):
             return "blocked"
         allowed = rx_photo_quota.reserve(cursor, _client_ip(), ops_controls.get(cursor, ops_controls.RX_PER_IP),
                                          ops_controls.get(cursor, ops_controls.RX_PER_DAY))
@@ -377,8 +379,9 @@ def _record_flag(category, sha256):
     try:
         from .db import get_db  # noqa: PLC0415
         db = get_db()
-        rx_photo_quota.flag(db.cursor(), category, sha256, _client_ip(), session.get("user_id"))
+        content_guard.flag(db.cursor(), category, sha256, _client_ip(), session.get("user_id"))
         db.commit()
+        content_guard.alert(category, "photo_reader", sha256, _client_ip(), session.get("user_id"))
     except Exception:  # noqa: BLE001
         current_app.logger.exception("rx_photo: flag could not be recorded")
 
@@ -445,7 +448,8 @@ def register(bp):
         except ContentBlocked as exc:
             _record_flag(exc.category, norm["sha256"])
             return _refuse("RX_PHOTO_BLOCKED", "This image cannot be accepted. Only upload a photo of your "
-                           "eyeglasses prescription. Prohibited content is blocked and logged.", status=422)
+                           "eyeglasses prescription. Prohibited content is blocked, logged and may be "
+                           "reported to Cyber Crime India.", status=422)
         except ai_client.ModelError:
             return _refuse("RX_PHOTO_PROVIDER_FAILED",
                            "We could not read your prescription right now. "

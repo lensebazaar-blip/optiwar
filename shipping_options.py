@@ -7,7 +7,7 @@ Three choices on the Pay step, India storefront only:
 * **24 hours (Delhi NCR)**: Rs 1000 (Ops can change it), order date + 1 day.
   Offered only once a full pin code for Delhi, Noida, Gurgaon or Ghaziabad and
   a state that agrees with it are entered; never on Sunday; on Saturday only
-  for orders received by 11:45 India time.
+  for orders received by 11:45 India time, which ship and are promised that day.
 
 An order that carries any AI Glasses line with a dispatch date of its own
 (pre-order, weeks out; selling fast, up to a week) keeps the standard option
@@ -111,39 +111,49 @@ def ncr24_seconds_left(now=None):
     return max(0, int((cutoff - now).total_seconds()))
 
 
-def _with_fee(option, ncr24_fee):
+def same_day(now=None):
+    """Saturday: "24 hours" would read as Sunday, so the order is promised today."""
+    return (now or now_ist()).weekday() == SATURDAY
+
+
+def _with_fee(option, ncr24_fee, now=None):
     if option["key"] != NCR24:
         return option
     fee = int(ncr24_fee if ncr24_fee is not None else option["fee"])
+    if same_day(now):
+        return dict(option, fee=fee, label="Same-day delivery (Delhi NCR)",
+                    blurb="Rs %d. Order by 11:45am today: shipped today for delivery today." % fee)
     return dict(option, fee=fee, blurb=option["blurb"] % fee)
 
 
-def available(state, zipcode, is_india=True, preorder=False, now=None, ncr24_fee=None):
+def available(state, zipcode, is_india=True, preorder=False, now=None, ncr24_fee=None, ncr24_enabled=True):
     """The options this address may choose at this moment, standard first."""
     if not is_india or preorder:
         return [BY_KEY[STANDARD]]
     out = [BY_KEY[STANDARD], BY_KEY[EXPEDITE]]
-    if is_ncr(state, zipcode) and ncr24_open(now):
-        out.append(_with_fee(BY_KEY[NCR24], ncr24_fee))
+    if ncr24_enabled and is_ncr(state, zipcode) and ncr24_open(now):
+        out.append(_with_fee(BY_KEY[NCR24], ncr24_fee, now))
     return out
 
 
-def choose(key, state, zipcode, is_india=True, preorder=False, now=None, ncr24_fee=None):
+def choose(key, state, zipcode, is_india=True, preorder=False, now=None, ncr24_fee=None, ncr24_enabled=True):
     """The option for a posted key, or standard when the key is unknown or not
     offered to this address (a page that showed it cannot be trusted alone)."""
     key = (key or "").strip().lower()
-    for option in available(state, zipcode, is_india, preorder, now, ncr24_fee):
+    for option in available(state, zipcode, is_india, preorder, now, ncr24_fee, ncr24_enabled):
         if option["key"] == key:
             return option
     return BY_KEY[STANDARD]
 
 
 def promised_date(order_date, key):
-    """Order date + the option's days, pushed past a Sunday. The 24-hour option
-    is not pushed: a Saturday-morning order is committed for Sunday."""
+    """Order date + the option's days, pushed past a Sunday. A Saturday-morning
+    24-hour order ships and is promised that same day."""
     day = order_date.date() if isinstance(order_date, datetime.datetime) else order_date
+    if key == NCR24 and day.weekday() == SATURDAY:
+        return day
     day = day + datetime.timedelta(days=BY_KEY.get(key, BY_KEY[STANDARD])["days"])
-    if day.weekday() == SUNDAY and key != NCR24:
+    if day.weekday() == SUNDAY:
         day += datetime.timedelta(days=1)
     return day
 
@@ -191,13 +201,13 @@ def note(row):
                                    (": promised by " + when) if when else "")
 
 
-def js_rules(ncr24_fee=None, now=None):
+def js_rules(ncr24_fee=None, now=None, ncr24_enabled=True):
     """What the checkout page needs to show the right options as the address changes."""
     return {"ncr_pins": [[prefix, list(states)] for prefix, states in NCR_PINS],
-            "ncr24_open": ncr24_open(now), "ncr24_seconds_left": ncr24_seconds_left(now),
+            "ncr24_open": bool(ncr24_enabled) and ncr24_open(now), "ncr24_seconds_left": ncr24_seconds_left(now), "ncr24_same_day": same_day(now),
             "options": [{"key": o["key"], "label": o["label"], "fee": o["fee"], "days": o["days"],
                          "blurb": o["blurb"], "ncr_only": o["ncr_only"]}
-                        for o in (_with_fee(x, ncr24_fee) for x in OPTIONS)]}
+                        for o in (_with_fee(x, ncr24_fee, now) for x in OPTIONS)]}
 
 
 def fees_for(cursor, order_ids):

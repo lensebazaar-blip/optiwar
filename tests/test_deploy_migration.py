@@ -51,6 +51,7 @@ class DeployMigrationTest(unittest.TestCase):
         self.sup = self.deploy.supplier_signup_module()
         self.rxq = self.deploy.rx_photo_quota_module()
         self.ctl = self.deploy.ops_controls_module()
+        self.cg = self.deploy.content_guard_module()
 
     def test_covers_every_column_and_index_ensure_schema_adds(self):
         labels = [label for label, _sql in self.deploy.migration()]
@@ -85,6 +86,7 @@ class DeployMigrationTest(unittest.TestCase):
         expected += ["%s (table)" % n for n, _d in self.sup.TABLES]
         expected += ["%s (table)" % n for n, _d in self.rxq.TABLES]
         expected += ["%s (table)" % n for n, _d in self.ctl.TABLES]
+        expected += ["%s (table)" % n for n, _d in self.cg.TABLES]
         for table, columns in self.ca.SESSION_COLUMNS:
             expected += ["%s.%s (column)" % (table, n) for n, _d in columns]
         expected += ["products.%s (column)" % n

@@ -2965,7 +2965,9 @@ def checkout_page():
     _aig_dispatch = ai_glasses.dispatch_date(cursor, [item.get('product_id') for item in cart])[0]
     shipping_allowed = (bool(_req_is_india()) and not _aig_dispatch
                         and shipping_options.ensure_schema(cursor))   # no table, no paid options
-    shipping_rules = shipping_options.js_rules(ops_controls.get(cursor, ops_controls.NCR24_FEE), shipping_options.now_ist())
+    shipping_rules = shipping_options.js_rules(
+        ops_controls.get(cursor, ops_controls.NCR24_FEE), shipping_options.now_ist(),
+        bool(ops_controls.get(cursor, ops_controls.NCR24_ENABLED)))
 
     product_ids = [item.get('product_id') for item in cart if item.get('product_id')]
     product_image_map = {}
@@ -3259,7 +3261,8 @@ def checkout():
     _posted_option = (request.form.get('shipping_option') or '').strip().lower()
     shipping_choice = shipping_options.choose(
         _posted_option, customer_state, customer_postcode, _shipping_ready, bool(_aig_dispatch),
-        shipping_options.now_ist(), ops_controls.get(cursor, ops_controls.NCR24_FEE))
+        shipping_options.now_ist(), ops_controls.get(cursor, ops_controls.NCR24_FEE),
+        bool(ops_controls.get(cursor, ops_controls.NCR24_ENABLED)))
     shipping_fee = float(shipping_choice['fee']) if _shipping_ready else 0.0
     # What the customer agreed to is what they are charged, or they are asked again:
     # the Saturday cutoff can pass, or Ops can change the price, while the page is open.

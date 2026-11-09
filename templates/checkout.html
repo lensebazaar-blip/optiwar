@@ -1126,7 +1126,7 @@ footer{ display:none !important; }
             <section class="ow-rx-upload" data-rx-upload-line="{{ loop.index0 }}"
                      data-product-id="{{ item.product_id }}">
               <strong class="ow-rx-upload__toggle" role="button" tabindex="0" aria-expanded="false">Add a prescription photo (optional)</strong>
-              <p>Phone photos and screenshots work.</p>
+              <p>Phone photos and screenshots work. Upload only your prescription. Sexual, illegal or extremist content is prohibited, blocked and logged, and may be reported to Cyber Crime India.</p>
               <input type="file" accept="image/*,application/pdf"
                      aria-label="Add a prescription photo or screenshot">
               <div class="ow-rx-upload-status" aria-live="polite"></div>
@@ -2322,7 +2322,7 @@ function owShowToast(msg) {
       feeEl.textContent = opt.fee ? 'Rs ' + opt.fee : 'Free';
       document.getElementById('owShipFeeSeen').value = opt.fee;
       if (grandEl) grandEl.textContent = 'Rs ' + Math.round(base + opt.fee);
-      if (est) est.textContent = promised(opt.days);
+      if (est) est.textContent = promised(opt.key === 'ncr24' && rules.ncr24_same_day ? 0 : opt.days);
       var bar = document.querySelector('#owMobBar .ow-mob-bar__total b'); if (bar) bar.textContent = 'Rs ' + Math.round(base + opt.fee);
       var btn = document.getElementById('owMobBarBtn'); if (btn && /^Pay /.test(btn.textContent)) btn.textContent = 'Pay Rs ' + Math.round(base + opt.fee);
       window.owShipTotal = 'Rs ' + Math.round(base + opt.fee);

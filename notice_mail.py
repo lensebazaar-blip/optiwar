@@ -92,3 +92,25 @@ def send_supplier_signup(ref, supplier_email, business_name, text, letter, recip
                 time.sleep(min(attempt, 3))
     current_app.logger.error("Supplier signup mail permanently failed ref=%s", ref)
     return False
+
+
+def send_content_alert(to, subject, body):
+    """Tell Optiwar a prohibited upload was refused. Never raises; True when sent."""
+    msg = EmailMessage()
+    msg['Subject'] = subject
+    msg['From'] = f"Optiwar Alerts <{current_app.config['MAIL_USERNAME']}>"
+    msg['To'] = to
+    msg.set_content(body)
+    timeout = float(current_app.config.get('MAIL_TIMEOUT', 5))
+    for attempt in range(1, 3):
+        try:
+            with smtplib.SMTP(current_app.config['MAIL_SERVER'], current_app.config['MAIL_PORT'],
+                              timeout=timeout) as server:
+                server.starttls()
+                server.login(current_app.config['MAIL_USERNAME'], current_app.config['MAIL_PASSWORD'])
+                server.send_message(msg)
+            return True
+        except Exception as e:  # noqa: BLE001
+            current_app.logger.warning("Content alert mail attempt %d/2 failed: %s", attempt, e)
+    current_app.logger.error("Content alert mail failed: %s", subject)
+    return False

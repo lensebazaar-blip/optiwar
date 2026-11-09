@@ -26,6 +26,7 @@ from . import chat_vision
 from . import dev_defects
 from . import face_assistant
 from . import face_scan_invites
+from . import content_guard
 from . import ip_notice
 from . import lens_config
 from . import lens_prompt
@@ -2060,6 +2061,11 @@ def chat_attachment_upload():
         return jsonify({'error': {'code': 'ATTACHMENT_LIMIT',
                                   'message': 'You can attach up to %d photos in one conversation.'
                                              % chat_attachments.MAX_PER_SESSION}}), 400
+
+    refusal = content_guard.screen([data], 'chat', info['sha256'], info['mime_type'])
+    if refusal:
+        db.close()
+        return jsonify({'error': {'code': refusal.code, 'message': refusal.message}}), refusal.status
 
     message_id = _insert_message(
         db, session_id, 'customer', 'user', chat_attachments.transcript_line(info['filename']),

@@ -189,6 +189,10 @@ def register(bp):
                 lens_documents.MAX_UPLOAD_BYTES + 1))
         except lens_documents.Rejected as exc:
             return _refuse(exc.code, exc.message, where=where)
+        from . import content_guard  # noqa: PLC0415
+        refusal = content_guard.screen(norm["pages"], "lens_rx", norm["sha256"])
+        if refusal:
+            return _refuse(refusal.code, refusal.message, status=refusal.status, where=where)
 
         now = datetime.datetime.now()
         document_id = lens_documents.insert(cursor, customer_id,

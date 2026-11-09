@@ -27,11 +27,11 @@ class _Cursor:
             self.store[args[0]] = args[1]
         elif sql.startswith("SELECT client_ip, read_count"):
             self._rows = list(self.quota)
-        elif sql.startswith("SELECT COUNT(*) AS n FROM rx_photo_flags"):
+        elif sql.startswith("SELECT COUNT(*) AS n FROM upload_flags"):
             self._row = {"n": len(self.flags)}
         elif sql.startswith("SELECT id, created_at"):
             self._rows = list(self.flags)
-        elif sql.startswith("UPDATE rx_photo_flags"):
+        elif sql.startswith("UPDATE upload_flags"):
             self.reviewed.append(args)
 
     def fetchone(self):
@@ -156,16 +156,26 @@ class Routes(unittest.TestCase):
 
     def test_the_page_and_json_show_values_and_blink(self):
         _Cursor.quota[:] = [{"client_ip": "*", "read_count": 299}]
-        _Cursor.flags[:] = [{"id": 4, "created_at": datetime.datetime(2026, 11, 9, 9, 0), "category": "sexual",
+        _Cursor.flags[:] = [{"id": 4, "created_at": datetime.datetime(2026, 11, 9, 9, 0), "door": "chat", "category": "sexual",
                              "sha256": "a" * 64, "client_ip": "1.1.1.1", "customer_id": None}]
         j = self.client.get("/api/ops/controls").get_json()
-        self.assertEqual([s["value"] for s in j["settings"]], [1000, 20, 300])
+        self.assertEqual([s["value"] for s in j["settings"]], [1000, 20, 300, 1])
         self.assertTrue(j["indicators"]["day_blink"])
         page = self.client.get("/ops/controls")
         self.assertEqual(page.headers["Cache-Control"], "no-store")
         self.assertIn(b'class="tile blink"', page.data)
         self.assertIn(b"299 / 300", page.data)
         self.assertIn(b'data-review="4"', page.data)
+
+    def test_the_24_hour_service_can_be_switched_off_and_on(self):
+        self.assertEqual(self._set(key=self.oc.NCR24_ENABLED, value="0").get_json()["value"], 0)
+        self.assertEqual(self._set(key=self.oc.NCR24_ENABLED, value="2").status_code, 400)
+        page = self.client.get("/ops/controls")
+        self.assertIn(b"OFF", page.data)
+        self.assertIn(b'class="tile blink"', page.data)
+        self.assertIn(b'data-next="1"', page.data)
+        self.assertEqual(self._set(key=self.oc.NCR24_ENABLED, value="1").get_json()["value"], 1)
+        self.assertEqual(len(_Cursor.log), 2)
 
     def test_a_flag_review_names_the_person(self):
         self.assertEqual(self.client.post("/api/ops/controls/flags/4/review").status_code, 400)

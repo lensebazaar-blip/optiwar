@@ -2,8 +2,8 @@
 indicators that tell them when to.
 
 * **Settings** (``ops_settings``, every change logged in ``ops_settings_log``
-  with who and when): the 24-hour delivery price and the photo reader's two
-  daily limits. Each is bounded, so a typo cannot set a price of Rs 1.
+  with who and when): the 24-hour delivery price, whether that service is
+  on at all (holidays, no delivery staff), and the photo reader's two daily limits. Each is bounded, so a typo cannot set a price of Rs 1.
 * **Indicators**: photo reads used today against the limit, clients at or near
   their limit, and flagged uploads waiting for review. The page blinks them.
 
@@ -22,11 +22,13 @@ import datetime
 NCR24_FEE = "ncr24_fee"
 RX_PER_IP = "rx_reads_per_ip"
 RX_PER_DAY = "rx_reads_per_day"
+NCR24_ENABLED = "ncr24_enabled"
 
 SETTINGS = {
     NCR24_FEE: {"label": "24-hour delivery price (Rs, 18% GST inclusive)", "default": 1000, "min": 100, "max": 10000, "step": 50},
     RX_PER_IP: {"label": "Photo reader: reads per customer IP per day", "default": 20, "min": 1, "max": 500, "step": 5},
     RX_PER_DAY: {"label": "Photo reader: reads per day, all customers", "default": 300, "min": 10, "max": 20000, "step": 50},
+    NCR24_ENABLED: {"label": "24-hour delivery service", "default": 1, "min": 0, "max": 1, "step": 1, "toggle": True},
 }
 NEAR_LIMIT = 0.8
 
@@ -107,7 +109,7 @@ def indicators(cursor, per_ip, per_day, today=None):
                 out["at_limit"] += 1
             elif count >= per_ip * NEAR_LIMIT:
                 out["near_limit"] += 1
-        cursor.execute("SELECT COUNT(*) AS n FROM rx_photo_flags WHERE reviewed_at IS NULL")
+        cursor.execute("SELECT COUNT(*) AS n FROM upload_flags WHERE reviewed_at IS NULL")
         out["open_flags"] = int((cursor.fetchone() or {}).get("n") or 0)
     except Exception:  # noqa: BLE001 - tables appear with the first read
         pass
@@ -119,7 +121,7 @@ def indicators(cursor, per_ip, per_day, today=None):
 
 def open_flags(cursor, limit=50):
     try:
-        cursor.execute("SELECT id, created_at, category, sha256, client_ip, customer_id FROM rx_photo_flags "
+        cursor.execute("SELECT id, created_at, door, category, sha256, client_ip, customer_id FROM upload_flags "
                        "WHERE reviewed_at IS NULL ORDER BY id DESC LIMIT %s", (limit,))
         return list(cursor.fetchall())
     except Exception:  # noqa: BLE001
@@ -129,7 +131,9 @@ def open_flags(cursor, limit=50):
 def snapshot(cursor):
     values = {key: get(cursor, key) for key in SETTINGS}
     return {"settings": [dict(SETTINGS[k], key=k, value=values[k]) for k in SETTINGS],
-            "indicators": indicators(cursor, values[RX_PER_IP], values[RX_PER_DAY]), "flags": open_flags(cursor)}
+            "indicators": dict(indicators(cursor, values[RX_PER_IP], values[RX_PER_DAY]),
+                               ncr24_enabled=bool(values[NCR24_ENABLED])),
+            "flags": open_flags(cursor)}
 
 
 def register(bp):
@@ -206,7 +210,7 @@ def register(bp):
         if not who:
             return jsonify({"ok": False, "error": "operator_required", "message": "Name the person reviewing this."}), 400
         db, cursor = _db()
-        cursor.execute("UPDATE rx_photo_flags SET reviewed_at = %s, reviewed_by = %s WHERE id = %s AND reviewed_at IS NULL",
+        cursor.execute("UPDATE upload_flags SET reviewed_at = %s, reviewed_by = %s WHERE id = %s AND reviewed_at IS NULL",
                        (datetime.datetime.now(), who, flag_id))
         db.commit()
         return jsonify({"ok": True, "id": flag_id})
