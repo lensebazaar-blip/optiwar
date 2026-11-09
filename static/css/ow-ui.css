@@ -91,6 +91,12 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .header .header-btn .btn-label { display: none; }
   .header .ow-nav-cart, .header .ow-desktop-only { display: none; }  /* cart + account live in the tab bar */
 }
+/* 768-899px: glassmorphism.css hides .ow-desktop-only up to 899px and the tab bar ends at 767px, so the
+   header keeps its login / account / logout buttons here or tablets would have no way to sign in or out. */
+@media (min-width: 768px) and (max-width: 899px) {
+  .header .ow-desktop-only { display: inline-flex !important; }
+  .header .header-btn { padding: 4px 8px; }
+}
 @media (min-width: 768px) {
   .header .header-btn { padding: 4px 12px; }
   .header .header-logo { font-size: 1.3rem; }
@@ -472,3 +478,8 @@ h1.pdp-title { font-size: 22px !important; margin: 2px 0 8px !important; }
 .pdp-share .share-ico.share-native:hover { background: var(--ow-brand-soft) !important; color: var(--ow-brand); }
 .pdp-share .share-toast { position: absolute; left: 50%; top: -34px; transform: translateX(-50%) translateY(6px); padding: 6px 12px; border-radius: var(--ow-r-pill); background: var(--ow-ink); color: #fff; font-size: 12px; font-weight: 600; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; white-space: nowrap; }
 .pdp-share .share-toast.is-on { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* profile: sign out from the page itself (the header button is hidden on phones) */
+.ow-profile-logout { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; align-self: center; padding: 8px 14px; border-radius: 999px; border: 1px solid rgba(255,255,255,.45); background: rgba(255,255,255,.14); color: #fff; font-size: 13px; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.ow-profile-logout:hover { background: rgba(255,255,255,.26); }
+@media (max-width: 480px) { .ow-profile-logout { padding: 7px 10px; font-size: 12px; } }

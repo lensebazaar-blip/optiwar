@@ -78,6 +78,9 @@
 {% endblock %}
 
 
+{# The shared filter bar searches every frame and rebuilds the list with a card builder that lives on the
+   all-frames page; on a single category it would empty the list. Hidden here until categories get their own. #}
+{% block frame_filter_bar %}{% endblock %}
 {% block content %}
 <!-- Visible Breadcrumbs -->
 <nav aria-label="Breadcrumb" class="ow-breadcrumb">

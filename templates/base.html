@@ -101,7 +101,7 @@
     </style>
 	<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=5">
 	<link rel="stylesheet" href="{{ url_for('static', filename='glassmorphism.css') }}?v=17">
-	<link rel="stylesheet" href="{{ url_for('static', filename='css/ow-ui.css') }}?v=13">
+	<link rel="stylesheet" href="{{ url_for('static', filename='css/ow-ui.css') }}?v=14">
 
         <!-- JSON-LD Structured Data: Organization + WebSite -->
         <script type="application/ld+json">
@@ -793,10 +793,18 @@
 			<span>{{ _('Lenses') }}</span>
 		</a>
 		{% endif %}
-		<a href="/tryon"{% if _p.startswith('/tryon') or _p.startswith('/profile/faces') %} class="is-active"{% endif %}>
-			<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="12" cy="11" r="3"/><path d="M6 19c1.5-3 4-4 6-4s4.5 1 6 4"/></svg>
-			<span>{{ _('Faces') }}</span>
+		{# Account: the header's login / account / logout buttons are hidden on phones, so the tab bar carries it. #}
+		{% if logged_in %}
+		<a href="{{ url_for('profile.profile_page') }}"{% if _p.startswith('/profile') %} class="is-active"{% endif %}>
+			<svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+			<span>{{ _('Account') }}</span>
 		</a>
+		{% else %}
+		<a href="{{ url_for('auth.login') }}"{% if _p.startswith('/auth') or _p.startswith('/login') %} class="is-active"{% endif %}>
+			<svg viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5M15 12H3"/></svg>
+			<span>{{ _('Sign in') }}</span>
+		</a>
+		{% endif %}
 		<a href="{{ url_for('main.checkout') }}"{% if _p.startswith('/checkout') %} class="is-active"{% endif %}>
 			<svg viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4zM3 6h18M16 10a4 4 0 0 1-8 0"/></svg>
 			{% if cart_count > 0 %}<span class="ow-tab-badge">{{ cart_count }}</span>{% endif %}
