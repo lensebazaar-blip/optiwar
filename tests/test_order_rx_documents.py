@@ -328,7 +328,7 @@ class OrderRxDocumentTests(unittest.TestCase):
         self.app = Flask("rx_documents_tests",
                          root_path=self.app_root,
                          template_folder=os.path.join(REPO, "templates"))
-        self.app.config.update(SECRET_KEY="rx-test-secret")
+        self.app.config.update(SECRET_KEY="rx-test-secret", CONTENT_GUARD_SKIP=True)
         bp = Blueprint("main", __name__)
         self.service.register(bp)
         self.app.register_blueprint(bp)

@@ -14,11 +14,12 @@ sys.path.insert(0, REPO)
 
 
 class _Cursor:
-    store, log, quota, flags, reviewed = {}, [], [], [], []
+    store, log, quota, flags, reviewed, sqls = {}, [], [], [], [], []
     _row = None
 
     def execute(self, sql, args=None):
         self._row, self._rows = None, []
+        self.sqls.append(sql)
         if sql.startswith("SELECT setting_value") and args[0] in self.store:
             self._row = {"setting_value": self.store[args[0]]}
         elif sql.startswith("INSERT INTO ops_settings_log"):
@@ -48,7 +49,7 @@ class _Bad:
 
 def _reset():
     _Cursor.store.clear()
-    for lst in (_Cursor.log, _Cursor.quota, _Cursor.flags, _Cursor.reviewed):
+    for lst in (_Cursor.sqls, _Cursor.log, _Cursor.quota, _Cursor.flags, _Cursor.reviewed):
         del lst[:]
 
 
@@ -111,6 +112,9 @@ class Routes(unittest.TestCase):
 
             def commit(self):
                 pass
+
+            def rollback(self):
+                pass
         db = types.ModuleType(pkg_name + ".db"); db.get_db = lambda: DB(); sys.modules[db.__name__] = db; pkg.db = db
         ops = types.ModuleType(pkg_name + ".ops"); ops._require_ops_auth = lambda: cls.auth[0]
         sys.modules[ops.__name__] = ops; pkg.ops = ops
@@ -153,6 +157,12 @@ class Routes(unittest.TestCase):
         self.assertEqual(self._set(key="nope", value=1).status_code, 400)
         self.assertEqual(self.client.post("/api/ops/controls", json={"key": self.oc.NCR24_FEE, "value": 1200}).status_code, 400)
         self.assertEqual(len(_Cursor.log), 3)
+
+    def test_two_people_changing_a_value_cannot_lose_a_change(self):
+        self._set(key=self.oc.NCR24_FEE, delta=50)
+        lock_at = next(i for i, q in enumerate(_Cursor.sqls) if q.endswith("FOR UPDATE"))
+        write_at = next(i for i, q in enumerate(_Cursor.sqls) if q.startswith("INSERT INTO ops_settings "))
+        self.assertLess(lock_at, write_at)
 
     def test_the_page_and_json_show_values_and_blink(self):
         _Cursor.quota[:] = [{"client_ip": "*", "read_count": 299}]

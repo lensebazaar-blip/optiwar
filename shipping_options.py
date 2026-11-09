@@ -203,10 +203,12 @@ def note(row):
 
 def js_rules(ncr24_fee=None, now=None, ncr24_enabled=True):
     """What the checkout page needs to show the right options as the address changes."""
-    return {"ncr_pins": [[prefix, list(states)] for prefix, states in NCR_PINS],
+    today = now or now_ist()
+    return {"ncr_pins": [[prefix, list(states), states[0].title()] for prefix, states in NCR_PINS],
             "ncr24_open": bool(ncr24_enabled) and ncr24_open(now), "ncr24_seconds_left": ncr24_seconds_left(now), "ncr24_same_day": same_day(now),
             "options": [{"key": o["key"], "label": o["label"], "fee": o["fee"], "days": o["days"],
-                         "blurb": o["blurb"], "ncr_only": o["ncr_only"]}
+                         "blurb": o["blurb"], "ncr_only": o["ncr_only"],
+                         "promised": promised_date(today, o["key"]).strftime("%A, %d %B %Y")}
                         for o in (_with_fee(x, ncr24_fee, now) for x in OPTIONS)]}
 
 

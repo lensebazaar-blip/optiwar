@@ -65,6 +65,15 @@ def get(cursor, key):
         return default
 
 
+def lock(cursor, key):
+    """Hold this setting's row until commit, so two people changing it at once
+    both count. The row is created first, or there would be nothing to lock."""
+    cursor.execute("INSERT IGNORE INTO ops_settings (setting_key, setting_value, updated_by, updated_at) "
+                   "VALUES (%s, %s, 'default', %s)", (key, SETTINGS[key]["default"], datetime.datetime.now()))
+    cursor.execute("SELECT setting_value FROM ops_settings WHERE setting_key = %s FOR UPDATE", (key,))
+    cursor.fetchone()
+
+
 def validate(key, value):
     """``(int_value, error)``."""
     spec = SETTINGS.get(key)
@@ -188,6 +197,7 @@ def register(bp):
         if key not in SETTINGS:
             return jsonify({"ok": False, "error": "unknown_setting", "message": "Unknown setting."}), 400
         db, cursor = _db()
+        lock(cursor, key)
         target = body.get("value")
         if target is None and body.get("delta") is not None:
             try:
@@ -196,6 +206,7 @@ def register(bp):
                 target = "x"
         value, error = validate(key, target)
         if error:
+            db.rollback()
             return jsonify({"ok": False, "error": "invalid_value", "message": error}), 400
         old = set_value(cursor, key, value, who)
         db.commit()

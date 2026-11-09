@@ -79,6 +79,16 @@ class Schedule(unittest.TestCase):
         self.assertFalse(ship.js_rules(1000, MON)["ncr24_same_day"])
         self.assertEqual(ship.choose("ncr24", "Delhi", "110001", now=MON, ncr24_fee=1000)["label"], "24-hour delivery (Delhi NCR)")
 
+    def test_the_page_shows_the_servers_date_for_each_option(self):
+        sat = {o["key"]: o["promised"] for o in ship.js_rules(1000, SAT_AM)["options"]}
+        self.assertEqual(sat["ncr24"], "Saturday, 14 November 2026")
+        self.assertEqual(sat["expedite"], "Monday, 16 November 2026")       # a Sunday promise moves to Monday
+        self.assertEqual(ship.js_rules(1000, MON)["ncr_pins"][1][2], "Haryana")
+        page = open(os.path.join(REPO, "templates", "checkout.html"), encoding="utf-8").read()
+        self.assertIn("est.textContent = opt.promised", page)
+        self.assertNotIn("function promised(", page)
+        self.assertEqual(page.count('owNcrHint"'), 2)
+
     def test_india_time_whatever_the_server_zone(self):
         naive = ship.now_ist()
         utc = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)

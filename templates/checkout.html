@@ -1491,6 +1491,7 @@ footer{ display:none !important; }
           <div>
             <label for="ck_state">State</label>
             <input type="text" id="ck_state" name="customer_state" placeholder="{% if is_india %}State{% else %}State / Province / Region{% endif %}" value="{{ prefill.state|default('') }}">
+            <small class="owNcrHint" hidden style="display:block;margin-top:4px;font-size:12px;color:#b45309;"></small>
           </div>
         </div>
         <div>
@@ -1803,6 +1804,7 @@ footer{ display:none !important; }
           <div class="ow-ck-ship__head"><span>Delivery</span><strong id="owShipFee" style="color:#16a34a;">Free</strong></div>
           <div class="ow-ck-ship__opts" id="owShipOpts"></div>
           <input type="hidden" name="shipping_fee_seen" id="owShipFeeSeen" value="0">
+          <p class="ow-ck-ship__gst owNcrHint" hidden></p>
           <p class="ow-ck-ship__gst">{{ _('Paid delivery options include 18%% GST and appear on your invoice as a separate service line.') }}</p>
         </div>
         {% else %}
@@ -2310,9 +2312,15 @@ function owShowToast(msg) {
       var st = String((document.getElementById('ck_state') || {}).value || '').trim().toLowerCase();
       return rules.ncr_pins.some(function (p) { return z.indexOf(p[0]) === 0 && p[1].indexOf(st) >= 0; });
     }
-    function promised(days) {
-      var d = new Date(); d.setDate(d.getDate() + days); if (d.getDay() === 0) d.setDate(d.getDate() + 1);
-      return d.toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+    function ncrHint() {
+      var z = digits((document.getElementById('ck_postcode') || {}).value);
+      var st = String((document.getElementById('ck_state') || {}).value || '').trim().toLowerCase();
+      var pin = z.length === 6 ? rules.ncr_pins.filter(function (p) { return z.indexOf(p[0]) === 0; })[0] : null;
+      var show = !!pin && ncr24Open && pin[1].indexOf(st) < 0;
+      document.querySelectorAll('.owNcrHint').forEach(function (el) {
+        el.hidden = !show;
+        if (show) el.textContent = '24-hour delivery is available for this pin code. Enter your state as ' + pin[2] + ' to see it.';
+      });
     }
     function current() { var r = opts.querySelector('input[name="shipping_option"]:checked'); return r ? r.value : 'standard'; }
     function apply() {
@@ -2322,12 +2330,13 @@ function owShowToast(msg) {
       feeEl.textContent = opt.fee ? 'Rs ' + opt.fee : 'Free';
       document.getElementById('owShipFeeSeen').value = opt.fee;
       if (grandEl) grandEl.textContent = 'Rs ' + Math.round(base + opt.fee);
-      if (est) est.textContent = promised(opt.key === 'ncr24' && rules.ncr24_same_day ? 0 : opt.days);
+      if (est) est.textContent = opt.promised;   /* the server's date, in India time */
       var bar = document.querySelector('#owMobBar .ow-mob-bar__total b'); if (bar) bar.textContent = 'Rs ' + Math.round(base + opt.fee);
       var btn = document.getElementById('owMobBarBtn'); if (btn && /^Pay /.test(btn.textContent)) btn.textContent = 'Pay Rs ' + Math.round(base + opt.fee);
       window.owShipTotal = 'Rs ' + Math.round(base + opt.fee);
     }
     function render() {
+      ncrHint();
       var keep = current(), ncr = isNcr(), html = '';
       rules.options.forEach(function (o) {
         if (o.ncr_only && !(ncr && ncr24Open)) return;
