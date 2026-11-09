@@ -202,12 +202,11 @@ def mail_cart(cart, row, dispatch_note=""):
     mail template needs to know about delivery options."""
     out = [dict(item) for item in (cart or [])]
 
-    def line(name, amount, detail):
+    # Production's mail prints detail text only for lens and frame categories, so
+    # everything these lines have to say goes in the name, which it always prints.
+    def line(name, amount):
         return {"product_name": name, "order_quantity": 1, "product_special_price": amount,
-                "ATC_total": amount, "server_total_price": 0, "ATC_WCL": 0,
-                "product_category": "Service", "recommendations": detail,
-                "right_pwr": None, "left_pwr": None, "right_lens_color": "", "left_lens_color": "",
-                "right_qty": 0, "left_qty": 0}
+                "ATC_total": amount, "server_total_price": 0, "ATC_WCL": 0, "product_category": "Service"}
     try:
         fee = float((row or {}).get("fee") or 0)
     except (TypeError, ValueError):
@@ -216,8 +215,9 @@ def mail_cart(cart, row, dispatch_note=""):
         option = BY_KEY.get(row.get("option_key"), {})
         when = row.get("promised_date")
         when = when.strftime("%d %b %Y") if hasattr(when, "strftime") else ""
-        out.append(line("Delivery: %s" % option.get("label", "paid option"), int(fee) if fee == int(fee) else fee,
-                        "18% GST inclusive" + ("; promised by " + when if when else "")))
+        out.append(line("Delivery: %s (18%% GST inclusive%s)" % (option.get("label", "paid option"),
+                                                                "; promised by " + when if when else ""),
+                        int(fee) if fee == int(fee) else fee))
     if dispatch_note:
-        out.append(line("Dispatch instruction", 0, dispatch_note))
+        out.append(line("Dispatch instruction: %s" % dispatch_note, 0))
     return out

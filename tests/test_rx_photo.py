@@ -5,6 +5,7 @@ Nothing is stored; reads are capped per session; no sign-in is needed.
 
 Unit tests need no database.
 """
+import datetime
 import importlib.util
 import io
 import os
@@ -21,6 +22,32 @@ def _jpeg(w=1200, h=900):
     out = io.BytesIO()
     Image.new("RGB", (w, h), (250, 250, 250)).save(out, format="JPEG", quality=92)
     return out.getvalue()
+
+
+class _QuotaCursor:
+    """The two statements rx_photo_quota runs, over a dict; raises when told to."""
+    counts = {}
+    broken = [False]
+
+    def execute(self, sql, args=None):
+        if self.broken[0]:
+            raise RuntimeError("database is away")
+        if sql.startswith("INSERT INTO rx_photo_quota"):
+            key = (args[0], args[1])
+            self.counts[key] = self.counts.get(key, 0) + 1
+        elif sql.startswith("SELECT read_count"):
+            self._row = {"read_count": self.counts[(args[0], args[1])]}
+
+    def fetchone(self):
+        return self._row
+
+
+class _QuotaDb:
+    def cursor(self):
+        return _QuotaCursor()
+
+    def commit(self):
+        pass
 
 
 def _load(call_model):
@@ -51,6 +78,8 @@ def _load(call_model):
         pass
 
     sub("ai_client", ModelError=ModelError, call_model=call_model)
+    sub("db", get_db=_QuotaDb)
+    real("rx_photo_quota")
     real("dev_defects")
     real("lens_order")
     real("lens_rx")
@@ -178,6 +207,8 @@ class Route(unittest.TestCase):
     def setUp(self):
         del self.answers[:]
         del self.calls[:]
+        _QuotaCursor.counts.clear()
+        _QuotaCursor.broken[0] = False
         with self.client.session_transaction() as sess:
             sess.clear()
 
@@ -229,6 +260,48 @@ class Route(unittest.TestCase):
         r = self._post()
         self.assertEqual(r.status_code, 422)
         self.assertEqual(r.get_json()["code"], "RX_PHOTO_UNREADABLE")
+
+    def test_dropping_the_cookie_does_not_reset_the_limit(self):
+        limit = self.rx.rx_photo_quota.MAX_READS_PER_IP_PER_DAY
+        reply = '{"right": {"sph": "-1.00"}}'
+        for _ in range(limit):
+            self.answers.append(reply)
+            self.assertEqual(self._post().status_code, 200)
+            with self.client.session_transaction() as sess:
+                sess.clear()
+        r = self._post()
+        self.assertEqual(r.status_code, 429)
+        self.assertEqual(r.get_json()["code"], "RX_PHOTO_LIMIT")
+        self.assertEqual(len(self.calls), limit)        # no paid call past the limit
+        self.answers.append(reply)                      # another client is unaffected
+        r = self.client.post(self.rx.ROUTE, data={self.rx.FIELD: (io.BytesIO(_jpeg()), "rx.jpg")},
+                             content_type="multipart/form-data", environ_overrides={"REMOTE_ADDR": "203.0.113.9"})
+        self.assertEqual(r.status_code, 200)
+
+    def test_a_forged_forwarded_header_is_not_a_new_client(self):
+        limit = self.rx.rx_photo_quota.MAX_READS_PER_IP_PER_DAY
+        _QuotaCursor.counts[("127.0.0.1", datetime.date.today())] = limit
+        r = self.client.post(self.rx.ROUTE, data={self.rx.FIELD: (io.BytesIO(_jpeg()), "rx.jpg")},
+                             content_type="multipart/form-data", headers={"X-Forwarded-For": "198.51.100.7"})
+        self.assertEqual(r.status_code, 429)
+        self.assertEqual(self.calls, [])
+
+    def test_changing_the_ip_cannot_pass_the_overall_daily_limit(self):
+        quota = self.rx.rx_photo_quota
+        _QuotaCursor.counts[(quota.ALL_CLIENTS, datetime.date.today())] = quota.MAX_READS_PER_DAY
+        r = self._post()
+        self.assertEqual(r.status_code, 429)
+        self.assertEqual(self.calls, [])
+
+    def test_a_refused_file_does_not_use_up_the_limit(self):
+        self._post(b"not an image at all" * 100, name="rx.txt")
+        self.assertEqual(_QuotaCursor.counts, {})
+
+    def test_no_paid_call_when_the_limit_cannot_be_checked(self):
+        _QuotaCursor.broken[0] = True
+        r = self._post()
+        self.assertEqual(r.status_code, 503)
+        self.assertEqual(self.calls, [])
 
     def test_reads_are_capped_per_session(self):
         with self.client.session_transaction() as sess:

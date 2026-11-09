@@ -18,12 +18,14 @@ What is different from the contact-lens upload (``lens_upload.py``):
   dropped. A copy the customer wants kept with the order is the checkout
   page's own upload, which has its retention and Ops trail.
 * **No sign-in.** A visitor may read a photo. Reads are counted per session
-  and capped, so an open endpoint cannot be used to spend the model's budget.
+  and capped, and counted again per IP and overall in the database
+  (``rx_photo_quota``), so an open endpoint cannot spend the model's budget.
 * **Values are snapped to the dropdowns, never invented.** Each value the
   model transcribed is rounded to the step the select offers (0.25, or 0.50
   in the high ranges; axis to 5 degrees) and refused when it lies outside
   the range sold. A refused field stays empty for the customer to fill.
 """
+import datetime
 import json
 import os
 import re
@@ -31,11 +33,12 @@ import re
 from flask import current_app, jsonify, request, session
 
 try:
-    from . import ai_client, dev_defects, lens_documents
+    from . import ai_client, dev_defects, lens_documents, rx_photo_quota
 except ImportError:  # run as a plain module (tests)
     import ai_client
     import dev_defects
     import lens_documents
+    import rx_photo_quota
 
 FIELD = "rx_photo"
 ROUTE = "/api/rx-photo/read"
@@ -265,6 +268,28 @@ def reads_left():
     return max(0, MAX_READS_PER_SESSION - int(session.get(SESSION_COUNT_KEY) or 0))
 
 
+def _client_ip():
+    """The address ProxyFix took from our own proxy. Not the first X-Forwarded-For
+    value: a caller can write that one, and this limit is what stops the caller."""
+    return (request.remote_addr or "")[:64]
+
+
+def _reserve_read():
+    """True / False from the server-side limit; None when it cannot be checked.
+    A read that cannot be counted is not made: each one is a paid call."""
+    try:
+        from .db import get_db  # noqa: PLC0415
+        db = get_db()
+        cursor = db.cursor()
+        rx_photo_quota.ensure_schema(cursor)
+        allowed = rx_photo_quota.reserve(cursor, _client_ip(), datetime.date.today())
+        db.commit()
+        return allowed
+    except Exception:  # noqa: BLE001
+        current_app.logger.exception("rx_photo: quota could not be checked")
+        return None
+
+
 def register(bp):
     """Attach the reader to the main blueprint."""
 
@@ -284,6 +309,16 @@ def register(bp):
                 upload.read(lens_documents.MAX_UPLOAD_BYTES + 1))
         except lens_documents.Rejected as exc:
             return _refuse(exc.code.replace("RX_UPLOAD", "RX_PHOTO"), exc.message)
+        allowed = _reserve_read()
+        if allowed is None:
+            return _refuse("RX_PHOTO_PROVIDER_FAILED",
+                           "We could not read your prescription right now. "
+                           "Please type the values below.", status=503)
+        if not allowed:
+            return _refuse("RX_PHOTO_LIMIT",
+                           "You have used the photo reader a few times already. "
+                           "Please type the values below, or ask us in the chat.",
+                           status=429)
         session[SESSION_COUNT_KEY] = int(session.get(SESSION_COUNT_KEY) or 0) + 1
         session.modified = True
         try:

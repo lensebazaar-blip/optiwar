@@ -139,14 +139,21 @@ class ListsAndMail(unittest.TestCase):
         row = {"option_key": "expedite", "fee": 300, "promised_date": datetime.date(2026, 11, 9)}
         out = ship.mail_cart(cart, row, "ONE DISPATCH: hold everything.")
         self.assertEqual(len(cart), 1)                                   # the stored cart is not changed
-        self.assertEqual([l["product_name"] for l in out], ["CE-I", "Delivery: Expedite", "Dispatch instruction"])
+        self.assertEqual([l["product_name"] for l in out],
+                         ["CE-I", "Delivery: Expedite (18% GST inclusive; promised by 09 Nov 2026)",
+                          "Dispatch instruction: ONE DISPATCH: hold everything."])
         self.assertEqual(sum(l.get("ATC_total") or l.get("server_total_price") or 0 for l in out), 899)   # the charged total
-        self.assertIn("18% GST inclusive", out[1]["recommendations"])
         self.assertEqual(out[2]["ATC_total"], 0)
-        # every key the mail's row builder reads is present on the added lines
-        for key in ("product_name", "order_quantity", "product_special_price", "recommendations", "right_pwr",
-                    "left_pwr", "right_lens_color", "left_lens_color", "right_qty", "left_qty", "product_category"):
-            self.assertIn(key, out[1])
+        # the real row builder in mail.py prints the text
+        import ast
+        source = open(os.path.join(REPO, "mail.py"), encoding="utf-8").read()
+        fn = next(n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == "format_cart_details")
+        scope = {}
+        exec(ast.get_source_segment(source, fn), scope)
+        html = scope["format_cart_details"](out)
+        self.assertIn("18% GST inclusive; promised by 09 Nov 2026", html)
+        self.assertIn("ONE DISPATCH: hold everything.", html)
+        self.assertIn("Rs 300", html)
         self.assertEqual(ship.mail_cart(cart, None, ""), cart)
         self.assertEqual(len(ship.mail_cart(cart, {"option_key": "standard", "fee": 0}, "")), 1)
 

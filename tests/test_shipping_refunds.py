@@ -57,6 +57,8 @@ class Rules(unittest.TestCase):
         self.assertEqual(self.sr.lateness(row(delivered=DT(2026, 11, 8, 23, 0)), today), (0, ""))     # on the day: kept
         self.assertEqual(self.sr.lateness(row(promised=D(2026, 11, 10)), today), (0, ""))            # not passed yet
         self.assertEqual(self.sr.lateness(row(promised=None), today), (0, ""))
+        undated = dict(row(), complete_rows=1)                 # marked delivered, no date: not late
+        self.assertEqual(self.sr.lateness(undated, today), (0, ""))
 
     def test_the_list_keeps_only_missed_promises_and_counts_the_open_ones(self):
         rows = [row("A1"), row("B2", delivered=DT(2026, 11, 8, 12, 0)), row("C3", option="expedite", fee=300,

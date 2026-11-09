@@ -36,6 +36,8 @@ CANDIDATES_SQL = (
     "SELECT s.order_id, s.option_key, s.fee, s.promised_date, s.state, s.zipcode, "
     "(SELECT MIN(os.created_at) FROM order_status os WHERE os.order_id = s.order_id "
     "  AND os.order_status_name = 'Complete') AS delivered_at, "
+    "(SELECT COUNT(*) FROM order_status os WHERE os.order_id = s.order_id "
+    "  AND os.order_status_name = 'Complete') AS complete_rows, "
     "(SELECT MIN(os.created_at) FROM order_status os WHERE os.order_id = s.order_id "
     "  AND os.order_status_name = 'Shipped') AS shipped_at, "
     "(SELECT os.order_status_name FROM order_status os WHERE os.order_id = s.order_id "
@@ -67,6 +69,8 @@ def lateness(row, today):
     if delivered:
         days = (delivered - promised).days
         return (days, "delivered late") if days > 0 else (0, "")
+    if row.get("complete_rows"):
+        return 0, ""        # marked delivered with no date: not evidence of a missed promise
     days = (today - promised).days
     return (days, "not delivered yet") if days > 0 else (0, "")
 
