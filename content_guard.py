@@ -127,12 +127,23 @@ def ask_model(pages, mime):
     return resp.choices[0].message.content or ""
 
 
+def _skipped():
+    """Test fixtures only."""
+    from flask import current_app  # noqa: PLC0415
+    return bool((current_app.testing or current_app.config.get("CONTENT_GUARD_SKIP"))
+                and not current_app.config.get("CONTENT_GUARD_IN_TESTS"))
+
+
+def unreadable(code, message):
+    """The refusal for a file a route would keep but the check cannot open."""
+    return None if _skipped() else Refusal(code, message, 400)
+
+
 def screen(pages, door, sha256="", mime="image/jpeg"):
     """None when the upload may be kept, else the ``Refusal`` to send back."""
     from flask import current_app, request, session  # noqa: PLC0415
-    if ((current_app.testing or current_app.config.get("CONTENT_GUARD_SKIP"))
-            and not current_app.config.get("CONTENT_GUARD_IN_TESTS")):
-        return None         # test fixtures only
+    if _skipped():
+        return None
     ip = (request.remote_addr or "")[:45]
     try:
         from .db import get_db  # noqa: PLC0415

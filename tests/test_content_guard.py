@@ -142,6 +142,42 @@ class Screen(unittest.TestCase):
         self.assertIsNone(v(""))
 
 
+class FaceScanUnreadable(Screen):
+    """A file face_scan would keep but the check cannot open must not be stored unchecked."""
+
+    def _run(self, validator_error):
+        import ast
+        import io
+        source = open(os.path.join(REPO, "face_scan.py"), encoding="utf-8").read()
+        fn = next(n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == "_screen_upload")
+        ld = sys.modules["cg_pkg.lens_documents"]
+
+        class Rejected(Exception):
+            def __init__(self, code, message):
+                super().__init__(message)
+                self.code, self.message = code, message
+
+        def normalise(data):
+            raise Rejected("RX_UPLOAD_HEIC_UNSUPPORTED", "Please upload it as JPEG.")
+        ld.Rejected, ld.normalise = Rejected, normalise
+        scope = {"__package__": "cg_pkg", "__name__": "cg_pkg.face_scan",
+                 "_valid_image": lambda f: ("heic", 5000, validator_error)}
+        exec(ast.get_source_segment(source, fn), scope)
+        upload = io.BytesIO(b"x" * 5000)
+        with self.app.test_request_context("/"):
+            result = scope["_screen_upload"](upload)
+        self.assertEqual(upload.tell(), 0)
+        return result
+
+    def test_heic_is_refused_with_its_message_and_costs_no_call(self):
+        r = self._run(None)
+        self.assertEqual((r.code, r.message, r.status), ("RX_UPLOAD_HEIC_UNSUPPORTED", "Please upload it as JPEG.", 400))
+        self.assertEqual(self.calls, [])
+
+    def test_a_file_the_validator_refuses_is_left_to_it(self):
+        self.assertIsNone(self._run("That file looks empty."))
+
+
 class Wiring(unittest.TestCase):
 
     def _src(self, name):
