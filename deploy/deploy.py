@@ -302,6 +302,9 @@ SMOKE = (
      "Authorization: Bearer smoke-not-a-token"),
     ("ops shipment api without bearer still origin-guarded",
      "https://optiwar.in/ops/api/shipments/SMOKE-0/reverse-pickup", 403, "POST"),
+    # Past the origin guard; no key -> 401.
+    ("pricing update reaches X-API-Key check",
+     "https://optiwar.com/api/lens-pricing/update", 401, "POST"),
 )
 
 # Canonical events a single canary conversation must produce. Their absence
