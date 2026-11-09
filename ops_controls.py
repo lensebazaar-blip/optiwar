@@ -125,16 +125,36 @@ def indicators(cursor, per_ip, per_day, today=None):
     out["day_blink"] = out["reads_today"] >= per_day * NEAR_LIMIT
     out["ip_blink"] = out["at_limit"] > 0
     out["flag_blink"] = out["open_flags"] > 0
+    out["checks"] = ai_checks(cursor, today)
+    out["checks_blink"] = any(c["provider"] != "Claude" for c in out["checks"])
     return out
+
+
+def ai_checks(cursor, today):
+    """Which AI checked customer uploads today, busiest first; [] before the first."""
+    try:
+        cursor.execute("SELECT provider, checks FROM upload_check_counts WHERE day = %s ORDER BY checks DESC, provider",
+                       (today,))
+        return [{"provider": r["provider"], "checks": int(r["checks"])} for r in cursor.fetchall()]
+    except Exception:  # noqa: BLE001 - the table appears with the first check
+        return []
 
 
 def open_flags(cursor, limit=50):
     try:
-        cursor.execute("SELECT id, created_at, door, category, sha256, client_ip, customer_id FROM upload_flags "
-                       "WHERE reviewed_at IS NULL ORDER BY id DESC LIMIT %s", (limit,))
-        return list(cursor.fetchall())
+        return _select_flags(cursor, ", checked_by", limit)
+    except Exception:  # noqa: BLE001 - before the first check adds the column
+        pass
+    try:
+        return _select_flags(cursor, "", limit)
     except Exception:  # noqa: BLE001
         return []
+
+
+def _select_flags(cursor, extra, limit):
+    cursor.execute("SELECT id, created_at, door, category, sha256, client_ip, customer_id%s FROM upload_flags "
+                   "WHERE reviewed_at IS NULL ORDER BY id DESC LIMIT %%s" % extra, (limit,))
+    return list(cursor.fetchall())
 
 
 def snapshot(cursor):

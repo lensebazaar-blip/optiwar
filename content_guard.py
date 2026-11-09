@@ -7,8 +7,11 @@ gets the same verdict from its own reading call.
 * A flagged upload is refused, recorded in ``upload_flags`` (category, file
   hash, route, IP, customer: never the image), and that IP cannot upload for
   24 hours unless Ops mark the flag reviewed.
-* **Backups (owner, 9 Nov 2026)**: if the configured provider is down or gives
-  no usable answer, DeepSeek and then Claude are asked the same question.
+* **Order (owner, 9 Nov 2026)**: Claude first, then the configured provider,
+  then DeepSeek; the next is asked only if one is down or gives no usable answer.
+* **Which AI answered** is on every flag and its alert, and Ops see today's count
+  per AI on /ops/controls (``upload_check_counts``). A clean image still leaves
+  no row of its own.
 * **If no provider can check an image it is not accepted**: the customer is
   asked to try again. These routes keep files, so an unchecked file is the risk.
 
@@ -49,13 +52,26 @@ CREATE TABLE IF NOT EXISTS upload_flags (
     client_ip VARCHAR(64) NOT NULL,
     customer_id INT NULL,
     door VARCHAR(24) NOT NULL,
+    checked_by VARCHAR(24) NULL,
     reviewed_at DATETIME NULL,
     reviewed_by VARCHAR(191) NULL,
     KEY ix_upload_flags_ip (client_ip, created_at),
     KEY ix_upload_flags_open (reviewed_at, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 """
-TABLES = (("upload_flags", SCHEMA),)
+COUNTS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS upload_check_counts (
+    day DATE NOT NULL,
+    provider VARCHAR(24) NOT NULL,
+    checks INT NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, provider)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+"""
+TABLES = (("upload_flags", SCHEMA), ("upload_check_counts", COUNTS_SCHEMA))
+
+CLAUDE = "Claude"
+NOT_CHECKED = "Not checked"         # no AI could answer, so the upload was refused
+_LABELS = {"openai_vision": "OpenAI", "deepseek_vision": "DeepSeek"}
 
 _SCHEMA_READY = False
 
@@ -66,7 +82,16 @@ def ensure_schema(cursor):
         return
     for _name, ddl in TABLES:
         cursor.execute(ddl)
+    try:                            # upload_flags went live before this column existed
+        cursor.execute("ALTER TABLE upload_flags ADD COLUMN IF NOT EXISTS checked_by VARCHAR(24) NULL AFTER door")
+    except Exception:  # noqa: BLE001 - flag() and Ops manage without it
+        pass
     _SCHEMA_READY = True
+
+
+def label(workload):
+    """The name Ops read for an ai_client workload."""
+    return _LABELS.get(workload, workload)
 
 
 def is_blocked(cursor, client_ip, now=None):
@@ -78,32 +103,46 @@ def is_blocked(cursor, client_ip, now=None):
     return bool(row and row.get("n"))
 
 
-def flag(cursor, category, sha256, client_ip, customer_id=None, door="photo_reader", now=None):
+def flag(cursor, category, sha256, client_ip, customer_id=None, door="photo_reader", now=None, checked_by=None):
     """Record a refused upload. Only facts are kept: never the image."""
-    cursor.execute("INSERT INTO upload_flags (created_at, category, sha256, client_ip, customer_id, door) "
-                   "VALUES (%s, %s, %s, %s, %s, %s)",
-                   (now or datetime.datetime.now(), category, (sha256 or "")[:64], (client_ip or "unknown")[:45],
-                    customer_id, door))
+    facts = (now or datetime.datetime.now(), category, (sha256 or "")[:64], (client_ip or "unknown")[:45],
+             customer_id, door)
+    try:
+        cursor.execute("INSERT INTO upload_flags (created_at, category, sha256, client_ip, customer_id, door, checked_by) "
+                       "VALUES (%s, %s, %s, %s, %s, %s, %s)", facts + (checked_by,))
+    except Exception:  # noqa: BLE001 - a flag must be kept even before the column is added
+        cursor.execute("INSERT INTO upload_flags (created_at, category, sha256, client_ip, customer_id, door) "
+                       "VALUES (%s, %s, %s, %s, %s, %s)", facts)
 
 
-def alert_text(category, door, sha256, client_ip, customer_id, when):
+def count_check(db, cursor, provider, today=None):
+    """Add one to today's count for this AI. Best effort: never changes the verdict."""
+    try:
+        cursor.execute("INSERT INTO upload_check_counts (day, provider, checks) VALUES (%s, %s, 1) "
+                       "ON DUPLICATE KEY UPDATE checks = checks + 1", (today or datetime.date.today(), provider))
+        db.commit()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def alert_text(category, door, sha256, client_ip, customer_id, when, checked_by=None):
     """``(subject, body)`` for the alert. Facts only: the image was never kept."""
     report = ("THIS MUST BE REPORTED: file a report at https://cybercrime.gov.in or call helpline 1930.\n"
               if category == "child_sexual" else
               "Review it on /ops/controls and report it at https://cybercrime.gov.in if it is unlawful.\n")
     return ("[Optiwar ALERT] Prohibited upload refused: %s" % category,
             "A customer upload was refused as prohibited content.\n\n"
-            "Category: %s\nWhere: %s\nWhen: %s\nIP address: %s\nCustomer id: %s\nFile hash (SHA-256): %s\n\n"
+            "Category: %s\nChecked by: %s\nWhere: %s\nWhen: %s\nIP address: %s\nCustomer id: %s\nFile hash (SHA-256): %s\n\n"
             "%sThe image was not stored. This IP cannot upload for %d hours unless Ops mark the flag reviewed.\n"
-            % (category, door, when.strftime("%A, %d %B %Y %H:%M"), client_ip, customer_id or "guest", sha256 or "-",
+            % (category, checked_by or "-", door, when.strftime("%A, %d %B %Y %H:%M"), client_ip, customer_id or "guest", sha256 or "-",
                report, BLOCK_HOURS))
 
 
-def alert(category, door, sha256, client_ip, customer_id=None):
+def alert(category, door, sha256, client_ip, customer_id=None, checked_by=None):
     """Email admin@optiwar.com. Best effort: it must never change the refusal."""
     try:
         from .notice_mail import send_content_alert  # noqa: PLC0415
-        subject, body = alert_text(category, door, sha256, client_ip, customer_id, datetime.datetime.now())
+        subject, body = alert_text(category, door, sha256, client_ip, customer_id, datetime.datetime.now(), checked_by)
         return send_content_alert(ALERT_TO, subject, body)
     except Exception:  # noqa: BLE001
         return False
@@ -169,14 +208,14 @@ def _ask_claude(pages, mime):
 
 
 def ask_model(pages, mime):
-    """The first usable answer from the configured provider, then the backups;
-    "" when none of them gave one."""
+    """``(answer, which AI gave it)``: the first usable answer from Claude, the
+    configured provider, then DeepSeek. ``("", None)`` when none gave one."""
     from flask import current_app  # noqa: PLC0415
     from . import lens_documents  # noqa: PLC0415
     primary = lens_documents.provider_name(_setting("LENS_RX_VISION_PROVIDER"))
-    checkers = [(name, lambda n=name: _ask_workload(n, pages, mime))
-                for name in dict.fromkeys((primary, "deepseek_vision"))]
-    checkers.append(("claude", lambda: _ask_claude(pages, mime)))
+    checkers = [(CLAUDE, lambda: _ask_claude(pages, mime))]
+    checkers += [(label(name), lambda n=name: _ask_workload(n, pages, mime))
+                 for name in dict.fromkeys((primary, "deepseek_vision"))]
     for name, ask in checkers:
         try:
             text = ask()
@@ -184,11 +223,9 @@ def ask_model(pages, mime):
             current_app.logger.warning("content_guard: %s failed (%s)", name, type(exc).__name__)
             continue
         if verdict(text) is not None:
-            if name != primary:
-                current_app.logger.warning("ACTIVITY:UPLOAD_CHECK_BACKUP provider=%s", name)
-            return text
+            return text, name
         current_app.logger.warning("content_guard: %s gave no usable answer", name)
-    return ""
+    return "", None
 
 
 def _skipped():
@@ -218,7 +255,11 @@ def screen(pages, door, sha256="", mime="image/jpeg"):
             db.commit()
             return IP_BLOCKED
         db.commit()
-        answer = verdict(ask_model(pages, mime))
+        text, checked_by = ask_model(pages, mime)
+        answer = verdict(text)
+        count_check(db, cursor, checked_by or NOT_CHECKED)
+        current_app.logger.info("ACTIVITY:UPLOAD_CHECKED provider=%s door=%s result=%s",
+                                checked_by or NOT_CHECKED, door, answer)
         if answer is None:
             current_app.logger.warning("content_guard: unclear answer door=%s", door)
             return UNCHECKED
@@ -226,9 +267,9 @@ def screen(pages, door, sha256="", mime="image/jpeg"):
             return None
         current_app.logger.error("ACTIVITY:UPLOAD_FLAGGED category=%s door=%s ip=%s", answer, door, ip)
         customer = session.get("user_id") or session.get("customer_id")
-        flag(cursor, answer, sha256, ip, customer, door)
+        flag(cursor, answer, sha256, ip, customer, door, checked_by=checked_by)
         db.commit()
-        alert(answer, door, sha256, ip, customer)
+        alert(answer, door, sha256, ip, customer, checked_by)
         return BLOCKED
     except Exception:  # noqa: BLE001 - not checked means not accepted
         current_app.logger.exception("content_guard: could not check door=%s", door)

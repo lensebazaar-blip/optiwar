@@ -11,12 +11,14 @@ sys.path.insert(0, REPO)
 
 
 class _Cursor:
-    flags, blocked = [], [False]
+    flags, blocked, counts = [], [False], []
 
     def execute(self, sql, args=None):
         self._row = None
         if sql.startswith("INSERT INTO upload_flags"):
             self.flags.append(args)
+        elif sql.startswith("INSERT INTO upload_check_counts"):
+            self.counts.append(args)
         elif "COUNT(*)" in sql:
             self._row = {"n": 1 if self.blocked[0] else 0}
 
@@ -67,6 +69,7 @@ class Screen(unittest.TestCase):
         del self.calls[:]
         del self.answers[:]
         del self.alerts[:]
+        del _Cursor.counts[:]
         _Cursor.blocked[0] = False
 
     @staticmethod
@@ -170,63 +173,93 @@ class Backups(Screen):
         self.app.config["ANTHROPIC_API_KEY"] = "k"
         self.addCleanup(self.app.config.pop, "ANTHROPIC_API_KEY", None)
 
-    def test_the_primary_answer_costs_no_backup_call(self):
-        self.answers.append("none")
-        self.assertIsNone(self._screen())
-        self.assertEqual([c["workload"] for c in self.calls], ["openai_vision"])
-        self.assertEqual(self.claude_calls, [])
+    def _workloads(self):
+        return [c["workload"] for c in self.calls]
 
-    def test_deepseek_answers_when_the_primary_is_down(self):
-        self.answers.extend([RuntimeError("down"), "none"])
-        self.assertIsNone(self._screen())
-        self.assertEqual([c["workload"] for c in self.calls], ["openai_vision", "deepseek_vision"])
-        self.assertEqual(self.claude_calls, [])
-
-    def test_claude_answers_when_both_are_down(self):
-        self.answers.extend([RuntimeError("down"), RuntimeError("down")])
+    def test_claude_goes_first_and_costs_no_other_call(self):
         self.claude_answers.append("none")
         self.assertIsNone(self._screen())
+        self.assertEqual(self._workloads(), [])
         call = self.claude_calls[0]
         self.assertEqual(call["model"], "claude-opus-5-5")
         self.assertEqual(call["messages"][0]["content"][0]["type"], "image")
         self.assertEqual(self.claude_client["max_retries"], 0)
 
-    def test_a_flag_from_a_backup_is_refused_and_alerted(self):
-        self.answers.extend([RuntimeError("down"), RuntimeError("down")])
-        self.claude_answers.append("extremist")
+    def test_the_configured_provider_answers_when_claude_is_down(self):
+        self.claude_answers.append(RuntimeError("down"))
+        self.answers.append("none")
+        self.assertIsNone(self._screen())
+        self.assertEqual(self._workloads(), ["openai_vision"])
+
+    def test_deepseek_is_last(self):
+        self.claude_answers.append(RuntimeError("down"))
+        self.answers.extend([RuntimeError("down"), "none"])
+        self.assertIsNone(self._screen())
+        self.assertEqual(self._workloads(), ["openai_vision", "deepseek_vision"])
+
+    def test_a_flag_says_which_ai_made_it(self):
+        self.claude_answers.append(RuntimeError("down"))
+        self.answers.extend([RuntimeError("down"), "extremist"])
         self.assertEqual(self._screen().code, "UPLOAD_BLOCKED")
         self.assertEqual(_Cursor.flags[0][1], "extremist")
-        self.assertEqual(len(self.alerts), 1)
+        self.assertEqual(_Cursor.flags[0][-1], "DeepSeek")
+        self.assertIn("Checked by: DeepSeek", self.alerts[0][2])
+
+    def test_the_days_count_goes_to_the_ai_that_answered(self):
+        self.claude_answers.append("none")
+        self._screen()
+        self.claude_answers.append(RuntimeError("down"))
+        self.answers.append("none")
+        self._screen()
+        self.assertEqual([a[1] for a in _Cursor.counts], ["Claude", "OpenAI"])
+
+    def test_a_count_that_cannot_be_written_changes_nothing(self):
+        def boom(*a):
+            raise RuntimeError("no table")
+        cursor = types.SimpleNamespace(execute=boom)
+        self.assertIsNone(self.cg.count_check(_Db(), cursor, "Claude"))
 
     def test_an_unclear_answer_goes_to_the_next_provider(self):
-        self.answers.extend(["maybe", "sexual"])
+        self.claude_answers.append("maybe")
+        self.answers.append("sexual")
         self.assertEqual(self._screen().code, "UPLOAD_BLOCKED")
 
-    def test_all_down_is_still_not_accepted(self):
-        self.answers.extend([RuntimeError("down"), RuntimeError("down")])
+    def test_all_down_is_not_accepted_and_is_counted(self):
         self.claude_answers.append(RuntimeError("down"))
+        self.answers.extend([RuntimeError("down"), RuntimeError("down")])
         self.assertEqual(self._screen().code, "UPLOAD_CHECK_UNAVAILABLE")
+        self.assertEqual([a[1] for a in _Cursor.counts], ["Not checked"])
 
     def test_a_claude_refusal_is_not_read_as_clean(self):
-        self.answers.extend([RuntimeError("down"), RuntimeError("down")])
         self.claude_answers.append(None)
+        self.answers.extend([RuntimeError("down"), RuntimeError("down")])
         self.assertEqual(self._screen().code, "UPLOAD_CHECK_UNAVAILABLE")
 
-    def test_without_a_claude_key_the_sdk_is_never_called(self):
+    def test_without_a_claude_key_the_next_provider_answers(self):
         self.app.config.pop("ANTHROPIC_API_KEY")
-        self.answers.extend([RuntimeError("down"), RuntimeError("down")])
-        self.assertEqual(self._screen().status, 503)
+        self.answers.append("none")
+        self.assertIsNone(self._screen())
         self.assertEqual(self.claude_calls, [])
 
-    def test_deepseek_is_not_asked_twice_when_it_is_the_primary(self):
+    def test_deepseek_is_not_asked_twice_when_it_is_the_configured_one(self):
         ld = sys.modules["cg_pkg.lens_documents"]
         keep = ld.provider_name
         ld.provider_name = lambda c: "deepseek_vision"
         self.addCleanup(setattr, ld, "provider_name", keep)
+        self.claude_answers.append(RuntimeError("down"))
         self.answers.append(RuntimeError("down"))
-        self.claude_answers.append("none")
-        self.assertIsNone(self._screen())
-        self.assertEqual([c["workload"] for c in self.calls], ["deepseek_vision"])
+        self.assertEqual(self._screen().status, 503)
+        self.assertEqual(self._workloads(), ["deepseek_vision"])
+
+    def test_a_flag_is_kept_before_the_column_exists(self):
+        seen = []
+
+        def execute(sql, args=None):
+            if "checked_by" in sql:
+                raise RuntimeError("Unknown column")
+            seen.append(args)
+        self.cg.flag(types.SimpleNamespace(execute=execute), "sexual", "h", "1.1.1.1", checked_by="Claude")
+        self.assertEqual(seen[0][1], "sexual")
 
     def test_claude_is_told_what_the_bytes_really_are(self):
         self.assertEqual(self.cg._media_type(b"\x89PNG\r\n\x1a\nrest", "image/jpeg"), "image/png")
