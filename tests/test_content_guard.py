@@ -218,6 +218,35 @@ class Backups(Screen):
         self.assertEqual(_Cursor.flags[0][-1], "Claude Opus")
         self.assertIn("Checked by: Claude Opus", self.alerts[0][2])
 
+    def test_a_haiku_flag_the_higher_claude_repeats_is_held(self):
+        self.claude_answers.extend(["graphic", "graphic"])
+        self.assertEqual(self._screen().code, "UPLOAD_BLOCKED")
+        self.assertEqual(self._models(), ["claude-haiku-5-5", "claude-opus-5-5"])
+        self.assertEqual(self._workloads(), [])
+        self.assertEqual(_Cursor.flags[0][-1], "Claude Opus")
+        self.assertEqual(len(self.alerts), 1)
+
+    def test_a_haiku_flag_the_higher_claude_calls_clean_is_accepted(self):
+        self.claude_answers.extend(["graphic", "none"])
+        self.assertIsNone(self._screen())
+        self.assertEqual(_Cursor.flags, [])
+        self.assertEqual(self.alerts, [])
+        self.assertEqual([a[1] for a in _Cursor.counts], ["Claude Opus"])
+
+    def test_a_haiku_flag_without_a_second_opinion_is_not_held_against_anyone(self):
+        for second in (RuntimeError("down"), "maybe", None):
+            self.setUp()
+            self.claude_answers.extend(["sexual", second])
+            self.assertEqual(self._screen().code, "UPLOAD_CHECK_UNAVAILABLE")
+            self.assertEqual(_Cursor.flags, [])
+            self.assertEqual(self.alerts, [])
+            self.assertEqual(self._workloads(), [])          # the flag is not shopped around
+
+    def test_a_clean_haiku_answer_needs_no_second_opinion(self):
+        self.claude_answers.append("none")
+        self.assertIsNone(self._screen())
+        self.assertEqual(self._models(), ["claude-haiku-5-5"])
+
     def test_the_days_count_goes_to_the_ai_that_answered(self):
         self.claude_answers.append("none")
         self._screen()

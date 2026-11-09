@@ -10,6 +10,9 @@ gets the same verdict from its own reading call.
 * **Order (owner, 9 Nov 2026)**: Claude's cheapest model, a higher Claude model,
   DeepSeek, then the configured provider if it is none of those. The next is
   asked only if one is down or gives no usable answer.
+* **A flag from the cheapest Claude is confirmed by the higher one (owner, 9 Nov
+  2026)** before anything is held against the customer. If the higher model says
+  clean, its answer stands; if it cannot answer, the upload is "not checked".
 * **Which AI answered** is on every flag and its alert, and Ops see today's count
   per AI on /ops/controls (``upload_check_counts``). A clean image still leaves
   no row of its own.
@@ -216,10 +219,12 @@ def _ask_claude(pages, mime, model, prompt, max_tokens, seconds):
     return next((block.text for block in resp.content if block.type == "text"), "")
 
 
-def ask_in_order(pages, mime, prompt, usable, max_tokens, detail, endpoint, claude_max_tokens):
+def ask_in_order(pages, mime, prompt, usable, max_tokens, detail, endpoint, claude_max_tokens, flagged=None):
     """``(text, which AI gave it)``: the first answer ``usable`` accepts, in the
     owner's order (see the top of this file). When none is usable the AI is None
-    and the text is the last answer heard, "" if no provider answered at all."""
+    and the text is the last answer heard, "" if no provider answered at all.
+    ``flagged(text)`` names the category an answer flags, if any: such a flag from
+    the cheapest Claude goes to the higher Claude first (``_second_opinion``)."""
     import time  # noqa: PLC0415
     from flask import current_app  # noqa: PLC0415
     from . import lens_documents  # noqa: PLC0415
@@ -232,7 +237,7 @@ def ask_in_order(pages, mime, prompt, usable, max_tokens, detail, endpoint, clau
                  for name in dict.fromkeys(("deepseek_vision", primary))]
     start, last = time.monotonic(), ""
     each = float(_setting("CONTENT_GUARD_DEADLINE", DEADLINE))
-    for name, ask in checkers:
+    for i, (name, ask) in enumerate(checkers):
         left = BUDGET - (time.monotonic() - start)
         if left < MIN_ATTEMPT:
             current_app.logger.warning("content_guard: out of time before %s", name)
@@ -243,16 +248,44 @@ def ask_in_order(pages, mime, prompt, usable, max_tokens, detail, endpoint, clau
             current_app.logger.warning("content_guard: %s failed (%s)", name, type(exc).__name__)
             continue
         if usable(text):
+            if flagged and i == 0 and len(models) > 1 and flagged(text):
+                return _second_opinion(checkers[1], text, usable, flagged, BUDGET - (time.monotonic() - start), each)
             return text, name
         last = text or last
         current_app.logger.warning("content_guard: %s gave no usable answer", name)
     return last, None
 
 
+def _second_opinion(checker, first, usable, flagged, left, each):
+    """The higher Claude's answer on what the cheapest flagged. A flag it repeats
+    stands, a clean answer stands, and no usable answer is ``("", None)``: not
+    checked, so nothing is held against the customer."""
+    from flask import current_app  # noqa: PLC0415
+    name, ask = checker
+    text = ""
+    if left >= MIN_ATTEMPT:
+        try:
+            text = ask(min(each, left))
+        except Exception as exc:  # noqa: BLE001
+            current_app.logger.warning("content_guard: %s failed (%s)", name, type(exc).__name__)
+    else:
+        current_app.logger.warning("content_guard: out of time before %s", name)
+    ok = usable(text)
+    current_app.logger.info("ACTIVITY:FLAG_SECOND_OPINION first=%s second=%s by=%s", flagged(first),
+                            (flagged(text) or "none") if ok else "no_answer", name)
+    return (text, name) if ok else ("", None)
+
+
+def flagged_category(text):
+    """The category a content answer flags; None for clean or unclear."""
+    answer = verdict(text)
+    return None if answer in (None, "none") else answer
+
+
 def ask_model(pages, mime):
     """``(answer, which AI gave it)`` for the prohibited-content question."""
     return ask_in_order(pages, mime, PROMPT, lambda text: verdict(text) is not None, max_tokens=8, detail="low",
-                        endpoint="/upload-screen", claude_max_tokens=1024)
+                        endpoint="/upload-screen", claude_max_tokens=1024, flagged=flagged_category)
 
 
 def _skipped():

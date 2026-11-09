@@ -302,7 +302,7 @@ def read_pages(pages, endpoint=ROUTE):
     ``ai_client.ModelError`` when no provider answered at all.
     """
     text, name = content_guard.ask_in_order(pages, "image/jpeg", PROMPT, _usable, max_tokens=400, detail="high",
-                                            endpoint=endpoint, claude_max_tokens=2048)
+                                            endpoint=endpoint, claude_max_tokens=2048, flagged=content_flag)
     current_app.logger.info("ACTIVITY:RX_PHOTO_READ provider=%s answered=%s", name, bool(text))
     _count(name or content_guard.NOT_CHECKED)
     if not text:
