@@ -82,7 +82,7 @@
                         <button type="button" id="rxHumanGo">Verify</button>
                     </div>
                     <div class="rxp-scan__status" id="rxScanStatus" role="status" aria-live="polite" hidden></div>
-                    <p class="rxp-scan__rule">Upload only your eyeglasses prescription. Sexual, illegal or extremist content is prohibited, blocked and logged, and may be reported to Cyber Crime India.</p>
+                    <p class="rxp-scan__rule">Upload only your eyeglasses prescription. Any illegal content will be reported to Indian regulators.</p>
                 </div>
 
                 <div class="rxp-or"><span>or enter the values</span></div>
@@ -831,9 +831,9 @@ window.onload = function() {
         fd.append('token', token);
         fd.append('website_url', document.getElementById('rxPhotoHp').value);
         fetch('/api/rx-photo/read', { method: 'POST', body: fd, credentials: 'same-origin' })
-            .then(function (r) { return r.json().then(function (j) { return j; }, function () { return {}; }); })
+            .then(function (r) { return r.json().then(function (j) { return j; }, function () { if (window.owReportError) window.owReportError('RX_PHOTO_BAD_REPLY', 'HTTP ' + r.status); return {}; }); })
             .then(function (j) {
-                if (!j || !j.ok) { say('err', esc((j && j.message) || 'We could not read that photo. Please type the values below.')); done(); return; }
+                if (!j || !j.ok) { say('err', esc((j && j.message) || 'Our reader had a problem on our side, not with your photo. Please try again in a minute or type the values below.')); done(); return; }
                 var eyes = j.eyes || {};
                 var anyAdd = !!((eyes.right && eyes.right.add) || (eyes.left && eyes.left.add));
                 var addOpen = document.getElementById('addFields').style.display !== 'none';

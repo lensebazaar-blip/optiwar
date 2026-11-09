@@ -255,7 +255,7 @@ class Route(unittest.TestCase):
         self.assertEqual(body["eyes"]["left"]["cyl"], "0.00")
         self.assertEqual(body["reads_left"], self.rx.MAX_READS_PER_SESSION - 1)
         self.assertEqual(len(self.calls), 1)
-        self.assertEqual(self.calls[0]["workload"], "openai_vision")
+        self.assertEqual(self.calls[0]["workload"], "deepseek_vision")   # no Claude key in this fixture
         self.assertIn("EYEGLASSES", self.calls[0]["messages"][0]["content"][0]["text"])
 
     def test_the_provider_is_switched_by_configuration(self):
@@ -282,6 +282,35 @@ class Route(unittest.TestCase):
         r = self._post()
         self.assertEqual(r.status_code, 503)
         self.assertEqual(r.get_json()["code"], "RX_PHOTO_PROVIDER_FAILED")
+
+    def test_any_provider_error_is_still_an_answer_the_page_can_show(self):
+        for failure in (ValueError("bad model"), self.ModelError("down")):
+            self.answers.extend([failure, failure])
+            r = self._post()
+            self.assertEqual(r.status_code, 503, r.data)
+            self.assertEqual(r.get_json()["code"], "RX_PHOTO_PROVIDER_FAILED")
+
+    def test_a_crash_outside_the_providers_is_still_json(self):
+        keep = self.rx.read_pages
+        self.rx.read_pages = lambda pages: 1 / 0
+        self.addCleanup(setattr, self.rx, "read_pages", keep)
+        r = self._post()
+        self.assertEqual(r.status_code, 503)
+        self.assertEqual(r.get_json()["code"], "RX_PHOTO_PROVIDER_FAILED")
+
+    def test_a_backup_reads_when_the_first_provider_fails(self):
+        self.answers.extend([RuntimeError("down"), '{"right": {"sph": "-1.00"}}'])
+        self.assertEqual(self._post().status_code, 200)
+        self.assertEqual([c["workload"] for c in self.calls], ["deepseek_vision", "openai_vision"])
+
+    def test_unreadable_moves_up_to_the_next_provider(self):
+        self.answers.extend(['{"unreadable": true}', '{"right": {"sph": "-1.00"}}'])
+        self.assertEqual(self._post().status_code, 200)
+        self.assertEqual(len(self.calls), 2)
+
+    def test_the_prompt_handles_this_kind_of_paper(self):
+        for words in ("sideways", "IS the addition", "marked CL"):
+            self.assertIn(words, self.rx.PROMPT)
 
     def test_an_unreadable_answer_is_a_422(self):
         self.answers.append("I cannot see any prescription here.")

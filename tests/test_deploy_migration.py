@@ -87,6 +87,7 @@ class DeployMigrationTest(unittest.TestCase):
         expected += ["%s (table)" % n for n, _d in self.rxq.TABLES]
         expected += ["%s (table)" % n for n, _d in self.ctl.TABLES]
         expected += ["%s (table)" % n for n, _d in self.cg.TABLES]
+        expected += ["%s (table)" % n for n, _d in self.deploy.error_alerts_module().TABLES]
         for table, columns in self.ca.SESSION_COLUMNS:
             expected += ["%s.%s (column)" % (table, n) for n, _d in columns]
         expected += ["products.%s (column)" % n

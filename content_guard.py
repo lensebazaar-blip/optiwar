@@ -26,7 +26,9 @@ import re
 CATEGORIES = ("child_sexual", "sexual", "extremist", "illegal", "graphic")
 BLOCK_HOURS = 24
 MAX_PAGES = 6
-DEADLINE = 15                       # seconds per provider, so three failing providers stay under a minute
+DEADLINE = 12                       # seconds for one provider
+BUDGET = 28                         # seconds for the whole order, inside the page's and the server's patience
+MIN_ATTEMPT = 3                     # not worth starting a provider with less than this left
 CLAUDE_MODEL = "claude-haiku-5-5"
 CLAUDE_HIGHER_MODEL = "claude-opus-5-5"
 ALERT_TO = "admin@optiwar.com"
@@ -161,16 +163,15 @@ def _setting(name, default=""):
     return current_app.config.get(name) or os.environ.get(name) or default
 
 
-def _ask_workload(workload, pages, mime):
-    """The question through ai_client (the configured provider and DeepSeek)."""
+def _ask_workload(workload, pages, mime, prompt, max_tokens, detail, seconds, endpoint):
+    """The question through ai_client (DeepSeek and the configured provider)."""
     from . import ai_client  # noqa: PLC0415
-    content = [{"type": "text", "text": PROMPT}]
+    content = [{"type": "text", "text": prompt}]
     for page in pages[:MAX_PAGES]:
         content.append({"type": "image_url", "image_url": {
-            "url": "data:%s;base64,%s" % (mime, base64.b64encode(page).decode("ascii")), "detail": "low"}})
+            "url": "data:%s;base64,%s" % (mime, base64.b64encode(page).decode("ascii")), "detail": detail}})
     resp = ai_client.call_model(workload=workload, messages=[{"role": "user", "content": content}],
-                                max_tokens=8, temperature=0, deadline=int(_setting("CONTENT_GUARD_DEADLINE", DEADLINE)),
-                                endpoint="/upload-screen")
+                                max_tokens=max_tokens, temperature=0, deadline=seconds, endpoint=endpoint)
     return resp.choices[0].message.content or ""
 
 
@@ -193,9 +194,9 @@ def _claude_label(model):
     return "Claude %s" % parts[1].title() if len(parts) > 1 else model
 
 
-def _ask_claude(pages, mime, model):
+def _ask_claude(pages, mime, model, prompt, max_tokens, seconds):
     """The question through the Anthropic SDK. Thinking counts against max_tokens,
-    hence 1024 for a one-word answer. A refusal leaves no text, which reads as no
+    so its limit is well above the answer's length. A refusal leaves no text, which reads as no
     answer, so the next model is asked. Haiku has no server-side fallback, so only
     the higher model sends it; it goes in extra_body because the SDK version that
     installs beside our pinned typing_extensions predates the named argument."""
@@ -206,36 +207,52 @@ def _ask_claude(pages, mime, model):
     content = [{"type": "image", "source": {"type": "base64", "media_type": _media_type(page, mime),
                                             "data": base64.b64encode(page).decode("ascii")}}
                for page in pages[:MAX_PAGES]]
-    content.append({"type": "text", "text": PROMPT})
-    client = anthropic.Anthropic(api_key=key, max_retries=0, timeout=float(_setting("CONTENT_GUARD_DEADLINE", DEADLINE)))
+    content.append({"type": "text", "text": prompt})
+    client = anthropic.Anthropic(api_key=key, max_retries=0, timeout=float(seconds))
     fallback = {} if "haiku" in model else {"betas": ["server-side-fallback-2026-07-01"],
                                             "extra_body": {"fallbacks": "default"}}
-    resp = client.beta.messages.create(model=model, max_tokens=1024, output_config={"effort": "low"},
+    resp = client.beta.messages.create(model=model, max_tokens=max_tokens, output_config={"effort": "low"},
                                        messages=[{"role": "user", "content": content}], **fallback)
     return next((block.text for block in resp.content if block.type == "text"), "")
 
 
-def ask_model(pages, mime):
-    """``(answer, which AI gave it)``: the first usable answer in the owner's
-    order (see the top of this file). ``("", None)`` when none gave one."""
+def ask_in_order(pages, mime, prompt, usable, max_tokens, detail, endpoint, claude_max_tokens):
+    """``(text, which AI gave it)``: the first answer ``usable`` accepts, in the
+    owner's order (see the top of this file). When none is usable the AI is None
+    and the text is the last answer heard, "" if no provider answered at all."""
+    import time  # noqa: PLC0415
     from flask import current_app  # noqa: PLC0415
     from . import lens_documents  # noqa: PLC0415
     primary = lens_documents.provider_name(_setting("LENS_RX_VISION_PROVIDER"))
     models = dict.fromkeys((_setting("CONTENT_GUARD_CLAUDE_MODEL", CLAUDE_MODEL),
                             _setting("CONTENT_GUARD_CLAUDE_HIGHER_MODEL", CLAUDE_HIGHER_MODEL)))
-    checkers = [(_claude_label(m), lambda m=m: _ask_claude(pages, mime, m)) for m in models]
-    checkers += [(label(name), lambda n=name: _ask_workload(n, pages, mime))
+    checkers = [(_claude_label(m), lambda s, m=m: _ask_claude(pages, mime, m, prompt, claude_max_tokens, s))
+                for m in models]
+    checkers += [(label(name), lambda s, n=name: _ask_workload(n, pages, mime, prompt, max_tokens, detail, s, endpoint))
                  for name in dict.fromkeys(("deepseek_vision", primary))]
+    start, last = time.monotonic(), ""
+    each = float(_setting("CONTENT_GUARD_DEADLINE", DEADLINE))
     for name, ask in checkers:
+        left = BUDGET - (time.monotonic() - start)
+        if left < MIN_ATTEMPT:
+            current_app.logger.warning("content_guard: out of time before %s", name)
+            break
         try:
-            text = ask()
+            text = ask(min(each, left))
         except Exception as exc:  # noqa: BLE001 - the next provider may still answer
             current_app.logger.warning("content_guard: %s failed (%s)", name, type(exc).__name__)
             continue
-        if verdict(text) is not None:
+        if usable(text):
             return text, name
+        last = text or last
         current_app.logger.warning("content_guard: %s gave no usable answer", name)
-    return "", None
+    return last, None
+
+
+def ask_model(pages, mime):
+    """``(answer, which AI gave it)`` for the prohibited-content question."""
+    return ask_in_order(pages, mime, PROMPT, lambda text: verdict(text) is not None, max_tokens=8, detail="low",
+                        endpoint="/upload-screen", claude_max_tokens=1024)
 
 
 def _skipped():

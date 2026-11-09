@@ -340,10 +340,12 @@ class Wiring(unittest.TestCase):
             self.assertLess(src.index(before), src.index(store), name)
 
     def test_the_notice_is_shown_at_every_upload(self):
-        for name in ("templates/checkout.html", "templates/prescription.html", "templates/profile.html",
+        for name in ("templates/checkout.html", "templates/profile.html",
                      "templates/_lens_eye_cards.html", "templates/face_scan_upload.html",
                      "templates/face_scan_guest.html", "static/js/chat-widget.js"):
             self.assertIn("may be reported to Cyber Crime India", self._src(name), name)
+        self.assertIn("Any illegal content will be reported to Indian regulators",   # owner's wording, 9 Nov 2026
+                      self._src("templates/prescription.html"))
 
     def test_the_terms_state_the_policy(self):
         terms = self._src("templates/terms-and-conditions.html")

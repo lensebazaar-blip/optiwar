@@ -123,7 +123,8 @@ DEPLOY_SET = ("__init__.py", "log_hygiene.py", "pricing.py", "acr.py", "ai_api.p
               "supplier_signup.py", "templates/supplier_signup.html", "static/css/ow-forms.css",
               "notice_mail.py",
               "shipping_refunds.py", "templates/ops_possible_refunds.html", "rx_photo_quota.py",
-                   "ops_controls.py", "templates/ops_controls.html", "content_guard.py")
+                   "ops_controls.py", "templates/ops_controls.html", "content_guard.py",
+                   "error_alerts.py", "static/js/ow-errors.js")
 
 # Files that do not exist in production yet. Absence is otherwise a block, so
 # that a path typo or a file missing from the release cannot be mistaken for a
@@ -166,7 +167,8 @@ NEW_IN_RELEASE = ("log_hygiene.py", "test_identity.py", "ai_language.py", "rx_lo
                    "supplier_signup.py", "templates/supplier_signup.html", "static/css/ow-forms.css",
                    "notice_mail.py",
                    "shipping_refunds.py", "templates/ops_possible_refunds.html", "rx_photo_quota.py",
-                   "ops_controls.py", "templates/ops_controls.html", "content_guard.py")
+                   "ops_controls.py", "templates/ops_controls.html", "content_guard.py",
+                   "error_alerts.py", "static/js/ow-errors.js")
 
 # Running content that matches no commit but has been read line by line and
 # found safe to replace, keyed by md5. The provenance guard exists to stop a
@@ -581,6 +583,16 @@ def content_guard_module():
     return mod
 
 
+def error_alerts_module():
+    """error_alerts.py is stdlib only at import; loaded plainly for its TABLES."""
+    spec = importlib.util.spec_from_file_location(
+        "error_alerts_deploy", os.path.join(REPO, "error_alerts.py"))
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def favorites_module():
     """favorites.py imports face_cart, face_fit and face_profiles from its
     package; reuse the throwaway package above."""
@@ -733,6 +745,8 @@ def migration():
               for name, ddl in ops_controls_module().TABLES]
     items += [("%s (table)" % name, " ".join(ddl.split()))
               for name, ddl in content_guard_module().TABLES]
+    items += [("%s (table)" % name, " ".join(ddl.split()))
+              for name, ddl in error_alerts_module().TABLES]
     for table, columns in ca.SESSION_COLUMNS:
         items += [("%s.%s (column)" % (table, name),
                    "ALTER TABLE %s ADD COLUMN %s %s" % (table, name, decl))

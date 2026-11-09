@@ -421,6 +421,10 @@ def create_app(test_config=None):
     from .csrf_guard import init_csrf_guard
     init_csrf_guard(app)
 
+    # Every site error, server or browser, mailed to admin@optiwar.com
+    from .error_alerts import init_error_alerts
+    init_error_alerts(app)
+
     # Before the AI startup probe: its HTTP client logs each request at DEBUG.
     from . import log_hygiene
     log_hygiene.install(app)

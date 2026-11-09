@@ -82,11 +82,18 @@ PROMPT = (
     '{"right": {"sph": "-3.75", "cyl": "-0.75", "axis": "180", "add": ""}, '
     '"left": {"sph": "", "cyl": "", "axis": "", "add": ""}, "pd": "", '
     '"confidence": 0.0-1.0, "unreadable": false, "notes": "short"}\n'
+    "The page may be sideways or upside down: read it in whichever direction "
+    "the text runs. Use the spectacle powers only: ignore any "
+    "powers marked CL or C/L. If a PDF has several pages, use "
+    "the page with the spectacle power table.\n"
     "Rules: 'right' is OD / R / RE / Right Eye; 'left' is OS / L / LE / Left "
     "Eye. sph is SPH, SPHERE, PWR, POWER or DS. cyl is CYL or CYLINDER. axis is "
     "AXIS (1 to 180). add is ADD, ADDITION, NEAR ADD or N.V. (a positive "
-    "reading power); if the paper gives separate DISTANCE and NEAR rows, give "
-    "the distance row as sph/cyl/axis and the difference as add. Use signed "
+    "reading power). With separate DISTANCE and NEAR rows, give the distance "
+    "row as sph/cyl/axis. A NEAR row with only a SPH value and a dash for CYL "
+    "and AXIS, or one marked Add, IS the addition: give that value as add. "
+    "Only when the NEAR row repeats a full power, give the difference between "
+    "near and distance SPH as add. Use signed "
     "decimals with two places (\"-0.50\", \"+1.25\"); 'plano', 'PL', 'DS' "
     "or a dash is \"0.00\". Leave a field \"\" when it is not written. Omit "
     "an eye entirely if nothing is written for it. pd is the pupillary "
@@ -215,9 +222,9 @@ def propose(raw):
 
 
 class ContentBlocked(Exception):
-    def __init__(self, category):
+    def __init__(self, category, checked_by=None):
         super().__init__(category)
-        self.category = category
+        self.category, self.checked_by = category, checked_by
 
 
 def content_flag(text):
@@ -259,12 +266,6 @@ def parse_answer(text):
 # the route
 # --------------------------------------------------------------------------
 
-def workload():
-    return lens_documents.provider_name(
-        current_app.config.get("LENS_RX_VISION_PROVIDER")
-        or os.environ.get("LENS_RX_VISION_PROVIDER"))
-
-
 def messages_for(pages_jpeg):
     """The chat-completion messages: the spectacle prompt + inline pages."""
     import base64  # noqa: PLC0415
@@ -277,25 +278,40 @@ def messages_for(pages_jpeg):
     return [{"role": "user", "content": content}]
 
 
-def read_pages(pages, endpoint=ROUTE):
-    """Ask the configured provider; ``(eyes, confidence, notes, model, unreadable)``.
+def _usable(text):
+    """An answer worth stopping at: a content flag, or powers we can use."""
+    if content_flag(text):
+        return True
+    eyes, _confidence, _notes, unreadable = parse_answer(text)
+    return bool(eyes) and not unreadable
 
-    Provider failures propagate as ``ai_client.ModelError``.
-    """
-    name = workload()
-    resp = ai_client.call_model(
-        workload=name, messages=messages_for(pages),
-        max_tokens=400, temperature=0, endpoint=endpoint)
-    text = ""
+
+def _count(provider):
+    """Today's tally on /ops/controls. Best effort."""
     try:
-        text = resp.choices[0].message.content or ""
-    except (AttributeError, IndexError):
+        from .db import get_db  # noqa: PLC0415
+        db = get_db()
+        content_guard.count_check(db, db.cursor(), provider)
+    except Exception:  # noqa: BLE001
         pass
+
+
+def read_pages(pages, endpoint=ROUTE):
+    """Ask each AI in the owner's order; ``(eyes, confidence, notes, model, unreadable)``.
+
+    ``ai_client.ModelError`` when no provider answered at all.
+    """
+    text, name = content_guard.ask_in_order(pages, "image/jpeg", PROMPT, _usable, max_tokens=400, detail="high",
+                                            endpoint=endpoint, claude_max_tokens=2048)
+    current_app.logger.info("ACTIVITY:RX_PHOTO_READ provider=%s answered=%s", name, bool(text))
+    _count(name or content_guard.NOT_CHECKED)
+    if not text:
+        raise ai_client.ModelError("no provider answered")
     category = content_flag(text)
     if category:
-        raise ContentBlocked(category)
+        raise ContentBlocked(category, name)
     eyes, confidence, notes, unreadable = parse_answer(text)
-    return eyes, confidence, notes, getattr(resp, "model", None) or name, unreadable
+    return eyes, confidence, notes, name, unreadable
 
 
 def _refuse(code, message, status=400):
@@ -374,12 +390,11 @@ def _reserve_read():
         return None
 
 
-def _record_flag(category, sha256):
+def _record_flag(category, sha256, checked_by):
     current_app.logger.error("ACTIVITY:RX_PHOTO_FLAGGED category=%s ip=%s", category, _client_ip())
     try:
         from .db import get_db  # noqa: PLC0415
         db = get_db()
-        checked_by = content_guard.label(workload())
         content_guard.flag(db.cursor(), category, sha256, _client_ip(), session.get("user_id"), checked_by=checked_by)
         db.commit()
         content_guard.alert(category, "photo_reader", sha256, _client_ip(), session.get("user_id"), checked_by)
@@ -447,11 +462,13 @@ def register(bp):
         try:
             eyes, confidence, notes, model, unreadable = read_pages(norm["pages"])
         except ContentBlocked as exc:
-            _record_flag(exc.category, norm["sha256"])
+            _record_flag(exc.category, norm["sha256"], exc.checked_by)
             return _refuse("RX_PHOTO_BLOCKED", "This image cannot be accepted. Only upload a photo of your "
                            "eyeglasses prescription. Prohibited content is blocked, logged and may be "
                            "reported to Cyber Crime India.", status=422)
-        except ai_client.ModelError:
+        except Exception as exc:  # noqa: BLE001 - this page must always get an answer it can show
+            if not isinstance(exc, ai_client.ModelError):
+                current_app.logger.exception("rx_photo: reading failed")
             return _refuse("RX_PHOTO_PROVIDER_FAILED",
                            "We could not read your prescription right now. "
                            "Please type the values below.", status=503)
