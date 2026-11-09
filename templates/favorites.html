@@ -2,7 +2,7 @@
 {% block title %} Favorites - OPTIWAR {% endblock %}
 {% block content %}
 {% from '_picture.html' import product_picture %}
-{% from '_pagenav.html' import pagenav %}
+{% from '_pagenav.html' import pagenav with context %}
 <style>
 .scrolling-track picture{display:contents;}
 .ow-fav-face{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:8px 12px 0;font-size:12.5px}

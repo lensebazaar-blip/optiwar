@@ -282,7 +282,7 @@
 
 </style>
 
-{% from '_pagenav.html' import pagenav %}
+{% from '_pagenav.html' import pagenav with context %}
 {{ pagenav([(_('My account'), None)], back_label=_('Back to shopping')) }}
 <div class="ow-profile-container">
 

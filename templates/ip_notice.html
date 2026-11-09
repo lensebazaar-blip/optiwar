@@ -2,7 +2,7 @@
 {% block title %} Trademark and copyright notice - OPTIWAR {% endblock %}
 {% block meta_description %} Rights holders: notify Optiwar about a listing. The form the Terms require, with a copy of the notice sent to you. {% endblock %}
 {% block content %}
-{% from '_pagenav.html' import pagenav %}
+{% from '_pagenav.html' import pagenav with context %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/legal.css') }}?v=3">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/ow-forms.css') }}?v=1">
 {{ pagenav([(_('Terms and Conditions'), url_for('main.terms_and_conditions')), (_('Trademark and copyright notice'), None)], back_label=_('Back')) }}

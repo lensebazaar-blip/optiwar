@@ -2,7 +2,7 @@
 
 {% block title %} My Orders - Optiwar {% endblock %}
 {% block content %}
-{% from '_pagenav.html' import pagenav %}
+{% from '_pagenav.html' import pagenav with context %}
 {{ pagenav([(_('Track your order'), None)], back_label=_('Back')) }}
 <div class="ow-lookup">
   <div class="ow-lookup__card">
