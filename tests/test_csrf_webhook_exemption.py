@@ -9,15 +9,26 @@ indistinguishable from "no one has paid" until stock and books disagree.
 These tests drive the real guard over a miniature app: no database, no gateway,
 so what they prove is only the routing decision, which is what broke.
 """
+import importlib.util
 import os
 import re
+import sys
 import unittest
+from unittest import mock
 
 from flask import Blueprint, Flask, jsonify
 
 # Requests are made as the storefront so that newer Flask's own host check
 # (TRUSTED_HOSTS) is satisfied and the only decision left is the guard's.
 BASE = "https://optiwar.com"
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO)
+
+_pricing_spec = importlib.util.spec_from_file_location(
+    "pricing_for_csrf_test", os.path.join(REPO, "pricing.py"))
+pricing = importlib.util.module_from_spec(_pricing_spec)
+_pricing_spec.loader.exec_module(pricing)
 
 from csrf_guard import (BEARER_EXEMPT_ENDPOINTS, CSRF_EXEMPT_ENDPOINTS, evaluate,
                         init_csrf_guard)
@@ -46,7 +57,26 @@ def _app(enforce=True):
     def razorpay_verify():
         return jsonify(reached=True), 200
 
+    pricing_bp = Blueprint("pricing", __name__)
+
+    @pricing_bp.route("/api/lens-pricing/update", methods=["POST"])
+    def api_pricing_update():
+        return jsonify(reached=True), 401
+
+    @pricing_bp.route("/api/lens-pricing/bulk", methods=["POST"])
+    def api_pricing_bulk_update():
+        return jsonify(reached=True), 401
+
     app.register_blueprint(bp)
+    app.register_blueprint(pricing_bp)
+    init_csrf_guard(app)
+    return app
+
+
+def _app_with_real_pricing():
+    app = Flask(__name__)
+    app.config.update(CSRF_ENFORCE=True, TRUSTED_HOSTS=["optiwar.com"])
+    app.register_blueprint(pricing.bp)
     init_csrf_guard(app)
     return app
 
@@ -88,6 +118,32 @@ class WebhookReachabilityTests(unittest.TestCase):
                        headers={"Authorization": "Bearer t"})
         self.assertEqual(r.status_code, 401)
         self.assertTrue(r.get_json()["reached"])
+
+    def test_lens_pricing_calls_with_no_origin_reach_the_views(self):
+        self.assertIn("pricing.api_pricing_update", CSRF_EXEMPT_ENDPOINTS)
+        self.assertIn("pricing.api_pricing_bulk_update", CSRF_EXEMPT_ENDPOINTS)
+        routes = (
+            "/api/lens-pricing/update",
+            "/api/lens-pricing/bulk",
+        )
+        with _app().test_client() as c:
+            for route in routes:
+                with self.subTest(route=route):
+                    r = c.post(route, data={"price": "1"}, base_url=BASE)
+                    self.assertEqual(r.status_code, 401)
+                    self.assertTrue(r.get_json()["reached"])
+
+    def test_real_pricing_blueprint_without_origin_still_checks_api_key(self):
+        with mock.patch.object(pricing, "API_SECRET", "s"):
+            with _app_with_real_pricing().test_client() as c:
+                r = c.post(
+                    "/api/lens-pricing/update",
+                    data={"context": "default", "price": "1"},
+                    headers={"X-API-Key": "wrong"},
+                    base_url=BASE,
+                )
+        self.assertEqual(r.status_code, 401)
+        self.assertEqual(r.get_json(), {"error": "Unauthorized"})
 
     def test_the_same_ops_route_without_a_bearer_is_still_guarded(self):
         # The admin session cookie also authorises it, so a cross-site form
