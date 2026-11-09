@@ -84,6 +84,7 @@ FIND_SIDE = 1100                    # the longest side of a page Find looks at
 FIND_EFFORT = "medium"
 READ_EFFORT = "medium"
 FIND_TOKENS = 2048
+FIND_SECOND_SECONDS = 12             # how long Find waits for its second look
 READ_TOKENS = 4096                  # thinking counts against this
 BACKUP_TOKENS = 800
 READ_SECONDS = 20
@@ -482,13 +483,36 @@ def _found_pages(text, count):
     return out
 
 
+def _with_second_look(rows, text, count):
+    """Find's rows after a second reader's sorting of the same pages. Missing a table
+    silently offers an older prescription, so either reader can make a page a table.
+    Contact-lens powers on glasses are the worse mistake, so either can rule one out.
+    ``second`` on a row is what the second reader called the page, "" if it did not say."""
+    other = {row["page"]: row for row in _found_pages(text, count)}
+    known, out = {row["page"] for row in rows}, []
+    for row in rows + [dict(r, kind="") for p, r in sorted(other.items()) if p not in known]:
+        seen = other.get(row["page"])
+        merged = dict(row, first=row["kind"], second=seen["kind"] if seen else "")
+        if seen and seen["kind"] == SPECTACLE_TABLE and row["kind"] not in (SPECTACLE_TABLE, "contact_lens"):
+            merged.update(kind=SPECTACLE_TABLE, date=seen["date"], rotate=seen["rotate"])
+        elif seen and seen["kind"] == "contact_lens":
+            merged["kind"] = "contact_lens"
+        elif seen and row["kind"] == SPECTACLE_TABLE and _when(row["date"]) is None:
+            merged["date"] = seen["date"]
+        out.append(merged)
+    return [r for r in out if r["kind"]]
+
+
 def find_pages(pages):
     """``(rows, which AI)`` for up to READER_PAGES pages.
 
     ``ContentBlocked`` for a flag that stood; ``ai_client.ModelError`` when nothing
     usable came back, which is also the outcome when Opus could not confirm a flag.
+    The second look runs alongside and only sorts pages: flags stay with ``ask_in_order``.
     """
     small = [_fit(page, FIND_SIDE) for page in pages]
+    second_look = content_guard.start_higher_claude(small, "image/jpeg", FIND_PROMPT, FIND_TOKENS, FIND_EFFORT, FIND_SCHEMA,
+                                                    FIND_SECOND_SECONDS, label_pages=True)
     text, name = content_guard.ask_in_order(
         small, "image/jpeg", FIND_PROMPT, lambda t: bool(content_flag(t) or _found_pages(t, len(small))),
         max_tokens=600, detail="high", endpoint=ROUTE, claude_max_tokens=FIND_TOKENS, flagged=content_flag,
@@ -501,7 +525,9 @@ def find_pages(pages):
     rows = _found_pages(text, len(small))
     if not rows:
         raise ai_client.ModelError("no usable sorting of the pages")
-    return rows, name
+    second, second_text = second_look()
+    _count(second if _found_pages(second_text, len(small)) else content_guard.NOT_CHECKED)
+    return _with_second_look(rows, second_text, len(small)), name
 
 
 def _when(text):

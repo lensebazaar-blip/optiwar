@@ -15,6 +15,10 @@ never a value. ``expected.json`` (values as written on the paper, "" if none):
                "4": {...}},
      "forbidden": {"cyl": [""], "axis": [""]}}
 
+Add ``--find-only`` to repeat just the sorting of pages, which is quick and cheap
+enough to run many times. Pages the two Find readers sorted differently are
+printed by kind; ``second=none`` means the second look did not answer in time.
+
 ``forbidden`` lists the values on the contact-lens note, per field; none of them
 may be filled in or offered. Exit status 0 only if every rule passes. Calls
 outside a request, so it uses no customer's limit and adds nothing to the Ops tile.
@@ -66,6 +70,7 @@ def main():
     parser.add_argument("--pdf", required=True)
     parser.add_argument("--expected", required=True)
     parser.add_argument("--runs", type=int, default=10)
+    parser.add_argument("--find-only", action="store_true")
     args = parser.parse_args()
     data = open(args.pdf, "rb").read()
     wanted = json.load(open(args.expected, encoding="utf-8"))
@@ -83,8 +88,14 @@ def main():
             ok = order == wanted["choices"]
             bad += not ok
             print("run=%d choice-order %s" % (run, "PASS" if ok else "FAIL"))
+            answered = any(r["second"] for r in rows)
+            if not answered:
+                print("run=%d find second=none" % run)
+            for r in rows if answered else []:
+                if r["first"] != r["second"]:
+                    print("run=%d find page=%d first=%s second=%s used=%s" % (run, r["page"], r["first"] or "none", r["second"] or "none", r["kind"]))
             slowest = found
-            for row in tables:
+            for row in ([] if args.find_only else tables):
                 key = str(row["page"])
                 if key not in wanted["pages"]:
                     print("run=%d page=%s not-expected FAIL" % (run, key))

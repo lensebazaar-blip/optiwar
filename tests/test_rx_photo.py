@@ -589,6 +589,54 @@ class FindReadCompare(unittest.TestCase):
         self.assertLessEqual(max(Image.open(io.BytesIO(find["pages"][0])).size), self.rx.FIND_SIDE)
         self.assertNotIn("sph", json.dumps(self.rx.FIND_SCHEMA).lower())
 
+    def test_a_table_the_first_find_missed_is_still_offered_newest_first(self):
+        self.script["find_haiku"] = _find((1, "spectacle_table", "2023-09-20", 90), (2, "visit_notes", "", 0),
+                                          (3, "report", "", 0), (4, "other", "", 0), (5, "other", "", 0))
+        self.script["find_opus"] = TWO_TABLES
+        body = self._send(_pdf()).get_json()
+        self.assertTrue(body["choose"])
+        self.assertEqual([(c["page"], c["selected"]) for c in body["choices"]], [(4, True), (1, False)])
+        self.assertEqual(self._reads(), [])
+        self.assertIn("2 July 2025", body["choices"][0]["label"])
+
+    def test_find_second_look_is_the_higher_model_on_the_same_small_pages(self):
+        self._send(_pdf())
+        finds = sorted((c for c in self.calls if c["step"] == "find"), key=lambda c: c["tier"])
+        self.assertEqual([c["tier"] for c in finds], ["haiku", "opus"])
+        self.assertEqual(finds[0]["pages"], finds[1]["pages"])
+        self.assertEqual(finds[1]["schema"], self.rx.FIND_SCHEMA)
+
+    def test_a_table_only_the_second_look_listed_is_offered(self):
+        self.script["find_haiku"] = _find((1, "spectacle_table", "2023-09-20", 0))
+        self.script["find_opus"] = _find((1, "spectacle_table", "2023-09-20", 0), (4, "spectacle_table", "2025-07-02", 0))
+        body = self._send(_pdf()).get_json()
+        self.assertEqual([c["page"] for c in body["choices"]], [4, 1])
+
+    def test_either_find_calling_a_page_contact_lens_keeps_it_out(self):
+        self.script["find_haiku"] = _find((1, "spectacle_table", "2023-09-20", 0), (2, "spectacle_table", "2024-01-01", 0))
+        self.script["find_opus"] = _find((1, "spectacle_table", "2023-09-20", 0), (2, "contact_lens", "", 0))
+        body = self._send(_pdf()).get_json()
+        self.assertNotIn("choose", body)
+        self.assertEqual(body["page"], 1)
+
+    def test_a_contact_lens_page_is_not_turned_into_a_table(self):
+        self.script["find_haiku"] = _find((1, "spectacle_table", "2023-09-20", 0), (2, "contact_lens", "", 0))
+        self.script["find_opus"] = _find((1, "spectacle_table", "2023-09-20", 0), (2, "spectacle_table", "2024-01-01", 0))
+        body = self._send(_pdf()).get_json()
+        self.assertNotIn("choose", body)
+        self.assertEqual(body["page"], 1)
+
+    def test_find_carries_on_when_the_second_look_fails(self):
+        self.script["find_haiku"] = TWO_TABLES
+        body = self._send(_pdf()).get_json()
+        self.assertEqual([c["page"] for c in body["choices"]], [4, 1])
+
+    def test_the_second_look_cannot_block_an_upload(self):
+        self.script["find_opus"] = json.dumps({"pages": [], "content_flag": "sexual"})
+        r = self._send()
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertIn("eyes", r.get_json())
+
     def test_a_contact_lens_page_is_never_read(self):
         self.script["find_haiku"] = _find((1, "visit_notes", "", 0), (2, "contact_lens", "", 0), (3, "report", "", 0))
         r = self._send(_pdf())
@@ -658,7 +706,7 @@ class FindReadCompare(unittest.TestCase):
         chosen = self._send(pdf, form={"choice": first["choices"][1]["token"]}).get_json()
         self.assertEqual(chosen["page"], 1)
         self.assertEqual(chosen["reads_left"], first["reads_left"])
-        self.assertEqual(len([c for c in self.calls if c["step"] == "find"]), 1)
+        self.assertEqual(sorted(c["tier"] for c in self.calls if c["step"] == "find"), ["haiku", "opus"])
         from PIL import Image
         for call in self._reads():
             self.assertEqual(_colour(call["pages"][0]), 0)
@@ -723,13 +771,15 @@ class FindReadCompare(unittest.TestCase):
         self.assertIn("try again", r.get_json()["message"])
 
     def test_ops_tile_counts_find_and_each_read(self):
+        self.script["find_opus"] = ONE_TABLE
         self._send()
-        self.assertEqual(self.counted, ["Claude Haiku", "Claude Haiku", "Claude Opus"])
+        self.assertEqual(self.counted, ["Claude Haiku", "Claude Opus", "Claude Haiku", "Claude Opus"])
 
     def test_ops_tile_shows_a_claude_reader_that_did_not_answer(self):
+        self.script["find_opus"] = ONE_TABLE
         del self.script["read_opus"]
         self._send()
-        self.assertEqual(self.counted, ["Claude Haiku", "Claude Haiku", self.rx.content_guard.NOT_CHECKED])
+        self.assertEqual(self.counted, ["Claude Haiku", "Claude Opus", "Claude Haiku", self.rx.content_guard.NOT_CHECKED])
 
     def test_haiku_flag_in_find_opus_clean_goes_on_to_read(self):
         self.script["find_haiku"] = _find(flag="sexual")

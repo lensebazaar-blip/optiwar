@@ -258,6 +258,33 @@ def ask_claude_together(pages, mime, prompt, max_tokens, effort, schema, seconds
     return out
 
 
+def start_higher_claude(pages, mime, prompt, max_tokens, effort, schema, seconds, label_pages=False):
+    """Ask the highest Claude in the background and return a function that waits
+    for it: ``(which AI, text)``, text "" if it failed or ran out of time."""
+    import concurrent.futures  # noqa: PLC0415
+    import time  # noqa: PLC0415
+    from flask import current_app  # noqa: PLC0415
+    app = current_app._get_current_object()
+    model = claude_models()[-1]
+
+    def one():
+        with app.app_context():
+            return _ask_claude(pages, mime, model, prompt, max_tokens, seconds, effort=effort, schema=schema,
+                               label_pages=label_pages)
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    job = pool.submit(one)
+    pool.shutdown(wait=False)
+    end = time.monotonic() + float(seconds) + 1
+
+    def answer():
+        try:
+            return _claude_label(model), job.result(timeout=max(0.1, end - time.monotonic())) or ""
+        except Exception as exc:  # noqa: BLE001 - the first answer still stands
+            app.logger.warning("content_guard: %s failed (%s)", _claude_label(model), type(exc).__name__)
+            return _claude_label(model), ""
+    return answer
+
+
 def ask_in_order(pages, mime, prompt, usable, max_tokens, detail, endpoint, claude_max_tokens, flagged=None,
                  effort="low", schema=None, label_pages=False, claude=True, budget=BUDGET):
     """``(text, which AI gave it)``: the first answer ``usable`` accepts, in the
