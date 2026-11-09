@@ -343,7 +343,7 @@ class Wiring(unittest.TestCase):
         for name in ("templates/checkout.html", "templates/prescription.html", "templates/profile.html",
                      "templates/_lens_eye_cards.html", "templates/face_scan_upload.html",
                      "templates/face_scan_guest.html", "static/js/chat-widget.js"):
-            self.assertIn("may be reported to Cyber Crime India", self._src(name), name)
+            self.assertIn("Any illegal content will be reported to Indian regulators", self._src(name), name)   # owner, 9 Nov 2026
 
     def test_the_terms_state_the_policy(self):
         terms = self._src("templates/terms-and-conditions.html")

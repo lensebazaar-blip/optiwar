@@ -37,7 +37,7 @@
     </ul>
     <form method="post" action="/face-scan/guest/consent">
       <input type="hidden" name="_guest_csrf" value="{{ csrf }}">
-      <p style="margin:6px 0;font-size:12px;line-height:1.45;color:#bbb;">Use this scan only for your own face or with the consent of the person scanned. Sexual, illegal or extremist content is prohibited, blocked and logged, and may be reported to Cyber Crime India.</p>
+      <p style="margin:6px 0;font-size:12px;line-height:1.45;color:#bbb;">Use this scan only for your own face or with the consent of the person scanned. Any illegal content will be reported to Indian regulators.</p>
 <label class="consent"><input type="checkbox" name="consent" value="1" required>
         I recognise {{ guest.sender_name }}, I am the person to be measured (or their parent/guardian), and I agree to this face measurement.</label>
       {% if error %}<p class="err">Please tick the box to continue.</p>{% endif %}

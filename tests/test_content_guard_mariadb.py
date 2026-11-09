@@ -76,3 +76,31 @@ class WhichAiOnRealMariaDB(unittest.TestCase):
         self.assertFalse(self.ops.indicators(self.cur, 20, 300, today)["checks_blink"])
         self.cg.count_check(self.db, self.cur, "DeepSeek", today)
         self.assertTrue(self.ops.indicators(self.cur, 20, 300, today)["checks_blink"])
+
+
+@unittest.skipUnless(_available(), "no MariaDB test database (see scripts/setup_test_db.sh)")
+class ErrorAlertsOnRealMariaDB(unittest.TestCase):
+
+    def setUp(self):
+        self.ea = _load("error_alerts")
+        self.db = _connect()
+        self.addCleanup(self.db.close)
+        self.cur = self.db.cursor()
+        self.cur.execute(self.ea.SCHEMA.replace("CREATE TABLE IF NOT EXISTS", "CREATE TEMPORARY TABLE"))
+        self.now = datetime.datetime(2026, 11, 9, 12, 0, 0)
+
+    def _event(self, signature="a" * 40, source="server"):
+        return {"signature": signature, "code": "ValueError", "where": "models:10", "source": source}
+
+    def test_once_per_window_with_the_repeat_count(self):
+        self.assertEqual(self.ea.claim_in_db(self.db, self.cur, self._event(), self.now), ("send", 1))
+        soon = self.now + datetime.timedelta(minutes=5)
+        self.assertEqual(self.ea.claim_in_db(self.db, self.cur, self._event(), soon)[0], "skip")
+        later = self.now + datetime.timedelta(minutes=self.ea.WINDOW_MINUTES)
+        self.assertEqual(self.ea.claim_in_db(self.db, self.cur, self._event(), later), ("send", 2))
+
+    def test_the_hourly_cap_says_so_once_then_goes_quiet(self):
+        cap = self.ea.HOURLY_CAP["browser"]
+        decisions = [self.ea.claim_in_db(self.db, self.cur, self._event("%040d" % i, "browser"), self.now)[0]
+                     for i in range(cap + 3)]
+        self.assertEqual(decisions, ["send"] * cap + ["cap", "skip", "skip"])

@@ -285,6 +285,7 @@
   .ow-hero-delivery .ow-eu{ font-size:22px; }
 }
 </style>
+	<script src="{{ url_for('static', filename='js/ow-errors.js') + '?v=1' }}"></script>
 </head>
 <body{% if request.path == '/' %} class="ow-home-page"{% endif %}>
 
@@ -1512,7 +1513,7 @@ window.__optiwarChat = {
   name: {{ (current_user_name or '')|tojson }}
 };
 </script>
-<script src="{{ url_for('static', filename='js/chat-widget.js') + '?v=31' }}"></script>
+<script src="{{ url_for('static', filename='js/chat-widget.js') + '?v=32' }}"></script>
 {% if logged_in %}
 <script src="{{ url_for('static', filename='js/voice-widget.js') + '?v=10' }}"></script>
 {% endif %}
