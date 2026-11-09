@@ -1003,15 +1003,21 @@ footer{ display:none !important; }
   <!-- Mobile Step Indicator -->
   <div class="ow-mob-stepper" id="owMobStepper">
     <div class="ow-mob-step ow-mob-active" data-step="0">
-      <span class="ow-mob-step-num">1</span> Cart
+      <span class="ow-mob-step-num">1</span> Items
     </div>
     <div class="ow-mob-step-line"></div>
     <div class="ow-mob-step" data-step="1">
       <span class="ow-mob-step-num">2</span> Address
     </div>
+    {% if acceptance_text is defined %}
     <div class="ow-mob-step-line"></div>
     <div class="ow-mob-step" data-step="2">
-      <span class="ow-mob-step-num">3</span> Pay
+      <span class="ow-mob-step-num">3</span> Terms
+    </div>
+    {% endif %}
+    <div class="ow-mob-step-line"></div>
+    <div class="ow-mob-step" data-step="3">
+      <span class="ow-mob-step-num">{% if acceptance_text is defined %}4{% else %}3{% endif %}</span> Pay
     </div>
   </div>
 
@@ -1022,6 +1028,7 @@ footer{ display:none !important; }
     </div>
     <h1>Review and pay.</h1>
     <p class="ow-ck-sub" style="text-align:center;">Confirm your cart, choose delivery address, then continue to payment.</p>
+    <a class="ow-pagenav__back" href="{{ url_for('main.index') }}">&#8249; {{ _('Continue shopping') }}</a>
   </div>
 
   <!-- 3 Column Layout -->
@@ -1039,7 +1046,7 @@ footer{ display:none !important; }
           <div class="ow-ck-thumb">
             {% set pid = item.product_id|string %}
             {% if product_image_map.get(pid) %}
-            {{ product_picture(product_image_map[pid], item.product_name|default('Frame'), width=80, height=80, sizes='80px', eager=false) }}
+            {{ product_picture(product_image_map[pid], item.product_name|default('Frame'), width=160, height=160, sizes='(max-width: 767px) 96px, 140px', eager=false) }}
             {% else %}
             <span style="font-size:1.8rem;">👓</span>
             {% endif %}
@@ -1118,7 +1125,7 @@ footer{ display:none !important; }
             {% set rx_uploads = rx_documents.get(loop.index0, []) if rx_documents is defined else [] %}
             <section class="ow-rx-upload" data-rx-upload-line="{{ loop.index0 }}"
                      data-product-id="{{ item.product_id }}">
-              <strong>Have your prescription? Add a photo or screenshot (optional)</strong>
+              <strong class="ow-rx-upload__toggle" role="button" tabindex="0" aria-expanded="false">Add a prescription photo (optional)</strong>
               <p>Phone photos and screenshots work.</p>
               <input type="file" accept="image/*,application/pdf"
                      aria-label="Add a prescription photo or screenshot">
@@ -1708,10 +1715,11 @@ footer{ display:none !important; }
         {% if is_india %}
         <label class="ow-ck-gw ow-ck-gw-active" id="owGwPaytm">
           <input type="radio" name="gateway" value="paytm" checked>
-          <div class="ow-ck-gw-icon ow-ck-gw-paytm">P</div>
+          {# Payments on optiwar.in are Razorpay (owner, 9 Nov 2026); the id and the field value are legacy hooks. #}
+          <div class="ow-ck-gw-icon ow-ck-gw-paytm">R</div>
           <div>
-            <h3>Paytm</h3>
-            <p>UPI, Cards, Netbanking, Wallet</p>
+            <h3>Razorpay</h3>
+            <p>UPI, Cards, Netbanking, Wallets</p>
           </div>
           <span class="ow-ck-gw-arrow">&rsaquo;</span>
         </label>
@@ -1781,7 +1789,7 @@ footer{ display:none !important; }
       <div class="ow-ck-lines">
         <div class="ow-ck-line">
           <span>Subtotal ({{ cart|length }} item{{ 's' if cart|length > 1 else '' }})</span>
-          <strong>{% if is_india %}Rs {{ grand_total|int }}{% else %}&euro;{{ '%.2f'|format(subtotal_eur|default(grand_total_eur|default(grand_total))) }}{% endif %}</strong>
+          <strong>{% if is_india %}Rs {{ (grand_total - shipping_fee_paid|default(0))|int }}{% else %}&euro;{{ '%.2f'|format(subtotal_eur|default(grand_total_eur|default(grand_total))) }}{% endif %}</strong>
         </div>
         {% if eur_discount is defined and eur_discount > 0 %}
         <div class="ow-ck-line" style="color:#16a34a;">
@@ -1789,18 +1797,54 @@ footer{ display:none !important; }
           <strong>-&euro;{{ '%.2f'|format(eur_discount) }}</strong>
         </div>
         {% endif %}
+        {% if shipping_allowed %}
+        {# Delivery options: standard (free), Expedite, 24-hour Delhi NCR; the fee joins the total (shipping_options.py) #}
+        <div class="ow-ck-ship" id="owShip" data-rules='{{ shipping_rules|tojson|forceescape }}'>
+          <div class="ow-ck-ship__head"><span>Delivery</span><strong id="owShipFee" style="color:#16a34a;">Free</strong></div>
+          <div class="ow-ck-ship__opts" id="owShipOpts"></div>
+          <input type="hidden" name="shipping_fee_seen" id="owShipFeeSeen" value="0">
+          <p class="ow-ck-ship__gst">{{ _('Paid delivery options include 18%% GST and appear on your invoice as a separate service line.') }}</p>
+        </div>
+        {% else %}
         <div class="ow-ck-line">
           <span>Delivery</span>
-          <strong style="color:#16a34a;">Free</strong>
+          {% if shipping_fee_paid %}<strong>{{ shipping_label_paid }}: Rs {{ shipping_fee_paid|int }}</strong>{% else %}<strong style="color:#16a34a;">Free</strong>{% endif %}
         </div>
-        {% if ship_days %}
+        {% endif %}
+        {% if mixed_dispatch %}
+        {# AI Glasses ship later than the frames: both dates, and one combined dispatch to confirm #}
+        <div class="ow-ck-line">
+          <span>Frames dispatch</span>
+          <strong>{{ ship_usual }}</strong>
+        </div>
+        <div class="ow-ck-line">
+          <span>AI Glasses {% if mixed_dispatch.preorder %}(pre-order) {% endif %}dispatch</span>
+          <strong>{{ ship_days }}</strong>
+        </div>
+        <div class="ow-ck-dispatch" id="owDispatchChoice">
+          <p class="ow-ck-dispatch__head">{{ _('Your AI Glasses ship later than your frames. We send an order as one parcel, never in parts.') }}</p>
+          <label class="ow-ck-dispatch__opt">
+            <input type="radio" name="dispatch_mode" value="TOGETHER" checked>
+            <span><strong>{{ _('Send everything together') }}</strong><small>{{ _('One dispatch by') }} {{ ship_days }}. {{ _('Your frames wait for the AI Glasses.') }}</small></span>
+          </label>
+          <label class="ow-ck-dispatch__opt">
+            <input type="radio" name="dispatch_mode" value="SPLIT">
+            <span><strong>{{ _('I want the frames sooner') }}</strong><small>{{ _('Take the AI Glasses out of this order, pay for the frames now, and order the AI Glasses separately.') }}</small></span>
+          </label>
+          <div class="ow-ck-dispatch__split" id="owDispatchSplit" hidden>
+            {% for line in mixed_dispatch.aig_lines %}
+            <a class="ow-ck-dispatch__remove" href="/remove_from_cart/{{ line.product_id }}/{{ line.product_category|default('AI Glasses') }}">{{ _('Remove') }} {{ line.product_name }} {{ _('from this order') }}</a>
+            {% endfor %}
+          </div>
+        </div>
+        {% elif ship_days %}
         <div class="ow-ck-line">
           {% if ship_is_preorder %}
           <span>Pre-order dispatch</span>
           <strong>{{ ship_days }}</strong>
           {% elif is_india %}
-          <span>Est. Delivery</span>
-          <strong>{{ ship_days }}</strong>
+          <span id="owShipEstLabel">Est. Delivery</span>
+          <strong id="owShipEst" data-standard="{{ ship_days }}">{{ ship_days }}</strong>
           {% else %}
           <span>Estimated Shipping</span>
           <strong class="ow-ship-est" onclick="document.getElementById('owShipPopup').style.display='flex'" style="cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px" title="Click for details">{{ ship_days }}</strong>
@@ -1809,7 +1853,7 @@ footer{ display:none !important; }
         {% endif %}
         <div class="ow-ck-line ow-ck-grand">
           <span>Grand Total</span>
-          <span>{% if is_india %}Rs {{ grand_total|int }}{% else %}&euro;{{ '%.2f'|format(grand_total_eur|default(grand_total)) }}{% endif %}</span>
+          <span id="owGrandTotal" data-base="{{ grand_total|int if is_india else grand_total_eur|default(grand_total) }}">{% if is_india %}Rs {{ grand_total|int }}{% else %}&euro;{{ '%.2f'|format(grand_total_eur|default(grand_total)) }}{% endif %}</span>
         </div>
       </div>
 
@@ -1818,7 +1862,10 @@ footer{ display:none !important; }
          long T&C page. The box is never pre-checked; the server refuses a
          checkout without it (policy_terms.require). #}
       <div class="ow-ck-policy" id="owPolicyBlock">
+        <p class="ow-ck-terms-head">{{ _('Please read and accept before you pay.') }}</p>
         {% if spectacle_summary %}
+        <details class="ow-ck-fold" id="owFoldBreakdown" open>
+        <summary>Price details <span class="ow-ck-fold__hint">{{ spectacle_summary|length }} item{{ 's' if spectacle_summary|length != 1 }}</span></summary>
         <div class="ow-ck-policy-summary">
           <strong>Your customized spectacles</strong>
           {% for sp in spectacle_summary %}
@@ -1833,7 +1880,10 @@ footer{ display:none !important; }
           </div>
           {% endfor %}
         </div>
+        </details>
         {% endif %}
+        <details class="ow-ck-fold" id="owFoldPolicy" open>
+        <summary>Returns and delivery terms <span class="ow-ck-fold__hint">please read</span></summary>
         <div class="ow-ck-policy-warn" role="note">
           {% if policy_is_international %}
           <p><strong>International order &mdash; non-returnable and non-refundable.</strong> Orders on optiwar.com are exported from India and cannot be returned or refunded once placed. Please check every frame, prescription and lens selection now.</p>
@@ -1855,6 +1905,7 @@ footer{ display:none !important; }
           <p><strong>Contact lenses:</strong> opened, worn, unsealed or tampered packs are hygiene-sensitive and cannot be returned. Please verify brand, power, cylinder, axis, ADD, BC and quantity before paying.</p>
           {% endif %}
         </div>
+        </details>
         <label class="ow-ck-policy-accept" for="owTermsAccepted">
           <input type="checkbox" id="owTermsAccepted" name="{{ terms_field }}" value="1" required>
           <span>{{ acceptance_text|replace("Terms & Conditions", '<a href="' ~ terms_url ~ '" target="_blank" rel="noopener">Terms &amp; Conditions</a>')|replace("Returns, Replacements & Limited Warranty Policy", '<a href="' ~ returns_url ~ '" target="_blank" rel="noopener">Returns, Replacements &amp; Limited Warranty Policy</a>')|safe }}</span>
@@ -1864,6 +1915,9 @@ footer{ display:none !important; }
       </div>
       {% endif %}
 
+      {% if acceptance_text is defined %}
+      <div class="ow-ck-terms-ok" id="owTermsOk"><span>&#10003; {{ _('Terms accepted') }}</span><a onclick="owMobGo(2)">{{ _('Change') }}</a></div>
+      {% endif %}
       <button type="submit" class="ow-ck-pay-btn" id="owPayBtn">
         <span class="ow-ck-btn-text">Pay {% if is_india %}Rs {{ grand_total|int }}{% else %}&euro;{{ '%.2f'|format(grand_total_eur|default(grand_total)) }}{% endif %}</span>
         <span class="ow-ck-spinner">
@@ -1922,7 +1976,7 @@ footer{ display:none !important; }
 <script>
 /* ═══ MOBILE STEP WIZARD ═══ */
 var owMobStep = 0;
-function owIsMobile(){ return window.innerWidth <= 767; }
+function owIsMobile(){ return true; }   /* the step wizard runs at every width (owner, 7 Nov 2026) */
 
 /* Prescription modal open/close */
 function owShowRx(id){ document.getElementById(id).classList.add('ow-rx-open'); }
@@ -1930,18 +1984,25 @@ function owCloseRx(id){ document.getElementById(id).classList.remove('ow-rx-open
 
 
 
+var owHasTermsStep = !!document.getElementById('owPolicyBlock');
 function owMobGo(step){
   if(!owIsMobile()) return;
+  if (step === 2 && !owHasTermsStep) step = (owMobStep > 2) ? 1 : 3;   /* no terms block: skip that step */
   owMobStep = step;
   var cards = document.querySelectorAll('.ow-ck-layout > .ow-ck-card');
-  cards.forEach(function(c,i){ c.classList.toggle('ow-mob-visible', i === step); });
+  var cardIndex = Math.min(step, 2);                                     /* terms and pay share the third card */
+  cards.forEach(function(c,i){ c.classList.toggle('ow-mob-visible', i === cardIndex); });
+  var wrap = document.getElementById('owCheckout');
+  if (wrap) { wrap.classList.remove('ow-mob-step-0','ow-mob-step-1','ow-mob-step-2','ow-mob-step-3'); wrap.classList.add('ow-mob-step-' + step); }
   var steps = document.querySelectorAll('.ow-mob-step');
-  steps.forEach(function(s,i){
+  steps.forEach(function(s){
+    var n = +s.getAttribute('data-step');
     s.classList.remove('ow-mob-active','ow-mob-done');
-    if(i < step) s.classList.add('ow-mob-done');
-    else if(i === step) s.classList.add('ow-mob-active');
+    if(n < step) s.classList.add('ow-mob-done');
+    else if(n === step) s.classList.add('ow-mob-active');
   });
   window.scrollTo({top:0, behavior:'smooth'});
+  if (window.owMobBarUpdate) window.owMobBarUpdate(step);
 }
 
 function owMobInit(){
@@ -1984,6 +2045,7 @@ function owSelectAddr(radio) {
     if (cs.options[i].value === radio.dataset.country) { cs.selectedIndex = i; break; }
   }
   cs.dispatchEvent(new Event('change'));
+  if (window.owShipRender) window.owShipRender();
   owClearMissing();
   if(typeof owMobAddrCollapse === 'function') owMobAddrCollapse();
 }
@@ -2195,6 +2257,144 @@ function owShowToast(msg) {
   clearTimeout(owShowToast._t);
   owShowToast._t = setTimeout(function() { t.classList.remove('ow-ck-show'); }, 2800);
 }
+</script>
+<script>
+/* ═══ Checkout usability: fixed step bar on phones, foldable breakdown/policy,
+   collapsed prescription-photo box, clickable step chips ═══ */
+(function () {
+  var form = document.getElementById('owCheckoutForm'); if (!form) return;
+  var grand = document.querySelector('.ow-ck-grand span:last-child');
+  var total = grand ? grand.textContent.trim() : '';
+  var labels = ['Confirm address', 'Read the terms', 'I agree, continue', 'Pay ' + total];
+
+  /* prescription photo box: one line until tapped (upload hooks untouched) */
+  document.querySelectorAll('.ow-rx-upload').forEach(function (box) {
+    var t = box.querySelector('.ow-rx-upload__toggle'); if (!t) return;
+    var hasDocs = box.querySelectorAll('.ow-rx-upload-list li').length > 0;
+    box.classList.toggle('ow-rx-open', hasDocs); t.setAttribute('aria-expanded', hasDocs ? 'true' : 'false');
+    function flip() { var open = !box.classList.contains('ow-rx-open'); box.classList.toggle('ow-rx-open', open); t.setAttribute('aria-expanded', open ? 'true' : 'false'); if (open) { var f = box.querySelector('input[type=file]'); if (f) f.focus(); } }
+    t.addEventListener('click', flip);
+    t.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
+  });
+
+  /* phones: each item's person / prescription / lens-detail controls fold behind one button */
+  document.querySelectorAll('.ow-ck-item').forEach(function (it) {
+    var body = it.querySelector('.ow-ck-body'); if (!body) return;
+    if (!body.querySelector('.ow-ck-face, .ow-rx-upload, .ow-rx-btn, .ow-rx-badge')) return;
+    var b = document.createElement('button'); b.type = 'button'; b.className = 'ow-ck-more'; b.textContent = 'Options'; b.setAttribute('aria-expanded', 'false');
+    b.addEventListener('click', function () { var open = it.classList.toggle('ow-ck-item--open'); b.setAttribute('aria-expanded', open ? 'true' : 'false'); b.textContent = open ? 'Hide options' : 'Options'; });
+    body.appendChild(b);
+  });
+
+  /* fixed action bar (phones) */
+  var bar = document.createElement('div'); bar.id = 'owMobBar'; bar.className = 'ow-mob-bar';
+  bar.innerHTML = '<div class="ow-mob-bar__total"><span>Total</span><b>' + total + '</b></div><button type="button" class="ow-btn ow-btn--primary" id="owMobBarBtn"></button>';
+  document.body.appendChild(bar);
+  var btn = document.getElementById('owMobBarBtn');
+  /* delivery options: offered by the address being typed; the fee joins the total shown and the bar */
+  (function () {
+    var box = document.getElementById('owShip'); if (!box) return;
+    var rules; try { rules = JSON.parse(box.getAttribute('data-rules')); } catch (e) { return; }
+    var opts = document.getElementById('owShipOpts'), feeEl = document.getElementById('owShipFee');
+    var grandEl = document.getElementById('owGrandTotal'), base = parseFloat(grandEl && grandEl.getAttribute('data-base')) || 0;
+    var est = document.getElementById('owShipEst');
+    function digits(v) { return String(v || '').replace(/\D/g, ''); }
+    /* 24-hour only for a full NCR pin with a state that agrees, and only while the schedule allows */
+    var ncr24Open = !!rules.ncr24_open;
+    if (ncr24Open && rules.ncr24_seconds_left) {
+      setTimeout(function () { ncr24Open = false; render(); }, Math.min(rules.ncr24_seconds_left * 1000, 2147483000));
+    }
+    function isNcr() {
+      var z = digits((document.getElementById('ck_postcode') || {}).value);
+      if (z.length !== 6) return false;
+      var st = String((document.getElementById('ck_state') || {}).value || '').trim().toLowerCase();
+      return rules.ncr_pins.some(function (p) { return z.indexOf(p[0]) === 0 && p[1].indexOf(st) >= 0; });
+    }
+    function promised(days) {
+      var d = new Date(); d.setDate(d.getDate() + days); if (d.getDay() === 0) d.setDate(d.getDate() + 1);
+      return d.toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+    }
+    function current() { var r = opts.querySelector('input[name="shipping_option"]:checked'); return r ? r.value : 'standard'; }
+    function apply() {
+      var key = current(), opt = null;
+      rules.options.forEach(function (o) { if (o.key === key) opt = o; });
+      if (!opt) return;
+      feeEl.textContent = opt.fee ? 'Rs ' + opt.fee : 'Free';
+      document.getElementById('owShipFeeSeen').value = opt.fee;
+      if (grandEl) grandEl.textContent = 'Rs ' + Math.round(base + opt.fee);
+      if (est) est.textContent = promised(opt.days);
+      var bar = document.querySelector('#owMobBar .ow-mob-bar__total b'); if (bar) bar.textContent = 'Rs ' + Math.round(base + opt.fee);
+      var btn = document.getElementById('owMobBarBtn'); if (btn && /^Pay /.test(btn.textContent)) btn.textContent = 'Pay Rs ' + Math.round(base + opt.fee);
+      window.owShipTotal = 'Rs ' + Math.round(base + opt.fee);
+    }
+    function render() {
+      var keep = current(), ncr = isNcr(), html = '';
+      rules.options.forEach(function (o) {
+        if (o.ncr_only && !(ncr && ncr24Open)) return;
+        var checked = (o.key === keep) ? ' checked' : '';
+        html += '<label class="ow-ck-ship__opt"><input type="radio" name="shipping_option" value="' + o.key + '"' + checked + '>' +
+                '<span><strong>' + o.label + '</strong><small>' + o.blurb + '</small></span>' +
+                '<b>' + (o.fee ? 'Rs ' + o.fee : 'Free') + '</b></label>';
+      });
+      opts.innerHTML = html;
+      if (!opts.querySelector('input:checked')) { var first = opts.querySelector('input'); if (first) first.checked = true; }
+      opts.querySelectorAll('input').forEach(function (r) { r.addEventListener('change', apply); });
+      apply();
+    }
+    ['ck_postcode', 'ck_state', 'ck_address'].forEach(function (id) {
+      var el = document.getElementById(id); if (el) { el.addEventListener('input', render); el.addEventListener('change', render); }
+    });
+    window.owShipRender = render;
+    render();
+  })();
+
+  /* mixed order: paying is only possible with one combined dispatch */
+  window.owDispatchOk = function () {
+    var split = document.querySelector('input[name="dispatch_mode"][value="SPLIT"]');
+    if (!split || !split.checked) return true;
+    var panel = document.getElementById('owDispatchSplit');
+    if (panel) { panel.hidden = false; panel.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    return false;
+  };
+  document.querySelectorAll('input[name="dispatch_mode"]').forEach(function (r) {
+    r.addEventListener('change', function () {
+      var panel = document.getElementById('owDispatchSplit'); if (panel) panel.hidden = (r.value !== 'SPLIT' || !r.checked);
+    });
+  });
+  var ckForm = document.getElementById('owCheckoutForm');
+  if (ckForm) ckForm.addEventListener('submit', function (e) { if (!window.owDispatchOk()) e.preventDefault(); }, true);
+  function termsOk() {
+    var terms = document.getElementById('owTermsAccepted');
+    if (!terms || terms.checked) return true;
+    var block = document.getElementById('owPolicyBlock');
+    if (block) { block.classList.add('ow-ck-policy-missing'); }
+    var lab = terms.closest('label'); if (lab) lab.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    terms.focus(); return false;
+  }
+  btn.addEventListener('click', function () {
+    var step = (typeof owMobStep === 'number') ? owMobStep : 0;
+    if (step < 2) { owMobGo(step + 1); return; }
+    if (step === 2) { if (termsOk()) owMobGo(3); return; }
+    if (!termsOk()) { owMobGo(2); return; }
+    if (!window.owDispatchOk()) return;
+    var pay = document.getElementById('owPayBtn');
+    if (pay) { btn.textContent = 'Processing\u2026'; btn.disabled = true; pay.click(); setTimeout(function () { btn.disabled = false; btn.textContent = labels[3]; }, 15000); }
+  });
+  window.owMobBarUpdate = function (step) {
+    btn.textContent = (step === 3 && window.owShipTotal) ? 'Pay ' + window.owShipTotal : (labels[step] || labels[0]);
+    btn.classList.toggle('ow-mob-bar__pay', step === 3);
+    var fb = document.getElementById('owFoldBreakdown'), fp = document.getElementById('owFoldPolicy');
+    if (fb) fb.removeAttribute('open');
+    if (fp) { if (step === 2) fp.setAttribute('open', ''); else fp.removeAttribute('open'); }
+  };
+  if (typeof owMobStep === 'number') window.owMobBarUpdate(owMobStep);
+
+  /* step chips go back; #step-N opens a step directly */
+  document.querySelectorAll('.ow-mob-step').forEach(function (chip, i) {
+    var n = +chip.getAttribute('data-step'); chip.addEventListener('click', function () { if (n <= owMobStep) owMobGo(n); });
+  });
+  var m = /#step-([0-3])/.exec(location.hash); if (m && typeof owMobGo === 'function') owMobGo(+m[1]);
+})();
 </script>
 
 

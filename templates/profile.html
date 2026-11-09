@@ -282,6 +282,8 @@
 
 </style>
 
+{% from '_pagenav.html' import pagenav with context %}
+{{ pagenav([(_('My account'), None)], back_label=_('Back to shopping')) }}
 <div class="ow-profile-container">
 
   <!-- Profile Header Card -->
@@ -900,8 +902,14 @@
             </div>
             {% endfor %}
 
+            {% if order.shipping_fee %}
+            <div class="oh-grand" style="font-weight:600;">
+              <span class="oh-grand-label">Delivery: {{ order.shipping_label }}{% if order.shipping_promised %} &middot; promised by {{ order.shipping_promised.strftime('%d %b %Y') }}{% endif %}</span>
+              <span class="oh-grand-val">Rs {{ order.shipping_fee|int }}</span>
+            </div>
+            {% endif %}
             <!-- Grand Total -->
-            {% if order['items']|length > 1 %}
+            {% if order['items']|length > 1 or order.shipping_fee %}
             <div class="oh-grand">
               <span class="oh-grand-label">Grand Total</span>
               <span class="oh-grand-val">{% if is_india %}Rs{% else %}&euro;{% endif %} {{ order.grand_total|int }}</span>
@@ -2232,7 +2240,7 @@ if (window.location.hash) {
     });
   }
 
-  var isIndia = window.location.host.indexOf('in.optiwar.com') >= 0 || window.location.host.indexOf('optiwar.in') >= 0;
+  var isIndia = {{ 'true' if is_india else 'false' }};  // the site decides, not the hostname (local builds use in.localhost)
   var defCode = isIndia ? '+91' : '+49';
 
   // Profile phone code

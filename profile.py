@@ -3,7 +3,7 @@ from .db import get_db
 from .auth import login_required
 from .rx_powers import normalize_rows
 from .customer_orders import ORDER_LINES_SQL, customer_orders, attach_reship, attach_reverse_pickup
-from . import reship, return_request, reverse_pickup
+from . import reship, return_request, reverse_pickup, shipping_options
 from . import face_profiles, face_profiles_api, face_scan_groups, face_scan_invites_api
 
 bp = Blueprint('profile', __name__, url_prefix='/profile')
@@ -84,6 +84,9 @@ def profile_page():
 
     normalize_rows(orders)
     grouped_orders = customer_orders(orders)[:30]
+    # A paid delivery option is part of what the customer paid: add it to the totals.
+    shipping_options.attach_fees(grouped_orders, shipping_options.fees_for(
+        cursor, [o['order_id'] for o in grouped_orders]))
     cust_id = customer['customer_id'] if customer else user_id
     reship_rows, shipments, reship_now = {}, {}, None
     if grouped_orders and cust_id and reship.enabled() and reship.is_india_host(request.host):

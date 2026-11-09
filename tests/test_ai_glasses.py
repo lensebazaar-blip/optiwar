@@ -267,6 +267,70 @@ class SealedDispatchTest(unittest.TestCase):
         self.assertNotIn("ALTER", ddl.upper())
 
 
+class MixedDispatchTest(unittest.TestCase):
+    """A cart that mixes AI Glasses shipping later with ready frames: both dates are
+    shown, the customer confirms one combined dispatch, and Ops can read that choice."""
+    START = datetime.date(2026, 10, 31)
+    USUAL = datetime.date(2026, 11, 3)
+
+    def test_mixed_only_when_ai_glasses_ship_later_than_the_frames(self):
+        frame = {"product_id": "377", "product_name": "CE-I", "order_quantity": 1}
+        out = aig.mixed_dispatch(_Cursor([ROW]), [aig_line(), frame], self.USUAL, self.START)
+        self.assertEqual(out["aig_date"], datetime.date(2026, 11, 30))
+        self.assertTrue(out["preorder"])
+        self.assertEqual(out["other_count"], 1)
+        self.assertEqual([l["product_id"] for l in out["aig_lines"]], ["7"])
+        self.assertIsNone(aig.mixed_dispatch(_Cursor([ROW]), [aig_line()], self.USUAL, self.START))
+        self.assertIsNone(aig.mixed_dispatch(_Cursor([ROW]), [frame], self.USUAL, self.START))
+        self.assertIsNone(aig.mixed_dispatch(_Cursor([ROW]), [aig_line(), frame], datetime.date(2026, 12, 31), self.START))
+
+    def test_the_choice_is_recorded_once_per_order_and_never_breaks_it(self):
+        cur = _Recorder()
+        self.assertTrue(aig.record_dispatch_preference(cur, "ABCDEF-123456", aig.MODE_TOGETHER,
+                                                       datetime.date(2026, 11, 30), self.USUAL, now="now"))
+        sql, args = cur.calls[0]
+        self.assertIn("INSERT INTO ai_glasses_order_dispatch_pref", sql)
+        self.assertIn("ON DUPLICATE KEY UPDATE", sql)
+        self.assertEqual(args[:4], ("ABCDEF-123456", "TOGETHER", datetime.date(2026, 11, 30), self.USUAL))
+        self.assertFalse(aig.record_dispatch_preference(_Recorder(), "X", "SPLIT", None, None))
+        self.assertFalse(aig.record_dispatch_preference(_Recorder(fail=True), "X", aig.MODE_TOGETHER, None, None))
+        self.assertIsNone(aig.dispatch_preference(_Recorder(fail=True), "X"))
+
+    def test_the_note_ops_and_the_customer_read(self):
+        note = aig.dispatch_note({"mode": "TOGETHER", "hold_until": datetime.date(2026, 11, 30)})
+        self.assertIn("ONE DISPATCH", note)
+        self.assertIn("Monday, 30 November 2026", note)
+        self.assertIn("No partial dispatch", note)
+        self.assertEqual(aig.dispatch_note(None), "")
+        self.assertEqual(aig.dispatch_note({"mode": "OTHER"}), "")
+        self.assertEqual(aig.dispatch_note_for(_Recorder(row={"mode": "TOGETHER", "hold_until": None}), "X"),
+                         "ONE DISPATCH: the customer chose to hold every item and receive the whole order together. No partial dispatch.")
+
+    def test_wiring_checkout_order_page_mail_and_deploy(self):
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        ck = open(os.path.join(root, "templates", "checkout.html"), encoding="utf-8").read()
+        self.assertIn('name="dispatch_mode" value="TOGETHER" checked', ck)
+        self.assertIn('name="dispatch_mode" value="SPLIT"', ck)
+        self.assertIn("owDispatchOk", ck)
+        models = open(os.path.join(root, "models.py"), encoding="utf-8").read()
+        # one parcel is the only way a mixed order ships: recorded whatever the form posted
+        self.assertIn("ai_glasses.record_dispatch_preference(cursor, order_id, ai_glasses.MODE_TOGETHER,", models)
+        self.assertNotIn("dispatch_mode or ai_glasses.MODE_TOGETHER", models)
+        self.assertIn("mixed_dispatch=mixed_dispatch", models)
+        self.assertIn("dispatch_note=dispatch_note", models)
+        # the confirmation mail gets the note as a cart line; production's mail.py is not ours to change
+        self.assertEqual(models.count("cart=_mail_cart(order_id, cart)"), 2)
+        self.assertNotIn("dispatch_note=_dispatch_note_safe(order_id)", models)
+        mail = open(os.path.join(root, "mail.py"), encoding="utf-8").read()
+        self.assertNotIn("dispatch_note", mail)
+        success = open(os.path.join(root, "templates", "success.html"), encoding="utf-8").read()
+        self.assertIn("{% if dispatch_note %}", success)
+        deploy = open(os.path.join(root, "deploy", "deploy.py"), encoding="utf-8").read()
+        self.assertIn('("ai_glasses_order_dispatch_pref", consts["DISPATCH_PREF_SCHEMA"])', deploy)
+        ddl = dict(aig.TABLES)["ai_glasses_order_dispatch_pref"]
+        self.assertIn("CREATE TABLE IF NOT EXISTS", ddl)
+
+
 class FaceMatchStripTest(unittest.TestCase):
     """AI Glasses on the Face Match frames page: only sizes that fit, one card per style."""
 

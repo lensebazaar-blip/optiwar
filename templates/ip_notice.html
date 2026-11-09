@@ -1,0 +1,89 @@
+{% extends 'base.html' %}
+{% block title %} Trademark and copyright notice - OPTIWAR {% endblock %}
+{% block meta_description %} Rights holders: notify Optiwar about a listing. The form the Terms require, with a copy of the notice sent to you. {% endblock %}
+{% block content %}
+{% from '_pagenav.html' import pagenav with context %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/legal.css') }}?v=3">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/ow-forms.css') }}?v=1">
+{{ pagenav([(_('Terms and Conditions'), url_for('main.terms_and_conditions')), (_('Trademark and copyright notice'), None)], back_label=_('Back')) }}
+<div class="ow-legal" id="owLegal">
+  <div class="ow-legal__head">
+    <h1>{{ _('Trademark and copyright holder notice') }}</h1>
+    <p class="ow-legal__lead">{{ _('If you own a trademark or copyright and believe a listing on Optiwar infringes it, this is the notice our Terms ask for. We acknowledge within %(ack)s working days; the %(hold)s-day hold period runs from that acknowledgement. A copy of your notice is emailed to you and to us.', ack=ack_days, hold=hold_days) }}</p>
+    <ul class="ow-legal__meta">
+      <li><a href="{{ url_for('main.terms_and_conditions') }}#ip-notice">{{ _('Terms: Trademark and Copyright Holder Notices') }}</a></li>
+      <li>{{ _('Courts') }}: New Delhi &middot; Gurugram</li>
+    </ul>
+  </div>
+
+  {% if sent %}
+  <div class="owf-ack" role="status">
+    <h2>{{ _('Notice received.') }}</h2>
+    <div class="ref">{{ ref }}</div>
+    <p style="margin:8px 0 0;">{{ _('Quote this reference in any follow-up.') }}
+      {% if mailed %}{{ _('A copy has been emailed to') }} <strong>{{ data.email }}</strong> {{ _('and to Optiwar.') }}{% else %}{{ _('We could not send the email copy just now; the notice is recorded under this reference. Keep the text below for your records.') }}{% endif %}
+    </p>
+    <ul class="owf-steps" style="margin-top:12px;">
+      <li><b>1</b><span>{{ _('Acknowledgement by') }} <strong>{{ ack_due.strftime('%A, %d %B %Y') }}</strong> ({{ ack_days }} {{ _('working days') }}).</span></li>
+      <li><b>2</b><span>{{ _('Hold period of') }} {{ hold_days }} {{ _('days from the acknowledgement; earliest end') }} <strong>{{ hold_until.strftime('%A, %d %B %Y') }}</strong>. {{ _('We verify the listing and the sourcing of the goods we hold and reply in writing.') }}</span></li>
+      <li><b>3</b><span>{{ _('Only if unresolved after the hold period may you proceed, and only before the New Delhi or Gurugram courts (Terms, Governing Law and Jurisdiction).') }}</span></li>
+    </ul>
+    <div class="ow-legal__tools">
+      <button type="button" class="ow-legal__btn" onclick="window.print()">{{ _('Print / save as PDF') }}</button>
+      <a class="ow-legal__btn" href="mailto:{{ data.email }}?subject={{ ('Optiwar IP notice ' ~ ref)|urlencode }}&body={{ notice_text|urlencode }}">{{ _('Email myself a copy') }}</a>
+    </div>
+    <div class="owf-copy">{{ notice_text }}</div>
+  </div>
+
+  {% else %}
+  {% if errors.form %}<p class="owf-warn">{{ errors.form }}</p>{% endif %}
+  <ul class="owf-steps">
+    <li><b>1</b><span>{{ _('Tell us who you are and which right you hold.') }}</span></li>
+    <li><b>2</b><span>{{ _('Point to the exact listing(s) and say why they infringe and what you ask for.') }}</span></li>
+    <li><b>3</b><span>{{ _('Send. You get a reference and an emailed copy; we acknowledge within %(ack)s working days and the %(hold)s-day hold period runs from there.', ack=ack_days, hold=hold_days) }}</span></li>
+  </ul>
+  <form method="post" action="{{ url_for('main.ip_notice_submit') }}" class="owf-form" novalidate>
+    <div class="owf-hp" aria-hidden="true"><label>Website <input type="text" name="website_url" tabindex="-1" autocomplete="off"></label></div>
+
+    <div class="owf-row owf-row--2">
+      <div class="owf-field{% if errors.holder_name %} is-bad{% endif %}"><label for="holder_name">{{ _('Your name') }} *</label><input type="text" id="holder_name" name="holder_name" value="{{ data.holder_name }}" required autocomplete="name">{% if errors.holder_name %}<span class="owf-err">{{ errors.holder_name }}</span>{% endif %}</div>
+      <div class="owf-field"><label for="designation">{{ _('Designation') }}</label><input type="text" id="designation" name="designation" value="{{ data.designation }}" autocomplete="organization-title"></div>
+    </div>
+    <div class="owf-row owf-row--2">
+      <div class="owf-field"><label for="company">{{ _('Company / rights owner') }}</label><input type="text" id="company" name="company" value="{{ data.company }}" autocomplete="organization"></div>
+      <div class="owf-field"><label for="phone">{{ _('Phone') }}</label><input type="tel" id="phone" name="phone" value="{{ data.phone }}" autocomplete="tel"></div>
+    </div>
+    <div class="owf-row owf-row--2">
+      <div class="owf-field{% if errors.email %} is-bad{% endif %}"><label for="email">{{ _('Email') }} * <small>{{ _('your copy goes here') }}</small></label><input type="email" id="email" name="email" value="{{ data.email }}" required autocomplete="email">{% if errors.email %}<span class="owf-err">{{ errors.email }}</span>{% endif %}</div>
+      <div class="owf-field"><label for="address">{{ _('Postal address') }}</label><input type="text" id="address" name="address" value="{{ data.address }}" autocomplete="street-address"></div>
+    </div>
+
+    <div class="owf-row owf-row--2">
+      <div class="owf-field{% if errors.rights_type %} is-bad{% endif %}"><label for="rights_type">{{ _('The right') }} *</label>
+        <select id="rights_type" name="rights_type" required>
+          <option value="">{{ _('Choose') }}</option>
+          {% for key, label in rights_types %}<option value="{{ key }}"{% if data.rights_type == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>{% if errors.rights_type %}<span class="owf-err">{{ errors.rights_type }}</span>{% endif %}</div>
+      <div class="owf-field"><label for="registration">{{ _('Registration number(s) or proof of ownership') }}</label><input type="text" id="registration" name="registration" value="{{ data.registration }}"></div>
+    </div>
+    <div class="owf-field{% if errors.mark_or_work %} is-bad{% endif %}"><label for="mark_or_work">{{ _('Trademark or copyrighted work concerned') }} *</label><input type="text" id="mark_or_work" name="mark_or_work" value="{{ data.mark_or_work }}" required>{% if errors.mark_or_work %}<span class="owf-err">{{ errors.mark_or_work }}</span>{% endif %}</div>
+    <div class="owf-field{% if errors.listing_urls %} is-bad{% endif %}"><label for="listing_urls">{{ _('Listing URL(s) or product code(s) on the Website') }} * <small>{{ _('one per line') }}</small></label><textarea id="listing_urls" name="listing_urls" required placeholder="https://optiwar.in/categories/...">{{ data.listing_urls }}</textarea>{% if errors.listing_urls %}<span class="owf-err">{{ errors.listing_urls }}</span>{% endif %}</div>
+    <div class="owf-field{% if errors.reason %} is-bad{% endif %}"><label for="reason">{{ _('Why you believe the listing infringes your rights') }} * <small>{{ _('counterfeit, grey-market, lawfully sourced, image or text copied...') }}</small></label><textarea id="reason" name="reason" required>{{ data.reason }}</textarea>{% if errors.reason %}<span class="owf-err">{{ errors.reason }}</span>{% endif %}</div>
+    <div class="owf-row owf-row--2">
+      <div class="owf-field{% if errors.action_requested %} is-bad{% endif %}"><label for="action_requested">{{ _('Action you request') }} *</label>
+        <select id="action_requested" name="action_requested" required>
+          <option value="">{{ _('Choose') }}</option>
+          {% for key, label in actions %}<option value="{{ key }}"{% if data.action_requested == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>{% if errors.action_requested %}<span class="owf-err">{{ errors.action_requested }}</span>{% endif %}</div>
+      <div class="owf-field{% if errors.action_detail %} is-bad{% endif %}"><label for="action_detail">{{ _('Details of the action') }}</label><input type="text" id="action_detail" name="action_detail" value="{{ data.action_detail }}">{% if errors.action_detail %}<span class="owf-err">{{ errors.action_detail }}</span>{% endif %}</div>
+    </div>
+
+    <label class="owf-check{% if errors.declaration %} is-bad{% endif %}"><input type="checkbox" name="declaration" value="1"{% if data.declaration %} checked{% endif %}><span>{{ _('I state in good faith that the information in this notice is accurate and that I am the rights holder or authorised to act for the rights holder.') }}{% if errors.declaration %}<br><span class="owf-err">{{ errors.declaration }}</span>{% endif %}</span></label>
+    <label class="owf-check{% if errors.hold_agreed %} is-bad{% endif %}"><input type="checkbox" name="hold_agreed" value="1"{% if data.hold_agreed %} checked{% endif %}><span>{{ _('I have read the notice procedure in the Terms: Optiwar acknowledges within %(ack)s working days, a %(hold)s-day hold period then runs during which I will not initiate or escalate any claim, and any proceeding is brought only before the New Delhi or Gurugram courts.', ack=ack_days, hold=hold_days) }}{% if errors.hold_agreed %}<br><span class="owf-err">{{ errors.hold_agreed }}</span>{% endif %}</span></label>
+
+    <div><button type="submit" class="owf-submit">{{ _('Send the notice') }}</button></div>
+    <p class="rxp-help" style="font-size:12.5px;color:#64748b;margin:0;">{{ _('One email goes to Optiwar with a copy to your address. Nothing in this notice is published.') }}</p>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

@@ -13,9 +13,19 @@
 {% endblock %}
 
 {% block content %}
+{% from '_pagenav.html' import pagenav with context %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/legal.css') }}?v=3">
+{{ pagenav([(_('Privacy Policy'), None)], back_label=_('Back')) }}
+<div class="ow-legal" id="owLegal">
+  <div class="ow-legal__head">
+    <h1>{{ _('Privacy Policy') }}</h1>
+    <p class="ow-legal__lead">{{ _('What we collect when you shop with Optiwar, why, who sees it, and the choices you have.') }}</p>
+    <ul class="ow-legal__meta"><li><strong>{{ _('Updated') }}</strong> 30 September 2024</li></ul>
+  </div>
+  <div class="ow-legal__grid">
+    <details class="ow-legal__toc" id="owLegalToc" open><summary>{{ _('Contents') }}</summary><ol></ol></details>
+    <article class="ow-legal__doc" id="owLegalDoc">
 <div class="privacy-policy-section">
-    <h1>Privacy Policy for Optiwar.com</h1>
-    <p><strong>Last Updated: 30th September 2024</strong></p>
 
     <p>At Krishna Ecommerce Technologies Private Limited ("we," "us," or "our"), we respect your privacy and are committed to protecting the personal information you may provide while using our website ("Optiwar"). This Privacy Policy outlines the types of personal information we collect, how we use and protect it, and your rights regarding your personal information.</p>
 
@@ -141,5 +151,31 @@
         </li>
     </ol>
 </div>
+      <a class="ow-legal__top" href="#owLegal">&uarr; {{ _('Back to top') }}</a>
+    </article>
+  </div>
+</div>
+<script>
+(function () {
+  var doc = document.getElementById('owLegalDoc'), toc = document.querySelector('#owLegalToc ol');
+  if (!doc || !toc) return;
+  var heads = doc.querySelectorAll('h2'), links = [];
+  heads.forEach(function (h, i) {
+    var text = h.textContent.replace(/\s+/g, ' ').trim();
+    var host = h.closest('li') || h;
+    if (!host.id) host.id = 'sec-' + (i + 1) + '-' + text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+    var label = (text === text.toUpperCase() && text.length > 12) ? text.toLowerCase().replace(/(^|\s|&\s)([a-z])/g, function (m) { return m.toUpperCase(); }) : text;
+    var a = document.createElement('a'); a.href = '#' + host.id; a.textContent = label;
+    var li = document.createElement('li'); li.appendChild(a); toc.appendChild(li); links.push([host, a]);
+    a.addEventListener('click', function () { if (window.innerWidth < 900) document.getElementById('owLegalToc').open = false; });
+  });
+  if (window.innerWidth < 900) document.getElementById('owLegalToc').open = false;
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { if (e.isIntersecting) links.forEach(function (p) { p[1].classList.toggle('is-active', p[0] === e.target); }); });
+    }, { rootMargin: '-80px 0px -70% 0px' });
+    links.forEach(function (p) { io.observe(p[0]); });
+  }
+})();
+</script>
 {% endblock %}
-
