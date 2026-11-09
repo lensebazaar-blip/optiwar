@@ -2,7 +2,7 @@
 {% block title %} Prescription lenses for {{ product_name }} - Optiwar {% endblock %}
 {% block frame_filter_bar %}{% endblock %}
 {% block content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/rx-page.css') }}?v=6">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/rx-page.css') }}?v=7">
 
 <div class="rxp" id="rxPage">
     <!-- where you are: back to the frame, and the three steps to the cart -->
@@ -75,7 +75,14 @@
                         </span>
                         <span class="rxp-scan__go" aria-hidden="true">&rsaquo;</span>
                     </button>
+                    <input type="text" id="rxPhotoHp" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px">
+                    <div class="rxp-human" id="rxHuman" hidden>
+                        <img id="rxHumanImg" alt="Security code">
+                        <input type="text" id="rxHumanCode" placeholder="Type the code" autocomplete="off" aria-label="Security code">
+                        <button type="button" id="rxHumanGo">Verify</button>
+                    </div>
                     <div class="rxp-scan__status" id="rxScanStatus" role="status" aria-live="polite" hidden></div>
+                    <p class="rxp-scan__rule">Upload only your eyeglasses prescription. Sexual, illegal or extremist content is blocked and logged.</p>
                 </div>
 
                 <div class="rxp-or"><span>or enter the values</span></div>
@@ -791,7 +798,28 @@ window.onload = function() {
     }
     function done() { btn.disabled = false; btn.classList.remove('is-busy'); input.value = ''; }
 
-    btn.addEventListener('click', function () { input.click(); });
+    /* bot checks: a token from this page, and for guests the site's own code, once per visit */
+    var token = '', needHuman = false, human = document.getElementById('rxHuman');
+    var humanImg = document.getElementById('rxHumanImg'), humanCode = document.getElementById('rxHumanCode');
+    function challenge() {
+        return fetch('/api/rx-photo/challenge', { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (j) {
+            token = j.token || ''; needHuman = !!j.captcha;
+            if (j.image) humanImg.src = 'data:image/png;base64,' + j.image;
+        });
+    }
+    challenge();
+    document.getElementById('rxHumanGo').addEventListener('click', function () {
+        fetch('/api/rx-photo/verify', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ captcha: humanCode.value }) })
+            .then(function (r) { return r.json(); }).then(function (j) {
+                humanCode.value = '';
+                if (j.ok) { needHuman = false; human.hidden = true; say('ok', 'Thank you. Tap <strong>Scan your prescription</strong> to choose the photo.'); }
+                else { if (j.image) humanImg.src = 'data:image/png;base64,' + j.image; say('err', esc(j.message || 'Please try again.')); }
+            });
+    });
+    btn.addEventListener('click', function () {
+        if (needHuman) { human.hidden = false; say('busy', 'Please type the code first. This keeps automated traffic out.'); humanCode.focus(); return; }
+        input.click();
+    });
     input.addEventListener('change', function () {
         var f = input.files && input.files[0];
         if (!f) return;
@@ -800,6 +828,8 @@ window.onload = function() {
         say('busy', '<span class="rxp-spin"></span> Reading your prescription&hellip; this can take up to 30 seconds.');
         var fd = new FormData();
         fd.append('rx_photo', f, f.name || 'rx.jpg');
+        fd.append('token', token);
+        fd.append('website_url', document.getElementById('rxPhotoHp').value);
         fetch('/api/rx-photo/read', { method: 'POST', body: fd, credentials: 'same-origin' })
             .then(function (r) { return r.json().then(function (j) { return j; }, function () { return {}; }); })
             .then(function (j) {

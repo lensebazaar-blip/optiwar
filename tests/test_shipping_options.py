@@ -36,42 +36,81 @@ class _Cursor:
         return None
 
 
+MON = datetime.datetime(2026, 11, 9, 10, 0)
+SAT_AM = datetime.datetime(2026, 11, 14, 11, 45)
+SAT_PM = datetime.datetime(2026, 11, 14, 11, 46)
+SUN = datetime.datetime(2026, 11, 15, 10, 0)
+
+
 class NcrRule(unittest.TestCase):
 
-    def test_pin_codes_decide_first(self):
-        for z in ("110001", "122018", "201301", "201001", "201102"):
-            self.assertTrue(ship.is_ncr("", z), z)
-        for z in ("400001", "560001", "121001"):
-            self.assertFalse(ship.is_ncr("Delhi", z), z)      # a full non-NCR pin wins over the state
+    def test_a_full_ncr_pin_and_a_state_that_agrees_are_both_needed(self):
+        for state, z in (("Delhi", "110001"), ("New Delhi", "110016"), ("Haryana", "122018"), ("Gurugram", "122002"),
+                         ("Uttar Pradesh", "201301"), ("UP", "201001"), ("Noida", "201304"), ("uttar pradesh", "201102")):
+            self.assertTrue(ship.is_ncr(state, z), (state, z))
+        for state, z in (("", ""), ("Delhi", ""), ("Delhi", "11"), ("Delhi", "1100"), ("", "110001"),
+                         ("Maharashtra", "110001"), ("Delhi", "400001"), ("Delhi", "122018"), ("Haryana", "110001"),
+                         ("Haryana", "121001"), ("Uttar Pradesh", "122018")):
+            self.assertFalse(ship.is_ncr(state, z), (state, z))
 
-    def test_state_and_city_words_when_the_pin_is_not_there(self):
-        self.assertTrue(ship.is_ncr("Delhi", ""))
-        self.assertTrue(ship.is_ncr("New Delhi", "11"))
-        self.assertTrue(ship.is_ncr("Haryana", "", "Sector 14, Gurgaon"))
-        self.assertFalse(ship.is_ncr("Haryana", "", "Panipat"))
-        self.assertFalse(ship.is_ncr("", ""))
+
+class Schedule(unittest.TestCase):
+
+    def test_never_sunday_and_saturday_only_to_11_45(self):
+        self.assertTrue(ship.ncr24_open(MON))
+        self.assertTrue(ship.ncr24_open(datetime.datetime(2026, 11, 13, 23, 59)))
+        self.assertTrue(ship.ncr24_open(SAT_AM))
+        self.assertFalse(ship.ncr24_open(SAT_PM))
+        self.assertFalse(ship.ncr24_open(SUN))
+
+    def test_the_page_is_told_when_the_option_closes(self):
+        self.assertEqual(ship.ncr24_seconds_left(datetime.datetime(2026, 11, 14, 11, 0)), 45 * 60)
+        self.assertEqual(ship.ncr24_seconds_left(datetime.datetime(2026, 11, 13, 11, 45)), 24 * 3600)
+        self.assertEqual(ship.ncr24_seconds_left(SUN), 0)
+        self.assertEqual(ship.ncr24_seconds_left(SAT_PM), 0)
+        self.assertFalse(ship.js_rules(1000, SUN)["ncr24_open"])
+
+    def test_india_time_whatever_the_server_zone(self):
+        naive = ship.now_ist()
+        utc = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        self.assertAlmostEqual((naive - utc).total_seconds(), 5.5 * 3600, delta=5)
 
 
 class Availability(unittest.TestCase):
 
     def test_ncr_gets_three_options_others_two_global_and_preorders_one(self):
-        self.assertEqual([o["key"] for o in ship.available("Delhi", "110001")], ["standard", "expedite", "ncr24"])
-        self.assertEqual([o["key"] for o in ship.available("Maharashtra", "400001")], ["standard", "expedite"])
-        self.assertEqual([o["key"] for o in ship.available("Delhi", "110001", is_india=False)], ["standard"])
-        self.assertEqual([o["key"] for o in ship.available("Delhi", "110001", preorder=True)], ["standard"])
+        keys = lambda *a, **k: [o["key"] for o in ship.available(*a, **k)]
+        self.assertEqual(keys("Delhi", "110001", now=MON), ["standard", "expedite", "ncr24"])
+        self.assertEqual(keys("Delhi", "", now=MON), ["standard", "expedite"])
+        self.assertEqual(keys("Maharashtra", "400001", now=MON), ["standard", "expedite"])
+        self.assertEqual(keys("Delhi", "110001", is_india=False, now=MON), ["standard"])
+        self.assertEqual(keys("Delhi", "110001", preorder=True, now=MON), ["standard"])
+        self.assertEqual(keys("Delhi", "110001", now=SUN), ["standard", "expedite"])
+        self.assertEqual(keys("Delhi", "110001", now=SAT_PM), ["standard", "expedite"])
+        self.assertEqual(keys("Delhi", "110001", now=SAT_AM), ["standard", "expedite", "ncr24"])
 
-    def test_a_posted_choice_is_validated_against_the_address(self):
-        self.assertEqual(ship.choose("ncr24", "Delhi", "110001")["fee"], 1000)
-        self.assertEqual(ship.choose("ncr24", "Maharashtra", "400001")["key"], "standard")
-        self.assertEqual(ship.choose("EXPEDITE", "Maharashtra", "400001")["fee"], 300)
-        self.assertEqual(ship.choose("expedite", "Delhi", "110001", preorder=True)["key"], "standard")
-        self.assertEqual(ship.choose(None, "", "")["key"], "standard")
+    def test_a_posted_choice_is_validated_against_the_address_and_the_clock(self):
+        self.assertEqual(ship.choose("ncr24", "Delhi", "110001", now=MON)["fee"], 1000)
+        self.assertEqual(ship.choose("ncr24", "Maharashtra", "400001", now=MON)["key"], "standard")
+        self.assertEqual(ship.choose("ncr24", "Delhi", "110001", now=SUN)["key"], "standard")
+        self.assertEqual(ship.choose("EXPEDITE", "Maharashtra", "400001", now=MON)["fee"], 300)
+        self.assertEqual(ship.choose("expedite", "Delhi", "110001", preorder=True, now=MON)["key"], "standard")
+        self.assertEqual(ship.choose(None, "", "", now=MON)["key"], "standard")
+
+    def test_ops_price_is_what_is_shown_and_charged(self):
+        got = ship.choose("ncr24", "Delhi", "110001", now=MON, ncr24_fee=1250)
+        self.assertEqual((got["fee"], got["blurb"]), (1250, "Rs 1250. Delivered within 24 hours of your order."))
+        self.assertEqual(ship.BY_KEY["ncr24"]["fee"], 1000)
+        rules = {o["key"]: o for o in ship.js_rules(1250, MON)["options"]}
+        self.assertEqual(rules["ncr24"]["fee"], 1250)
+        self.assertIn("Rs 1250", rules["ncr24"]["blurb"])
 
     def test_promised_dates(self):
         sat = datetime.datetime(2026, 11, 7, 18, 0)
         self.assertEqual(ship.promised_date(sat, "standard"), datetime.date(2026, 11, 12))
         self.assertEqual(ship.promised_date(sat, "expedite"), datetime.date(2026, 11, 9))   # Sunday pushed to Monday
         self.assertEqual(ship.promised_date(datetime.date(2026, 11, 9), "ncr24"), datetime.date(2026, 11, 10))
+        self.assertEqual(ship.promised_date(SAT_AM, "ncr24"), datetime.date(2026, 11, 15))   # 24 hours committed: not pushed
 
 
 class Storage(unittest.TestCase):
@@ -115,7 +154,7 @@ class Storage(unittest.TestCase):
         self.assertIn("CREATE TABLE IF NOT EXISTS", ddl)
         rules = ship.js_rules()
         self.assertEqual([o["key"] for o in rules["options"]], ["standard", "expedite", "ncr24"])
-        self.assertEqual(rules["zip_prefixes"], ["110", "122", "2010", "2011", "2013"])
+        self.assertEqual([p[0] for p in rules["ncr_pins"]], ["110", "122", "2010", "2011", "2013"])
 
 
 class ListsAndMail(unittest.TestCase):
@@ -173,7 +212,11 @@ class Wiring(unittest.TestCase):
         self.assertIn("if _is_india:\n            # optiwar.com keeps its own shipping terms", models)
         # any AI Glasses line with its own dispatch date (pre-order or selling fast) blocks the paid options, GET and POST
         self.assertIn("shipping_allowed = (bool(_req_is_india()) and not _aig_dispatch", models)
-        self.assertIn("_shipping_ready, bool(_aig_dispatch), customer_address)", models)
+        self.assertIn("_posted_option, customer_state, customer_postcode, _shipping_ready, bool(_aig_dispatch),", models)
+        # what the customer agreed to, or they are asked again
+        self.assertIn("safe_float(request.form.get('shipping_fee_seen'), -1) != shipping_fee", models)
+        self.assertIn("if shipping_choice['key'] != _posted_option:", models)
+        self.assertIn("shipping_options.promised_date(shipping_options.now_ist(),", models)
         profile = open(os.path.join(REPO, "profile.py"), encoding="utf-8").read()
         self.assertIn("shipping_options.attach_fees(grouped_orders, shipping_options.fees_for(", profile)
         self.assertIn("shipping_options.fee_for(cursor, order_id)", models)

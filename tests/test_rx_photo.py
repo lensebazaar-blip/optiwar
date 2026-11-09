@@ -25,18 +25,28 @@ def _jpeg(w=1200, h=900):
 
 
 class _QuotaCursor:
-    """The two statements rx_photo_quota runs, over a dict; raises when told to."""
+    """The statements the reader's guards run, over dicts; raises when told to."""
     counts = {}
+    flags = []
+    settings = {}
     broken = [False]
+    _row = None
 
     def execute(self, sql, args=None):
         if self.broken[0]:
             raise RuntimeError("database is away")
+        self._row = None
         if sql.startswith("INSERT INTO rx_photo_quota"):
             key = (args[0], args[1])
             self.counts[key] = self.counts.get(key, 0) + 1
         elif sql.startswith("SELECT read_count"):
             self._row = {"read_count": self.counts[(args[0], args[1])]}
+        elif sql.startswith("INSERT INTO rx_photo_flags"):
+            self.flags.append(args)
+        elif "FROM rx_photo_flags" in sql:
+            self._row = {"n": sum(1 for f in self.flags if f[3] == args[0])}
+        elif "FROM ops_settings" in sql and args[0] in self.settings:
+            self._row = {"setting_value": self.settings[args[0]]}
 
     def fetchone(self):
         return self._row
@@ -79,7 +89,10 @@ def _load(call_model):
 
     sub("ai_client", ModelError=ModelError, call_model=call_model)
     sub("db", get_db=_QuotaDb)
+    sub("captcha", CaptchaGenerator=lambda: types.SimpleNamespace(
+        generate_captcha=lambda: "AB12", generate_captcha_image=lambda t: "IMG"))
     real("rx_photo_quota")
+    real("ops_controls")
     real("dev_defects")
     real("lens_order")
     real("lens_rx")
@@ -208,15 +221,27 @@ class Route(unittest.TestCase):
         del self.answers[:]
         del self.calls[:]
         _QuotaCursor.counts.clear()
+        _QuotaCursor.settings.clear()
+        del _QuotaCursor.flags[:]
         _QuotaCursor.broken[0] = False
+        self.rx.TOKEN_MIN_SECONDS = 0
+        self.rx.rx_photo_quota.MAX_READS_PER_MINUTE = 10000
         with self.client.session_transaction() as sess:
             sess.clear()
 
+    def _send(self, data=None, name="rx.jpg", human=True, form=None, headers=None, **kw):
+        """A request the way the page sends it."""
+        token = self.client.get(self.rx.CHALLENGE_ROUTE).get_json()["token"]
+        if human:
+            with self.client.session_transaction() as sess:
+                sess[self.rx.SESSION_HUMAN_KEY] = True
+        body = {self.rx.FIELD: (io.BytesIO(data if data is not None else _jpeg()), name), "token": token}
+        body.update(form or {})
+        return self.client.post(self.rx.ROUTE, data=body, content_type="multipart/form-data",
+                                headers=dict({"Origin": "http://localhost"}, **(headers or {})), **kw)
+
     def _post(self, data=None, name="rx.jpg"):
-        return self.client.post(
-            self.rx.ROUTE,
-            data={self.rx.FIELD: (io.BytesIO(data if data is not None else _jpeg()), name)},
-            content_type="multipart/form-data")
+        return self._send(data, name)
 
     def test_a_visitor_may_read_a_photo_and_nothing_is_stored(self):
         self.answers.append('{"right": {"sph": "-2.00", "cyl": "-0.50", "axis": "90"},'
@@ -246,7 +271,9 @@ class Route(unittest.TestCase):
         self.assertEqual(r.status_code, 400)
         self.assertEqual(r.get_json()["code"], "RX_PHOTO_REJECTED")
         self.assertEqual(self.calls, [])
-        r = self.client.post(self.rx.ROUTE, data={}, content_type="multipart/form-data")
+        token = self.client.get(self.rx.CHALLENGE_ROUTE).get_json()["token"]
+        r = self.client.post(self.rx.ROUTE, data={"token": token}, content_type="multipart/form-data",
+                             headers={"Origin": "http://localhost"})
         self.assertEqual(r.status_code, 400)
 
     def test_a_provider_failure_is_a_503_that_says_type_it(self):
@@ -262,7 +289,7 @@ class Route(unittest.TestCase):
         self.assertEqual(r.get_json()["code"], "RX_PHOTO_UNREADABLE")
 
     def test_dropping_the_cookie_does_not_reset_the_limit(self):
-        limit = self.rx.rx_photo_quota.MAX_READS_PER_IP_PER_DAY
+        limit = self.rx.ops_controls.SETTINGS[self.rx.ops_controls.RX_PER_IP]["default"]
         reply = '{"right": {"sph": "-1.00"}}'
         for _ in range(limit):
             self.answers.append(reply)
@@ -274,21 +301,19 @@ class Route(unittest.TestCase):
         self.assertEqual(r.get_json()["code"], "RX_PHOTO_LIMIT")
         self.assertEqual(len(self.calls), limit)        # no paid call past the limit
         self.answers.append(reply)                      # another client is unaffected
-        r = self.client.post(self.rx.ROUTE, data={self.rx.FIELD: (io.BytesIO(_jpeg()), "rx.jpg")},
-                             content_type="multipart/form-data", environ_overrides={"REMOTE_ADDR": "203.0.113.9"})
+        r = self._send(environ_overrides={"REMOTE_ADDR": "203.0.113.9"})
         self.assertEqual(r.status_code, 200)
 
     def test_a_forged_forwarded_header_is_not_a_new_client(self):
-        limit = self.rx.rx_photo_quota.MAX_READS_PER_IP_PER_DAY
+        limit = self.rx.ops_controls.SETTINGS[self.rx.ops_controls.RX_PER_IP]["default"]
         _QuotaCursor.counts[("127.0.0.1", datetime.date.today())] = limit
-        r = self.client.post(self.rx.ROUTE, data={self.rx.FIELD: (io.BytesIO(_jpeg()), "rx.jpg")},
-                             content_type="multipart/form-data", headers={"X-Forwarded-For": "198.51.100.7"})
+        r = self._send(headers={"X-Forwarded-For": "198.51.100.7"})
         self.assertEqual(r.status_code, 429)
         self.assertEqual(self.calls, [])
 
     def test_changing_the_ip_cannot_pass_the_overall_daily_limit(self):
         quota = self.rx.rx_photo_quota
-        _QuotaCursor.counts[(quota.ALL_CLIENTS, datetime.date.today())] = quota.MAX_READS_PER_DAY
+        _QuotaCursor.counts[(quota.ALL_CLIENTS, datetime.date.today())] = self.rx.ops_controls.SETTINGS[self.rx.ops_controls.RX_PER_DAY]["default"]
         r = self._post()
         self.assertEqual(r.status_code, 429)
         self.assertEqual(self.calls, [])
@@ -302,6 +327,85 @@ class Route(unittest.TestCase):
         r = self._post()
         self.assertEqual(r.status_code, 503)
         self.assertEqual(self.calls, [])
+
+    def test_ops_can_change_the_limit(self):
+        _QuotaCursor.settings[self.rx.ops_controls.RX_PER_IP] = 1
+        self.answers.append('{"right": {"sph": "-1.00"}}')
+        self.assertEqual(self._post().status_code, 200)
+        self.assertEqual(self._post().status_code, 429)
+
+    def test_a_burst_is_refused(self):
+        self.rx.rx_photo_quota.MAX_READS_PER_MINUTE = 2
+        self.answers.extend(['{"right": {"sph": "-1.00"}}'] * 2)
+        self.assertEqual(self._post().status_code, 200)
+        self.assertEqual(self._post().status_code, 200)
+        self.assertEqual(self._post().status_code, 429)
+        self.assertEqual(len(self.calls), 2)
+
+    def test_bots_are_refused_before_any_paid_call(self):
+        for kw in ({"form": {"website_url": "http://spam"}}, {"headers": {"Origin": "http://evil.example"}}):
+            r = self._send(**kw)
+            self.assertEqual((r.status_code, r.get_json()["code"]), (403, "RX_PHOTO_BOT"), kw)
+        r = self.client.post(self.rx.ROUTE, data={self.rx.FIELD: (io.BytesIO(_jpeg()), "rx.jpg"), "token": "forged"},
+                             content_type="multipart/form-data", headers={"Origin": "http://localhost"})
+        self.assertEqual(r.get_json()["code"], "RX_PHOTO_BOT")
+        self.rx.TOKEN_MIN_SECONDS = 60                     # sent faster than a person could
+        self.assertEqual(self._post().get_json()["code"], "RX_PHOTO_BOT")
+        self.rx.TOKEN_MIN_SECONDS = 0
+        token = self.client.get(self.rx.CHALLENGE_ROUTE).get_json()["token"]
+        with self.client.session_transaction() as sess:    # a token from another session
+            sess.clear()
+            sess[self.rx.SESSION_HUMAN_KEY] = True
+        r = self.client.post(self.rx.ROUTE, data={self.rx.FIELD: (io.BytesIO(_jpeg()), "rx.jpg"), "token": token},
+                             content_type="multipart/form-data", headers={"Origin": "http://localhost"})
+        self.assertEqual(r.get_json()["code"], "RX_PHOTO_BOT")
+        self.assertEqual(self.calls, [])
+
+    def test_a_guest_solves_the_code_once_and_a_signed_in_customer_does_not(self):
+        j = self.client.get(self.rx.CHALLENGE_ROUTE).get_json()
+        self.assertTrue(j["captcha"])
+        self.assertEqual(j["image"], "IMG")
+        self.assertEqual(self._send(human=False).get_json()["code"], "RX_PHOTO_CAPTCHA")
+        self.client.get(self.rx.CHALLENGE_ROUTE)
+        r = self.client.post(self.rx.VERIFY_ROUTE, json={"captcha": "wrong"})
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.get_json()["image"], "IMG")
+        self.assertTrue(self.client.post(self.rx.VERIFY_ROUTE, json={"captcha": "ab12"}).get_json()["ok"])
+        self.assertFalse(self.client.get(self.rx.CHALLENGE_ROUTE).get_json()["captcha"])
+        with self.client.session_transaction() as sess:
+            sess.clear()
+            sess["user_id"] = 7
+        self.assertFalse(self.client.get(self.rx.CHALLENGE_ROUTE).get_json()["captcha"])
+        self.answers.append('{"right": {"sph": "-1.00"}}')
+        self.assertEqual(self._send(human=False).status_code, 200)
+
+    def test_prohibited_content_is_refused_logged_without_the_image_and_blocks_the_ip(self):
+        for category in ("sexual", "child_sexual", "extremist", "illegal", "graphic"):
+            _QuotaCursor.counts.clear()
+            del _QuotaCursor.flags[:]
+            with self.client.session_transaction() as sess:
+                sess.clear()
+            self.answers.append('{"unreadable": true, "content_flag": "%s"}' % category)
+            r = self._post()
+            self.assertEqual((r.status_code, r.get_json()["code"]), (422, "RX_PHOTO_BLOCKED"), category)
+            self.assertNotIn("eyes", r.get_json())
+            row = _QuotaCursor.flags[0]
+            self.assertEqual((row[1], len(row[2]), row[3]), (category, 64, "127.0.0.1"))
+            self.assertFalse(any(isinstance(v, bytes) for v in row))
+        self.calls.clear()
+        with self.client.session_transaction() as sess:
+            sess.clear()
+        r = self._post()                                    # the same IP is now refused before any paid call
+        self.assertEqual((r.status_code, r.get_json()["code"]), (403, "RX_PHOTO_BLOCKED"))
+        self.assertEqual(self.calls, [])
+
+    def test_an_ordinary_photo_is_not_flagged(self):
+        self.assertIsNone(self.rx.content_flag('{"unreadable": true, "content_flag": "none"}'))
+        self.assertIsNone(self.rx.content_flag('{"content_flag": "made_up"}'))
+        self.assertIsNone(self.rx.content_flag("no json at all"))
+        self.answers.append('{"unreadable": true, "content_flag": "none"}')
+        self.assertEqual(self._post().get_json()["code"], "RX_PHOTO_UNREADABLE")
+        self.assertEqual(_QuotaCursor.flags, [])
 
     def test_reads_are_capped_per_session(self):
         with self.client.session_transaction() as sess:

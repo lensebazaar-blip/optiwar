@@ -36,7 +36,7 @@ from .catalogue import (
 from . import face_cart, face_fit, face_profiles, face_profiles_api, face_scan_groups_api, face_scan_invites_api, favorites_api, order_face_scan, order_rx_documents
 from . import (acr, lens_cart, lens_config, lens_documents, lens_feed,
                lens_order, lens_preview, lens_rx, lens_seo, lens_upload,
-               lens_view, rx_photo, ip_notice, shipping_options, shipping_refunds,
+               lens_view, rx_photo, ip_notice, shipping_options, shipping_refunds, ops_controls,
                supplier_signup)
 from .cart_persist import save_cart_to_db, clear_cart_in_db
 import copy
@@ -71,6 +71,8 @@ ip_notice.register(bp)
 supplier_signup.register(bp)
 # Ops: paid delivery options that missed their promise (shipping_refunds.py).
 shipping_refunds.register(bp)
+# Ops: delivery price, photo reader limits and their indicators (ops_controls.py).
+ops_controls.register(bp)
 # Face profiles (My Faces), for the same reason.
 face_profiles_api.register(bp)
 # Remote one-time scan requests (owner API + no-login guest scanner).
@@ -2963,7 +2965,7 @@ def checkout_page():
     _aig_dispatch = ai_glasses.dispatch_date(cursor, [item.get('product_id') for item in cart])[0]
     shipping_allowed = (bool(_req_is_india()) and not _aig_dispatch
                         and shipping_options.ensure_schema(cursor))   # no table, no paid options
-    shipping_rules = shipping_options.js_rules()
+    shipping_rules = shipping_options.js_rules(ops_controls.get(cursor, ops_controls.NCR24_FEE), shipping_options.now_ist())
 
     product_ids = [item.get('product_id') for item in cart if item.get('product_id')]
     product_image_map = {}
@@ -3254,10 +3256,20 @@ def checkout():
     # The table must exist before a fee is taken: the payment check totals the
     # order from it, so without it the option is standard and nothing is charged.
     _shipping_ready = bool(_is_india) and shipping_options.ensure_schema(cursor)
+    _posted_option = (request.form.get('shipping_option') or '').strip().lower()
     shipping_choice = shipping_options.choose(
-        request.form.get('shipping_option'), customer_state, customer_postcode,
-        _shipping_ready, bool(_aig_dispatch), customer_address)
+        _posted_option, customer_state, customer_postcode, _shipping_ready, bool(_aig_dispatch),
+        shipping_options.now_ist(), ops_controls.get(cursor, ops_controls.NCR24_FEE))
     shipping_fee = float(shipping_choice['fee']) if _shipping_ready else 0.0
+    # What the customer agreed to is what they are charged, or they are asked again:
+    # the Saturday cutoff can pass, or Ops can change the price, while the page is open.
+    if _posted_option in (shipping_options.EXPEDITE, shipping_options.NCR24):
+        if shipping_choice['key'] != _posted_option:
+            flash('That delivery option is no longer available for this order. Please choose again.')
+            return redirect(url_for('main.checkout_page'))
+        if safe_float(request.form.get('shipping_fee_seen'), -1) != shipping_fee:
+            flash('The delivery price has changed. Please check the total and pay again.')
+            return redirect(url_for('main.checkout_page'))
     try:
         ai_glasses.ensure_schema(db)      # the mixed-order dispatch note has a table of its own
     except Exception:  # noqa: BLE001
@@ -3479,7 +3491,7 @@ def checkout():
             # optiwar.com keeps its own shipping terms and its usual estimate: no row.
             _ship_recorded = shipping_options.record(
                 cursor, order_id, shipping_choice,
-                shipping_options.promised_date(datetime.now(), shipping_choice['key']),
+                shipping_options.promised_date(shipping_options.now_ist(), shipping_choice['key']),
                 state=customer_state, zipcode=customer_postcode)
             if shipping_fee and not _ship_recorded:
                 # A fee in the gateway amount with no row behind it would fail the
@@ -3553,7 +3565,7 @@ def checkout():
                     post_saved_addresses = [a for a in post_saved_addresses if (a.get('country') or '').strip().lower() != 'india']
         except Exception:
             pass
-        return render_template('checkout.html', order_id=order_id, payment_token=txn_token, razorpay_order_id=razorpay_order_id, razorpay_key_id=current_app.config.get('RAZORPAY_KEY_ID',''), grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, cart=cart, product_image_map=product_image_map, prefill=post_prefill, saved_addresses=post_saved_addresses, **policy_terms.checkout_context(cart, _get_site_from()))
+        return render_template('checkout.html', shipping_fee_paid=shipping_fee, shipping_label_paid=shipping_choice['label'], order_id=order_id, payment_token=txn_token, razorpay_order_id=razorpay_order_id, razorpay_key_id=current_app.config.get('RAZORPAY_KEY_ID',''), grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, cart=cart, product_image_map=product_image_map, prefill=post_prefill, saved_addresses=post_saved_addresses, **policy_terms.checkout_context(cart, _get_site_from()))
 
     except Exception as e:
         db.rollback()

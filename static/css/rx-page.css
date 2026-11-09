@@ -62,6 +62,13 @@
 .rxp-spin { display: inline-block; width: 14px; height: 14px; margin-right: 6px; vertical-align: -2px; border: 2px solid #cbd5e1; border-top-color: var(--rxp-brand); border-radius: 50%; animation: rxpSpin .8s linear infinite; }
 @keyframes rxpSpin { to { transform: rotate(360deg); } }
 
+.rxp-human { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.rxp-human[hidden] { display: none; }
+.rxp-human img { height: 46px; max-width: 200px; border: 1px solid var(--rxp-line); border-radius: 8px; background: #fff; }
+.rxp-human input { flex: 1 1 120px; min-height: 46px; padding: 0 10px; border: 1.5px solid #cbd5e1; border-radius: 10px; font-size: 16px; }
+.rxp-human button { min-height: 46px; padding: 0 16px; border: 0; border-radius: 10px; background: var(--rxp-brand); color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+.rxp-scan__rule { margin: 8px 0 0; font-size: 11.5px; color: var(--rxp-mute); }
+
 .rxp-or { display: flex; align-items: center; gap: 10px; margin: 14px 0 10px; font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #94a3b8; }
 .rxp-or::before, .rxp-or::after { content: ""; flex: 1; height: 1px; background: var(--rxp-line); }
 

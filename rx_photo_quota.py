@@ -9,8 +9,8 @@ Stdlib only, so the deploy tool can read ``TABLES`` plainly.
 """
 import datetime
 
-MAX_READS_PER_IP_PER_DAY = 20
-MAX_READS_PER_DAY = 300
+MAX_READS_PER_MINUTE = 4           # a person retrying is fine; a script is not
+BLOCK_HOURS = 24
 ALL_CLIENTS = "*"
 KEEP_DAYS = 7
 
@@ -23,7 +23,21 @@ CREATE TABLE IF NOT EXISTS rx_photo_quota (
     KEY ix_rx_quota_day (day)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 """
-TABLES = (("rx_photo_quota", SCHEMA),)
+FLAGS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS rx_photo_flags (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    created_at DATETIME NOT NULL,
+    category VARCHAR(24) NOT NULL,
+    sha256 CHAR(64) NOT NULL,
+    client_ip VARCHAR(64) NOT NULL,
+    customer_id INT NULL,
+    reviewed_at DATETIME NULL,
+    reviewed_by VARCHAR(191) NULL,
+    KEY ix_rx_flags_ip (client_ip, created_at),
+    KEY ix_rx_flags_open (reviewed_at, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+"""
+TABLES = (("rx_photo_quota", SCHEMA), ("rx_photo_flags", FLAGS_SCHEMA))
 
 _SCHEMA_READY = False
 
@@ -47,14 +61,34 @@ def _count_one(cursor, client, day):
     return int(cursor.fetchone()["read_count"])
 
 
-def reserve(cursor, client_ip, day=None):
-    """Count one read; True when it is within both limits. The caller commits
+def reserve(cursor, client_ip, per_ip, per_day, now=None):
+    """Count one read; True when it is within every limit. The caller commits
     before calling the model, so no lock is held during that call."""
-    day = day or datetime.date.today()
-    client = (client_ip or "unknown")[:64]
-    if _count_one(cursor, client, day) > MAX_READS_PER_IP_PER_DAY:
+    now = now or datetime.datetime.now()
+    day = now.date()
+    client = (client_ip or "unknown")[:45]
+    if _count_one(cursor, "min:%s:%s" % (now.strftime("%H%M"), client), day) > MAX_READS_PER_MINUTE:
+        return False
+    if _count_one(cursor, client, day) > per_ip:
         return False
     total = _count_one(cursor, ALL_CLIENTS, day)
     if total == 1:      # first read of the day: old rows are no longer needed
-        cursor.execute("DELETE FROM rx_photo_quota WHERE day < %s", (day - datetime.timedelta(days=KEEP_DAYS),))
-    return total <= MAX_READS_PER_DAY
+        cursor.execute("DELETE FROM rx_photo_quota WHERE day < %s OR (day < %s AND client_ip LIKE 'min:%%')",
+                       (day - datetime.timedelta(days=KEEP_DAYS), day))
+    return total <= per_day
+
+
+def is_blocked(cursor, client_ip, now=None):
+    """True while this IP has an unreviewed flagged upload from the last day."""
+    now = now or datetime.datetime.now()
+    cursor.execute("SELECT COUNT(*) AS n FROM rx_photo_flags WHERE client_ip = %s AND reviewed_at IS NULL "
+                   "AND created_at > %s", ((client_ip or "unknown")[:45], now - datetime.timedelta(hours=BLOCK_HOURS)))
+    row = cursor.fetchone()
+    return bool(row and row.get("n"))
+
+
+def flag(cursor, category, sha256, client_ip, customer_id=None, now=None):
+    """Record a refused upload. Only facts are kept: never the image."""
+    cursor.execute("INSERT INTO rx_photo_flags (created_at, category, sha256, client_ip, customer_id) "
+                   "VALUES (%s, %s, %s, %s, %s)",
+                   (now or datetime.datetime.now(), category, sha256, (client_ip or "unknown")[:45], customer_id))

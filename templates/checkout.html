@@ -1789,7 +1789,7 @@ footer{ display:none !important; }
       <div class="ow-ck-lines">
         <div class="ow-ck-line">
           <span>Subtotal ({{ cart|length }} item{{ 's' if cart|length > 1 else '' }})</span>
-          <strong>{% if is_india %}Rs {{ grand_total|int }}{% else %}&euro;{{ '%.2f'|format(subtotal_eur|default(grand_total_eur|default(grand_total))) }}{% endif %}</strong>
+          <strong>{% if is_india %}Rs {{ (grand_total - shipping_fee_paid|default(0))|int }}{% else %}&euro;{{ '%.2f'|format(subtotal_eur|default(grand_total_eur|default(grand_total))) }}{% endif %}</strong>
         </div>
         {% if eur_discount is defined and eur_discount > 0 %}
         <div class="ow-ck-line" style="color:#16a34a;">
@@ -1802,12 +1802,13 @@ footer{ display:none !important; }
         <div class="ow-ck-ship" id="owShip" data-rules='{{ shipping_rules|tojson|forceescape }}'>
           <div class="ow-ck-ship__head"><span>Delivery</span><strong id="owShipFee" style="color:#16a34a;">Free</strong></div>
           <div class="ow-ck-ship__opts" id="owShipOpts"></div>
+          <input type="hidden" name="shipping_fee_seen" id="owShipFeeSeen" value="0">
           <p class="ow-ck-ship__gst">{{ _('Paid delivery options include 18%% GST and appear on your invoice as a separate service line.') }}</p>
         </div>
         {% else %}
         <div class="ow-ck-line">
           <span>Delivery</span>
-          <strong style="color:#16a34a;">Free</strong>
+          {% if shipping_fee_paid %}<strong>{{ shipping_label_paid }}: Rs {{ shipping_fee_paid|int }}</strong>{% else %}<strong style="color:#16a34a;">Free</strong>{% endif %}
         </div>
         {% endif %}
         {% if mixed_dispatch %}
@@ -2298,15 +2299,16 @@ function owShowToast(msg) {
     var grandEl = document.getElementById('owGrandTotal'), base = parseFloat(grandEl && grandEl.getAttribute('data-base')) || 0;
     var est = document.getElementById('owShipEst');
     function digits(v) { return String(v || '').replace(/\D/g, ''); }
+    /* 24-hour only for a full NCR pin with a state that agrees, and only while the schedule allows */
+    var ncr24Open = !!rules.ncr24_open;
+    if (ncr24Open && rules.ncr24_seconds_left) {
+      setTimeout(function () { ncr24Open = false; render(); }, Math.min(rules.ncr24_seconds_left * 1000, 2147483000));
+    }
     function isNcr() {
       var z = digits((document.getElementById('ck_postcode') || {}).value);
-      for (var i = 0; i < rules.zip_prefixes.length; i++) { if (z && z.indexOf(rules.zip_prefixes[i]) === 0) return true; }
-      if (z.length === 6) return false;
+      if (z.length !== 6) return false;
       var st = String((document.getElementById('ck_state') || {}).value || '').trim().toLowerCase();
-      if (rules.states.indexOf(st) >= 0) return true;
-      var ad = String((document.getElementById('ck_address') || {}).value || '').toLowerCase();
-      for (var j = 0; j < rules.city_words.length; j++) { if (ad.indexOf(rules.city_words[j]) >= 0) return true; }
-      return false;
+      return rules.ncr_pins.some(function (p) { return z.indexOf(p[0]) === 0 && p[1].indexOf(st) >= 0; });
     }
     function promised(days) {
       var d = new Date(); d.setDate(d.getDate() + days); if (d.getDay() === 0) d.setDate(d.getDate() + 1);
@@ -2318,6 +2320,7 @@ function owShowToast(msg) {
       rules.options.forEach(function (o) { if (o.key === key) opt = o; });
       if (!opt) return;
       feeEl.textContent = opt.fee ? 'Rs ' + opt.fee : 'Free';
+      document.getElementById('owShipFeeSeen').value = opt.fee;
       if (grandEl) grandEl.textContent = 'Rs ' + Math.round(base + opt.fee);
       if (est) est.textContent = promised(opt.days);
       var bar = document.querySelector('#owMobBar .ow-mob-bar__total b'); if (bar) bar.textContent = 'Rs ' + Math.round(base + opt.fee);
@@ -2327,7 +2330,7 @@ function owShowToast(msg) {
     function render() {
       var keep = current(), ncr = isNcr(), html = '';
       rules.options.forEach(function (o) {
-        if (o.ncr_only && !ncr) return;
+        if (o.ncr_only && !(ncr && ncr24Open)) return;
         var checked = (o.key === keep) ? ' checked' : '';
         html += '<label class="ow-ck-ship__opt"><input type="radio" name="shipping_option" value="' + o.key + '"' + checked + '>' +
                 '<span><strong>' + o.label + '</strong><small>' + o.blurb + '</small></span>' +

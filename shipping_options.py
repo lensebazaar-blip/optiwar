@@ -4,9 +4,10 @@ Three choices on the Pay step, India storefront only:
 
 * **Standard**: free, promised order date + 5 days.
 * **Expedite**: Rs 300, promised order date + 1 day.
-* **24 hours (Delhi NCR)**: Rs 1000, order date + 1 day, offered only when the
-  delivery address is in Delhi, Noida, Gurgaon (Gurugram) or Ghaziabad, judged by
-  the pin code first and the state name second.
+* **24 hours (Delhi NCR)**: Rs 1000 (Ops can change it), order date + 1 day.
+  Offered only once a full pin code for Delhi, Noida, Gurgaon or Ghaziabad and
+  a state that agrees with it are entered; never on Sunday; on Saturday only
+  for orders received by 11:45 India time.
 
 An order that carries any AI Glasses line with a dispatch date of its own
 (pre-order, weeks out; selling fast, up to a week) keeps the standard option
@@ -30,14 +31,21 @@ OPTIONS = (
     {"key": EXPEDITE, "label": "Expedite", "fee": 300, "days": 1,
      "blurb": "Rs 300. Your order goes out first; promised by the next day.", "ncr_only": False},
     {"key": NCR24, "label": "24-hour delivery (Delhi NCR)", "fee": 1000, "days": 1,
-     "blurb": "Rs 1000. Delhi, Noida, Gurgaon and Ghaziabad addresses only.", "ncr_only": True},
+     "blurb": "Rs %d. Delivered within 24 hours of your order.", "ncr_only": True},
 )
 BY_KEY = {o["key"]: o for o in OPTIONS}
 
-# Pin-code prefixes: Delhi 110xxx, Gurgaon 122xxx, Ghaziabad 2010xx / 2011xx, Noida 2013xx.
-NCR_ZIP_PREFIXES = ("110", "122", "2010", "2011", "2013")
-NCR_STATES = ("delhi", "new delhi", "nct of delhi", "delhi ncr")
-NCR_CITY_WORDS = ("delhi", "noida", "gurgaon", "gurugram", "ghaziabad")
+IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+SATURDAY, SUNDAY = 5, 6
+SATURDAY_CUTOFF = datetime.time(11, 45)
+
+# Which states go with which pin prefixes. The pin names the city; the state must agree.
+_HARYANA = ("haryana", "hr", "gurgaon", "gurugram", "delhi ncr", "ncr")
+_UP = ("uttar pradesh", "up", "u.p.", "noida", "greater noida", "ghaziabad", "delhi ncr", "ncr")
+NCR_PINS = (("110", ("delhi", "new delhi", "nct of delhi", "delhi ncr", "ncr")),  # Delhi
+            ("122", _HARYANA),   # Gurgaon
+            ("2010", _UP), ("2011", _UP),  # Ghaziabad
+            ("2013", _UP))       # Noida
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS order_shipping (
@@ -71,45 +79,71 @@ def _digits(zipcode):
     return "".join(ch for ch in str(zipcode or "") if ch.isdigit())
 
 
-def is_ncr(state, zipcode, address=""):
-    """Delhi NCR by pin code first, then by state, then by a city word in the address."""
+def now_ist():
+    """The time in India, as a naive datetime, whatever the server's own zone."""
+    return datetime.datetime.now(IST).replace(tzinfo=None)
+
+
+def is_ncr(state, zipcode):
+    """A full 6-digit Delhi NCR pin code and a state that agrees with it."""
     z = _digits(zipcode)
-    if z and any(z.startswith(p) for p in NCR_ZIP_PREFIXES):
-        return True
-    if z and len(z) == 6:
-        return False                      # a full pin outside NCR settles it
+    if len(z) != 6:
+        return False
     s = (state or "").strip().lower()
-    if s in NCR_STATES:
-        return True
-    a = (address or "").lower()
-    return any(w in a for w in NCR_CITY_WORDS)
+    return any(z.startswith(prefix) and s in states for prefix, states in NCR_PINS)
 
 
-def available(state, zipcode, is_india=True, preorder=False, address=""):
-    """The options this address may choose, standard first."""
+def ncr24_open(now=None):
+    """Not on Sundays; on Saturdays only for orders received by 11:45 India time."""
+    now = now or now_ist()
+    if now.weekday() == SUNDAY:
+        return False
+    return now.weekday() != SATURDAY or now.time() <= SATURDAY_CUTOFF
+
+
+def ncr24_seconds_left(now=None):
+    """Seconds until the option next closes (Saturday 11:45); 0 when it is closed."""
+    now = now or now_ist()
+    if not ncr24_open(now):
+        return 0
+    days = (SATURDAY - now.weekday()) % 7
+    cutoff = datetime.datetime.combine(now.date() + datetime.timedelta(days=days), SATURDAY_CUTOFF)
+    return max(0, int((cutoff - now).total_seconds()))
+
+
+def _with_fee(option, ncr24_fee):
+    if option["key"] != NCR24:
+        return option
+    fee = int(ncr24_fee if ncr24_fee is not None else option["fee"])
+    return dict(option, fee=fee, blurb=option["blurb"] % fee)
+
+
+def available(state, zipcode, is_india=True, preorder=False, now=None, ncr24_fee=None):
+    """The options this address may choose at this moment, standard first."""
     if not is_india or preorder:
         return [BY_KEY[STANDARD]]
     out = [BY_KEY[STANDARD], BY_KEY[EXPEDITE]]
-    if is_ncr(state, zipcode, address):
-        out.append(BY_KEY[NCR24])
+    if is_ncr(state, zipcode) and ncr24_open(now):
+        out.append(_with_fee(BY_KEY[NCR24], ncr24_fee))
     return out
 
 
-def choose(key, state, zipcode, is_india=True, preorder=False, address=""):
+def choose(key, state, zipcode, is_india=True, preorder=False, now=None, ncr24_fee=None):
     """The option for a posted key, or standard when the key is unknown or not
     offered to this address (a page that showed it cannot be trusted alone)."""
     key = (key or "").strip().lower()
-    for option in available(state, zipcode, is_india, preorder, address):
+    for option in available(state, zipcode, is_india, preorder, now, ncr24_fee):
         if option["key"] == key:
             return option
     return BY_KEY[STANDARD]
 
 
 def promised_date(order_date, key):
-    """Order date + the option's days, pushed past a Sunday."""
+    """Order date + the option's days, pushed past a Sunday. The 24-hour option
+    is not pushed: a Saturday-morning order is committed for Sunday."""
     day = order_date.date() if isinstance(order_date, datetime.datetime) else order_date
     day = day + datetime.timedelta(days=BY_KEY.get(key, BY_KEY[STANDARD])["days"])
-    if day.weekday() == 6:
+    if day.weekday() == SUNDAY and key != NCR24:
         day += datetime.timedelta(days=1)
     return day
 
@@ -157,11 +191,13 @@ def note(row):
                                    (": promised by " + when) if when else "")
 
 
-def js_rules():
+def js_rules(ncr24_fee=None, now=None):
     """What the checkout page needs to show the right options as the address changes."""
-    return {"zip_prefixes": list(NCR_ZIP_PREFIXES), "states": list(NCR_STATES), "city_words": list(NCR_CITY_WORDS),
+    return {"ncr_pins": [[prefix, list(states)] for prefix, states in NCR_PINS],
+            "ncr24_open": ncr24_open(now), "ncr24_seconds_left": ncr24_seconds_left(now),
             "options": [{"key": o["key"], "label": o["label"], "fee": o["fee"], "days": o["days"],
-                         "blurb": o["blurb"], "ncr_only": o["ncr_only"]} for o in OPTIONS]}
+                         "blurb": o["blurb"], "ncr_only": o["ncr_only"]}
+                        for o in (_with_fee(x, ncr24_fee) for x in OPTIONS)]}
 
 
 def fees_for(cursor, order_ids):
