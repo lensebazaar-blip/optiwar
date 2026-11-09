@@ -1843,7 +1843,7 @@ footer{ display:none !important; }
           {% endif %}
           {% if disclosures.lens_deduction_shown %}
           <p><strong>Customized prescription lenses:</strong> Optiwar does not offer change-of-mind returns. If a discretionary return of prescription spectacles is approved, up to {{ lens_deduction_cap_percent }}% of the relevant returned spectacle value may be deducted for the customized lenses after inspection.</p>
-          {% elif not disclosures.ai_glasses_doa_shown %}
+          {% elif not disclosures.ai_glasses_doa_shown or (cart|rejectattr('ai_glasses')|list) %}
           <p><strong>No change-of-mind returns.</strong> Correctly supplied products are returnable only with Optiwar's written authorization, subject to inspection.</p>
           {% endif %}
           <p>Return or reverse-pickup charges are payable by the customer unless Optiwar confirms otherwise in writing.</p>

@@ -39,10 +39,24 @@ REASONS = {
 }
 # An order with AI Glasses (SMART_EYEWEAR) is returnable only if they are dead on
 # arrival (policy_terms clause 13A); a wrong item is still reviewed (clause 7).
+# An order that also holds an Optiwar frame offers the frame reasons too.
 AIG_REASONS = {
     "DEAD_ON_ARRIVAL": "AI Glasses dead on arrival (do not switch on or work)",
     "WRONG_ITEM": "Wrong item received",
 }
+AIG_ONLY, AIG_MIXED = "ai_glasses", "mixed"
+
+
+def reasons_for(kind=None):
+    """The reasons an order may give: AIG_ONLY, AIG_MIXED (AI Glasses first, then
+    the frame reasons) or None for an order without AI Glasses."""
+    if kind == AIG_ONLY:
+        return dict(AIG_REASONS)
+    if kind == AIG_MIXED:
+        out = {"DEAD_ON_ARRIVAL": AIG_REASONS["DEAD_ON_ARRIVAL"]}
+        out.update(REASONS)
+        return out
+    return dict(REASONS)
 PHOTOS_REQUIRED = {"MANUFACTURING_DEFECT": 2}
 MAX_PHOTOS = 6
 PHOTO_KINDS = ("jpeg", "png", "webp")
@@ -129,20 +143,22 @@ def ensure_schema(db):
     _SCHEMA_READY = True
 
 
-def _has_ai_glasses(cur, order_ids):
-    """The order ids among these that contain an AI Glasses line."""
+def _ai_glasses_kinds(cur, order_ids):
+    """``{order_id: AIG_ONLY | AIG_MIXED}`` for the orders among these with an AI Glasses line."""
     ids = [str(o) for o in order_ids or []]
     if not ids:
-        return set()
-    cur.execute("SELECT DISTINCT o.order_id FROM orders o JOIN products p ON p.product_id = o.product_id "
-                "WHERE p.product_vertical = 'SMART_EYEWEAR' AND o.order_id IN (%s)"
+        return {}
+    cur.execute("SELECT o.order_id, SUM(p.product_vertical = 'SMART_EYEWEAR') AS aig, COUNT(*) AS n "
+                "FROM orders o LEFT JOIN products p ON p.product_id = o.product_id "
+                "WHERE o.order_id IN (%s) GROUP BY o.order_id"
                 % ",".join(["%s"] * len(ids)), tuple(ids))
-    return {str(r["order_id"]) for r in cur.fetchall()}
+    return {str(r["order_id"]): (AIG_ONLY if int(r["aig"]) == int(r["n"]) else AIG_MIXED)
+            for r in cur.fetchall() if int(r["aig"] or 0)}
 
 
-def form_context(ai_glasses=False):
+def form_context(kind=None):
     """What the My Orders form shows; the server checks every value again."""
-    reasons = AIG_REASONS if ai_glasses else REASONS
+    reasons = reasons_for(kind)
     return {"reasons": [{"code": k, "label": v} for k, v in reasons.items()],
             "photos_required": dict(PHOTOS_REQUIRED), "max_photos": MAX_PHOTOS,
             "min_description": MIN_DESCRIPTION, "declarations": list(DECLARATIONS),
@@ -283,12 +299,12 @@ def _refuse(db, code, status=409):
     raise rp.ReversePickupError(code, ELIGIBILITY_MESSAGES[code], status)
 
 
-def _validate_form(form, ai_glasses=False):
+def _validate_form(form, kind=None):
     code = str(form.get("reason") or "").strip().upper()
-    if ai_glasses and code in REASONS and code not in AIG_REASONS:
+    if kind == AIG_ONLY and code in REASONS and code not in AIG_REASONS:
         raise rp.ReversePickupError("ai_glasses_doa_only",
                                     "AI Glasses are returnable only if they are dead on arrival.")
-    if code not in (AIG_REASONS if ai_glasses else REASONS):
+    if code not in reasons_for(kind):
         raise rp.ReversePickupError("invalid_reason", "Please choose a reason for the return.")
     description = str(form.get("description") or "").strip()
     if len(description) < MIN_DESCRIPTION:
@@ -311,8 +327,8 @@ def submit(db, customer_id, order_id, form, photos, ip, upload_dir):
     """Open a return case from the customer's request. ``photos`` comes from
     :func:`prepare_photos`. Returns the case. Anything not the customer's own
     India order is ``not_found``."""
-    aig = str(order_id or "").strip() in _has_ai_glasses(db.cursor(), [str(order_id or "").strip()])
-    code, description = _validate_form(form, ai_glasses=aig)
+    kind = _ai_glasses_kinds(db.cursor(), [str(order_id or "").strip()]).get(str(order_id or "").strip())
+    code, description = _validate_form(form, kind)
     need = PHOTOS_REQUIRED.get(code, 0)
     if len(photos) < need:
         raise rp.ReversePickupError("photos_required",
@@ -334,7 +350,7 @@ def submit(db, customer_id, order_id, form, photos, ip, upload_dir):
         _refuse(db, "return_exists")
     case_no = int(existing["case_no"]) + 1 if existing else 1
     case_uuid = str(uuid.uuid4())
-    reason = (AIG_REASONS if aig else REASONS)[code]
+    reason = reasons_for(kind)[code]
     written = []
     try:
         cur.execute(
@@ -451,7 +467,7 @@ def decision_notice(case):
 # My Orders
 # --------------------------------------------------------------------------
 
-def _card(case, pickup, window, until, ai_glasses=False):
+def _card(case, pickup, window, until, kind=None):
     """The request card of one order, or None. Nothing Ops typed reaches it
     except the note Ops wrote for the customer (the same text the email
     carries)."""
@@ -465,7 +481,7 @@ def _card(case, pickup, window, until, ai_glasses=False):
         return dict(base, state=CARD_COMPLETED, outcome=case["completed_outcome"],
                     shipment=rp.forward_view(case), completed_at=case["completed_at"],
                     fee_refunded=case["fee_state"] == rp.FEE_REFUNDED,
-                    can_request=can, form=form_context(ai_glasses) if can else None)
+                    can_request=can, form=form_context(kind) if can else None)
     if case and case.get("forward_shipped_at"):
         return dict(base, state=CARD_SHIPPED, shipment=rp.forward_view(case),
                     fee_refunded=case["fee_state"] == rp.FEE_REFUNDED, can_request=False, form=None)
@@ -475,7 +491,7 @@ def _card(case, pickup, window, until, ai_glasses=False):
                     refunded=int(case.get("fee_refunded_minor") or 0) // 100)
     if case and case.get("completed_outcome") == rp.OUTCOME_NOT_APPROVED:
         return dict(base, state=CARD_NOT_APPROVED, note=case.get("decision_note") or None,
-                    can_request=can, form=form_context(ai_glasses) if can else None)
+                    can_request=can, form=form_context(kind) if can else None)
     if hold and hold["active"]:
         return dict(base, state=CARD_AWAITING_REPLY, hold=hold,
                     fee_kept=case["fee_state"] in (rp.FEE_PAID, rp.FEE_DUE), can_request=False, form=None)
@@ -504,7 +520,7 @@ def _card(case, pickup, window, until, ai_glasses=False):
             return dict(common, state=CARD_APPROVED, fee_paid=case["fee_state"] == rp.FEE_PAID)
         return None
     if not case and can:
-        return dict(base, state=CARD_CAN_REQUEST, can_request=True, form=form_context(ai_glasses))
+        return dict(base, state=CARD_CAN_REQUEST, can_request=True, form=form_context(kind))
     return None
 
 
@@ -525,7 +541,7 @@ def customer_cards(db, customer_id, order_ids, now=None):
     cur.execute("SELECT * FROM order_reverse_pickups WHERE order_id IN (%s) ORDER BY id" % marks,
                 tuple(ids))
     pickups = {r["order_id"]: r for r in cur.fetchall() if r["status"] != rp.ST_CLOSED}
-    aig = _has_ai_glasses(cur, ids)
+    aig = _ai_glasses_kinds(cur, ids)
     out = {}
     for oid in ids:
         head = heads.get(oid)
@@ -533,7 +549,7 @@ def customer_cards(db, customer_id, order_ids, now=None):
                 or not reship.is_india_host(head.get("site_from"))):
             continue
         window, until = _window(statuses.get(oid), now)
-        card = _card(cases.get(oid), pickups.get(oid), window, until, ai_glasses=oid in aig)
+        card = _card(cases.get(oid), pickups.get(oid), window, until, kind=aig.get(oid))
         if card:
             out[oid] = card
     return out
