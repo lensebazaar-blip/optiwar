@@ -739,6 +739,10 @@ function updatePricesForContext(context) {
             }
         });
     }
+
+    // The chosen options keep their chip and the total in step with the new prices
+    if (document.querySelector('input[type=radio][name=add_selections]:checked')) applyCoating();
+    if (document.querySelector('input[type=radio][name=add_selections2]:checked')) applyThickness();
 }
 
 // Hook into bifocal selection to switch pricing context
