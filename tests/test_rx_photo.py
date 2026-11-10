@@ -845,6 +845,10 @@ class FindReadCompare(unittest.TestCase):
         self.assertIn("if (window.rxChecksOpen) { e.preventDefault();", page)
         self.assertIn("note.textContent = checksTitle(window.rxChecksOpen)", page)     # the count falls as each is settled
         self.assertIn("Which one should we use?", page)
+        for name in ("add_selections", "add_selections2"):       # a hidden copy carries the chosen value; the price update must find the option
+            self.assertIn("input[type=radio][name=%s][value=" % name, page)
+            self.assertNotIn("document.querySelector('input[name=%s][value=" % name, page)
+        self.assertIn("if (document.querySelector('input[type=radio][name=add_selections]:checked')) applyCoating();", page)   # the total follows the new prices
         self.assertIn("Read this one", page)
         self.assertIn("css/rx-page.css') }}?v=8", page)
 
