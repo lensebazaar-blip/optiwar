@@ -8,6 +8,7 @@ Unit tests need no database.
 import datetime
 import importlib.util
 import io
+import json
 import os
 import sys
 import types
@@ -223,6 +224,7 @@ class Route(unittest.TestCase):
         del self.calls[:]
         _QuotaCursor.counts.clear()
         _QuotaCursor.settings.clear()
+        _QuotaCursor.settings[self.rx.ops_controls.RX_TWO_STEP] = 0    # these prove the earlier single read, the rollback
         del _QuotaCursor.flags[:]
         _QuotaCursor.broken[0] = False
         self.rx.TOKEN_MIN_SECONDS = 0
@@ -444,6 +446,407 @@ class Route(unittest.TestCase):
         self.assertEqual(r.status_code, 429)
         self.assertEqual(r.get_json()["code"], "RX_PHOTO_LIMIT")
         self.assertEqual(self.calls, [])
+
+
+COLOURS = [(1, 0, 0), (0, 1, 0), (0, 0, 1), (1, 1, 0), (1, 0, 1), (0, 1, 1), (.5, .5, .5), (1, .5, 0)]
+
+
+def _pdf(pages=5):
+    """Built from invented values: a sideways handwriting-style table, a page with a
+    contact-lens margin note, a report, a newer typed prescription and its second
+    page. Each page has its own colour, so a test can tell which one a reader got."""
+    import pymupdf
+    doc = pymupdf.open()
+    texts = [("R  +1.00  -2.50  x 10", 90), ("CL power RE -2.75/+2.25 x 100", 0), ("Dry eye report", 0),
+             ("RE +1.25 -2.75 x 20", 0), ("Advice", 0), ("More", 0), ("More", 0), ("More", 0)]
+    for index in range(pages):
+        page = doc.new_page(width=595, height=842)
+        page.draw_rect(page.rect, color=COLOURS[index], fill=COLOURS[index])
+        page.insert_text((200, 400), texts[index][0], fontname="tiit", fontsize=22, rotate=texts[index][1])
+    return doc.tobytes()
+
+
+def _colour(jpeg):
+    from PIL import Image
+    r, g, b = Image.open(io.BytesIO(jpeg)).convert("RGB").getpixel((5, 5))
+    return min(range(len(COLOURS)), key=lambda i: sum(abs(COLOURS[i][k] * 255 - v) for k, v in enumerate((r, g, b))))
+
+
+def _cell(value="", written=None, doubtful=False):
+    return {"value": value, "written": bool(value) if written is None else written, "doubtful": doubtful}
+
+
+def _eye(sph="", cyl="", axis="", add="", doubtful=()):
+    return {"sph": _cell(sph, doubtful="sph" in doubtful), "cyl": _cell(cyl, doubtful="cyl" in doubtful),
+            "axis": _cell(axis, doubtful="axis" in doubtful), "add": _cell(add, doubtful="add" in doubtful)}
+
+
+def _read(right=None, left=None, kind="spectacle_table"):
+    return json.dumps({"right": right or _eye("-1.00", "-0.50", "90"), "left": left or _eye("-1.25"),
+                       "source": {"kind": kind, "row": "DISTANCE"}})
+
+
+def _find(*rows, flag="none"):
+    return json.dumps({"pages": [{"page": p, "kind": k, "date": d, "rotate": r} for p, k, d, r in rows],
+                       "content_flag": flag})
+
+
+ONE_TABLE = _find((1, "spectacle_table", "2023-09-20", 0))
+TWO_TABLES = _find((1, "spectacle_table", "2023-09-20", 90), (2, "visit_notes", "", 0), (3, "report", "", 0),
+                   (4, "spectacle_table", "2025-07-02", 0), (5, "other", "", 0))
+
+
+class FindReadCompare(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        from flask import Blueprint, Flask
+        cls.deepseek = []
+
+        def call_model(**kw):
+            answer = cls.deepseek.pop(0)
+            if isinstance(answer, Exception):
+                raise answer
+            resp = types.SimpleNamespace(model="vision-test")
+            resp.choices = [types.SimpleNamespace(message=types.SimpleNamespace(content=answer))]
+            return resp
+
+        cls.rx, cls.ModelError = _load(call_model)
+        cls.app = Flask(__name__)
+        cls.app.config.update(TESTING=True, SECRET_KEY="test-secret")
+        bp = Blueprint("main", __name__)
+        cls.rx.register(bp)
+        cls.app.register_blueprint(bp)
+        cls.client = cls.app.test_client()
+        cls.calls = []
+        cls.script = {}
+        cls.counted = []
+        guard = cls.rx.content_guard
+
+        def fake(pages, mime, model, prompt, max_tokens, seconds, effort="low", schema=None, label_pages=False):
+            step = "find" if prompt == cls.rx.FIND_PROMPT else "read"
+            tier = "haiku" if "haiku" in model else "opus"
+            cls.calls.append({"step": step, "tier": tier, "pages": list(pages), "effort": effort, "schema": schema})
+            answer = cls.script.get(step + "_" + tier, RuntimeError("not scripted"))
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        guard._ask_claude = fake
+        cls.rx._count = cls.counted.append
+
+    def setUp(self):
+        del self.calls[:], self.deepseek[:], self.counted[:]
+        self.script.clear()
+        self.script.update(find_haiku=ONE_TABLE, read_haiku=_read(), read_opus=_read())
+        _QuotaCursor.counts.clear()
+        _QuotaCursor.settings.clear()
+        del _QuotaCursor.flags[:]
+        _QuotaCursor.broken[0] = False
+        self.rx.TOKEN_MIN_SECONDS = 0
+        self.rx.rx_photo_quota.MAX_READS_PER_MINUTE = 10000
+        with self.client.session_transaction() as sess:
+            sess.clear()
+
+    def _send(self, data=None, form=None):
+        token = self.client.get(self.rx.CHALLENGE_ROUTE).get_json()["token"]
+        with self.client.session_transaction() as sess:
+            sess[self.rx.SESSION_HUMAN_KEY] = True
+        body = {self.rx.FIELD: (io.BytesIO(data if data is not None else _jpeg()), "rx.pdf"), "token": token}
+        body.update(form or {})
+        return self.client.post(self.rx.ROUTE, data=body, content_type="multipart/form-data",
+                                headers={"Origin": "http://localhost"})
+
+    def _reads(self):
+        return [c for c in self.calls if c["step"] == "read"]
+
+    def test_the_new_reader_is_on_unless_ops_turn_it_off(self):
+        settings = self.rx.ops_controls.SETTINGS[self.rx.ops_controls.RX_TWO_STEP]
+        self.assertEqual(settings["default"], 1)
+        self.assertTrue(settings["toggle"])
+
+    def test_both_readers_get_only_the_chosen_page_turned_upright(self):
+        self.script["find_haiku"] = _find((1, "spectacle_table", "2023-09-20", 90), (2, "contact_lens", "", 0),
+                                          (3, "report", "", 0), (4, "other", "", 0), (5, "other", "", 0))
+        r = self._send(_pdf())
+        self.assertEqual(r.status_code, 200, r.data)
+        from PIL import Image
+        reads = self._reads()
+        self.assertEqual(sorted(c["tier"] for c in reads), ["haiku", "opus"])
+        for call in reads:
+            self.assertEqual(len(call["pages"]), 1)
+            self.assertEqual(_colour(call["pages"][0]), 0)
+            width, height = Image.open(io.BytesIO(call["pages"][0])).size
+            self.assertGreater(width, height)
+            self.assertEqual(call["effort"], "medium")
+            self.assertEqual(call["schema"], self.rx.READ_SCHEMA)
+
+    def test_find_sees_every_page_small_and_reads_no_powers(self):
+        self.script["find_haiku"] = _find((1, "spectacle_table", "", 0))
+        self._send(_pdf())
+        find = [c for c in self.calls if c["step"] == "find"][0]
+        self.assertEqual(len(find["pages"]), 5)
+        from PIL import Image
+        self.assertLessEqual(max(Image.open(io.BytesIO(find["pages"][0])).size), self.rx.FIND_SIDE)
+        self.assertNotIn("sph", json.dumps(self.rx.FIND_SCHEMA).lower())
+
+    def test_a_table_the_first_find_missed_is_still_offered_newest_first(self):
+        self.script["find_haiku"] = _find((1, "spectacle_table", "2023-09-20", 90), (2, "visit_notes", "", 0),
+                                          (3, "report", "", 0), (4, "other", "", 0), (5, "other", "", 0))
+        self.script["find_opus"] = TWO_TABLES
+        body = self._send(_pdf()).get_json()
+        self.assertTrue(body["choose"])
+        self.assertEqual([(c["page"], c["selected"]) for c in body["choices"]], [(4, True), (1, False)])
+        self.assertEqual(self._reads(), [])
+        self.assertIn("2 July 2025", body["choices"][0]["label"])
+
+    def test_find_second_look_is_the_higher_model_on_the_same_small_pages(self):
+        self._send(_pdf())
+        finds = sorted((c for c in self.calls if c["step"] == "find"), key=lambda c: c["tier"])
+        self.assertEqual([c["tier"] for c in finds], ["haiku", "opus"])
+        self.assertEqual(finds[0]["pages"], finds[1]["pages"])
+        self.assertEqual(finds[1]["schema"], self.rx.FIND_SCHEMA)
+
+    def test_a_table_only_the_second_look_listed_is_offered(self):
+        self.script["find_haiku"] = _find((1, "spectacle_table", "2023-09-20", 0))
+        self.script["find_opus"] = _find((1, "spectacle_table", "2023-09-20", 0), (4, "spectacle_table", "2025-07-02", 0))
+        body = self._send(_pdf()).get_json()
+        self.assertEqual([c["page"] for c in body["choices"]], [4, 1])
+
+    def test_either_find_calling_a_page_contact_lens_keeps_it_out(self):
+        self.script["find_haiku"] = _find((1, "spectacle_table", "2023-09-20", 0), (2, "spectacle_table", "2024-01-01", 0))
+        self.script["find_opus"] = _find((1, "spectacle_table", "2023-09-20", 0), (2, "contact_lens", "", 0))
+        body = self._send(_pdf()).get_json()
+        self.assertNotIn("choose", body)
+        self.assertEqual(body["page"], 1)
+
+    def test_a_contact_lens_page_is_not_turned_into_a_table(self):
+        self.script["find_haiku"] = _find((1, "spectacle_table", "2023-09-20", 0), (2, "contact_lens", "", 0))
+        self.script["find_opus"] = _find((1, "spectacle_table", "2023-09-20", 0), (2, "spectacle_table", "2024-01-01", 0))
+        body = self._send(_pdf()).get_json()
+        self.assertNotIn("choose", body)
+        self.assertEqual(body["page"], 1)
+
+    def test_find_carries_on_when_the_second_look_fails(self):
+        self.script["find_haiku"] = TWO_TABLES
+        body = self._send(_pdf()).get_json()
+        self.assertEqual([c["page"] for c in body["choices"]], [4, 1])
+
+    def test_the_second_look_cannot_block_an_upload(self):
+        self.script["find_opus"] = json.dumps({"pages": [], "content_flag": "sexual"})
+        r = self._send()
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertIn("eyes", r.get_json())
+
+    def test_a_contact_lens_page_is_never_read(self):
+        self.script["find_haiku"] = _find((1, "visit_notes", "", 0), (2, "contact_lens", "", 0), (3, "report", "", 0))
+        r = self._send(_pdf())
+        self.assertEqual(r.status_code, 422)
+        self.assertEqual(r.get_json()["code"], "RX_PHOTO_UNREADABLE")
+        self.assertEqual(self._reads(), [])
+
+    def test_agreed_values_fill_and_nothing_is_amber(self):
+        body = self._send().get_json()
+        self.assertEqual(body["eyes"]["right"], {"sph": "-1.00", "cyl": "-0.50", "axis": "90", "add": ""})
+        self.assertEqual(body["check"], [])
+
+    def test_a_disagreement_stays_blank_never_cyl_zero(self):
+        self.script["read_haiku"] = _read(right=_eye("+3.00", "-1.50", "5"))
+        self.script["read_opus"] = _read(right=_eye("+3.00", "-4.50", "5"))
+        body = self._send().get_json()
+        self.assertEqual(body["eyes"]["right"]["cyl"], "")
+        self.assertEqual(body["eyes"]["right"]["sph"], "3.00")
+        self.assertEqual(body["check"], [{"eye": "right", "field": "cyl", "label": "Right CYL", "options": ["-1.50", "-4.50"]}])
+
+    def test_a_doubtful_cyl_is_not_no_cylinder(self):
+        self.script["read_opus"] = _read(right=_eye("-1.00", "-0.50", "90", doubtful=("cyl",)))
+        body = self._send().get_json()
+        self.assertEqual(body["eyes"]["right"]["cyl"], "")
+        self.assertEqual([c["field"] for c in body["check"]], ["cyl"])
+
+    def test_cyl_not_written_by_either_reader_is_zero(self):
+        self.script["read_haiku"] = self.script["read_opus"] = _read(right=_eye("-1.00"))
+        body = self._send().get_json()
+        self.assertEqual(body["eyes"]["right"], {"sph": "-1.00", "cyl": "0.00", "axis": "0", "add": ""})
+        self.assertEqual(body["check"], [])
+
+    def test_one_reader_seeing_cyl_and_the_other_not_is_amber(self):
+        self.script["read_haiku"] = _read(right=_eye("-1.00"))
+        body = self._send().get_json()
+        self.assertEqual(body["eyes"]["right"]["cyl"], "")
+        self.assertEqual({c["field"] for c in body["check"]}, {"cyl", "axis"})
+
+    def test_an_eye_with_a_doubtful_sph_is_kept(self):
+        self.script["read_haiku"] = _read(right=_eye("-1.00", "-0.50", "90", doubtful=("sph",)))
+        body = self._send().get_json()
+        self.assertIsNotNone(body["eyes"]["right"])
+        self.assertEqual(body["eyes"]["right"]["sph"], "")
+        self.assertEqual(body["eyes"]["right"]["cyl"], "-0.50")
+
+    def test_minus_sphere_with_plus_cylinder_is_asked_not_refused(self):
+        self.script["read_haiku"] = self.script["read_opus"] = _read(right=_eye("-3.75", "+4.25", "95"))
+        body = self._send().get_json()
+        self.assertEqual(body["eyes"]["right"]["cyl"], "")
+        self.assertEqual(body["eyes"]["right"]["axis"], "")
+        self.assertEqual([(c["field"], c["options"]) for c in body["check"]], [("cyl", ["+4.25"]), ("axis", ["95"])])
+
+    def test_two_prescriptions_are_offered_newest_first(self):
+        self.script["find_haiku"] = TWO_TABLES
+        body = self._send(_pdf()).get_json()
+        self.assertTrue(body["choose"])
+        self.assertEqual([c["page"] for c in body["choices"]], [4, 1])
+        self.assertEqual(body["choices"][0]["label"], "2 July 2025, page 4 (newest)")
+        self.assertEqual(body["choices"][1]["label"], "20 September 2023, page 1")
+        self.assertEqual([c["selected"] for c in body["choices"]], [True, False])
+        self.assertEqual(self._reads(), [])
+
+    def test_choosing_reads_that_page_and_costs_no_second_read(self):
+        self.script["find_haiku"] = TWO_TABLES
+        pdf = _pdf()
+        first = self._send(pdf).get_json()
+        chosen = self._send(pdf, form={"choice": first["choices"][1]["token"]}).get_json()
+        self.assertEqual(chosen["page"], 1)
+        self.assertEqual(chosen["reads_left"], first["reads_left"])
+        self.assertEqual(sorted(c["tier"] for c in self.calls if c["step"] == "find"), ["haiku", "opus"])
+        from PIL import Image
+        for call in self._reads():
+            self.assertEqual(_colour(call["pages"][0]), 0)
+            width, height = Image.open(io.BytesIO(call["pages"][0])).size
+            self.assertGreater(width, height)       # its own turn came with the choice
+
+    def test_a_choice_cannot_be_used_on_another_file_or_session(self):
+        self.script["find_haiku"] = TWO_TABLES
+        pdf = _pdf()
+        token = self._send(pdf).get_json()["choices"][0]["token"]
+        r = self._send(_jpeg(), form={"choice": token})
+        self.assertEqual(r.get_json()["code"], "RX_PHOTO_CHOICE_EXPIRED")
+        with self.client.session_transaction() as sess:
+            sess.clear()
+        r = self._send(pdf, form={"choice": token})
+        self.assertEqual(r.get_json()["code"], "RX_PHOTO_CHOICE_EXPIRED")
+        self.assertEqual(self._reads(), [])
+
+    def test_a_table_only_one_reader_vouches_for_is_all_amber(self):
+        self.script["read_opus"] = _read(kind="other")
+        body = self._send().get_json()
+        self.assertEqual({c["field"] for c in body["check"] if c["eye"] == "right"}, {"sph", "cyl", "axis"})
+
+    def test_a_page_neither_reader_calls_a_table_is_refused(self):
+        self.script["read_haiku"] = self.script["read_opus"] = _read(kind="other")
+        self.assertEqual(self._send().status_code, 422)
+
+    def test_the_same_file_gives_the_same_answer_and_no_new_read(self):
+        data = _jpeg()
+        first = self._send(data).get_json()
+        calls = len(self.calls)
+        self.script["read_haiku"] = _read(right=_eye("-9.00"))
+        second = self._send(data).get_json()
+        self.assertEqual(second["eyes"], first["eyes"])
+        self.assertEqual(second["reads_left"], first["reads_left"])
+        self.assertEqual(len(self.calls), calls)
+
+    def test_deepseek_alone_old_shape_is_converted_and_every_field_amber(self):
+        del self.script["read_haiku"]
+        del self.script["read_opus"]
+        self.deepseek.append('{"right": {"sph": "-2.00", "cyl": "-0.50", "axis": "90"}, "left": {"sph": "-2.25"}}')
+        body = self._send().get_json()
+        self.assertEqual(body["eyes"]["right"], {"sph": "-2.00", "cyl": "-0.50", "axis": "90", "add": ""})
+        self.assertEqual([c["field"] for c in body["check"] if c["eye"] == "right"], ["sph", "cyl", "axis"])
+        self.assertEqual([c["options"] for c in body["check"] if c["eye"] == "left"][1], ["0.00"])
+        self.assertEqual(self.counted[-1], "DeepSeek")
+
+    def test_deepseek_alone_in_the_new_shape_is_every_field_amber(self):
+        del self.script["read_haiku"]
+        del self.script["read_opus"]
+        self.deepseek.append(_read())
+        body = self._send().get_json()
+        self.assertEqual(len([c for c in body["check"] if c["eye"] == "right"]), 3)
+
+    def test_nobody_answering_asks_the_customer_to_try_again(self):
+        del self.script["read_haiku"]
+        del self.script["read_opus"]
+        self.deepseek.append(self.ModelError("down"))
+        self.deepseek.append(self.ModelError("down"))
+        r = self._send()
+        self.assertEqual(r.status_code, 503)
+        self.assertIn("try again", r.get_json()["message"])
+
+    def test_ops_tile_counts_find_and_each_read(self):
+        self.script["find_opus"] = ONE_TABLE
+        self._send()
+        self.assertEqual(self.counted, ["Claude Haiku", "Claude Opus", "Claude Haiku", "Claude Opus"])
+
+    def test_ops_tile_shows_a_claude_reader_that_did_not_answer(self):
+        self.script["find_opus"] = ONE_TABLE
+        del self.script["read_opus"]
+        self._send()
+        self.assertEqual(self.counted, ["Claude Haiku", "Claude Opus", "Claude Haiku", self.rx.content_guard.NOT_CHECKED])
+
+    def test_haiku_flag_in_find_opus_clean_goes_on_to_read(self):
+        self.script["find_haiku"] = _find(flag="sexual")
+        self.script["find_opus"] = ONE_TABLE
+        r = self._send()
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(len(self._reads()), 2)
+        self.assertEqual(_QuotaCursor.flags, [])
+
+    def test_haiku_flag_in_find_opus_agrees_is_blocked_and_flagged(self):
+        self.script["find_haiku"] = self.script["find_opus"] = _find(flag="sexual")
+        r = self._send()
+        self.assertEqual(r.status_code, 422)
+        self.assertEqual(r.get_json()["code"], "RX_PHOTO_BLOCKED")
+        self.assertEqual(len(_QuotaCursor.flags), 1)
+        self.assertEqual(self._reads(), [])
+
+    def test_haiku_flag_in_find_opus_silent_is_unchecked_nothing_held_against_them(self):
+        self.script["find_haiku"] = _find(flag="sexual")
+        r = self._send()
+        self.assertEqual(r.status_code, 503)
+        self.assertIn("try again", r.get_json()["message"])
+        self.assertEqual(_QuotaCursor.flags, [])
+        self.assertEqual(self._reads(), [])
+        self.assertEqual(self.counted, [self.rx.content_guard.NOT_CHECKED])
+
+    def test_a_backup_flag_keeps_todays_policy(self):
+        del self.script["find_haiku"]
+        self.deepseek.append(_find(flag="graphic"))
+        r = self._send()
+        self.assertEqual(r.status_code, 422)
+        self.assertEqual(len(_QuotaCursor.flags), 1)
+
+    def test_more_than_six_pages_says_so(self):
+        self.script["find_haiku"] = _find((1, "spectacle_table", "", 0))
+        body = self._send(_pdf(8)).get_json()
+        self.assertTrue(any("first 6 pages" in n for n in body["notes"]))
+        self.assertEqual(len([c for c in self.calls if c["step"] == "find"][0]["pages"]), 6)
+
+    def test_the_routes_that_store_files_still_get_two_pages(self):
+        pdf = _pdf()
+        self.assertEqual(len(self.rx.lens_documents.normalise(pdf)["pages"]), 2)
+        self.assertEqual(len(self.rx.lens_documents.normalise(pdf, pdf_pages=6)["pages"]), 5)
+
+    def test_the_session_limit_still_applies_to_new_files(self):
+        with self.client.session_transaction() as sess:
+            sess[self.rx.SESSION_COUNT_KEY] = self.rx.MAX_READS_PER_SESSION
+        self.assertEqual(self._send().status_code, 429)
+        self.assertEqual(self.calls, [])
+
+    def test_a_choice_cannot_be_spent_without_end(self):
+        self.script["find_haiku"] = TWO_TABLES
+        pdf = _pdf()
+        token = self._send(pdf).get_json()["choices"][0]["token"]
+        self.script["read_haiku"] = self.script["read_opus"] = "not json"
+        self.deepseek.extend([self.ModelError("down")] * 40)
+        codes = [self._send(pdf, form={"choice": token}).status_code for _ in range(self.rx.READER_PAGES + 1)]
+        self.assertEqual(codes[-1], 429)
+
+    def test_the_page_blocks_continuing_until_amber_is_settled(self):
+        page = open(os.path.join(REPO, "templates", "prescription.html"), encoding="utf-8").read()
+        self.assertIn("if (window.rxChecksOpen) {", page)
+        self.assertIn("if (window.rxChecksOpen) { e.preventDefault();", page)
+        self.assertIn("note.textContent = checksTitle(window.rxChecksOpen)", page)     # the count falls as each is settled
+        self.assertIn("Which one should we use?", page)
+        self.assertIn("Read this one", page)
+        self.assertIn("css/rx-page.css') }}?v=8", page)
 
 
 class Wiring(unittest.TestCase):
