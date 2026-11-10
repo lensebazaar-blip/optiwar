@@ -517,7 +517,7 @@ function showAddDropdowns() {
         document.getElementById('right_add').value = '1.00';
         document.getElementById('left_add').value = '1.00';
         // Auto-open bifocal modal and pre-select CRD
-        const crd = document.querySelector('input[name="addon_3"][value="crd"]');
+        const crd = document.querySelector('input[type=radio][name="addon_3"][value="crd"]');
         if (crd) { crd.checked = true; applyBifocal(); }
     } else {
         fields.style.display = 'none';
@@ -715,7 +715,7 @@ function updatePricesForContext(context) {
     // Update coating prices
     if (ctx.coatings) {
         Object.keys(ctx.coatings).forEach(function(code) {
-            var inp = document.querySelector('input[name=add_selections][value=' + code + ']');
+            var inp = document.querySelector('input[type=radio][name=add_selections][value=' + code + ']');
             if (inp) {
                 var isGlobal = (typeof owIsIndia !== "undefined" && !owIsIndia);
                 var displayPrice = isGlobal && ctx.coatings[code].price_eur ? ctx.coatings[code].price_eur : ctx.coatings[code].price;
@@ -729,7 +729,7 @@ function updatePricesForContext(context) {
     // Update thickness prices
     if (ctx.thickness) {
         Object.keys(ctx.thickness).forEach(function(code) {
-            var inp = document.querySelector('input[name=add_selections2][value=' + code + ']');
+            var inp = document.querySelector('input[type=radio][name=add_selections2][value=' + code + ']');
             if (inp) {
                 var isGlobal = (typeof owIsIndia !== "undefined" && !owIsIndia);
                 var displayPrice = isGlobal && ctx.thickness[code].price_eur ? ctx.thickness[code].price_eur : ctx.thickness[code].price;
