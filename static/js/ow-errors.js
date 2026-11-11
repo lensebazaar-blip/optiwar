@@ -21,10 +21,26 @@
   function ours(url) { return String(url || '').indexOf(here) === 0; }
   function short(url) { return String(url || '').replace(here, '').split('?')[0]; }
 
+  /* A file the page failed to load is asked for once more. A server answer
+     that is not OK is ours to fix and is reported with its status; a network
+     drop or a content blocker is not, and the file is loaded again instead. */
+  function recheck(el) {
+    var url = el.src || el.href;
+    if (!realFetch) return;
+    realFetch(url, { cache: 'no-store', credentials: 'same-origin' }).then(function (r) {
+      if (!r.ok) { report('SITE_ASSET_FAILED', short(url) + ' ' + r.status); return; }
+      if (el.getAttribute('data-ow-retry') || !el.parentNode) return;
+      var again = document.createElement(el.tagName);
+      for (var i = 0; i < el.attributes.length; i++) again.setAttribute(el.attributes[i].name, el.attributes[i].value);
+      again.setAttribute('data-ow-retry', '1');
+      el.parentNode.insertBefore(again, el.nextSibling);
+    }).catch(function () {});
+  }
+
   window.addEventListener('error', function (e) {
     var el = e.target;
     if (el && el !== window && (el.tagName === 'SCRIPT' || el.tagName === 'LINK')) {
-      if (ours(el.src || el.href)) report('SITE_ASSET_FAILED', short(el.src || el.href));
+      if (ours(el.src || el.href)) recheck(el);
       return;
     }
     if (!ours(e.filename)) return;

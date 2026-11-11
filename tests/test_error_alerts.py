@@ -168,6 +168,13 @@ class Wiring(unittest.TestCase):
     def test_every_page_loads_the_browser_reporter(self):
         self.assertIn("js/ow-errors.js", self._read("templates", "base.html"))
 
+    def test_a_failed_file_is_reported_only_when_the_server_fails_it(self):
+        js = self._read("static", "js", "ow-errors.js")
+        self.assertIn("if (ours(el.src || el.href)) recheck(el);", js)
+        self.assertIn("if (!r.ok) { report('SITE_ASSET_FAILED', short(url) + ' ' + r.status); return; }", js)
+        self.assertIn("data-ow-retry", js)
+        self.assertIn("ow-errors.js') + '?v=2'", self._read("templates", "base.html"))
+
     def test_the_app_installs_it(self):
         self.assertIn("init_error_alerts(app)", self._read("__init__.py"))
 
