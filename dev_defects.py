@@ -22,6 +22,10 @@ TAG = "DEV_DEFECT"
 _CODE = re.compile(r"^[A-Z][A-Z0-9_]{2,63}$")
 WHERE_MAX = 120
 PAGE_MAX = 200
+# Search-engine renderers report assets and API calls they never fetched (the
+# server log shows 200/401 where they report 503): not a customer's defect.
+# "Cubot" phones are customers, hence the slash or word edge after "bot".
+CRAWLER = re.compile(r"[a-z]bot/|\bbot\b|spider|crawl|googleother|inspectiontool|slurp|facebookexternalhit", re.I)
 
 
 def _clean(value, limit):
@@ -51,7 +55,7 @@ def browser_defect():
     """The browser's report of a defect it met; cookie session, same origin."""
     data = request.get_json(silent=True) or {}
     code = str(data.get("code") or "")
-    if not _CODE.match(code):
+    if not _CODE.match(code) or CRAWLER.search(request.headers.get("User-Agent", "")):
         return "", 204
     record(code, where=data.get("where"), page=data.get("page"),
            origin="browser")

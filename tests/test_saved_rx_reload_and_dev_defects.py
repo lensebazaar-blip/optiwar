@@ -102,6 +102,23 @@ class DefectChannel(unittest.TestCase):
         self.assertIn("page=/categories/contact-lenses/precision1", line)
         self.assertLess(len(line), 400)
 
+    def test_a_crawler_report_is_dropped_and_a_phone_report_kept(self):
+        app, records = self._app()
+        crawlers = (
+            "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm) Chrome/136.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (compatible; Baiduspider-render/2.0; +http://www.baidu.com/search/spider.html)",
+            "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0 Mobile Safari/537.36 (compatible; GoogleOther)",
+            "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X) Chrome/130.0 Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+        )
+        with app.test_client() as c:
+            for ua in crawlers:
+                self.assertEqual(c.post("/api/chat/dev-defect", headers={"User-Agent": ua},
+                                        json={"code": "SITE_ASSET_FAILED", "where": "/static/css/legal.css", "page": "/p"}).status_code, 204)
+            self.assertEqual(records, [])
+            c.post("/api/chat/dev-defect", headers={"User-Agent": "Mozilla/5.0 (Linux; Android 12; CUBOT X30) Chrome/157.0.0.0 Mobile Safari/537.36"},
+                   json={"code": "SITE_JS_ERROR", "where": "/p:1 x", "page": "/p"})
+        self.assertEqual(len(records), 1)
+
     def test_a_power_is_not_kept_even_if_the_browser_sends_one(self):
         app, records = self._app()
         with app.test_client() as c:
