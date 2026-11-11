@@ -14,6 +14,7 @@ import os
 import sys
 import types
 import unittest
+from unittest.mock import patch
 
 from flask import Blueprint, Flask
 
@@ -158,6 +159,19 @@ class OpsRefundApiTest(unittest.TestCase):
                            content_type="application/json",
                            headers=head, base_url=BASE)
 
+    def _post_upi(self, client, body, headers=None, order_id="OW-TEST-1"):
+        head = {"Authorization": "Bearer %s" % TOKEN,
+                "X-Ops-Operator": "ops@lensbazaar",
+                "Idempotency-Key": "OW-TEST-1/refund/upi-abc"}
+        head.update(headers or {})
+        for key, value in list(head.items()):
+            if value is None:
+                del head[key]
+        return client.post("/api/ops/orders/%s/refund/upi" % order_id,
+                           data=json.dumps(body),
+                           content_type="application/json",
+                           headers=head, base_url=BASE)
+
     # ─── the credential ──────────────────────────────────────────────
 
     def test_no_credential_is_401_on_every_endpoint(self):
@@ -170,6 +184,9 @@ class OpsRefundApiTest(unittest.TestCase):
                       base_url=BASE).status_code, 401)
             self.assertEqual(
                 self._post(c, {}, headers={"Authorization": None}).status_code, 401)
+            self.assertEqual(
+                self._post_upi(c, {}, headers={"Authorization": None}).status_code,
+                401)
         self.assertEqual(self.provider.calls, [])
 
     def test_the_wrong_credential_is_401(self):
@@ -209,6 +226,18 @@ class OpsRefundApiTest(unittest.TestCase):
                            headers={"Idempotency-Key": None})
         self.assertEqual(r.status_code, 400)
         self.assertEqual(r.get_json()["error"], "idempotency_key_required")
+        self.assertEqual(self.provider.calls, [])
+
+    def test_upi_record_requires_operator_and_idempotency_key(self):
+        with _app().test_client() as c:
+            no_operator = self._post_upi(
+                c, {"amount_minor": 10000}, headers={"X-Ops-Operator": None})
+            no_key = self._post_upi(
+                c, {"amount_minor": 10000}, headers={"Idempotency-Key": None})
+        self.assertEqual(no_operator.status_code, 400)
+        self.assertEqual(no_operator.get_json()['error'], 'operator_required')
+        self.assertEqual(no_key.status_code, 400)
+        self.assertEqual(no_key.get_json()['error'], 'idempotency_key_required')
         self.assertEqual(self.provider.calls, [])
 
     def test_the_key_may_travel_in_the_body_instead_of_the_header(self):
@@ -252,7 +281,89 @@ class OpsRefundApiTest(unittest.TestCase):
                'idempotency_key': 'k', 'requested_by': 'ops', 'service_identity': 'eu',
                'requested_at': '2026-01-01 00:00:00', 'completed_at': None,
                'error_text': None}
-        self.assertEqual(ops_refunds._ledger_json(row)['payment_ref'], 'pay_abc')
+        result = ops_refunds._ledger_json(row)
+        self.assertEqual(result['payment_ref'], 'pay_abc')
+        self.assertEqual(result['method'], 'GATEWAY')
+
+    def test_the_ledger_json_includes_upi_details_and_tolerates_bad_json(self):
+        row = {'refund_id': 2, 'order_id': 'TEST-2', 'payment_ref': 'pay_def',
+               'provider_refund_id': 'UPI:123456789012', 'amount_minor': 25000,
+               'currency': 'INR', 'status': 'PROCESSED', 'provider_state': None,
+               'refund_type': 'PARTIAL', 'reason_code': 'CUSTOMER_REFUND',
+               'idempotency_key': 'k2', 'requested_by': 'ops', 'service_identity': 'eu',
+               'requested_at': '2026-01-01 00:00:00', 'completed_at': None,
+               'error_text': None,
+               'provider_response': json.dumps({
+                   'upi_vpa': 'customer@okaxis', 'utr': '123456789012',
+                   'paid_on': '2026-01-01', 'payee_name': 'Customer Name'})}
+        result = ops_refunds._ledger_json(row)
+        self.assertEqual(result['method'], 'UPI')
+        self.assertEqual(result['upi'], {
+            'upi_vpa': 'customer@okaxis', 'utr': '123456789012',
+            'paid_on': '2026-01-01', 'payee_name': 'Customer Name'})
+
+        row['provider_response'] = 'not json'
+        self.assertEqual(ops_refunds._ledger_json(row)['upi'], {
+            'upi_vpa': None, 'utr': None, 'paid_on': None, 'payee_name': None})
+
+    def test_upi_route_records_details_and_returns_the_ledger_row(self):
+        row = {
+            'refund_id': 7, 'order_id': 'OW-TEST-1', 'payment_ref': 'pay_abc',
+            'provider_refund_id': 'UPI:123456789012', 'amount_minor': 25000,
+            'currency': 'INR', 'status': 'PROCESSED', 'provider_state': 'processed',
+            'refund_type': 'PARTIAL', 'reason_code': 'CUSTOMER_REFUND',
+            'idempotency_key': 'OW-TEST-1/refund/upi-abc',
+            'requested_by': 'ops@lensbazaar', 'service_identity': 'eu-ops',
+            'requested_at': '2026-01-01 00:00:00', 'completed_at': None,
+            'error_text': None,
+            'provider_response': json.dumps({
+                'status': 'processed', 'method': 'UPI',
+                'upi_vpa': 'customer@okaxis', 'utr': '123456789012',
+                'paid_on': '2026-01-01', 'payee_name': 'Customer Name'})}
+        body = {
+            'amount_minor': 25000, 'currency': 'INR',
+            'reason_code': 'CUSTOMER_REFUND', 'comment': 'customer request',
+            'approved_message': 'Your refund was recorded.',
+            'upi_vpa': 'customer@okaxis', 'utr': '123456789012',
+            'paid_on': '2026-01-01', 'payee_name': 'Customer Name'}
+        with patch.object(refunds, 'record_upi', return_value=row) as record_upi:
+            with _app().test_client() as c:
+                response = self._post_upi(c, body)
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload['ok'])
+        self.assertEqual(payload['refund']['method'], 'UPI')
+        self.assertEqual(payload['refund']['upi']['utr'], '123456789012')
+        self.assertEqual(record_upi.call_args.kwargs['upi_vpa'], body['upi_vpa'])
+        self.assertEqual(record_upi.call_args.kwargs['paid_on'], body['paid_on'])
+
+    def test_upi_provider_error_returns_502_with_message(self):
+        with patch.object(
+                ops_refunds, '_provider',
+                side_effect=ops_refunds.ProviderError('provider unreachable')):
+            with _app().test_client() as c:
+                response = self._post_upi(
+                    c, {'amount_minor': 25000, 'currency': 'INR',
+                        'reason_code': 'CUSTOMER_REFUND'})
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.get_json()['message'], 'provider unreachable')
+
+    def test_failed_execute_returns_the_provider_error_message(self):
+        row = {
+            'refund_id': 8, 'order_id': 'OW-TEST-1', 'payment_ref': 'pay_abc',
+            'provider_refund_id': None, 'amount_minor': 25000, 'currency': 'INR',
+            'status': 'FAILED', 'provider_state': None, 'refund_type': 'PARTIAL',
+            'reason_code': 'CUSTOMER_REFUND', 'idempotency_key': 'key',
+            'requested_by': 'ops@lensbazaar', 'service_identity': 'eu-ops',
+            'requested_at': '2026-01-01 00:00:00', 'completed_at': None,
+            'error_text': 'provider HTTP 400: Your account does not have enough balance'}
+        with patch.object(refunds, 'execute', return_value=row):
+            with _app().test_client() as c:
+                response = self._post(
+                    c, {'amount_minor': 25000, 'currency': 'INR',
+                        'reason_code': 'CUSTOMER_REFUND'})
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.get_json()['message'], row['error_text'])
 
     def test_a_provider_outage_is_502_not_a_silent_success(self):
         def broken():
@@ -283,6 +394,11 @@ class OpsRefundApiTest(unittest.TestCase):
         # would only ever block the legitimate caller.
         import csrf_guard
         self.assertIn("main.ops_refund_execute", csrf_guard.CSRF_EXEMPT_ENDPOINTS)
+        app = _app()
+        rule = next(rule for rule in app.url_map.iter_rules()
+                    if rule.rule == '/api/ops/orders/<order_id>/refund/upi'
+                    and 'POST' in rule.methods)
+        self.assertIn(rule.endpoint, csrf_guard.CSRF_EXEMPT_ENDPOINTS)
 
 
 if __name__ == "__main__":

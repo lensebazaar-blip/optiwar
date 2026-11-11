@@ -23,6 +23,8 @@ exempt endpoint must carry its own non-cookie authentication:
 - ``main.razorpay_webhook`` (Razorpay server-to-server delivery, no browser and
   so never any Origin/Referer): HMAC signature over the raw body + idempotent
   processing.
+- ``main.ops_refund_execute`` and ``main.ops_refund_record_upi`` (EU Ops refund
+  APIs: scoped Bearer credential + server-side idempotency; no cookie auth).
 - ``pricing.api_pricing_update`` and ``pricing.api_pricing_bulk_update`` (EU Ops
   lens-price APIs: ``X-API-Key`` checked against ``PRICING_API_SECRET`` by
   ``api_key_required``; no cookie auth).
@@ -56,6 +58,7 @@ CSRF_EXEMPT_ENDPOINTS = {
     "crm.msg91_delivery_event",        # MSG91 delivery-status callback  (optional token)
     "crm.support_preferences",         # customer notification-pref API (no cookie auth; keyed by email/phone)
     "main.ops_refund_execute",         # EU Ops refund API  (scoped Bearer credential + server-side idempotency)
+    "main.ops_refund_record_upi",      # EU Ops UPI refund ledger API (scoped Bearer credential; no cookie auth)
     "pricing.api_pricing_update",      # EU Ops lens-price update API (X-API-Key shared secret, no cookie auth)
     "pricing.api_pricing_bulk_update", # EU Ops lens-price bulk API (X-API-Key shared secret, no cookie auth)
     "main.face_scan_guest_consent_post",  # remote face-scan guest (no-referrer page; request binding + guest CSRF secret)

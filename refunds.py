@@ -20,6 +20,9 @@ point does not appear in a refund path — ``order_total`` is read only to show
 the operator a line breakdown, never to decide what to refund.
 """
 import json
+import re
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 try:
     from . import return_assessment
@@ -410,8 +413,96 @@ def execute(db, order_id, amount_minor, currency, reason_code, comment,
     return dict(find_by_key(cursor, idempotency_key), replayed=False)
 
 
+def record_upi(db, order_id, amount_minor, currency, reason_code, comment,
+               idempotency_key, requested_by, service_identity, approved_message,
+               provider, upi_vpa, utr, paid_on, payee_name,
+               requested_status=None, logger=None):
+    cursor = db.cursor()
+    existing = find_by_key(cursor, idempotency_key)
+    if existing:
+        return dict(existing, replayed=True)
+
+    facts = preview(cursor, order_id, provider)
+    kind = validate(facts, amount_minor, currency, reason_code, requested_status)
+    if reason_code == 'RETURN_RECEIVED':
+        raise RefundRejected(
+            'upi_not_for_return_refund',
+            'return refunds run through the return assessment and the gateway')
+
+    upi_vpa = str(upi_vpa or '').strip()
+    if not re.fullmatch(r'[A-Za-z0-9._-]{2,256}@[A-Za-z][A-Za-z0-9.-]{1,63}',
+                        upi_vpa):
+        raise RefundRejected('invalid_upi_id', 'enter a valid UPI ID')
+
+    utr = str(utr or '').strip()
+    if not re.fullmatch(r'[0-9]{12}', utr):
+        raise RefundRejected('invalid_utr', 'UTR must contain exactly 12 digits')
+
+    paid_on = str(paid_on or '').strip()
+    try:
+        paid_date = date.fromisoformat(paid_on)
+    except (TypeError, ValueError):
+        raise RefundRejected('invalid_paid_on', 'paid-on date must be YYYY-MM-DD')
+    if paid_date.isoformat() != paid_on:
+        raise RefundRejected('invalid_paid_on', 'paid-on date must be YYYY-MM-DD')
+    today_ist = datetime.now(ZoneInfo('Asia/Kolkata')).date()
+    if paid_date > today_ist or paid_date < today_ist - timedelta(days=30):
+        raise RefundRejected(
+            'invalid_paid_on',
+            'paid-on date must be today or within the last 30 days')
+
+    payee_name = str(payee_name or '').strip()
+    if not 2 <= len(payee_name) <= 120:
+        raise RefundRejected(
+            'invalid_payee_name', 'payee name must contain 2 to 120 characters')
+
+    cursor.execute(
+        "SELECT order_id FROM order_refunds WHERE provider_refund_id=%s LIMIT 1",
+        ('UPI:' + utr,))
+    used = cursor.fetchone()
+    if used:
+        raise RefundRejected(
+            'utr_already_used',
+            'UTR was already recorded on order %s' % used.get('order_id'))
+
+    try:
+        refund_id = _claim(
+            db, cursor, order_id, facts['payment_ref'], amount_minor, currency,
+            kind, reason_code, comment, idempotency_key, requested_by,
+            service_identity, approved_message)
+    except Exception as exc:
+        db.rollback()
+        if _is_duplicate_key(exc):
+            return dict(find_by_key(cursor, idempotency_key), replayed=True)
+        raise
+
+    response = {
+        'status': 'processed',
+        'method': 'UPI',
+        'upi_vpa': upi_vpa,
+        'utr': utr,
+        'paid_on': paid_on,
+        'payee_name': payee_name,
+    }
+    _finish(db, cursor, refund_id, PROCESSED,
+            provider_refund_id='UPI:' + utr, response=response)
+    via = 'paid by UPI to %s (%s), UTR %s, on %s' % (
+        upi_vpa, payee_name, utr, paid_on)
+    _record_outcome(db, cursor, order_id, amount_minor, currency, kind,
+                    reason_code, requested_by, response, requested_status,
+                    via=via)
+    if logger:
+        logger.info(
+            "ACTIVITY:REFUND_UPI_RECORDED order:%s refund:%s amount_minor:%s "
+            "utr:%s by:%s key:%s"
+            % (order_id, refund_id, amount_minor, utr, requested_by,
+               idempotency_key))
+    return dict(find_by_key(cursor, idempotency_key), replayed=False)
+
+
 def _record_outcome(db, cursor, order_id, amount_minor, currency, kind,
-                    reason_code, requested_by, result, requested_status):
+                    reason_code, requested_by, result, requested_status,
+                    via=None):
     """History always, then the status the refund earns.
 
     Written after the provider accepted, in its own transaction, so a failure
@@ -419,10 +510,11 @@ def _record_outcome(db, cursor, order_id, amount_minor, currency, kind,
     already PROCESSED and the operator sees the money as refunded.
     """
     major = minor_to_major(amount_minor)
-    add_history(cursor, order_id,
-                'Refund %s %s issued by %s (%s) - provider ref %s'
-                % (currency, major, requested_by, reason_code,
-                   result.get('id') or 'pending'),
+    history = ('Refund %s %s issued by %s (%s) - %s'
+               % (currency, major, requested_by, reason_code,
+                  via if via is not None else
+                  'provider ref %s' % (result.get('id') or 'pending')))
+    add_history(cursor, order_id, history,
                 site_from=(_site(cursor, order_id).get('site') or None))
     append_status(cursor, order_id, requested_status or resulting_status(kind),
                   source='ops-refund',
