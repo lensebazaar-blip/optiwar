@@ -245,6 +245,24 @@ class RefundTest(unittest.TestCase):
         self.assertEqual(facts['already_refunded_minor'], 50000)
         self.assertEqual(facts['max_refundable_minor'], 49900)
 
+    def test_preview_adds_upi_refunds_to_provider_reported_refunds(self):
+        order_id = self._order()
+        provider = FakeProvider(amount=139900, amount_refunded=50000)
+        self._record_upi(order_id, provider, amount=30000)
+
+        facts = refunds.preview(self.cur, order_id, provider)
+        self.assertEqual(facts['already_refunded_minor'], 80000)
+        self.assertEqual(facts['max_refundable_minor'], 59900)
+
+    def test_preview_does_not_add_gateway_refunds_to_provider_tally_twice(self):
+        order_id = self._order()
+        provider = FakeProvider(amount=139900, amount_refunded=50000)
+        self._refund(order_id, provider, amount=30000)
+
+        facts = refunds.preview(self.cur, order_id, provider)
+        self.assertEqual(facts['already_refunded_minor'], 50000)
+        self.assertEqual(facts['max_refundable_minor'], 89900)
+
     def test_preview_of_an_unpaid_order_offers_nothing(self):
         order_id = self._order(paid=False, status='Pending')
         facts = refunds.preview(self.cur, order_id, FakeProvider())

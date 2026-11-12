@@ -205,12 +205,21 @@ def preview(cursor, order_id, provider):
     facts['provider_state'] = captured.get('status')
     facts['currency'] = captured.get('currency')
     facts['captured_minor'] = int(captured.get('amount') or 0)
-    # The provider's own tally includes refunds issued from its dashboard, which
-    # this ledger has never seen; ours includes attempts it has accepted but not
-    # yet reported. Whichever is higher is the honest answer.
+    # The provider's tally includes dashboard refunds; gateway ledger rows catch
+    # accepted refunds it has not reported yet. UPI refunds are added separately.
     provider_refunded = int(captured.get('amount_refunded') or 0)
-    facts['already_refunded_minor'] = max(
-        provider_refunded, committed_minor(facts['refunds']))
+    upi_rows = [
+        refund for refund in facts['refunds']
+        if (refund.get('provider_refund_id') or '').startswith('UPI:')
+    ]
+    gateway_rows = [
+        refund for refund in facts['refunds']
+        if not (refund.get('provider_refund_id') or '').startswith('UPI:')
+    ]
+    upi_minor = sum(int(refund['amount_minor']) for refund in upi_rows
+                    if refund['status'] != FAILED)
+    gateway_minor = committed_minor(gateway_rows)
+    facts['already_refunded_minor'] = max(provider_refunded, gateway_minor) + upi_minor
     facts['max_refundable_minor'] = max(
         0, facts['captured_minor'] - facts['already_refunded_minor'])
     return facts
