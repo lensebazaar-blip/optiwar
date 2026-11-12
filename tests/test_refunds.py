@@ -19,7 +19,9 @@ import os
 import sys
 import unittest
 import uuid
+from contextlib import ExitStack
 from datetime import datetime, timedelta
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -132,6 +134,119 @@ class FakeProvider:
     def refund_status(self, provider_refund_id):
         self.status_calls.append(provider_refund_id)
         return {'id': provider_refund_id, 'status': self.refund_state}
+
+
+class LockFakeCursor:
+    def __init__(self, lock_result=1, used=None, release_error=None):
+        self.lock_result = lock_result
+        self.used = used
+        self.release_error = release_error
+        self.result = None
+        self.queries = []
+        self.release_calls = 0
+
+    def execute(self, query, params=()):
+        self.queries.append((query, params))
+        if query.startswith("SELECT GET_LOCK("):
+            self.result = {'acquired': self.lock_result}
+        elif query.startswith("SELECT order_id FROM order_refunds"):
+            self.result = self.used
+        elif query.startswith("SELECT RELEASE_LOCK("):
+            self.release_calls += 1
+            if self.release_error:
+                raise self.release_error
+            self.result = {'released': 1}
+        else:
+            raise AssertionError("unexpected query: %s" % query)
+
+    def fetchone(self):
+        return self.result
+
+
+class LockFakeDB:
+    def __init__(self, cursor):
+        self._cursor = cursor
+        self.rollback_calls = 0
+
+    def cursor(self):
+        return self._cursor
+
+    def rollback(self):
+        self.rollback_calls += 1
+
+
+class UpiUtrLockTest(unittest.TestCase):
+    def setUp(self):
+        self.cursor = LockFakeCursor()
+        self.db = LockFakeDB(self.cursor)
+        self.patches = ExitStack()
+        self.addCleanup(self.patches.close)
+        self.find_by_key = self.patches.enter_context(
+            patch.object(refunds, 'find_by_key'))
+        self.preview = self.patches.enter_context(
+            patch.object(refunds, 'preview'))
+        self.claim = self.patches.enter_context(patch.object(refunds, '_claim'))
+        self.finish = self.patches.enter_context(patch.object(refunds, '_finish'))
+        self.record_outcome = self.patches.enter_context(
+            patch.object(refunds, '_record_outcome'))
+        self.find_by_key.side_effect = [
+            None, {'refund_id': 17, 'provider_refund_id': 'UPI:123456789012'}]
+        self.preview.return_value = {
+            'payment_status': 'PAID',
+            'payment_ref': 'pay_lock_test',
+            'provider_state': 'captured',
+            'currency': 'INR',
+            'captured_minor': 99900,
+            'already_refunded_minor': 0,
+            'max_refundable_minor': 99900,
+        }
+        self.claim.return_value = 17
+
+    def _record(self):
+        return refunds.record_upi(
+            self.db, 'LOCK-TEST-1', amount_minor=25000, currency='INR',
+            reason_code='CUSTOMER_REFUND', comment='test',
+            idempotency_key='LOCK-TEST-1/refund/1', requested_by='ops',
+            service_identity='eu-ops', approved_message='recorded',
+            provider=FakeProvider(), upi_vpa='customer@okaxis',
+            utr='123456789012',
+            paid_on=datetime.now(ZoneInfo('Asia/Kolkata')).date().isoformat(),
+            payee_name='Customer Name')
+
+    def test_unavailable_utr_lock_refuses_without_claiming_a_row(self):
+        self.cursor.lock_result = 0
+
+        with self.assertRaises(refunds.RefundRejected) as caught:
+            self._record()
+
+        self.assertEqual(caught.exception.code, 'upi_record_busy')
+        self.assertEqual(caught.exception.http_status, 409)
+        self.claim.assert_not_called()
+        self.assertEqual(self.cursor.release_calls, 0)
+        self.assertFalse(any(
+            query.startswith("SELECT order_id FROM order_refunds")
+            for query, _ in self.cursor.queries))
+
+    def test_utr_lock_is_released_after_success(self):
+        result = self._record()
+
+        self.assertFalse(result['replayed'])
+        self.claim.assert_called_once()
+        self.finish.assert_called_once()
+        self.assertEqual(self.cursor.release_calls, 1)
+        self.assertEqual(
+            self.cursor.queries[0][1], ('optiwar_upi_utr:123456789012',))
+
+    def test_utr_lock_is_released_when_used_utr_validation_fails(self):
+        self.cursor.used = {'order_id': 'OTHER-ORDER'}
+        self.cursor.release_error = RuntimeError('release unavailable')
+
+        with self.assertRaises(refunds.RefundRejected) as caught:
+            self._record()
+
+        self.assertEqual(caught.exception.code, 'utr_already_used')
+        self.claim.assert_not_called()
+        self.assertEqual(self.cursor.release_calls, 1)
 
 
 class RefundTest(unittest.TestCase):

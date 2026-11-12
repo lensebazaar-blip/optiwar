@@ -477,39 +477,61 @@ def record_upi(db, order_id, amount_minor, currency, reason_code, comment,
         raise RefundRejected(
             'invalid_payee_name', 'payee name must contain 2 to 120 characters')
 
-    cursor.execute(
-        "SELECT order_id FROM order_refunds WHERE provider_refund_id=%s LIMIT 1",
-        ('UPI:' + utr,))
-    used = cursor.fetchone()
-    if used:
+    lock_name = 'optiwar_upi_utr:' + utr
+    cursor.execute("SELECT GET_LOCK(%s, 10) AS acquired", (lock_name,))
+    lock_result = cursor.fetchone()
+    acquired = (lock_result.get('acquired') if isinstance(lock_result, dict)
+                else lock_result[0] if lock_result else None)
+    if acquired != 1:
         raise RefundRejected(
-            'utr_already_used',
-            'UTR was already recorded on order %s' % used.get('order_id'))
+            'upi_record_busy',
+            'another UPI refund with this UTR is being recorded; try again',
+            409)
 
     try:
-        refund_id = _claim(
-            db, cursor, order_id, facts['payment_ref'], amount_minor, currency,
-            kind, reason_code, comment, idempotency_key, requested_by,
-            service_identity, approved_message)
-    except Exception as exc:
-        db.rollback()
-        if _is_duplicate_key(exc):
-            replay = _upi_key_replay_or_reject(
-                find_by_key(cursor, idempotency_key))
-            if replay is not None:
-                return replay
-        raise
+        cursor.execute(
+            "SELECT order_id FROM order_refunds "
+            "WHERE provider_refund_id=%s LIMIT 1",
+            ('UPI:' + utr,))
+        used = cursor.fetchone()
+        if used:
+            raise RefundRejected(
+                'utr_already_used',
+                'UTR was already recorded on order %s' % used.get('order_id'))
 
-    response = {
-        'status': 'processed',
-        'method': 'UPI',
-        'upi_vpa': upi_vpa,
-        'utr': utr,
-        'paid_on': paid_on,
-        'payee_name': payee_name,
-    }
-    _finish(db, cursor, refund_id, PROCESSED,
-            provider_refund_id='UPI:' + utr, response=response)
+        try:
+            refund_id = _claim(
+                db, cursor, order_id, facts['payment_ref'], amount_minor, currency,
+                kind, reason_code, comment, idempotency_key, requested_by,
+                service_identity, approved_message)
+        except Exception as exc:
+            db.rollback()
+            if _is_duplicate_key(exc):
+                replay = _upi_key_replay_or_reject(
+                    find_by_key(cursor, idempotency_key))
+                if replay is not None:
+                    return replay
+            raise
+
+        response = {
+            'status': 'processed',
+            'method': 'UPI',
+            'upi_vpa': upi_vpa,
+            'utr': utr,
+            'paid_on': paid_on,
+            'payee_name': payee_name,
+        }
+        _finish(db, cursor, refund_id, PROCESSED,
+                provider_refund_id='UPI:' + utr, response=response)
+    finally:
+        try:
+            cursor.execute("SELECT RELEASE_LOCK(%s)", (lock_name,))
+            cursor.fetchone()
+        except Exception as exc:
+            if logger:
+                logger.warning("Could not release UPI UTR lock %s: %s",
+                               lock_name, exc)
+
     via = 'paid by UPI to %s (%s), UTR %s, on %s' % (
         upi_vpa, payee_name, utr, paid_on)
     _record_outcome(db, cursor, order_id, amount_minor, currency, kind,
