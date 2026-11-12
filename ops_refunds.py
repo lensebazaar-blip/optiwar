@@ -218,11 +218,15 @@ def _facts_json(facts):
 
 
 def _ledger_json(row):
-    return {
+    provider_refund_id = row.get('provider_refund_id')
+    method = ('UPI' if str(provider_refund_id or '').startswith('UPI:')
+              else 'GATEWAY')
+    out = {
         'refund_id': row['refund_id'],
         'order_id': row['order_id'],
         'payment_ref': row['payment_ref'],
-        'provider_refund_id': row.get('provider_refund_id'),
+        'provider_refund_id': provider_refund_id,
+        'method': method,
         'amount_minor': int(row['amount_minor']),
         'amount': refunds.minor_to_major(int(row['amount_minor'])),
         'currency': row['currency'],
@@ -238,6 +242,22 @@ def _ledger_json(row):
         'error_text': row.get('error_text'),
         'replayed': bool(row.get('replayed')),
     }
+    if method == 'UPI':
+        response = row.get('provider_response')
+        if isinstance(response, (str, bytes)):
+            try:
+                response = json.loads(response)
+            except (TypeError, ValueError):
+                response = {}
+        if not isinstance(response, dict):
+            response = {}
+        out['upi'] = {
+            'upi_vpa': response.get('upi_vpa'),
+            'utr': response.get('utr'),
+            'paid_on': response.get('paid_on'),
+            'payee_name': response.get('payee_name'),
+        }
+    return out
 
 
 def register(bp):
@@ -305,8 +325,56 @@ def register(bp):
             return jsonify({'ok': False, 'error': 'provider_unavailable',
                             'message': str(exc)}), 502
         out = _ledger_json(row)
-        return jsonify({'ok': row['status'] != refunds.FAILED, 'refund': out}), (
-            200 if row['status'] != refunds.FAILED else 502)
+        if row['status'] == refunds.FAILED:
+            return jsonify({'ok': False, 'refund': out,
+                            'message': row.get('error_text')}), 502
+        return jsonify({'ok': True, 'refund': out})
+
+    @bp.route('/api/ops/orders/<order_id>/refund/upi', methods=['POST'])
+    def ops_refund_record_upi(order_id):
+        if not _authorised('refunds:create'):
+            return _deny()
+        operator = _operator()
+        if not operator:
+            return jsonify({'ok': False, 'error': 'operator_required',
+                            'message': 'X-Ops-Operator must name the human '
+                                       'who approved this refund'}), 400
+        body = request.get_json(silent=True) or {}
+        key = (request.headers.get('Idempotency-Key')
+               or body.get('idempotency_key') or '').strip()
+        if not key:
+            return jsonify({'ok': False, 'error': 'idempotency_key_required',
+                            'message': 'send Idempotency-Key, unique per refund '
+                                       'and identical across retries'}), 400
+        db = get_db()
+        refunds.ensure_schema(db.cursor())
+        try:
+            row = refunds.record_upi(
+                db, order_id,
+                amount_minor=body.get('amount_minor'),
+                currency=body.get('currency'),
+                reason_code=body.get('reason_code'),
+                comment=(body.get('comment') or '')[:2000] or None,
+                idempotency_key=str(key)[:191],
+                requested_by=operator,
+                service_identity=SERVICE_IDENTITY,
+                approved_message=body.get('approved_message'),
+                provider=_provider(),
+                upi_vpa=body.get('upi_vpa'),
+                utr=body.get('utr'),
+                paid_on=body.get('paid_on'),
+                payee_name=body.get('payee_name'),
+                requested_status=body.get('requested_status'),
+                logger=current_app.logger)
+        except refunds.RefundRejected as exc:
+            current_app.logger.info(
+                'ACTIVITY:REFUND_REJECTED order:%s reason:%s by:%s service:%s'
+                % (order_id, exc.code, operator, SERVICE_IDENTITY))
+            return _rejected(exc)
+        except ProviderError as exc:
+            return jsonify({'ok': False, 'error': 'provider_unavailable',
+                            'message': str(exc)}), 502
+        return jsonify({'ok': True, 'refund': _ledger_json(row)})
 
     @bp.route('/api/ops/orders/<order_id>/return/assess', methods=['POST'])
     def ops_return_assess(order_id):

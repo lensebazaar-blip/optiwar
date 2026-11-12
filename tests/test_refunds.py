@@ -19,6 +19,10 @@ import os
 import sys
 import unittest
 import uuid
+from contextlib import ExitStack
+from datetime import datetime, timedelta
+from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
@@ -132,6 +136,231 @@ class FakeProvider:
         return {'id': provider_refund_id, 'status': self.refund_state}
 
 
+class LockFakeCursor:
+    def __init__(self, lock_result=1, used=None, release_error=None):
+        self.lock_result = lock_result
+        self.used = used
+        self.release_error = release_error
+        self.result = None
+        self.queries = []
+        self.release_calls = 0
+
+    def execute(self, query, params=()):
+        self.queries.append((query, params))
+        if query.startswith("SELECT GET_LOCK("):
+            self.result = {'acquired': self.lock_result}
+        elif query.startswith("SELECT order_id FROM order_refunds"):
+            self.result = self.used
+        elif query.startswith("SELECT RELEASE_LOCK("):
+            self.release_calls += 1
+            if self.release_error:
+                raise self.release_error
+            self.result = {'released': 1}
+        else:
+            raise AssertionError("unexpected query: %s" % query)
+
+    def fetchone(self):
+        return self.result
+
+
+class LockFakeDB:
+    def __init__(self, cursor):
+        self._cursor = cursor
+        self.rollback_calls = 0
+
+    def cursor(self):
+        return self._cursor
+
+    def rollback(self):
+        self.rollback_calls += 1
+
+
+class UpiUtrLockTest(unittest.TestCase):
+    def setUp(self):
+        self.cursor = LockFakeCursor()
+        self.db = LockFakeDB(self.cursor)
+        self.patches = ExitStack()
+        self.addCleanup(self.patches.close)
+        self.find_by_key = self.patches.enter_context(
+            patch.object(refunds, 'find_by_key'))
+        self.preview = self.patches.enter_context(
+            patch.object(refunds, 'preview'))
+        self.claim = self.patches.enter_context(patch.object(refunds, '_claim'))
+        self.finish = self.patches.enter_context(patch.object(refunds, '_finish'))
+        self.record_outcome = self.patches.enter_context(
+            patch.object(refunds, '_record_outcome'))
+        self.find_by_key.side_effect = [
+            None, {'refund_id': 17, 'provider_refund_id': 'UPI:123456789012'}]
+        self.preview.return_value = {
+            'payment_status': 'PAID',
+            'payment_ref': 'pay_lock_test',
+            'provider_state': 'captured',
+            'currency': 'INR',
+            'captured_minor': 99900,
+            'already_refunded_minor': 0,
+            'max_refundable_minor': 99900,
+        }
+        self.claim.return_value = 17
+
+    def _record(self):
+        return refunds.record_upi(
+            self.db, 'LOCK-TEST-1', amount_minor=25000, currency='INR',
+            reason_code='CUSTOMER_REFUND', comment='test',
+            idempotency_key='LOCK-TEST-1/refund/1', requested_by='ops',
+            service_identity='eu-ops', approved_message='recorded',
+            provider=FakeProvider(), upi_vpa='customer@okaxis',
+            utr='123456789012',
+            paid_on=datetime.now(ZoneInfo('Asia/Kolkata')).date().isoformat(),
+            payee_name='Customer Name')
+
+    def test_unavailable_utr_lock_refuses_without_claiming_a_row(self):
+        self.cursor.lock_result = 0
+
+        with self.assertRaises(refunds.RefundRejected) as caught:
+            self._record()
+
+        self.assertEqual(caught.exception.code, 'upi_record_busy')
+        self.assertEqual(caught.exception.http_status, 409)
+        self.claim.assert_not_called()
+        self.assertEqual(self.cursor.release_calls, 0)
+        self.assertFalse(any(
+            query.startswith("SELECT order_id FROM order_refunds")
+            for query, _ in self.cursor.queries))
+
+    def test_utr_lock_is_released_after_success(self):
+        result = self._record()
+
+        self.assertFalse(result['replayed'])
+        self.claim.assert_called_once()
+        self.assertEqual(
+            self.claim.call_args.kwargs['provider_refund_id'],
+            'UPI:123456789012')
+        self.finish.assert_called_once()
+        self.assertEqual(self.cursor.release_calls, 1)
+        self.assertEqual(
+            self.cursor.queries[0][1], ('optiwar_upi_utr:123456789012',))
+
+    def test_utr_lock_is_released_when_used_utr_validation_fails(self):
+        self.cursor.used = {'order_id': 'OTHER-ORDER'}
+        self.cursor.release_error = RuntimeError('release unavailable')
+
+        with self.assertRaises(refunds.RefundRejected) as caught:
+            self._record()
+
+        self.assertEqual(caught.exception.code, 'utr_already_used')
+        self.claim.assert_not_called()
+        self.assertEqual(self.cursor.release_calls, 1)
+
+
+class ClaimInsertCursor:
+    def __init__(self):
+        self.lastrowid = 23
+        self.query = None
+        self.params = None
+
+    def execute(self, query, params=()):
+        self.query = query
+        self.params = params
+
+
+class ClaimInsertDB:
+    def __init__(self):
+        self.commit_calls = 0
+
+    def commit(self):
+        self.commit_calls += 1
+
+
+class ClaimInsertTest(unittest.TestCase):
+    def _claim(self, **kwargs):
+        cursor = ClaimInsertCursor()
+        db = ClaimInsertDB()
+        refund_id = refunds._claim(
+            db, cursor, 'CLAIM-TEST-1', 'pay_claim_test', 25000, 'INR',
+            refunds.PARTIAL, 'CUSTOMER_REFUND', 'test',
+            'CLAIM-TEST-1/refund/1', 'ops', 'eu-ops', 'recorded', **kwargs)
+        self.assertEqual(refund_id, 23)
+        self.assertEqual(db.commit_calls, 1)
+        self.assertIn('provider_refund_id', cursor.query)
+        return cursor
+
+    def test_upi_claim_insert_stores_provider_refund_id(self):
+        cursor = self._claim(provider_refund_id='UPI:123456789012')
+
+        self.assertEqual(cursor.params[-1], 'UPI:123456789012')
+
+    def test_gateway_claim_defaults_provider_refund_id_to_none(self):
+        cursor = self._claim()
+
+        self.assertIsNone(cursor.params[-1])
+
+
+class UpiKeyReplayTest(unittest.TestCase):
+    def setUp(self):
+        self.find_by_key = patch.object(refunds, 'find_by_key')
+        self.find_by_key_mock = self.find_by_key.start()
+        self.addCleanup(self.find_by_key.stop)
+        self.db = LockFakeDB(LockFakeCursor())
+
+    def _record(self, existing):
+        self.find_by_key_mock.return_value = existing
+        return refunds.record_upi(
+            self.db, 'KEY-TEST-1', amount_minor=25000, currency='INR',
+            reason_code='CUSTOMER_REFUND', comment='test',
+            idempotency_key='KEY-TEST-1/refund/1', requested_by='ops',
+            service_identity='eu-ops', approved_message='recorded',
+            provider=FakeProvider(), upi_vpa='customer@okaxis',
+            utr='123456789012', paid_on='2026-01-01',
+            payee_name='Customer Name')
+
+    def test_created_upi_row_is_an_inflight_replay(self):
+        existing = {
+            'refund_id': 17, 'status': refunds.CREATED,
+            'provider_refund_id': 'UPI:123456789012',
+        }
+
+        result = self._record(existing)
+
+        self.assertEqual(result['refund_id'], 17)
+        self.assertTrue(result['replayed'])
+
+    def test_created_gateway_row_without_provider_ref_is_not_replayed(self):
+        existing = {
+            'refund_id': 18, 'status': refunds.CREATED,
+            'provider_refund_id': None,
+        }
+
+        with self.assertRaises(refunds.RefundRejected) as caught:
+            self._record(existing)
+
+        self.assertEqual(caught.exception.code, 'idempotency_key_reused')
+        self.assertEqual(caught.exception.http_status, 409)
+
+    def test_failed_row_is_not_replayed(self):
+        existing = {
+            'refund_id': 19, 'status': refunds.FAILED,
+            'provider_refund_id': 'UPI:123456789012',
+        }
+
+        with self.assertRaises(refunds.RefundRejected) as caught:
+            self._record(existing)
+
+        self.assertEqual(caught.exception.code, 'idempotency_key_reused')
+        self.assertEqual(caught.exception.http_status, 409)
+
+    def test_gateway_refund_reference_is_not_replayed(self):
+        existing = {
+            'refund_id': 20, 'status': refunds.PROCESSED,
+            'provider_refund_id': 'rfnd_existing',
+        }
+
+        with self.assertRaises(refunds.RefundRejected) as caught:
+            self._record(existing)
+
+        self.assertEqual(caught.exception.code, 'idempotency_key_reused')
+        self.assertEqual(caught.exception.http_status, 409)
+
+
 class RefundTest(unittest.TestCase):
 
     @classmethod
@@ -195,6 +424,26 @@ class RefundTest(unittest.TestCase):
             approved_message='Your refund is on its way.', provider=provider,
             requested_status=requested_status)
 
+    def _record_upi(self, order_id, provider, amount=99900, reason='CUSTOMER_REFUND',
+                    key=None, **overrides):
+        args = {
+            'amount_minor': amount,
+            'currency': 'INR',
+            'reason_code': reason,
+            'comment': 'test',
+            'idempotency_key': key or self._key(order_id),
+            'requested_by': 'ops@lensbazaar',
+            'service_identity': 'eu-ops',
+            'approved_message': 'Your UPI refund has been recorded.',
+            'provider': provider,
+            'upi_vpa': 'customer@okaxis',
+            'utr': '123456789012',
+            'paid_on': datetime.now(ZoneInfo('Asia/Kolkata')).date().isoformat(),
+            'payee_name': 'Customer Name',
+        }
+        args.update(overrides)
+        return refunds.record_upi(self.db, order_id, **args)
+
     def _statuses(self, order_id):
         return paid_orders.order_statuses(self.cur, order_id)
 
@@ -222,6 +471,24 @@ class RefundTest(unittest.TestCase):
             self.cur, order_id, FakeProvider(amount_refunded=50000))
         self.assertEqual(facts['already_refunded_minor'], 50000)
         self.assertEqual(facts['max_refundable_minor'], 49900)
+
+    def test_preview_adds_upi_refunds_to_provider_reported_refunds(self):
+        order_id = self._order()
+        provider = FakeProvider(amount=139900, amount_refunded=50000)
+        self._record_upi(order_id, provider, amount=30000)
+
+        facts = refunds.preview(self.cur, order_id, provider)
+        self.assertEqual(facts['already_refunded_minor'], 80000)
+        self.assertEqual(facts['max_refundable_minor'], 59900)
+
+    def test_preview_does_not_add_gateway_refunds_to_provider_tally_twice(self):
+        order_id = self._order()
+        provider = FakeProvider(amount=139900, amount_refunded=50000)
+        self._refund(order_id, provider, amount=30000)
+
+        facts = refunds.preview(self.cur, order_id, provider)
+        self.assertEqual(facts['already_refunded_minor'], 50000)
+        self.assertEqual(facts['max_refundable_minor'], 89900)
 
     def test_preview_of_an_unpaid_order_offers_nothing(self):
         order_id = self._order(paid=False, status='Pending')
@@ -348,6 +615,168 @@ class RefundTest(unittest.TestCase):
         self.assertEqual(self._statuses(order_id),
                          ['Processed', 'Partially Refunded', 'Refunded'])
         self.assertEqual(len(self._history(order_id)), 2)
+
+    def test_upi_full_refund_records_history_and_status_without_calling_provider(self):
+        order_id = self._order()
+        provider = FakeProvider()
+        row = self._record_upi(order_id, provider)
+
+        self.assertEqual(row['status'], refunds.PROCESSED)
+        self.assertEqual(row['refund_type'], refunds.FULL)
+        self.assertEqual(row['provider_refund_id'], 'UPI:123456789012')
+        self.assertEqual(self._statuses(order_id), ['Processed', 'Refunded'])
+        self.assertEqual(provider.refund_calls, [])
+        history = self._history(order_id)
+        self.assertEqual(len(history), 1)
+        self.assertIn('paid by UPI to customer@okaxis (Customer Name)', history[0]['c'])
+        self.assertIn('UTR 123456789012', history[0]['c'])
+
+    def test_upi_partial_refund_records_partially_refunded_status(self):
+        order_id = self._order()
+        provider = FakeProvider()
+        row = self._record_upi(order_id, provider, amount=25000)
+
+        self.assertEqual(row['status'], refunds.PROCESSED)
+        self.assertEqual(row['refund_type'], refunds.PARTIAL)
+        self.assertEqual(self._statuses(order_id), ['Processed', 'Partially Refunded'])
+        self.assertEqual(provider.refund_calls, [])
+
+    def test_upi_idempotency_replay_does_not_create_a_second_row(self):
+        order_id = self._order()
+        provider = FakeProvider()
+        key = self._key(order_id)
+        first = self._record_upi(order_id, provider, key=key)
+        second = self._record_upi(order_id, provider, key=key)
+
+        self.assertFalse(first['replayed'])
+        self.assertTrue(second['replayed'])
+        self.assertEqual(first['refund_id'], second['refund_id'])
+        self.assertEqual(provider.refund_calls, [])
+        self.cur.execute(
+            "SELECT COUNT(*) AS n FROM order_refunds WHERE order_id=%s", (order_id,))
+        self.assertEqual(self.cur.fetchone()['n'], 1)
+
+    def test_upi_rejects_reuse_of_a_failed_gateway_key(self):
+        order_id = self._order()
+        key = self._key(order_id)
+        gateway = self._refund(
+            order_id, FakeProvider(fail='gateway failed'), amount=25000, key=key)
+        self.assertEqual(gateway['status'], refunds.FAILED)
+        self.assertIsNone(gateway['provider_refund_id'])
+
+        with self.assertRaises(refunds.RefundRejected) as caught:
+            self._record_upi(order_id, FakeProvider(), amount=25000, key=key)
+
+        self.assertEqual(caught.exception.code, 'idempotency_key_reused')
+        self.assertEqual(caught.exception.http_status, 409)
+        self.assertEqual(
+            caught.exception.message,
+            'this refund key belongs to a gateway refund attempt; start a new '
+            'refund for the UPI payment')
+        self.cur.execute(
+            "SELECT COUNT(*) AS n FROM order_refunds WHERE order_id=%s", (order_id,))
+        self.assertEqual(self.cur.fetchone()['n'], 1)
+
+    def test_each_invalid_upi_field_is_rejected(self):
+        order_id = self._order()
+        provider = FakeProvider()
+        today = datetime.now(ZoneInfo('Asia/Kolkata')).date()
+        cases = [
+            ({'upi_vpa': 'not-a-vpa'}, 'invalid_upi_id'),
+            ({'utr': '12345'}, 'invalid_utr'),
+            ({'paid_on': (today + timedelta(days=1)).isoformat()}, 'invalid_paid_on'),
+            ({'paid_on': (today - timedelta(days=31)).isoformat()}, 'invalid_paid_on'),
+            ({'paid_on': '2026-2-05'}, 'invalid_paid_on'),
+            ({'payee_name': 'A'}, 'invalid_payee_name'),
+            ({'payee_name': 'N' * 121}, 'invalid_payee_name'),
+        ]
+        for values, code in cases:
+            with self.subTest(values=values):
+                with self.assertRaises(refunds.RefundRejected) as caught:
+                    self._record_upi(order_id, provider, **values)
+                self.assertEqual(caught.exception.code, code)
+        self.assertEqual(provider.refund_calls, [])
+
+    def test_upi_rejects_amount_above_max_refundable(self):
+        order_id = self._order()
+        with self.assertRaises(refunds.RefundRejected) as caught:
+            self._record_upi(order_id, FakeProvider(), amount=99901)
+        self.assertEqual(caught.exception.code, 'amount_exceeds_refundable')
+
+    def test_upi_rejects_a_utr_already_used_on_another_order(self):
+        first_order = self._order()
+        second_order = self._order()
+        self._record_upi(first_order, FakeProvider())
+
+        with self.assertRaises(refunds.RefundRejected) as caught:
+            self._record_upi(second_order, FakeProvider(), key=self._key(second_order))
+        self.assertEqual(caught.exception.code, 'utr_already_used')
+        self.assertIn(first_order, caught.exception.message)
+
+    def test_created_upi_claim_counts_in_preview_and_blocks_utr_reuse(self):
+        first_order = self._order()
+        second_order = self._order()
+        provider = FakeProvider()
+        facts = refunds.preview(self.cur, first_order, provider)
+
+        refunds._claim(
+            self.db, self.cur, first_order, facts['payment_ref'], 25000, 'INR',
+            refunds.PARTIAL, 'CUSTOMER_REFUND', 'test', self._key(first_order),
+            'ops@lensbazaar', 'eu-ops', 'recorded',
+            provider_refund_id='UPI:123456789012')
+
+        facts = refunds.preview(self.cur, first_order, provider)
+        self.assertEqual(facts['already_refunded_minor'], 25000)
+        self.assertEqual(facts['max_refundable_minor'], 74900)
+        with self.assertRaises(refunds.RefundRejected) as caught:
+            self._record_upi(second_order, FakeProvider(),
+                             key=self._key(second_order))
+        self.assertEqual(caught.exception.code, 'utr_already_used')
+        self.assertIn(first_order, caught.exception.message)
+
+    def test_return_received_refund_cannot_use_upi(self):
+        order_id = self._order()
+        with self.assertRaises(refunds.RefundRejected) as caught:
+            self._record_upi(order_id, FakeProvider(), reason='RETURN_RECEIVED')
+        self.assertEqual(caught.exception.code, 'upi_not_for_return_refund')
+        self.assertEqual(
+            caught.exception.message,
+            'return refunds run through the return assessment and the gateway')
+
+    def test_gateway_preview_counts_a_recorded_upi_refund(self):
+        order_id = self._order()
+        provider = FakeProvider()
+        self._record_upi(order_id, provider, amount=25000)
+
+        facts = refunds.preview(self.cur, order_id, provider)
+        self.assertEqual(facts['already_refunded_minor'], 25000)
+        self.assertEqual(facts['max_refundable_minor'], 74900)
+
+    def test_tracking_does_not_query_provider_for_a_processed_upi_refund(self):
+        order_id = self._order()
+        provider = FakeProvider()
+        key = self._key(order_id)
+        self._record_upi(order_id, provider, key=key)
+
+        tracked = refunds.tracking(self.db, key, provider)
+        self.assertEqual(tracked['status'], refunds.PROCESSED)
+        self.assertEqual(provider.status_calls, [])
+
+    def test_tracking_does_not_query_provider_for_a_created_upi_refund(self):
+        order_id = self._order()
+        provider = FakeProvider()
+        facts = refunds.preview(self.cur, order_id, provider)
+        key = self._key(order_id)
+        refunds._claim(
+            self.db, self.cur, order_id, facts['payment_ref'], 25000, 'INR',
+            refunds.PARTIAL, 'CUSTOMER_REFUND', 'test', key,
+            'ops@lensbazaar', 'eu-ops', 'recorded',
+            provider_refund_id='UPI:123456789012')
+
+        tracked = refunds.tracking(self.db, key, provider)
+
+        self.assertEqual(tracked['status'], refunds.CREATED)
+        self.assertEqual(provider.status_calls, [])
 
     def test_a_provider_failure_leaves_the_order_not_refunded(self):
         order_id = self._order()

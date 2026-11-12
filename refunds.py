@@ -20,6 +20,9 @@ point does not appear in a refund path — ``order_total`` is read only to show
 the operator a line breakdown, never to decide what to refund.
 """
 import json
+import re
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 try:
     from . import return_assessment
@@ -202,12 +205,21 @@ def preview(cursor, order_id, provider):
     facts['provider_state'] = captured.get('status')
     facts['currency'] = captured.get('currency')
     facts['captured_minor'] = int(captured.get('amount') or 0)
-    # The provider's own tally includes refunds issued from its dashboard, which
-    # this ledger has never seen; ours includes attempts it has accepted but not
-    # yet reported. Whichever is higher is the honest answer.
+    # The provider's tally includes dashboard refunds; gateway ledger rows catch
+    # accepted refunds it has not reported yet. UPI refunds are added separately.
     provider_refunded = int(captured.get('amount_refunded') or 0)
-    facts['already_refunded_minor'] = max(
-        provider_refunded, committed_minor(facts['refunds']))
+    upi_rows = [
+        refund for refund in facts['refunds']
+        if (refund.get('provider_refund_id') or '').startswith('UPI:')
+    ]
+    gateway_rows = [
+        refund for refund in facts['refunds']
+        if not (refund.get('provider_refund_id') or '').startswith('UPI:')
+    ]
+    upi_minor = sum(int(refund['amount_minor']) for refund in upi_rows
+                    if refund['status'] != FAILED)
+    gateway_minor = committed_minor(gateway_rows)
+    facts['already_refunded_minor'] = max(provider_refunded, gateway_minor) + upi_minor
     facts['max_refundable_minor'] = max(
         0, facts['captured_minor'] - facts['already_refunded_minor'])
     return facts
@@ -283,7 +295,7 @@ def find_by_key(cursor, idempotency_key):
 
 def _claim(db, cursor, order_id, payment_ref, amount_minor, currency, kind,
            reason_code, comment, idempotency_key, requested_by,
-           service_identity, approved_message):
+           service_identity, approved_message, provider_refund_id=None):
     """Insert the CREATED ledger row that owns this refund attempt.
 
     The UNIQUE key on ``idempotency_key`` is the real protection against a
@@ -295,11 +307,11 @@ def _claim(db, cursor, order_id, payment_ref, amount_minor, currency, kind,
     cursor.execute(
         "INSERT INTO order_refunds (order_id, payment_ref, amount_minor, "
         "currency, status, refund_type, reason_code, comment, idempotency_key, "
-        "requested_by, service_identity, approved_message) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        "requested_by, service_identity, approved_message, provider_refund_id) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         (order_id, payment_ref, amount_minor, currency, CREATED, kind,
          reason_code, comment, idempotency_key, requested_by, service_identity,
-         approved_message))
+         approved_message, provider_refund_id))
     refund_id = cursor.lastrowid
     db.commit()
     return refund_id
@@ -410,8 +422,135 @@ def execute(db, order_id, amount_minor, currency, reason_code, comment,
     return dict(find_by_key(cursor, idempotency_key), replayed=False)
 
 
+def _upi_key_replay_or_reject(existing):
+    if not existing:
+        return None
+    if (existing.get('status') != FAILED
+            and (existing.get('provider_refund_id') or '').startswith('UPI:')):
+        return dict(existing, replayed=True)
+    raise RefundRejected(
+        'idempotency_key_reused',
+        'this refund key belongs to a gateway refund attempt; start a new '
+        'refund for the UPI payment',
+        409)
+
+
+def record_upi(db, order_id, amount_minor, currency, reason_code, comment,
+               idempotency_key, requested_by, service_identity, approved_message,
+               provider, upi_vpa, utr, paid_on, payee_name,
+               requested_status=None, logger=None):
+    cursor = db.cursor()
+    existing = find_by_key(cursor, idempotency_key)
+    if existing:
+        return _upi_key_replay_or_reject(existing)
+
+    facts = preview(cursor, order_id, provider)
+    kind = validate(facts, amount_minor, currency, reason_code, requested_status)
+    if reason_code == 'RETURN_RECEIVED':
+        raise RefundRejected(
+            'upi_not_for_return_refund',
+            'return refunds run through the return assessment and the gateway')
+
+    upi_vpa = str(upi_vpa or '').strip()
+    if not re.fullmatch(r'[A-Za-z0-9._-]{2,256}@[A-Za-z][A-Za-z0-9.-]{1,63}',
+                        upi_vpa):
+        raise RefundRejected('invalid_upi_id', 'enter a valid UPI ID')
+
+    utr = str(utr or '').strip()
+    if not re.fullmatch(r'[0-9]{12}', utr):
+        raise RefundRejected('invalid_utr', 'UTR must contain exactly 12 digits')
+
+    paid_on = str(paid_on or '').strip()
+    try:
+        paid_date = date.fromisoformat(paid_on)
+    except (TypeError, ValueError):
+        raise RefundRejected('invalid_paid_on', 'paid-on date must be YYYY-MM-DD')
+    if paid_date.isoformat() != paid_on:
+        raise RefundRejected('invalid_paid_on', 'paid-on date must be YYYY-MM-DD')
+    today_ist = datetime.now(ZoneInfo('Asia/Kolkata')).date()
+    if paid_date > today_ist or paid_date < today_ist - timedelta(days=30):
+        raise RefundRejected(
+            'invalid_paid_on',
+            'paid-on date must be today or within the last 30 days')
+
+    payee_name = str(payee_name or '').strip()
+    if not 2 <= len(payee_name) <= 120:
+        raise RefundRejected(
+            'invalid_payee_name', 'payee name must contain 2 to 120 characters')
+
+    lock_name = 'optiwar_upi_utr:' + utr
+    cursor.execute("SELECT GET_LOCK(%s, 10) AS acquired", (lock_name,))
+    lock_result = cursor.fetchone()
+    acquired = (lock_result.get('acquired') if isinstance(lock_result, dict)
+                else lock_result[0] if lock_result else None)
+    if acquired != 1:
+        raise RefundRejected(
+            'upi_record_busy',
+            'another UPI refund with this UTR is being recorded; try again',
+            409)
+
+    try:
+        cursor.execute(
+            "SELECT order_id FROM order_refunds "
+            "WHERE provider_refund_id=%s LIMIT 1",
+            ('UPI:' + utr,))
+        used = cursor.fetchone()
+        if used:
+            raise RefundRejected(
+                'utr_already_used',
+                'UTR was already recorded on order %s' % used.get('order_id'))
+
+        try:
+            refund_id = _claim(
+                db, cursor, order_id, facts['payment_ref'], amount_minor, currency,
+                kind, reason_code, comment, idempotency_key, requested_by,
+                service_identity, approved_message,
+                provider_refund_id='UPI:' + utr)
+        except Exception as exc:
+            db.rollback()
+            if _is_duplicate_key(exc):
+                replay = _upi_key_replay_or_reject(
+                    find_by_key(cursor, idempotency_key))
+                if replay is not None:
+                    return replay
+            raise
+
+        response = {
+            'status': 'processed',
+            'method': 'UPI',
+            'upi_vpa': upi_vpa,
+            'utr': utr,
+            'paid_on': paid_on,
+            'payee_name': payee_name,
+        }
+        _finish(db, cursor, refund_id, PROCESSED,
+                provider_refund_id='UPI:' + utr, response=response)
+    finally:
+        try:
+            cursor.execute("SELECT RELEASE_LOCK(%s)", (lock_name,))
+            cursor.fetchone()
+        except Exception as exc:
+            if logger:
+                logger.warning("Could not release UPI UTR lock %s: %s",
+                               lock_name, exc)
+
+    via = 'paid by UPI to %s (%s), UTR %s, on %s' % (
+        upi_vpa, payee_name, utr, paid_on)
+    _record_outcome(db, cursor, order_id, amount_minor, currency, kind,
+                    reason_code, requested_by, response, requested_status,
+                    via=via)
+    if logger:
+        logger.info(
+            "ACTIVITY:REFUND_UPI_RECORDED order:%s refund:%s amount_minor:%s "
+            "utr:%s by:%s key:%s"
+            % (order_id, refund_id, amount_minor, utr, requested_by,
+               idempotency_key))
+    return dict(find_by_key(cursor, idempotency_key), replayed=False)
+
+
 def _record_outcome(db, cursor, order_id, amount_minor, currency, kind,
-                    reason_code, requested_by, result, requested_status):
+                    reason_code, requested_by, result, requested_status,
+                    via=None):
     """History always, then the status the refund earns.
 
     Written after the provider accepted, in its own transaction, so a failure
@@ -419,10 +558,11 @@ def _record_outcome(db, cursor, order_id, amount_minor, currency, kind,
     already PROCESSED and the operator sees the money as refunded.
     """
     major = minor_to_major(amount_minor)
-    add_history(cursor, order_id,
-                'Refund %s %s issued by %s (%s) - provider ref %s'
-                % (currency, major, requested_by, reason_code,
-                   result.get('id') or 'pending'),
+    history = ('Refund %s %s issued by %s (%s) - %s'
+               % (currency, major, requested_by, reason_code,
+                  via if via is not None else
+                  'provider ref %s' % (result.get('id') or 'pending')))
+    add_history(cursor, order_id, history,
                 site_from=(_site(cursor, order_id).get('site') or None))
     append_status(cursor, order_id, requested_status or resulting_status(kind),
                   source='ops-refund',
@@ -453,7 +593,9 @@ def tracking(db, idempotency_key, provider):
                                      or {}).get('status')
         except (ValueError, TypeError, AttributeError):
             pass
-    if row.get('provider_refund_id') and row['status'] not in (PROCESSED, FAILED):
+    if (row.get('provider_refund_id')
+            and not row['provider_refund_id'].startswith('UPI:')
+            and row['status'] not in (PROCESSED, FAILED)):
         live = provider.refund_status(row['provider_refund_id'])
         out['provider_state'] = live.get('status')
         out['status'] = provider_status(live.get('status'))

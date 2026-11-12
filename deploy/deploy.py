@@ -276,6 +276,8 @@ SMOKE = (
      "https://optiwar.com/api/ops/orders/SMOKE-0/refund/preview", 401),
     ("refund execute rejects anonymous",
      "https://optiwar.com/api/ops/orders/SMOKE-0/refund", 401, "POST"),
+    ("refund upi record rejects anonymous",
+     "https://optiwar.com/api/ops/orders/SMOKE-0/refund/upi", 401, "POST"),
     # Face profiles: the route exists (a models.py that failed to import
     # face_profiles_api would 404) and refuses an anonymous caller.
     ("face profiles reject anonymous",
