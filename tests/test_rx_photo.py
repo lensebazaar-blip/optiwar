@@ -849,6 +849,8 @@ class FindReadCompare(unittest.TestCase):
             self.assertIn("input[type=radio][name=%s][value=" % name, page)
             self.assertNotIn("document.querySelector('input[name=%s][value=" % name, page)
         self.assertIn("if (document.querySelector('input[type=radio][name=add_selections]:checked')) applyCoating();", page)   # the total follows the new prices
+        self.assertIn("var bif = LENS_PRICING[\"default\"] && LENS_PRICING[\"default\"].bifocal;", page)   # bifocal prices come from the Ops config too
+        self.assertIn("input[type=radio][name=addon_3][value=", page)
         self.assertIn("Read this one", page)
         self.assertIn("css/rx-page.css') }}?v=8", page)
 

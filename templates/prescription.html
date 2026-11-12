@@ -740,6 +740,26 @@ function updatePricesForContext(context) {
         });
     }
 
+    // Bifocal and progressive prices are set once, under default
+    var bif = LENS_PRICING["default"] && LENS_PRICING["default"].bifocal;
+    if (bif) {
+        Object.keys(bif).forEach(function(code) {
+            var inp = document.querySelector('input[type=radio][name=addon_3][value=' + code + ']');
+            if (inp) {
+                var isGlobal = (typeof owIsIndia !== "undefined" && !owIsIndia);
+                var displayPrice = isGlobal && bif[code].price_eur ? bif[code].price_eur : bif[code].price;
+                inp.dataset.price = displayPrice;
+                var priceEl = inp.closest(".rx-modal-opt").querySelector(".rx-modal-opt-price");
+                if (priceEl) priceEl.textContent = (isGlobal ? "€" : "Rs ") + displayPrice;
+            }
+        });
+        var bsel = document.querySelector('input[type=radio][name=addon_3]:checked');
+        if (bsel) {
+            document.getElementById('bifocalSelected').textContent = bsel.closest('.rx-modal-opt').querySelector('strong').textContent + ' ' + fmtPrice(parseInt(bsel.dataset.price));
+            calculateLensRecommendation();
+        }
+    }
+
     // The chosen options keep their chip and the total in step with the new prices
     if (document.querySelector('input[type=radio][name=add_selections]:checked')) applyCoating();
     if (document.querySelector('input[type=radio][name=add_selections2]:checked')) applyThickness();
