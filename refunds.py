@@ -593,7 +593,9 @@ def tracking(db, idempotency_key, provider):
                                      or {}).get('status')
         except (ValueError, TypeError, AttributeError):
             pass
-    if row.get('provider_refund_id') and row['status'] not in (PROCESSED, FAILED):
+    if (row.get('provider_refund_id')
+            and not row['provider_refund_id'].startswith('UPI:')
+            and row['status'] not in (PROCESSED, FAILED)):
         live = provider.refund_status(row['provider_refund_id'])
         out['provider_state'] = live.get('status')
         out['status'] = provider_status(live.get('status'))

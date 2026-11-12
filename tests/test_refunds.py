@@ -762,6 +762,22 @@ class RefundTest(unittest.TestCase):
         self.assertEqual(tracked['status'], refunds.PROCESSED)
         self.assertEqual(provider.status_calls, [])
 
+    def test_tracking_does_not_query_provider_for_a_created_upi_refund(self):
+        order_id = self._order()
+        provider = FakeProvider()
+        facts = refunds.preview(self.cur, order_id, provider)
+        key = self._key(order_id)
+        refunds._claim(
+            self.db, self.cur, order_id, facts['payment_ref'], 25000, 'INR',
+            refunds.PARTIAL, 'CUSTOMER_REFUND', 'test', key,
+            'ops@lensbazaar', 'eu-ops', 'recorded',
+            provider_refund_id='UPI:123456789012')
+
+        tracked = refunds.tracking(self.db, key, provider)
+
+        self.assertEqual(tracked['status'], refunds.CREATED)
+        self.assertEqual(provider.status_calls, [])
+
     def test_a_provider_failure_leaves_the_order_not_refunded(self):
         order_id = self._order()
         provider = FakeProvider(fail='refund not permitted')
