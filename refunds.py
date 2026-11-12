@@ -422,6 +422,18 @@ def execute(db, order_id, amount_minor, currency, reason_code, comment,
     return dict(find_by_key(cursor, idempotency_key), replayed=False)
 
 
+def _upi_key_replay_or_reject(existing):
+    if not existing:
+        return None
+    if (existing.get('provider_refund_id') or '').startswith('UPI:'):
+        return dict(existing, replayed=True)
+    raise RefundRejected(
+        'idempotency_key_reused',
+        'this refund key belongs to a gateway refund attempt; start a new '
+        'refund for the UPI payment',
+        409)
+
+
 def record_upi(db, order_id, amount_minor, currency, reason_code, comment,
                idempotency_key, requested_by, service_identity, approved_message,
                provider, upi_vpa, utr, paid_on, payee_name,
@@ -429,7 +441,7 @@ def record_upi(db, order_id, amount_minor, currency, reason_code, comment,
     cursor = db.cursor()
     existing = find_by_key(cursor, idempotency_key)
     if existing:
-        return dict(existing, replayed=True)
+        return _upi_key_replay_or_reject(existing)
 
     facts = preview(cursor, order_id, provider)
     kind = validate(facts, amount_minor, currency, reason_code, requested_status)
@@ -482,7 +494,10 @@ def record_upi(db, order_id, amount_minor, currency, reason_code, comment,
     except Exception as exc:
         db.rollback()
         if _is_duplicate_key(exc):
-            return dict(find_by_key(cursor, idempotency_key), replayed=True)
+            replay = _upi_key_replay_or_reject(
+                find_by_key(cursor, idempotency_key))
+            if replay is not None:
+                return replay
         raise
 
     response = {

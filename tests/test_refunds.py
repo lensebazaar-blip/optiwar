@@ -429,6 +429,27 @@ class RefundTest(unittest.TestCase):
             "SELECT COUNT(*) AS n FROM order_refunds WHERE order_id=%s", (order_id,))
         self.assertEqual(self.cur.fetchone()['n'], 1)
 
+    def test_upi_rejects_reuse_of_a_failed_gateway_key(self):
+        order_id = self._order()
+        key = self._key(order_id)
+        gateway = self._refund(
+            order_id, FakeProvider(fail='gateway failed'), amount=25000, key=key)
+        self.assertEqual(gateway['status'], refunds.FAILED)
+        self.assertIsNone(gateway['provider_refund_id'])
+
+        with self.assertRaises(refunds.RefundRejected) as caught:
+            self._record_upi(order_id, FakeProvider(), amount=25000, key=key)
+
+        self.assertEqual(caught.exception.code, 'idempotency_key_reused')
+        self.assertEqual(caught.exception.http_status, 409)
+        self.assertEqual(
+            caught.exception.message,
+            'this refund key belongs to a gateway refund attempt; start a new '
+            'refund for the UPI payment')
+        self.cur.execute(
+            "SELECT COUNT(*) AS n FROM order_refunds WHERE order_id=%s", (order_id,))
+        self.assertEqual(self.cur.fetchone()['n'], 1)
+
     def test_each_invalid_upi_field_is_rejected(self):
         order_id = self._order()
         provider = FakeProvider()
