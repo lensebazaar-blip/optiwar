@@ -232,6 +232,9 @@ class UpiUtrLockTest(unittest.TestCase):
 
         self.assertFalse(result['replayed'])
         self.claim.assert_called_once()
+        self.assertEqual(
+            self.claim.call_args.kwargs['provider_refund_id'],
+            'UPI:123456789012')
         self.finish.assert_called_once()
         self.assertEqual(self.cursor.release_calls, 1)
         self.assertEqual(
@@ -247,6 +250,49 @@ class UpiUtrLockTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, 'utr_already_used')
         self.claim.assert_not_called()
         self.assertEqual(self.cursor.release_calls, 1)
+
+
+class ClaimInsertCursor:
+    def __init__(self):
+        self.lastrowid = 23
+        self.query = None
+        self.params = None
+
+    def execute(self, query, params=()):
+        self.query = query
+        self.params = params
+
+
+class ClaimInsertDB:
+    def __init__(self):
+        self.commit_calls = 0
+
+    def commit(self):
+        self.commit_calls += 1
+
+
+class ClaimInsertTest(unittest.TestCase):
+    def _claim(self, **kwargs):
+        cursor = ClaimInsertCursor()
+        db = ClaimInsertDB()
+        refund_id = refunds._claim(
+            db, cursor, 'CLAIM-TEST-1', 'pay_claim_test', 25000, 'INR',
+            refunds.PARTIAL, 'CUSTOMER_REFUND', 'test',
+            'CLAIM-TEST-1/refund/1', 'ops', 'eu-ops', 'recorded', **kwargs)
+        self.assertEqual(refund_id, 23)
+        self.assertEqual(db.commit_calls, 1)
+        self.assertIn('provider_refund_id', cursor.query)
+        return cursor
+
+    def test_upi_claim_insert_stores_provider_refund_id(self):
+        cursor = self._claim(provider_refund_id='UPI:123456789012')
+
+        self.assertEqual(cursor.params[-1], 'UPI:123456789012')
+
+    def test_gateway_claim_defaults_provider_refund_id_to_none(self):
+        cursor = self._claim()
+
+        self.assertIsNone(cursor.params[-1])
 
 
 class UpiKeyReplayTest(unittest.TestCase):
@@ -267,10 +313,10 @@ class UpiKeyReplayTest(unittest.TestCase):
             utr='123456789012', paid_on='2026-01-01',
             payee_name='Customer Name')
 
-    def test_created_row_without_provider_ref_is_an_inflight_replay(self):
+    def test_created_upi_row_is_an_inflight_replay(self):
         existing = {
             'refund_id': 17, 'status': refunds.CREATED,
-            'provider_refund_id': None,
+            'provider_refund_id': 'UPI:123456789012',
         }
 
         result = self._record(existing)
@@ -278,10 +324,22 @@ class UpiKeyReplayTest(unittest.TestCase):
         self.assertEqual(result['refund_id'], 17)
         self.assertTrue(result['replayed'])
 
-    def test_failed_gateway_row_is_not_replayed(self):
+    def test_created_gateway_row_without_provider_ref_is_not_replayed(self):
         existing = {
-            'refund_id': 18, 'status': refunds.FAILED,
+            'refund_id': 18, 'status': refunds.CREATED,
             'provider_refund_id': None,
+        }
+
+        with self.assertRaises(refunds.RefundRejected) as caught:
+            self._record(existing)
+
+        self.assertEqual(caught.exception.code, 'idempotency_key_reused')
+        self.assertEqual(caught.exception.http_status, 409)
+
+    def test_failed_row_is_not_replayed(self):
+        existing = {
+            'refund_id': 19, 'status': refunds.FAILED,
+            'provider_refund_id': 'UPI:123456789012',
         }
 
         with self.assertRaises(refunds.RefundRejected) as caught:
@@ -292,7 +350,7 @@ class UpiKeyReplayTest(unittest.TestCase):
 
     def test_gateway_refund_reference_is_not_replayed(self):
         existing = {
-            'refund_id': 19, 'status': refunds.PROCESSED,
+            'refund_id': 20, 'status': refunds.PROCESSED,
             'provider_refund_id': 'rfnd_existing',
         }
 
@@ -652,6 +710,27 @@ class RefundTest(unittest.TestCase):
 
         with self.assertRaises(refunds.RefundRejected) as caught:
             self._record_upi(second_order, FakeProvider(), key=self._key(second_order))
+        self.assertEqual(caught.exception.code, 'utr_already_used')
+        self.assertIn(first_order, caught.exception.message)
+
+    def test_created_upi_claim_counts_in_preview_and_blocks_utr_reuse(self):
+        first_order = self._order()
+        second_order = self._order()
+        provider = FakeProvider()
+        facts = refunds.preview(self.cur, first_order, provider)
+
+        refunds._claim(
+            self.db, self.cur, first_order, facts['payment_ref'], 25000, 'INR',
+            refunds.PARTIAL, 'CUSTOMER_REFUND', 'test', self._key(first_order),
+            'ops@lensbazaar', 'eu-ops', 'recorded',
+            provider_refund_id='UPI:123456789012')
+
+        facts = refunds.preview(self.cur, first_order, provider)
+        self.assertEqual(facts['already_refunded_minor'], 25000)
+        self.assertEqual(facts['max_refundable_minor'], 74900)
+        with self.assertRaises(refunds.RefundRejected) as caught:
+            self._record_upi(second_order, FakeProvider(),
+                             key=self._key(second_order))
         self.assertEqual(caught.exception.code, 'utr_already_used')
         self.assertIn(first_order, caught.exception.message)
 

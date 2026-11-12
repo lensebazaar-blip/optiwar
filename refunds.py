@@ -295,7 +295,7 @@ def find_by_key(cursor, idempotency_key):
 
 def _claim(db, cursor, order_id, payment_ref, amount_minor, currency, kind,
            reason_code, comment, idempotency_key, requested_by,
-           service_identity, approved_message):
+           service_identity, approved_message, provider_refund_id=None):
     """Insert the CREATED ledger row that owns this refund attempt.
 
     The UNIQUE key on ``idempotency_key`` is the real protection against a
@@ -307,11 +307,11 @@ def _claim(db, cursor, order_id, payment_ref, amount_minor, currency, kind,
     cursor.execute(
         "INSERT INTO order_refunds (order_id, payment_ref, amount_minor, "
         "currency, status, refund_type, reason_code, comment, idempotency_key, "
-        "requested_by, service_identity, approved_message) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        "requested_by, service_identity, approved_message, provider_refund_id) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         (order_id, payment_ref, amount_minor, currency, CREATED, kind,
          reason_code, comment, idempotency_key, requested_by, service_identity,
-         approved_message))
+         approved_message, provider_refund_id))
     refund_id = cursor.lastrowid
     db.commit()
     return refund_id
@@ -425,10 +425,8 @@ def execute(db, order_id, amount_minor, currency, reason_code, comment,
 def _upi_key_replay_or_reject(existing):
     if not existing:
         return None
-    provider_refund_id = existing.get('provider_refund_id')
-    if (existing.get('status') == CREATED and not provider_refund_id
-            or existing.get('status') != FAILED
-            and (provider_refund_id or '').startswith('UPI:')):
+    if (existing.get('status') != FAILED
+            and (existing.get('provider_refund_id') or '').startswith('UPI:')):
         return dict(existing, replayed=True)
     raise RefundRejected(
         'idempotency_key_reused',
@@ -506,7 +504,8 @@ def record_upi(db, order_id, amount_minor, currency, reason_code, comment,
             refund_id = _claim(
                 db, cursor, order_id, facts['payment_ref'], amount_minor, currency,
                 kind, reason_code, comment, idempotency_key, requested_by,
-                service_identity, approved_message)
+                service_identity, approved_message,
+                provider_refund_id='UPI:' + utr)
         except Exception as exc:
             db.rollback()
             if _is_duplicate_key(exc):
