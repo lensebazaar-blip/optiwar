@@ -425,7 +425,10 @@ def execute(db, order_id, amount_minor, currency, reason_code, comment,
 def _upi_key_replay_or_reject(existing):
     if not existing:
         return None
-    if (existing.get('provider_refund_id') or '').startswith('UPI:'):
+    provider_refund_id = existing.get('provider_refund_id')
+    if (existing.get('status') == CREATED and not provider_refund_id
+            or existing.get('status') != FAILED
+            and (provider_refund_id or '').startswith('UPI:')):
         return dict(existing, replayed=True)
     raise RefundRejected(
         'idempotency_key_reused',

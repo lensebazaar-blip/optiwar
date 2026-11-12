@@ -249,6 +249,60 @@ class UpiUtrLockTest(unittest.TestCase):
         self.assertEqual(self.cursor.release_calls, 1)
 
 
+class UpiKeyReplayTest(unittest.TestCase):
+    def setUp(self):
+        self.find_by_key = patch.object(refunds, 'find_by_key')
+        self.find_by_key_mock = self.find_by_key.start()
+        self.addCleanup(self.find_by_key.stop)
+        self.db = LockFakeDB(LockFakeCursor())
+
+    def _record(self, existing):
+        self.find_by_key_mock.return_value = existing
+        return refunds.record_upi(
+            self.db, 'KEY-TEST-1', amount_minor=25000, currency='INR',
+            reason_code='CUSTOMER_REFUND', comment='test',
+            idempotency_key='KEY-TEST-1/refund/1', requested_by='ops',
+            service_identity='eu-ops', approved_message='recorded',
+            provider=FakeProvider(), upi_vpa='customer@okaxis',
+            utr='123456789012', paid_on='2026-01-01',
+            payee_name='Customer Name')
+
+    def test_created_row_without_provider_ref_is_an_inflight_replay(self):
+        existing = {
+            'refund_id': 17, 'status': refunds.CREATED,
+            'provider_refund_id': None,
+        }
+
+        result = self._record(existing)
+
+        self.assertEqual(result['refund_id'], 17)
+        self.assertTrue(result['replayed'])
+
+    def test_failed_gateway_row_is_not_replayed(self):
+        existing = {
+            'refund_id': 18, 'status': refunds.FAILED,
+            'provider_refund_id': None,
+        }
+
+        with self.assertRaises(refunds.RefundRejected) as caught:
+            self._record(existing)
+
+        self.assertEqual(caught.exception.code, 'idempotency_key_reused')
+        self.assertEqual(caught.exception.http_status, 409)
+
+    def test_gateway_refund_reference_is_not_replayed(self):
+        existing = {
+            'refund_id': 19, 'status': refunds.PROCESSED,
+            'provider_refund_id': 'rfnd_existing',
+        }
+
+        with self.assertRaises(refunds.RefundRejected) as caught:
+            self._record(existing)
+
+        self.assertEqual(caught.exception.code, 'idempotency_key_reused')
+        self.assertEqual(caught.exception.http_status, 409)
+
+
 class RefundTest(unittest.TestCase):
 
     @classmethod
