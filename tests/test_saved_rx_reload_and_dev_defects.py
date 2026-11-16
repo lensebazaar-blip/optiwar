@@ -119,6 +119,30 @@ class DefectChannel(unittest.TestCase):
                    json={"code": "SITE_JS_ERROR", "where": "/p:1 x", "page": "/p"})
         self.assertEqual(len(records), 1)
 
+    def test_a_5xx_the_server_would_have_recorded_itself_is_not_mailed(self):
+        app, records = self._app()
+        static = tempfile.mkdtemp()
+        os.makedirs(os.path.join(static, "js"))
+        open(os.path.join(static, "js", "chat-widget.js"), "w").close()
+        app.static_folder = static
+        renderer = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.51 Safari/537.36"}
+        with app.test_client() as c:
+            for body in ({"code": "SITE_ASSET_FAILED", "where": "/static/js/chat-widget.js 503"},
+                         {"code": "SITE_HTTP_503", "where": "GET /api/tryon/matching-frames"},
+                         {"code": "SITE_HTTP_500", "where": "POST /cart"}):
+                self.assertEqual(c.post("/api/chat/dev-defect", headers=renderer,
+                                        json=dict(body, page="/p")).status_code, 204)
+            self.assertFalse([r for r in records if "ACTIVITY:DEV_DEFECT " in r])
+            self.assertEqual(len([r for r in records if "DEV_DEFECT_UNCONFIRMED" in r]), 3)
+            del records[:]
+            for body in ({"code": "SITE_ASSET_FAILED", "where": "/static/js/gone.js 503"},
+                         {"code": "SITE_ASSET_FAILED", "where": "/static/js/chat-widget.js 404"},
+                         {"code": "SITE_ASSET_FAILED", "where": "/static/../secret 503"},
+                         {"code": "SITE_HTTP_502", "where": "POST /cart"},
+                         {"code": "SITE_HTTP_504", "where": "GET /api/x"}):
+                c.post("/api/chat/dev-defect", headers=renderer, json=dict(body, page="/p"))
+        self.assertEqual(len([r for r in records if "ACTIVITY:DEV_DEFECT " in r]), 5)
+
     def test_a_power_is_not_kept_even_if_the_browser_sends_one(self):
         app, records = self._app()
         with app.test_client() as c:
