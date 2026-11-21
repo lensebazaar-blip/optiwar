@@ -22,7 +22,7 @@ from .pricing import bp as pricing_bp
 from .chat import bp as chat_bp, init_chat
 from .chat_gateway import bp as chat_gateway_bp, init_chat_gateway
 import logging
-from logging.handlers import TimedRotatingFileHandler
+from logging.handlers import WatchedFileHandler
 from werkzeug.middleware.proxy_fix import ProxyFix
 #from random import randint
 #from .orders import my_orders
@@ -266,11 +266,8 @@ def create_app(test_config=None):
     debug_log_path = os.path.join(log_dir, 'debug.log')
     os.makedirs(log_dir, exist_ok=True)
 
-    # 🧾 Configure daily rotating log handler
-    file_handler = TimedRotatingFileHandler(
-        debug_log_path, when='midnight', interval=1, backupCount=30, utc=True
-    )
-    file_handler.suffix = '%Y-%m-%d'
+    # logrotate rotates this file; per-worker rotation can delete other workers' logs.
+    file_handler = WatchedFileHandler(debug_log_path)
     file_handler.setFormatter(logging.Formatter(
         '[%(asctime)s] %(levelname)s in %(module)s: %(message)s'
     ))

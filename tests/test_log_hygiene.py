@@ -144,6 +144,13 @@ class WiringTest(unittest.TestCase):
         self.assertLess(src.index("register_blueprint(chat_gateway_bp)"),
                         src.index("log_hygiene.install(app)"))
 
+    def test_app_factory_uses_a_watched_debug_log_handler(self):
+        src = _src("__init__.py")
+        self.assertIn("from logging.handlers import WatchedFileHandler", src)
+        self.assertNotIn("TimedRotatingFileHandler", src)
+        self.assertIn("file_handler = WatchedFileHandler(debug_log_path)", src)
+        self.assertIn("logrotate rotates this file", src)
+
     def test_hygiene_is_installed_before_the_ai_startup_probe(self):
         src = _src("__init__.py")
         self.assertLess(src.index("log_hygiene.install(app)"),
