@@ -21,6 +21,7 @@ the operator a line breakdown, never to decide what to refund.
 """
 import json
 import re
+import threading
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -78,6 +79,24 @@ CREATE TABLE IF NOT EXISTS order_refunds (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 """
 
+RESTOCK_SCHEMA = """
+CREATE TABLE IF NOT EXISTS stock_restocks (
+    order_line_id BIGINT NOT NULL PRIMARY KEY,
+    order_id      VARCHAR(255) NOT NULL,
+    product_id    BIGINT NOT NULL,
+    qty           INT NOT NULL,
+    refund_id     BIGINT NULL,
+    reason        VARCHAR(64) NOT NULL,
+    restocked_by  VARCHAR(191) NOT NULL,
+    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_order (order_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+"""
+
+SHIPPED_STATUSES = (
+    'Shipped', 'Complete', 'Delivery-assist', 'Returned',
+    'Processed-Reverse', 'Shipped-Reverse')
+
 
 def minor_to_major(amount_minor):
     """``139900`` -> ``'1399.00'``, without going near a float."""
@@ -95,6 +114,8 @@ class RefundRejected(Exception):
 
 
 _SCHEMA_READY = False
+_AWB_TABLE_EXISTS = None
+_AWB_TABLE_CHECK_LOCK = threading.Lock()
 
 
 def ensure_schema(cursor):
@@ -109,6 +130,7 @@ def ensure_schema(cursor):
     if _SCHEMA_READY:
         return
     cursor.execute(SCHEMA)
+    cursor.execute(RESTOCK_SCHEMA)
     cursor.execute(return_assessment.SCHEMA)
     _SCHEMA_READY = True
 
@@ -138,6 +160,104 @@ def _latest_status(cursor, order_id):
     cursor.execute("SELECT order_status_name FROM order_status WHERE order_id=%s "
                    "ORDER BY order_status_id DESC LIMIT 1", (order_id,))
     return (cursor.fetchone() or {}).get('order_status_name') or ''
+
+
+def _has_shipping_awb_table(cursor):
+    global _AWB_TABLE_EXISTS
+    if _AWB_TABLE_EXISTS is None:
+        with _AWB_TABLE_CHECK_LOCK:
+            if _AWB_TABLE_EXISTS is None:
+                cursor.execute("SHOW TABLES LIKE 'ops_shipping_awb'")
+                _AWB_TABLE_EXISTS = bool(cursor.fetchone())
+    return _AWB_TABLE_EXISTS
+
+
+def restock_unshipped(cursor, order_id, refund_id, operator, reason='refund',
+                      logger=None):
+    """Restore each eligible fulfilled order line once, without committing."""
+    cursor.execute(
+        "SELECT MAX(is_test) AS is_test FROM orders WHERE order_id=%s",
+        (order_id,))
+    if (cursor.fetchone() or {}).get('is_test'):
+        if logger:
+            logger.info("ACTIVITY:RESTOCK_SKIPPED order:%s why:test" % order_id)
+        return []
+
+    marks = ','.join(['%s'] * len(SHIPPED_STATUSES))
+    cursor.execute(
+        "SELECT 1 FROM order_status WHERE order_id=%s "
+        "AND order_status_name IN (" + marks + ") LIMIT 1",
+        (order_id,) + SHIPPED_STATUSES)
+    shipped = cursor.fetchone()
+    if not shipped and _has_shipping_awb_table(cursor):
+        cursor.execute(
+            "SELECT 1 FROM ops_shipping_awb WHERE ow_order_id=%s LIMIT 1",
+            (order_id,))
+        shipped = cursor.fetchone()
+    if shipped:
+        if logger:
+            logger.info("ACTIVITY:RESTOCK_SKIPPED order:%s why:shipped" % order_id)
+        return []
+
+    cursor.execute(
+        "SELECT o.order_line_id, o.product_id, o.order_quantity AS qty, "
+        "p.product_code FROM orders o "
+        "JOIN products p ON p.product_id=o.product_id "
+        "WHERE o.order_id=%s AND o.fulfillment_status='fulfilled' "
+        "AND COALESCE(p.product_vertical,'') <> 'SMART_EYEWEAR' "
+        "AND o.order_quantity > 0 ORDER BY o.order_line_id",
+        (order_id,))
+    lines = cursor.fetchall()
+    restored = []
+    for line in lines:
+        product_id = line['product_id']
+        qty = int(line['qty'])
+        cursor.execute(
+            "INSERT IGNORE INTO stock_restocks "
+            "(order_line_id, order_id, product_id, qty, refund_id, reason, "
+            "restocked_by) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+            (line['order_line_id'], order_id, product_id, qty, refund_id,
+             reason, operator))
+        if cursor.rowcount != 1:
+            continue
+
+        cursor.execute(
+            "UPDATE products SET product_quantity=product_quantity+%s "
+            "WHERE product_id=%s", (qty, product_id))
+        cursor.execute(
+            "UPDATE products SET product_status='ACTIVE', status_changed_at=NOW(), "
+            "status_changed_by='system-stock', "
+            "status_reason='auto: restocked after refund', sold_out_at=NULL "
+            "WHERE product_id=%s AND product_quantity>0 "
+            "AND product_status='OUT_OF_STOCK'", (product_id,))
+        if cursor.rowcount == 1:
+            cursor.execute(
+                "INSERT INTO product_status_history "
+                "(product_id, old_status, new_status, reason, changed_by) "
+                "VALUES (%s,'OUT_OF_STOCK','ACTIVE',"
+                "'auto: restocked after refund','system-stock')", (product_id,))
+
+        item = {
+            'product_id': product_id,
+            'product_code': line.get('product_code'),
+            'qty': qty,
+        }
+        restored.append(item)
+        if logger:
+            logger.info(
+                "ACTIVITY:STOCK_RESTORED order:%s product:%s code:%s qty:%s "
+                "refund:%s by:%s"
+                % (order_id, product_id, line.get('product_code'), qty,
+                   refund_id, operator))
+
+    if restored:
+        summary = ', '.join(
+            "%s +%s" % (item['product_code'] or item['product_id'], item['qty'])
+            for item in restored)
+        add_history(
+            cursor, order_id, 'Stock restored after refund: ' + summary,
+            site_from=(_site(cursor, order_id).get('site') or None))
+    return restored
 
 
 def ledger_refunds(cursor, order_id):
@@ -412,7 +532,8 @@ def execute(db, order_id, amount_minor, currency, reason_code, comment,
 
     if status != FAILED:
         _record_outcome(db, cursor, order_id, amount_minor, currency, kind,
-                        reason_code, requested_by, result, requested_status)
+                        reason_code, requested_by, result, requested_status,
+                        refund_id, logger=logger)
         if assessment_id is not None:
             return_assessment.mark_executed(cursor, assessment_id, refund_id)
             db.commit()
@@ -538,7 +659,7 @@ def record_upi(db, order_id, amount_minor, currency, reason_code, comment,
         upi_vpa, payee_name, utr, paid_on)
     _record_outcome(db, cursor, order_id, amount_minor, currency, kind,
                     reason_code, requested_by, response, requested_status,
-                    via=via)
+                    refund_id, via=via, logger=logger)
     if logger:
         logger.info(
             "ACTIVITY:REFUND_UPI_RECORDED order:%s refund:%s amount_minor:%s "
@@ -550,7 +671,7 @@ def record_upi(db, order_id, amount_minor, currency, reason_code, comment,
 
 def _record_outcome(db, cursor, order_id, amount_minor, currency, kind,
                     reason_code, requested_by, result, requested_status,
-                    via=None):
+                    refund_id, via=None, logger=None):
     """History always, then the status the refund earns.
 
     Written after the provider accepted, in its own transaction, so a failure
@@ -568,6 +689,20 @@ def _record_outcome(db, cursor, order_id, amount_minor, currency, kind,
                   source='ops-refund',
                   note='refund %s %s %s' % (currency, major, reason_code))
     db.commit()
+    if kind != FULL:
+        if logger:
+            logger.info(
+                "ACTIVITY:RESTOCK_SKIPPED order:%s why:partial" % order_id)
+        return
+    try:
+        restock_unshipped(cursor, order_id, refund_id, requested_by,
+                          logger=logger)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        if logger:
+            logger.error("ACTIVITY:RESTOCK_FAILED order:%s error:%s"
+                         % (order_id, exc))
 
 
 def tracking(db, idempotency_key, provider):

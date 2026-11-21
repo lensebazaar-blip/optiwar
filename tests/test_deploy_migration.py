@@ -55,7 +55,7 @@ class DeployMigrationTest(unittest.TestCase):
 
     def test_covers_every_column_and_index_ensure_schema_adds(self):
         labels = [label for label, _sql in self.deploy.migration()]
-        expected = ["order_refunds (table)"]
+        expected = ["order_refunds (table)", "stock_restocks (table)"]
         expected += ["ai_events.%s (column)" % n
                     for n, _d in self.acr._AI_EVENTS_EXTRA_COLS]
         expected += ["ai_events.%s (index)" % n
@@ -176,6 +176,8 @@ class DeployMigrationTest(unittest.TestCase):
                         os.path.join(REPO, "refunds.py"))
         self.assertEqual(self.deploy.refunds_schema(),
                          " ".join(refunds.SCHEMA.split()))
+        self.assertEqual(self.deploy.restocks_schema(),
+                         " ".join(refunds.RESTOCK_SCHEMA.split()))
 
     def test_a_symbol_production_does_not_have_blocks_the_deploy(self):
         # models.py importing embed_helper.age_group booted ImportError on the

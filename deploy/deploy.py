@@ -403,6 +403,18 @@ def refunds_schema():
     raise SystemExit("refunds.py no longer defines SCHEMA")
 
 
+def restocks_schema():
+    """``refunds.RESTOCK_SCHEMA``, read without importing the application."""
+    with open(os.path.join(REPO, "refunds.py"), encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+                getattr(t, "id", None) == "RESTOCK_SCHEMA"
+                for t in node.targets):
+            return " ".join(ast.literal_eval(node.value).split())
+    raise SystemExit("refunds.py no longer defines RESTOCK_SCHEMA")
+
+
 def contact_lens_module():
     """``contact_lens.py``'s schema declarations, read the way acr.py's are.
 
@@ -689,7 +701,8 @@ def migration():
     inserts products without naming them and the default supplies the value, and
     every existing row reads back as the eyewear it already was.
     """
-    items = [("order_refunds (table)", refunds_schema())]
+    items = [("order_refunds (table)", refunds_schema()),
+             ("stock_restocks (table)", restocks_schema())]
     acr = acr_module()
     items += [("ai_events.%s (column)" % name,
               "ALTER TABLE ai_events ADD COLUMN %s %s" % (name, decl))
