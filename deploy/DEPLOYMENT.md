@@ -365,6 +365,31 @@ The clock starts only at `POST /ops/api/shipments/<order_id>/return-received`;
 rows confirmed before this release are backfilled from
 `ops_return_confirmed_at` once, by `ensure_schema`.
 
+### Daily report: refunds awaiting restock
+
+This report section lists processed full refunds whose unshipped order lines
+still lack a `stock_restocks` row. Report modules are not shipped by
+`deploy.py`; install this section on the report box:
+
+1. Copy `reports/restock_report_section.py` to `/root/reports/reports/`.
+2. In `run_daily_report.sh`, append `reports.restock_report_section` to the
+   `for MOD in … reports.reship_report_section reports.dr_report_section`
+   loop inside the `ACR_REPORT_ENABLED` guard.
+3. The owner must grant the report user read access, one table per statement:
+
+       GRANT SELECT ON optiwar2.order_refunds TO 'optiwar_ro'@'localhost';
+       GRANT SELECT ON optiwar2.stock_restocks TO 'optiwar_ro'@'localhost';
+       GRANT SELECT ON optiwar2.ops_shipping_awb TO 'optiwar_ro'@'localhost';
+
+   `orders`, `order_status` and `products` are already granted. Until these
+   grants exist, the section reports `n/a` and AMBER, never a false GREEN.
+4. Manually check it on the box:
+
+       set -a; . /etc/optiwar/acr_report.env; set +a; PYTHONPATH=/root/reports python3 -m reports.restock_report_section
+
+The `RESTOCK_FAILED` mail from dev defects is unchanged; this section is the
+daily reminder for lines that still need a restock.
+
 ### Disaster recovery (box-side, no application release)
 
 `deploy/dr/` is server tooling, not part of the manifest. On the box, as root:
