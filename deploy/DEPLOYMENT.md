@@ -380,8 +380,11 @@ still lack a `stock_restocks` row. Report modules are not shipped by
        GRANT SELECT ON optiwar2.order_refunds TO 'optiwar_ro'@'localhost';
        GRANT SELECT ON optiwar2.stock_restocks TO 'optiwar_ro'@'localhost';
        GRANT SELECT ON optiwar2.ops_shipping_awb TO 'optiwar_ro'@'localhost';
+       GRANT SELECT (order_line_id, order_quantity, fulfillment_status) ON optiwar2.orders TO 'optiwar_ro'@'localhost';
 
-   `orders`, `order_status` and `products` are already granted. Until these
+   `order_status` and `products` are already granted. `optiwar_ro` reads
+   `orders` through a column-level grant, so the section also needs the three
+   `orders` columns above; without them it fails with ERROR 1143. Until these
    grants exist, the section reports `n/a` and AMBER, never a false GREEN.
 4. Manually check it on the box:
 
