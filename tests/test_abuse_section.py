@@ -6,6 +6,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest import mock
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
@@ -42,6 +43,25 @@ class AbuseSection(unittest.TestCase):
             fh.write(text)
         self.addCleanup(os.remove, path)
         return path
+
+    def test_debug_files_include_legacy_and_logrotate_names_oldest_first(self):
+        yesterday = NOW - datetime.timedelta(days=1)
+        with tempfile.TemporaryDirectory() as log_dir:
+            names = (
+                "debug.log.%s" % yesterday.strftime("%Y-%m-%d"),
+                "debug.log-%s" % yesterday.strftime("%Y%m%d"),
+                "debug.log-%s" % NOW.strftime("%Y%m%d"),
+                "debug.log",
+                "debug.log-%s.gz" % NOW.strftime("%Y%m%d"),
+            )
+            for name in names:
+                open(os.path.join(log_dir, name), "w").close()
+            expected = [os.path.join(log_dir, name) for name in names[:4]]
+            with mock.patch.object(section, "LOG_DIR", log_dir), \
+                    mock.patch.object(section, "DEBUG_LOG",
+                                      os.path.join(log_dir, "debug.log")):
+                self.assertEqual(section._files(section.DEBUG_LOG, NOW),
+                                 expected)
 
     def test_uploads_are_counted_by_event_within_the_window(self):
         up = section.uploads([self._file(DEBUG)], now=NOW)

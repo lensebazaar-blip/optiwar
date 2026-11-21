@@ -50,13 +50,15 @@ PROBE = re.compile(
 
 
 def _files(base, now):
-    yesterday = (now - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    yesterday = now - datetime.timedelta(days=1)
     out = []
-    for rotated in (base + "." + yesterday, base + "-" + now.strftime("%Y%m%d")):
-        if os.path.exists(rotated):
-            out.append(rotated)
-    if os.path.exists(base):
-        out.append(base)
+    for path in (
+            base + "." + yesterday.strftime("%Y-%m-%d"),
+            base + "-" + yesterday.strftime("%Y%m%d"),
+            base + "-" + now.strftime("%Y%m%d"),
+            base):
+        if os.path.exists(path):
+            out.append(path)
     return out
 
 

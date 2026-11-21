@@ -11,6 +11,7 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 _ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -114,6 +115,24 @@ class StatusTest(unittest.TestCase):
 
 
 class LogAndStateTest(unittest.TestCase):
+
+    def test_log_files_include_legacy_and_logrotate_names_oldest_first(self):
+        yesterday = NOW - datetime.timedelta(days=1)
+        with tempfile.TemporaryDirectory() as log_dir:
+            names = (
+                "debug.log.%s" % yesterday.strftime("%Y-%m-%d"),
+                "debug.log-%s" % yesterday.strftime("%Y%m%d"),
+                "debug.log-%s" % NOW.strftime("%Y%m%d"),
+                "debug.log",
+                "debug.log-%s.gz" % NOW.strftime("%Y%m%d"),
+            )
+            for name in names:
+                open(os.path.join(log_dir, name), "w").close()
+            expected = [os.path.join(log_dir, name) for name in names[:4]]
+            with mock.patch.object(prs, "LOG_DIR", log_dir), \
+                    mock.patch.object(prs, "DEBUG_LOG",
+                                      os.path.join(log_dir, "debug.log")):
+                self.assertEqual(prs.log_files(NOW), expected)
 
     def test_tags_are_counted_inside_the_window_only(self):
         with tempfile.NamedTemporaryFile("w", suffix=".log", delete=False) as fh:

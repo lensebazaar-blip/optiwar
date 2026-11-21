@@ -37,12 +37,14 @@ _LINE = re.compile(
 def log_files(now=None):
     now = now or datetime.datetime.now()
     files = []
-    yesterday = (now - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-    rotated = os.path.join(LOG_DIR, "debug.log.%s" % yesterday)
-    if os.path.exists(rotated):
-        files.append(rotated)
-    if os.path.exists(DEBUG_LOG):
-        files.append(DEBUG_LOG)
+    yesterday = now - datetime.timedelta(days=1)
+    for path in (
+            os.path.join(LOG_DIR, "debug.log.%s" % yesterday.strftime("%Y-%m-%d")),
+            os.path.join(LOG_DIR, "debug.log-%s" % yesterday.strftime("%Y%m%d")),
+            os.path.join(LOG_DIR, "debug.log-%s" % now.strftime("%Y%m%d")),
+            DEBUG_LOG):
+        if os.path.exists(path):
+            files.append(path)
     return files
 
 

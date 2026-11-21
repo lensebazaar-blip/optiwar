@@ -241,7 +241,7 @@ _metrics_lock = threading.Lock()
 def _metrics_log():
     """Dedicated, durable AI-metrics logger.
 
-    The app logger writes to debug.log which is rotated daily, so a canary sample
+    The app logger writes to debug.log, which logrotate rotates daily, so a canary sample
     can't survive long enough to compute p50/p95/p99 etc. This writes the same
     ``ai-call`` line to a separate file (default /var/log/optiwar/ai_metrics.log)
     using a plain append FileHandler -- safe across the Gunicorn workers (each
