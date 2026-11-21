@@ -15,22 +15,24 @@ Skipped, not failed, when no test database is reachable.
     python3 -m unittest tests.test_refunds
 """
 import importlib.util
+import io
 import os
 import sys
 import unittest
 import uuid
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stdout
 from datetime import datetime, timedelta
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 from zoneinfo import ZoneInfo
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 
 
-def _load(name):
+def _load(name, path=None):
     spec = importlib.util.spec_from_file_location(
-        name, os.path.join(REPO, "%s.py" % name))
+        name, path or os.path.join(REPO, "%s.py" % name))
     mod = importlib.util.module_from_spec(spec)
     sys.modules[name] = mod
     spec.loader.exec_module(mod)
@@ -39,6 +41,8 @@ def _load(name):
 
 paid_orders = _load("paid_orders")
 refunds = _load("refunds")
+restock_refunded = _load(
+    "restock_refunded", os.path.join(REPO, "scripts", "restock_refunded.py"))
 
 _MAIN_DB = os.environ.get("OPTIWAR_TEST_MYSQL_DB", "optiwar2")
 
@@ -90,7 +94,44 @@ DDL = [
         UNIQUE KEY uq_payment_ref (payment_ref),
         KEY idx_order (order_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
+    """CREATE TABLE IF NOT EXISTS products (
+        product_id        BIGINT AUTO_INCREMENT PRIMARY KEY,
+        product_code      VARCHAR(32) NULL,
+        product_price     DECIMAL(12,2) NOT NULL DEFAULT 0,
+        product_quantity  INT NOT NULL DEFAULT 0,
+        product_status    VARCHAR(24) NULL,
+        product_vertical  VARCHAR(32) NOT NULL DEFAULT 'EYEWEAR',
+        sold_out_at       DATETIME NULL,
+        status_changed_at DATETIME NULL,
+        status_changed_by VARCHAR(191) NULL,
+        status_reason     VARCHAR(255) NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS product_code VARCHAR(32) NULL",
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS product_price DECIMAL(12,2) NOT NULL DEFAULT 0",
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS product_quantity INT NOT NULL DEFAULT 0",
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS product_status VARCHAR(24) NULL",
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS product_vertical VARCHAR(32) NOT NULL DEFAULT 'EYEWEAR'",
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS sold_out_at DATETIME NULL",
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS status_changed_at DATETIME NULL",
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS status_changed_by VARCHAR(191) NULL",
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS status_reason VARCHAR(255) NULL",
+    """CREATE TABLE IF NOT EXISTS product_status_history (
+        id         BIGINT AUTO_INCREMENT PRIMARY KEY,
+        product_id BIGINT NULL,
+        old_status VARCHAR(24) NULL,
+        new_status VARCHAR(24) NULL,
+        reason     VARCHAR(255) NULL,
+        changed_by VARCHAR(100) NULL,
+        changed_at DATETIME NULL DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
+    """CREATE TABLE IF NOT EXISTS ops_shipping_awb (
+        id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+        ow_order_id VARCHAR(64) NOT NULL,
+        awb_number  VARCHAR(64) NULL,
+        KEY idx_order (ow_order_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
     refunds.SCHEMA,
+    refunds.RESTOCK_SCHEMA,
 ]
 
 
@@ -381,26 +422,37 @@ class RefundTest(unittest.TestCase):
     def setUp(self):
         self.cur = self.db.cursor()
         self._orders = []
+        self._products = []
 
     def tearDown(self):
         for order_id in self._orders:
-            for table in ("order_refunds", "payment_collector", "order_history",
-                          "order_status", "orders"):
+            for table in ("stock_restocks", "order_refunds", "payment_collector",
+                          "order_history", "order_status", "orders"):
                 self.cur.execute("DELETE FROM %s WHERE order_id=%%s" % table,
                                  (order_id,))
+            self.cur.execute(
+                "DELETE FROM ops_shipping_awb WHERE ow_order_id=%s", (order_id,))
+        for product_id in self._products:
+            self.cur.execute(
+                "DELETE FROM product_status_history WHERE product_id=%s",
+                (product_id,))
+            self.cur.execute("DELETE FROM products WHERE product_id=%s",
+                             (product_id,))
         self.db.commit()
 
     # ─── fixtures ────────────────────────────────────────────────────
 
     def _order(self, total=999, paid=True, status='Processed',
-               site='in.optiwar.com'):
+               site='in.optiwar.com', product_id=None, qty=1,
+               fulfillment_status='fulfilled', is_test=0):
         order_id = uuid.uuid4().hex[:6].upper() + "-RFND"
         self._orders.append(order_id)
         self.cur.execute(
             "INSERT INTO orders (order_id, product_id, order_quantity, "
             "order_total, fulfillment_status, is_test, site_from) "
-            "VALUES (%s, 786, 1, %s, 'fulfilled', 0, %s)",
-            (order_id, total, site))
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (order_id, product_id, qty, total, fulfillment_status, is_test,
+             site))
         self.cur.execute(
             "INSERT INTO order_status (order_status_name, order_id) VALUES (%s,%s)",
             (status, order_id))
@@ -416,13 +468,14 @@ class RefundTest(unittest.TestCase):
         return '%s/refund/%s' % (order_id, uuid.uuid4())
 
     def _refund(self, order_id, provider, amount=99900, currency='INR',
-                reason='CUSTOMER_REFUND', key=None, requested_status=None):
+                reason='CUSTOMER_REFUND', key=None, requested_status=None,
+                logger=None):
         return refunds.execute(
             self.db, order_id, amount_minor=amount, currency=currency,
             reason_code=reason, comment='test', idempotency_key=key or self._key(order_id),
             requested_by='ops@lensbazaar', service_identity='eu-ops',
             approved_message='Your refund is on its way.', provider=provider,
-            requested_status=requested_status)
+            requested_status=requested_status, logger=logger)
 
     def _record_upi(self, order_id, provider, amount=99900, reason='CUSTOMER_REFUND',
                     key=None, **overrides):
@@ -451,6 +504,43 @@ class RefundTest(unittest.TestCase):
         self.cur.execute("SELECT order_history_content AS c, site_from FROM "
                          "order_history WHERE order_id=%s", (order_id,))
         return list(self.cur.fetchall())
+
+    def _product(self, code='AK79', quantity=0, status='OUT_OF_STOCK',
+                 vertical='EYEWEAR', sold_out=True):
+        self.cur.execute(
+            "INSERT INTO products "
+            "(product_code, product_price, product_quantity, product_status, "
+            "product_vertical, sold_out_at) VALUES (%s,0,%s,%s,%s,%s)",
+            (code, quantity, status, vertical,
+             datetime.now() if sold_out else None))
+        product_id = self.cur.lastrowid
+        self._products.append(product_id)
+        return product_id
+
+    def _product_row(self, product_id):
+        self.cur.execute("SELECT * FROM products WHERE product_id=%s",
+                         (product_id,))
+        return self.cur.fetchone()
+
+    def _restock_count(self, order_id):
+        self.cur.execute(
+            "SELECT COUNT(*) AS n FROM stock_restocks WHERE order_id=%s",
+            (order_id,))
+        return self.cur.fetchone()['n']
+
+    def _backfill_refund(self, order_id, age_days=0, status='PROCESSED',
+                         refund_type='FULL'):
+        self.cur.execute(
+            "INSERT INTO order_refunds "
+            "(order_id, payment_ref, amount_minor, currency, status, refund_type, "
+            "reason_code, idempotency_key, requested_by, service_identity, "
+            "requested_at) "
+            "VALUES (%s,%s,99900,'INR',%s,%s,'CUSTOMER_REFUND',%s,"
+            "'backfill-test','eu-ops',DATE_SUB(NOW(), INTERVAL %s DAY))",
+            (order_id, 'pay_backfill_%s' % uuid.uuid4().hex[:8], status,
+             refund_type, self._key(order_id), age_days))
+        self.db.commit()
+        return self.cur.lastrowid
 
     # ─── the preview ─────────────────────────────────────────────────
 
@@ -578,6 +668,231 @@ class RefundTest(unittest.TestCase):
         self.assertIn('999.00', history[0]['c'])
         self.assertIn('rfnd_1', history[0]['c'])
         self.assertEqual(history[0]['site_from'], 'in.optiwar.com')
+
+    def test_full_gateway_refund_restores_unshipped_fulfilled_stock(self):
+        product_id = self._product()
+        order_id = self._order(product_id=product_id)
+        logger = Mock()
+
+        row = self._refund(order_id, FakeProvider(), logger=logger)
+
+        product = self._product_row(product_id)
+        self.assertEqual(row['status'], refunds.PROCESSED)
+        self.assertEqual(product['product_quantity'], 1)
+        self.assertEqual(product['product_status'], 'ACTIVE')
+        self.assertIsNone(product['sold_out_at'])
+        self.assertEqual(product['status_changed_by'], 'system-stock')
+        self.assertEqual(product['status_reason'],
+                         'auto: restocked after refund')
+        self.assertEqual(self._restock_count(order_id), 1)
+        self.cur.execute(
+            "SELECT old_status, new_status, reason, changed_by "
+            "FROM product_status_history WHERE product_id=%s", (product_id,))
+        self.assertEqual(self.cur.fetchall(), [{
+            'old_status': 'OUT_OF_STOCK',
+            'new_status': 'ACTIVE',
+            'reason': 'auto: restocked after refund',
+            'changed_by': 'system-stock',
+        }])
+        self.assertTrue(any(
+            'Stock restored after refund: AK79 +1' in h['c']
+            for h in self._history(order_id)))
+        self.cur.execute(
+            "SELECT refund_id, reason, restocked_by FROM stock_restocks "
+            "WHERE order_id=%s", (order_id,))
+        self.assertEqual(self.cur.fetchone(), {
+            'refund_id': row['refund_id'],
+            'reason': 'refund',
+            'restocked_by': 'ops@lensbazaar',
+        })
+        self.assertTrue(any(
+            'ACTIVITY:STOCK_RESTORED order:%s' % order_id in str(call)
+            for call in logger.info.call_args_list))
+
+    def test_refund_replay_and_repeated_restock_do_not_add_stock_twice(self):
+        product_id = self._product()
+        order_id = self._order(product_id=product_id)
+        provider = FakeProvider()
+        key = self._key(order_id)
+
+        first = self._refund(order_id, provider, key=key)
+        replay = self._refund(order_id, provider, key=key)
+        second_restock = refunds.restock_unshipped(
+            self.cur, order_id, first['refund_id'], 'ops@lensbazaar')
+        self.db.commit()
+
+        self.assertFalse(first['replayed'])
+        self.assertTrue(replay['replayed'])
+        self.assertEqual(len(provider.refund_calls), 1)
+        self.assertEqual(second_restock, [])
+        self.assertEqual(self._product_row(product_id)['product_quantity'], 1)
+        self.assertEqual(self._restock_count(order_id), 1)
+
+    def test_partial_refund_does_not_restore_stock(self):
+        product_id = self._product()
+        order_id = self._order(product_id=product_id)
+        logger = Mock()
+
+        row = self._refund(order_id, FakeProvider(), amount=25000,
+                           logger=logger)
+
+        self.assertEqual(row['refund_type'], refunds.PARTIAL)
+        self.assertEqual(self._product_row(product_id)['product_quantity'], 0)
+        self.assertEqual(self._restock_count(order_id), 0)
+        self.assertTrue(any(
+            'ACTIVITY:RESTOCK_SKIPPED order:%s why:partial' % order_id
+            in str(call) for call in logger.info.call_args_list))
+
+    def test_shipped_status_or_awb_skips_the_whole_order(self):
+        shipped_product = self._product(code='SHIP')
+        shipped_order = self._order(
+            product_id=shipped_product, status='Shipped')
+        awb_product = self._product(code='AWB')
+        awb_order = self._order(product_id=awb_product)
+        logger = Mock()
+        self.cur.execute(
+            "INSERT INTO ops_shipping_awb (ow_order_id, awb_number) "
+            "VALUES (%s,'test-awb')", (awb_order,))
+        self.db.commit()
+
+        self._refund(shipped_order, FakeProvider(), logger=logger)
+        self._refund(awb_order, FakeProvider(), logger=logger)
+
+        self.assertEqual(
+            self._product_row(shipped_product)['product_quantity'], 0)
+        self.assertEqual(self._product_row(awb_product)['product_quantity'], 0)
+        self.assertEqual(self._restock_count(shipped_order), 0)
+        self.assertEqual(self._restock_count(awb_order), 0)
+        self.assertEqual(
+            sum('ACTIVITY:RESTOCK_SKIPPED order:%s why:shipped' % order_id
+                in str(call)
+                for call in logger.info.call_args_list
+                for order_id in (shipped_order, awb_order)), 2)
+
+    def test_full_upi_refund_restores_stock(self):
+        product_id = self._product()
+        order_id = self._order(product_id=product_id)
+
+        row = self._record_upi(order_id, FakeProvider())
+
+        self.assertEqual(row['status'], refunds.PROCESSED)
+        self.assertEqual(self._product_row(product_id)['product_quantity'], 1)
+        self.assertEqual(self._restock_count(order_id), 1)
+
+    def test_smart_eyewear_unfulfilled_and_test_orders_are_not_restocked(self):
+        cases = (
+            ('smart', 'fulfilled', 0, 'SMART_EYEWEAR'),
+            ('pending', 'pending', 0, 'EYEWEAR'),
+            ('refund-pending', 'refund_pending', 0, 'EYEWEAR'),
+            ('test', 'fulfilled', 1, 'EYEWEAR'),
+        )
+        for code, fulfillment_status, is_test, vertical in cases:
+            with self.subTest(code=code):
+                product_id = self._product(code=code, vertical=vertical)
+                order_id = self._order(
+                    product_id=product_id,
+                    fulfillment_status=fulfillment_status,
+                    is_test=is_test)
+                logger = Mock()
+
+                self._refund(order_id, FakeProvider(), logger=logger)
+
+                self.assertEqual(
+                    self._product_row(product_id)['product_quantity'], 0)
+                self.assertEqual(self._restock_count(order_id), 0)
+                if is_test:
+                    self.assertTrue(any(
+                        'ACTIVITY:RESTOCK_SKIPPED order:%s why:test' % order_id
+                        in str(call) for call in logger.info.call_args_list))
+
+    def test_discontinued_product_quantity_is_restored_without_status_change(self):
+        product_id = self._product(
+            code='DISC', status='DISCONTINUED', sold_out=True)
+        order_id = self._order(product_id=product_id, qty=2)
+
+        self._refund(order_id, FakeProvider())
+
+        product = self._product_row(product_id)
+        self.assertEqual(product['product_quantity'], 2)
+        self.assertEqual(product['product_status'], 'DISCONTINUED')
+        self.assertIsNotNone(product['sold_out_at'])
+        self.cur.execute(
+            "SELECT COUNT(*) AS n FROM product_status_history "
+            "WHERE product_id=%s", (product_id,))
+        self.assertEqual(self.cur.fetchone()['n'], 0)
+
+    def test_provider_failure_does_not_restore_stock(self):
+        product_id = self._product()
+        order_id = self._order(product_id=product_id)
+
+        row = self._refund(
+            order_id, FakeProvider(fail='provider refused'))
+
+        self.assertEqual(row['status'], refunds.FAILED)
+        self.assertEqual(self._product_row(product_id)['product_quantity'], 0)
+        self.assertEqual(self._restock_count(order_id), 0)
+
+    def test_restock_failure_does_not_undo_processed_refund(self):
+        product_id = self._product()
+        order_id = self._order(product_id=product_id)
+        logger = Mock()
+
+        with patch.object(refunds, 'restock_unshipped',
+                          side_effect=RuntimeError('stock db unavailable')):
+            row = self._refund(order_id, FakeProvider(), logger=logger)
+
+        self.assertEqual(row['status'], refunds.PROCESSED)
+        self.assertEqual(self._statuses(order_id), ['Processed', 'Refunded'])
+        self.assertTrue(any(
+            'ACTIVITY:RESTOCK_FAILED order:%s error:stock db unavailable'
+            % order_id in str(call)
+            for call in logger.error.call_args_list))
+
+    def test_restock_backfill_dry_run_apply_replay_filter_and_age(self):
+        selected_product = self._product(code='BACKFILL')
+        selected_order = self._order(product_id=selected_product)
+        other_product = self._product(code='OTHER')
+        other_order = self._order(product_id=other_product)
+        old_product = self._product(code='OLD')
+        old_order = self._order(product_id=old_product)
+        self._backfill_refund(selected_order, status='PENDING')
+        self._backfill_refund(other_order)
+        self._backfill_refund(old_order, age_days=120)
+
+        args = SimpleNamespace(days=90, order=[], apply=False, by='backfill-op')
+        output = io.StringIO()
+        with redirect_stdout(output):
+            restock_refunded.run(self.db, args)
+        self.assertIn('would restore BACKFILL +1', output.getvalue())
+        self.assertEqual(
+            self._product_row(selected_product)['product_quantity'], 0)
+        self.assertEqual(self._restock_count(selected_order), 0)
+        self.assertEqual(self._history(selected_order), [])
+
+        args.apply = True
+        args.order = [selected_order]
+        restock_refunded.run(self.db, args)
+        self.assertEqual(
+            self._product_row(other_product)['product_quantity'], 0)
+        restock_refunded.run(self.db, args)
+        self.assertEqual(
+            self._product_row(selected_product)['product_quantity'], 1)
+        self.assertEqual(self._restock_count(selected_order), 1)
+        self.cur.execute(
+            "SELECT reason FROM stock_restocks WHERE order_id=%s",
+            (selected_order,))
+        self.assertEqual(self.cur.fetchone()['reason'], 'backfill')
+        restock_refunded.run(
+            self.db, SimpleNamespace(days=90, order=[], apply=True,
+                                     by='backfill-op'))
+
+        self.assertEqual(
+            self._product_row(selected_product)['product_quantity'], 1)
+        self.assertEqual(self._restock_count(selected_order), 1)
+        self.assertEqual(self._product_row(other_product)['product_quantity'], 1)
+        self.assertEqual(self._restock_count(other_order), 1)
+        self.assertEqual(self._product_row(old_product)['product_quantity'], 0)
+        self.assertEqual(self._restock_count(old_order), 0)
 
     def test_the_same_idempotency_key_refunds_once(self):
         order_id = self._order()
