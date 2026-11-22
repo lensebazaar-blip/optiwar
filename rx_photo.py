@@ -40,6 +40,7 @@ on /ops/controls, off returns to the single read below):
 """
 import datetime
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -714,10 +715,17 @@ def _serializer():
     return URLSafeSerializer(current_app.config["SECRET_KEY"], salt=TOKEN_SALT)
 
 
+def _session_id_hash(sid):
+    return hashlib.sha256(str(sid).encode("utf-8")).hexdigest()[:32]
+
+
 def _new_token():
     nonce = session.get(SESSION_NONCE_KEY) or secrets.token_hex(8)
     session[SESSION_NONCE_KEY] = nonce
     session.modified = True
+    sid = getattr(session, "sid", None)
+    if sid:
+        return _serializer().dumps({"s": _session_id_hash(sid), "t": time.time()})
     return _serializer().dumps({"n": nonce, "t": time.time()})
 
 
@@ -728,7 +736,13 @@ def _token_ok(token):
         age = time.time() - float(data["t"])
     except Exception:  # noqa: BLE001 - any bad token is one refusal
         return False
-    return data.get("n") == session.get(SESSION_NONCE_KEY) and TOKEN_MIN_SECONDS <= age <= TOKEN_MAX_SECONDS
+    sid = getattr(session, "sid", None)
+    if sid:
+        session_ok = (isinstance(data.get("s"), str)
+                      and hmac.compare_digest(data["s"], _session_id_hash(sid)))
+    else:
+        session_ok = data.get("n") == session.get(SESSION_NONCE_KEY)
+    return session_ok and TOKEN_MIN_SECONDS <= age <= TOKEN_MAX_SECONDS
 
 
 def _same_site():

@@ -13,6 +13,7 @@ import os
 import sys
 import types
 import unittest
+from unittest import mock
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
@@ -59,6 +60,12 @@ class _QuotaDb:
 
     def commit(self):
         pass
+
+
+class _SessionWithSid(dict):
+    def __init__(self, sid):
+        super().__init__()
+        self.sid = sid
 
 
 def _load(call_model):
@@ -245,6 +252,52 @@ class Route(unittest.TestCase):
 
     def _post(self, data=None, name="rx.jpg"):
         return self._send(data, name)
+
+    def test_sid_token_survives_a_lost_nonce_write(self):
+        server_session = _SessionWithSid("server-session-1")
+        with self.app.app_context(), mock.patch.object(self.rx, "session", server_session):
+            token = self.rx._new_token()
+            self.assertIn(self.rx.SESSION_NONCE_KEY, server_session)
+            server_session.pop(self.rx.SESSION_NONCE_KEY, None)
+            self.assertTrue(self.rx._token_ok(token))
+
+    def test_sid_token_marks_the_session_modified_and_stores_a_nonce(self):
+        server_session = _SessionWithSid("server-session-1")
+        with self.app.app_context(), mock.patch.object(self.rx, "session", server_session):
+            token = self.rx._new_token()
+            self.assertIn(self.rx.SESSION_NONCE_KEY, server_session)
+            self.assertTrue(server_session.modified)
+            self.assertEqual(
+                set(self.rx._serializer().loads(token)),
+                {"s", "t"},
+            )
+
+    def test_sid_token_is_rejected_in_another_session(self):
+        with self.app.app_context(), mock.patch.object(
+                self.rx, "session", _SessionWithSid("server-session-1")):
+            token = self.rx._new_token()
+        with self.app.app_context(), mock.patch.object(
+                self.rx, "session", _SessionWithSid("server-session-2")):
+            self.assertFalse(self.rx._token_ok(token))
+
+    def test_sid_token_still_obeys_minimum_and_maximum_age(self):
+        server_session = _SessionWithSid("server-session-1")
+        minimum, maximum = self.rx.TOKEN_MIN_SECONDS, self.rx.TOKEN_MAX_SECONDS
+        try:
+            self.rx.TOKEN_MIN_SECONDS = 1.5
+            self.rx.TOKEN_MAX_SECONDS = 10
+            with self.app.app_context(), mock.patch.object(self.rx, "session", server_session):
+                with mock.patch.object(self.rx.time, "time", return_value=100):
+                    token = self.rx._new_token()
+                with mock.patch.object(self.rx.time, "time", return_value=100):
+                    self.assertFalse(self.rx._token_ok(token))
+                with mock.patch.object(self.rx.time, "time", return_value=101.5):
+                    self.assertTrue(self.rx._token_ok(token))
+                with mock.patch.object(self.rx.time, "time", return_value=111):
+                    self.assertFalse(self.rx._token_ok(token))
+        finally:
+            self.rx.TOKEN_MIN_SECONDS = minimum
+            self.rx.TOKEN_MAX_SECONDS = maximum
 
     def test_a_visitor_may_read_a_photo_and_nothing_is_stored(self):
         self.answers.append('{"right": {"sph": "-2.00", "cyl": "-0.50", "axis": "90"},'
@@ -853,6 +906,13 @@ class FindReadCompare(unittest.TestCase):
         self.assertIn("input[type=radio][name=addon_3][value=", page)
         self.assertIn("Read this one", page)
         self.assertIn("css/rx-page.css') }}?v=8", page)
+
+    def test_the_page_rechallenges_once_after_an_rx_photo_bot_reply(self):
+        page = open(os.path.join(REPO, "templates", "prescription.html"), encoding="utf-8").read()
+        self.assertIn("j.code === 'RX_PHOTO_BOT' && !botRetried", page)
+        self.assertIn("challenge().then(resend, resend);", page)
+        self.assertIn("setTimeout(function () { send(f, choice); }, 1600);", page)
+        self.assertIn("botRetried = false;", page)
 
 
 class Wiring(unittest.TestCase):

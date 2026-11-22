@@ -912,13 +912,14 @@ window.onload = function() {
     input.addEventListener('change', function () {
         var f = input.files && input.files[0];
         if (!f) return;
+        botRetried = false;
         if (f.size > 12 * 1024 * 1024) { say('err', 'That file is larger than 12 MB. Please choose a smaller photo.'); input.value = ''; return; }
         btn.disabled = true; btn.classList.add('is-busy');
         say('busy', '<span class="rxp-spin"></span> Reading your prescription&hellip; this can take up to 30 seconds.');
         window.rxClearChecks();
         send(f, '');
     });
-    var lastFile = null;
+    var lastFile = null, botRetried = false;
     function chooseFrom(j) {
         var html = '<strong>We found ' + j.choices.length + ' prescriptions in this file. Which one should we use?</strong><div class="rxp-choices">' +
             j.choices.map(function (c, i) {
@@ -944,6 +945,12 @@ window.onload = function() {
         fetch('/api/rx-photo/read', { method: 'POST', body: fd, credentials: 'same-origin' })
             .then(function (r) { return r.json().then(function (j) { return j; }, function () { if (window.owReportError) window.owReportError('RX_PHOTO_BAD_REPLY', 'HTTP ' + r.status); return {}; }); })
             .then(function (j) {
+                if (j && j.code === 'RX_PHOTO_BOT' && !botRetried) {
+                    botRetried = true;
+                    var resend = function () { setTimeout(function () { send(f, choice); }, 1600); };
+                    challenge().then(resend, resend);
+                    return;
+                }
                 if (!j || !j.ok) { say('err', esc((j && j.message) || 'Our reader had a problem on our side, not with your photo. Please try again in a minute or type the values below.')); done(); return; }
                 if (j.choose) { chooseFrom(j); done(); return; }
                 var eyes = j.eyes || {}, toCheck = j.check || [];
