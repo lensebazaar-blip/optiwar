@@ -2840,10 +2840,9 @@ def _progressive_scan_checkout_allowed(cart):
         return True
     cursor = get_db().cursor()
     progressive_scan.ensure_schema(cursor)
-    scan_id = progressive_scan.latest_scan_id(
-        cursor, session.get('user_id'))
+    has_scan = progressive_scan.has_scan(cursor, session.get('user_id'))
     if progressive_scan.acknowledgement_is_valid(
-            scan_id, request.form.get('face_scan_ack'),
+            has_scan, request.form.get('face_scan_ack'),
             session.get('pf_warned_at')):
         return True
     flash('Please take the face scan, or tick “I understand” to continue without it.')
@@ -3121,7 +3120,7 @@ def checkout_page():
     if progressive_scan.cart_needs_step(cart):
         _pf_cursor = get_db().cursor()
         progressive_scan.ensure_schema(_pf_cursor)
-        if progressive_scan.latest_scan_id(_pf_cursor, user_id) is None:
+        if not progressive_scan.has_scan(_pf_cursor, user_id):
             face_scan_step = {
                 'heading': progressive_scan.HEADING,
                 'body': progressive_scan.BODY,
@@ -3546,10 +3545,14 @@ def checkout():
                             checkout_token=_checkout_token, customer_id=customer_id,
                             ip_address=client_ip)
         if progressive_scan.cart_needs_step(cart):
+            scan_id = progressive_scan.latest_scan_id(cursor, customer_id)
             progressive_scan.record(
                 cursor, order_id, customer_id, _get_site_from(), cart,
-                progressive_scan.latest_scan_id(cursor, customer_id),
-                session.get('pf_warned_at'), session.get('pf_accepted_at'))
+                scan_id, session.get('pf_warned_at'),
+                session.get('pf_accepted_at'),
+                scan_available=(scan_id is not None
+                                or progressive_scan.has_completed_face_scan(
+                                    cursor, customer_id)))
         if user_id and face_profiles_api.gate_enabled():
             # The person and fit each frame line was bought for, sealed with
             # the order; the profile may be renamed or deleted later.
@@ -3771,10 +3774,14 @@ def test_checkout():
         policy_terms.record(cursor, order_id, _get_site_from(), cart,
                             customer_id=customer_id, ip_address=client_ip)
         if progressive_scan.cart_needs_step(cart):
+            scan_id = progressive_scan.latest_scan_id(cursor, customer_id)
             progressive_scan.record(
                 cursor, order_id, customer_id, _get_site_from(), cart,
-                progressive_scan.latest_scan_id(cursor, customer_id),
-                session.get('pf_warned_at'), session.get('pf_accepted_at'))
+                scan_id, session.get('pf_warned_at'),
+                session.get('pf_accepted_at'),
+                scan_available=(scan_id is not None
+                                or progressive_scan.has_completed_face_scan(
+                                    cursor, customer_id)))
         if user_id and face_profiles_api.gate_enabled():
             # Same sealing as the real checkout, so a TEST order shows the person
             # and face fit each frame (and AI Glasses) line was bought for.

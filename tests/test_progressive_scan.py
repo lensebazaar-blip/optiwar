@@ -21,8 +21,9 @@ def _frame(**overrides):
 
 
 class FakeCursor:
-    def __init__(self, scan_row=None, link_candidates=None):
+    def __init__(self, scan_row=None, face_scan_row=None, link_candidates=None):
         self.scan_row = scan_row
+        self.face_scan_row = face_scan_row
         self.choice_row = None
         self.link_candidates = list(link_candidates or [])
         self.calls = []
@@ -37,6 +38,8 @@ class FakeCursor:
         normalized = " ".join(sql.lower().split())
         if normalized.startswith("select id from face_measurements"):
             self.fetchone_result = self.scan_row
+        elif normalized.startswith("select id from face_scans"):
+            self.fetchone_result = self.face_scan_row
         elif normalized.startswith("select choice,"):
             self.fetchone_result = self.choice_row
         elif "insert into order_face_scan_choice" in normalized:
@@ -130,12 +133,25 @@ class ProgressiveScanTests(unittest.TestCase):
         self.assertNotIn("FOREIGN KEY", cur.calls[0][0].upper())
         self.assertEqual(progressive_scan.latest_scan_id(cur, 17), 73)
         self.assertIsNone(progressive_scan.latest_scan_id(cur, None))
+        self.assertTrue(progressive_scan.has_scan(cur, 17))
+
+    def test_completed_nondefault_scan_counts_without_measurement_mirror(self):
+        cur = FakeCursor(face_scan_row={"id": 83})
+        self.assertIsNone(progressive_scan.latest_scan_id(cur, 17))
+        self.assertTrue(progressive_scan.has_scan(cur, 17))
+        self.assertEqual(cur.calls[-1][1], (17, "COMPLETED"))
+        result = progressive_scan.record(
+            cur, "ORDER-3", 17, "optiwar.com", [_frame()], None, None, None,
+            scan_available=True)
+        self.assertEqual(result, progressive_scan.SCANNED)
+        self.assertIsNone(cur.choice_row["face_measurement_id"])
+        self.assertEqual(cur.history, [])
 
     def test_checkout_acknowledgement_requires_warning_unless_scan_exists(self):
         self.assertFalse(progressive_scan.acknowledgement_is_valid(None, None, None))
         self.assertFalse(progressive_scan.acknowledgement_is_valid(None, "1", None))
         self.assertTrue(progressive_scan.acknowledgement_is_valid(None, "1", "warned"))
-        self.assertTrue(progressive_scan.acknowledgement_is_valid(73, None, None))
+        self.assertTrue(progressive_scan.acknowledgement_is_valid(True, None, None))
         with open(os.path.join(REPO, "models.py"), encoding="utf-8") as source_file:
             source = source_file.read()
         helper = source.split("def _progressive_scan_checkout_allowed(cart):", 1)[1]
@@ -152,7 +168,7 @@ class ProgressiveScanTests(unittest.TestCase):
             "\n@bp.route", 1)[0]
         self.assertIn("face_scan_step = None", route)
         self.assertIn("if progressive_scan.cart_needs_step(cart):", route)
-        self.assertIn("latest_scan_id(_pf_cursor, user_id)", route)
+        self.assertIn("has_scan(_pf_cursor, user_id)", route)
 
     def test_record_scanned_choice_without_history(self):
         cur = FakeCursor()

@@ -100,8 +100,22 @@ def latest_scan_id(cursor, customer_id):
     return row.get("id") if isinstance(row, dict) else row[0]
 
 
-def acknowledgement_is_valid(scan_id, face_scan_ack, warned_at):
-    return (scan_id is not None
+def has_completed_face_scan(cursor, customer_id):
+    if not customer_id:
+        return False
+    cursor.execute(
+        "SELECT id FROM face_scans WHERE customer_id=%s AND status=%s LIMIT 1",
+        (int(customer_id), "COMPLETED"))
+    return cursor.fetchone() is not None
+
+
+def has_scan(cursor, customer_id):
+    return (latest_scan_id(cursor, customer_id) is not None
+            or has_completed_face_scan(cursor, customer_id))
+
+
+def acknowledgement_is_valid(has_scan, face_scan_ack, warned_at):
+    return (bool(has_scan)
             or (face_scan_ack == "1" and bool(warned_at)))
 
 
@@ -123,9 +137,11 @@ def _row_value(row, key):
 
 
 def record(cursor, order_id, customer_id, site, cart, scan_id, warned_at,
-           accepted_at):
+           accepted_at, scan_available=None):
     if not cart_needs_step(cart):
         return None
+    if scan_available is None:
+        scan_available = scan_id is not None
 
     cursor.execute(
         "SELECT choice, warning_version, warning_text, warned_at, decided_at, "
@@ -134,7 +150,7 @@ def record(cursor, order_id, customer_id, site, cart, scan_id, warned_at,
     existing = cursor.fetchone()
     existing_choice = _row_value(existing, "choice")
 
-    if scan_id is not None:
+    if scan_available:
         choice = SCANNED
         previous_choice = (
             _row_value(existing, "previous_choice")
