@@ -98,7 +98,7 @@ DEPLOY_SET = ("__init__.py", "log_hygiene.py", "pricing.py", "acr.py", "ai_api.p
               "order_rx_documents.py", "templates/ops_order_rx_documents.html",
               "static/ai/optiwar_ai_knowledge_base.json",
               "reship.py", "reship_api.py", "reship_assistant.py", "return_assistant.py", "return_fee.py", "return_refund.py", "return_request.py", "reverse_pickup.py", "templates/ops_reship.html",
-              "ai_language.py", "rx_lookup.py", "order_lookup.py", "test_identity.py", "satisfaction.py", "cart_lookup.py",
+              "ai_language.py", "rx_lookup.py", "order_lookup.py", "auth.py", "test_identity.py", "satisfaction.py", "cart_lookup.py",
               "templates/face_scan_guest.html", "templates/favorites.html",
               "static/scripts.js",
               "static/tryon/js/tryon.js", "static/tryon/css/tryon.css", "templates/tryon.html",

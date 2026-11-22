@@ -5,6 +5,7 @@ from .db import get_db
 from .cart_persist import load_cart_from_db, save_cart_to_db
 from .test_identity import is_test_customer
 from authlib.integrations.flask_client import OAuth
+from authlib.integrations.base_client.errors import MismatchingStateError
 import functools
 import logging
 import re
@@ -324,6 +325,22 @@ def google_callback():
             return redirect(next_url)
         return redirect(url_for('main.index'))
 
+    except MismatchingStateError:
+        user_id = session.get('user_id')
+        if user_id:
+            current_app.logger.info(
+                "Google callback repeated after sign-in (stale state); user %s", user_id
+            )
+            next_url = session.pop('_login_next', None)
+            if next_url and _is_safe_redirect(next_url):
+                return redirect(next_url)
+            return redirect(url_for('main.index'))
+        current_app.logger.warning(
+            "Google sign-in state mismatch (expired or repeated callback)"
+        )
+        flash('Your Google sign-in took too long or was opened twice. Please try again.',
+              'warning')
+        return redirect(url_for('auth.login'))
     except Exception as e:
         current_app.logger.error(f'Google OAuth error: {e}', exc_info=True)
         flash('An error occurred during Google login. Please try again.', 'danger')
