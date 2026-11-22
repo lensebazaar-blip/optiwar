@@ -5,8 +5,12 @@ import types
 import unittest
 from unittest import mock
 
-from authlib.integrations.base_client.errors import MismatchingStateError
 from flask import Blueprint, Flask
+
+try:
+    from authlib.integrations.base_client.errors import MismatchingStateError
+except ImportError:
+    MismatchingStateError = None
 
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -40,6 +44,7 @@ def _load_auth():
     return module
 
 
+@unittest.skipIf(MismatchingStateError is None, "authlib not installed")
 class GoogleCallbackState(unittest.TestCase):
 
     @classmethod
