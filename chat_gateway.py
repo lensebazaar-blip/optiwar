@@ -1786,28 +1786,33 @@ View full conversation at support.ket.ltd.
 """
 
     try:
-        # Send to customer
-        msg = EmailMessage()
-        msg['Subject'] = subject
-        msg['From'] = sender
-        msg['To'] = customer_email
-        msg['Reply-To'] = ADMIN_EMAIL
-        msg['Date'] = formatdate(localtime=True)
-        msg.set_content(customer_body)
+        if customer_email and '@' in customer_email:
+            msg = EmailMessage()
+            msg['Subject'] = subject
+            msg['From'] = sender
+            msg['To'] = customer_email
+            msg['Reply-To'] = ADMIN_EMAIL
+            msg['Date'] = formatdate(localtime=True)
+            msg.set_content(customer_body)
 
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_pass)
-            server.send_message(msg)
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
+                server.starttls()
+                server.login(smtp_user, smtp_pass)
+                server.send_message(msg)
 
-        current_app.logger.info(f"[Ticket Email] Sent to customer {customer_email} for {ticket_id}")
+            current_app.logger.info(
+                f"[Ticket Email] Sent to customer {customer_email} for {ticket_id}")
+        else:
+            current_app.logger.info(
+                f"[Ticket Email] Skipping customer message for {ticket_id}: no valid email")
 
         # Send to admin
         admin_msg = EmailMessage()
         admin_msg['Subject'] = subject
         admin_msg['From'] = sender
         admin_msg['To'] = ADMIN_EMAIL
-        admin_msg['Reply-To'] = customer_email
+        if customer_email and '@' in customer_email:
+            admin_msg['Reply-To'] = customer_email
         admin_msg['Date'] = formatdate(localtime=True)
         admin_msg.set_content(admin_body)
 
@@ -3545,6 +3550,15 @@ def chat_message():
     # duplicate submit can never store two AI replies for one customer turn. On a
     # duplicate the winning row id is returned; re-read it so both callers return the
     # single stored reply.
+    if ({'human_handover', 'create_ticket'} & set(actions) and not support
+            and not (flask_session.get('user_email') or session.get('contact_email'))):
+        actions = [action for action in actions
+                   if action not in ('human_handover', 'create_ticket')]
+        ai_reply = _support_text('ask_contact_human', reply_language, session_id)
+        answered_by = 'rule'
+        reply_meta = dict(reply_meta or {},
+                          await_contact=ai_language.INTENT_HUMAN_REQUEST,
+                          phone='', email='')
     _escalated = bool({'human_handover', 'create_ticket'} & set(actions))
     _sat_state = None
     _asks_yes_no = _pending_ask([{'role': 'assistant', 'content': ai_reply}])
@@ -3652,13 +3666,16 @@ def chat_message():
         acr.log_event(db, acr.EV_TICKET_CLASSIFIED, session_id=session_id,
                       journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
                       payload=classification)
-    elif (support and support['ask']) or _pending_ask(
-            [{'role': 'assistant', 'content': ai_reply}]):
+    elif ((support and support['ask']) or reply_meta.get('await_contact')
+          or _pending_ask([{'role': 'assistant', 'content': ai_reply}])):
+        offer = (support or {}).get('ask')
+        if not offer and reply_meta.get('await_contact'):
+            offer = 'ask_contact_human'
+        if not offer:
+            offer = _pending_ask([{'role': 'assistant', 'content': ai_reply}])
         acr.log_event(db, acr.EV_ESCALATION_OFFERED, session_id=session_id,
                       journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
-                      payload={'turn_intent': turn_intent,
-                               'offer': (support or {}).get('ask') or _pending_ask(
-                                   [{'role': 'assistant', 'content': ai_reply}])})
+                      payload={'turn_intent': turn_intent, 'offer': offer})
     elif _clarified:
         acr.log_event(db, acr.EV_CLARIFICATION_USED, session_id=session_id,
                       journey_stage=acr.STAGE_SUPPORT, page_url=page_url,
