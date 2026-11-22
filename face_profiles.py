@@ -539,8 +539,15 @@ def record_scan(db, customer_id, profile_id, measurements, source=SRC_TRYON,
         sid = cur.lastrowid
         cur.execute("UPDATE face_profiles SET latest_scan_id=%s WHERE id=%s",
                     (sid, int(row["id"])))
+        face_measurement_id = None
         if row["default_slot"]:
-            _mirror_default(cur, customer_id)
+            face_measurement_id = _mirror_default(cur, customer_id)
+        try:
+            progressive_scan.link_later_scan(
+                cur, customer_id, face_measurement_id)
+        except Exception as exc:  # noqa: BLE001 - scan persistence is more important than linkage
+            _LOG.warning("Later progressive scan linking failed for customer %s: %s",
+                         customer_id, exc)
         if commit:
             db.commit()
     except Exception:
@@ -566,7 +573,7 @@ def _mirror_default(cur, customer_id):
     cur.execute("DELETE FROM face_measurements WHERE customer_id=%s",
                 (int(customer_id),))
     if not s:
-        return
+        return None
     cur.execute(
         "INSERT INTO face_measurements (customer_id, pd_far, pd_near, face_width, "
         "eye_mouth, recommended_diameter, recommended_bridge, recommended_length, "
@@ -576,13 +583,7 @@ def _mirror_default(cur, customer_id):
          s["eye_mouth"], s["recommended_diameter"], s["recommended_bridge"],
          s["recommended_length"], s["decentration"], s["frame_candidates"],
          s["measured_at"]))
-    face_measurement_id = cur.lastrowid
-    try:
-        progressive_scan.link_later_scan(
-            cur, customer_id, face_measurement_id)
-    except Exception as exc:  # noqa: BLE001 - scan persistence is more important than linkage
-        _LOG.warning("Later progressive scan linking failed for customer %s: %s",
-                     customer_id, exc)
+    return cur.lastrowid
 
 
 # --------------------------------------------------------------------------

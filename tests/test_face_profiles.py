@@ -247,6 +247,46 @@ class InvariantTests(unittest.TestCase):
         self.assertEqual(self.fp.default_profile(self.db, C1)["id"], me["id"])
         self.assertEqual(self._counts(C1), (1, 1, 2))
 
+    def test_set_default_does_not_link_an_existing_scan_to_declined_orders(self):
+        self.fp.ensure_self(self.db, C1, "A")
+        wife = self.fp.create_profile(self.db, C1, "Wife", "spouse", consent=True)
+        self.fp.record_scan(self.db, C1, wife["id"], BASELINE)
+        order_id = "PFSCAN-SETDEFAULT"
+        cur = self.db.cursor()
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS order_history ("
+            "id BIGINT AUTO_INCREMENT PRIMARY KEY, "
+            "order_history_content TEXT, order_id VARCHAR(18), "
+            "site_from VARCHAR(32)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4")
+        cur.execute(
+            "INSERT INTO order_face_scan_choice "
+            "(order_id, customer_id, choice, warning_version, warning_text, "
+            "warned_at, decided_at) "
+            "VALUES (%s,%s,%s,%s,%s,NOW(),NOW())",
+            (order_id, C1, "DECLINED_AFTER_WARNING",
+             self.fp.progressive_scan.WARNING_VERSION,
+             self.fp.progressive_scan.WARNING))
+        self.db.commit()
+        with mock.patch.object(
+                self.fp.progressive_scan, "link_later_scan",
+                wraps=self.fp.progressive_scan.link_later_scan) as link:
+            self.fp.set_default(self.db, C1, wife["id"])
+        link.assert_not_called()
+        cur = self.db.cursor()
+        cur.execute(
+            "SELECT choice, previous_choice FROM order_face_scan_choice "
+            "WHERE order_id=%s", (order_id,))
+        self.assertEqual(cur.fetchone(), {
+            "choice": "DECLINED_AFTER_WARNING",
+            "previous_choice": None,
+        })
+        cur.execute("SELECT COUNT(*) AS n FROM order_history WHERE order_id=%s",
+                    (order_id,))
+        self.assertEqual(cur.fetchone()["n"], 0)
+        cur.execute("DELETE FROM order_face_scan_choice WHERE order_id=%s",
+                    (order_id,))
+        self.db.commit()
+
     def test_deleting_the_default_restores_self_as_default(self):
         me = self.fp.ensure_self(self.db, C1, "A")
         wife = self.fp.create_profile(self.db, C1, "Wife", "spouse", consent=True)
@@ -417,7 +457,12 @@ class MigrationTests(unittest.TestCase):
         _legacy_row(self.db, C1)
         self.fp.migrate_customer(self.db, C1, "A")
         wife = self.fp.create_profile(self.db, C1, "Wife", "spouse", consent=True)
-        self.fp.record_scan(self.db, C1, wife["id"], dict(BASELINE, pd_far="64.00"))
+        with mock.patch.object(
+                self.fp.progressive_scan, "link_later_scan") as link:
+            self.fp.record_scan(
+                self.db, C1, wife["id"], dict(BASELINE, pd_far="64.00"))
+        link.assert_called_once()
+        self.assertIsNone(link.call_args.args[2])
         cur = self.db.cursor()
         cur.execute("SELECT pd_far FROM face_measurements WHERE customer_id=%s", (C1,))
         self.assertEqual([r["pd_far"] for r in cur.fetchall()], [Decimal("60.50")])
