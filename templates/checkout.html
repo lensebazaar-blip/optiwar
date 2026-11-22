@@ -320,7 +320,8 @@ footer{ display:none !important; }
 .ow-pf-scan-secondary{ background:#e2e8f0;color:#0f172a; }
 .ow-pf-warning{ margin-top:12px;padding:12px;border:1px solid #fed7aa;border-radius:10px;background:#fff7ed; }
 .ow-pf-warning p{ margin:0 0 8px;color:#7c2d12; }
-.ow-pf-warning .ow-ck-policy-accept{ margin-top:8px; }
+.ow-pf-scan-ack{ display:flex;gap:10px;align-items:flex-start;margin-top:8px;font-size:12px;line-height:1.55;color:#334155;cursor:pointer; }
+.ow-pf-scan-ack input{ margin-top:3px;width:18px;height:18px;flex:0 0 18px;accent-color:#2563eb; }
 /* Desktop: center the terms widget */
 .ow-terms-wrap{ display:flex;justify-content:center;margin-top:16px; }
 @media(max-width:767px){ .ow-terms-wrap{ display:none !important; } }
@@ -1869,31 +1870,30 @@ footer{ display:none !important; }
         </div>
       </div>
 
-      {% if face_scan_step %}
-      <section class="ow-pf-scan" id="owProgressiveScan"
-               data-event-url="{{ url_for('main.checkout_face_scan_event') }}">
-        <h3>{{ face_scan_step.heading }}</h3>
-        <p>{{ face_scan_step.body }}</p>
-        <div class="ow-pf-scan-actions">
-          <a class="ow-pf-scan-primary" href="{{ face_scan_step.tryon_url }}">{{ face_scan_step.btn_scan }}</a>
-          <button class="ow-pf-scan-secondary" type="button" id="owPfSkip">{{ face_scan_step.btn_skip }}</button>
-        </div>
-        <div class="ow-pf-warning" id="owPfWarning" role="note" hidden>
-          <p>{{ face_scan_step.warning }}</p>
-          <label class="ow-ck-policy-accept" for="owFaceScanAck">
-            <input type="checkbox" id="owFaceScanAck" name="face_scan_ack" value="1" disabled>
-            <span>{{ face_scan_step.tick }}</span>
-          </label>
-          <span id="owPfEventStatus" aria-live="polite"></span>
-        </div>
-      </section>
-      {% endif %}
-
       {% if acceptance_text is defined %}
       {# The disclosure and the box live next to the Pay button, not in the
          long T&C page. The box is never pre-checked; the server refuses a
          checkout without it (policy_terms.require). #}
       <div class="ow-ck-policy" id="owPolicyBlock">
+        {% if face_scan_step %}
+        <section class="ow-pf-scan" id="owProgressiveScan"
+                 data-event-url="{{ url_for('main.checkout_face_scan_event') }}">
+          <h3>{{ face_scan_step.heading }}</h3>
+          <p>{{ face_scan_step.body }}</p>
+          <div class="ow-pf-scan-actions">
+            <a class="ow-pf-scan-primary" href="{{ face_scan_step.tryon_url }}">{{ face_scan_step.btn_scan }}</a>
+            <button class="ow-pf-scan-secondary" type="button" id="owPfSkip">{{ face_scan_step.btn_skip }}</button>
+          </div>
+          <div class="ow-pf-warning" id="owPfWarning" role="note" hidden>
+            <p>{{ face_scan_step.warning }}</p>
+            <label class="ow-pf-scan-ack" for="owFaceScanAck">
+              <input type="checkbox" id="owFaceScanAck" name="face_scan_ack" value="1" disabled>
+              <span>{{ face_scan_step.tick }}</span>
+            </label>
+            <span id="owPfEventStatus" aria-live="polite"></span>
+          </div>
+        </section>
+        {% endif %}
         <p class="ow-ck-terms-head">{{ _('Please read and accept before you pay.') }}</p>
         {% if spectacle_summary %}
         <details class="ow-ck-fold" id="owFoldBreakdown" open>

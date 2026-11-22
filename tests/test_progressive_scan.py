@@ -288,6 +288,22 @@ class ProgressiveScanTests(unittest.TestCase):
         with open(os.path.join(REPO, "templates", "checkout.html"),
                   encoding="utf-8") as template_file:
             source = template_file.read()
+        policy_start = source.index(
+            '<div class="ow-ck-policy" id="owPolicyBlock">')
+        scan_start = source.index(
+            '<section class="ow-pf-scan" id="owProgressiveScan"')
+        self.assertGreater(scan_start, policy_start)
+        scan_markup = source[scan_start:source.index("</section>", scan_start)]
+        self.assertIn('class="ow-pf-scan-ack"', scan_markup)
+        self.assertNotIn("ow-ck-policy-accept", scan_markup)
+        with open(os.path.join(REPO, "static", "css", "ow-ui.css"),
+                  encoding="utf-8") as css_file:
+            css = css_file.read()
+        self.assertIn(
+            ".ow-ck.ow-mob-step-3 .ow-ck-policy-accept { display: none !important; }",
+            css)
+        self.assertNotIn(
+            ".ow-ck.ow-mob-step-3 .ow-pf-scan-ack", css)
         match = re.search(
             r"({% if face_scan_step %}.*?{% endif %})", source, re.S)
         self.assertIsNotNone(match)
