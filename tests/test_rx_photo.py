@@ -257,9 +257,20 @@ class Route(unittest.TestCase):
         server_session = _SessionWithSid("server-session-1")
         with self.app.app_context(), mock.patch.object(self.rx, "session", server_session):
             token = self.rx._new_token()
-            self.assertNotIn(self.rx.SESSION_NONCE_KEY, server_session)
+            self.assertIn(self.rx.SESSION_NONCE_KEY, server_session)
             server_session.pop(self.rx.SESSION_NONCE_KEY, None)
             self.assertTrue(self.rx._token_ok(token))
+
+    def test_sid_token_marks_the_session_modified_and_stores_a_nonce(self):
+        server_session = _SessionWithSid("server-session-1")
+        with self.app.app_context(), mock.patch.object(self.rx, "session", server_session):
+            token = self.rx._new_token()
+            self.assertIn(self.rx.SESSION_NONCE_KEY, server_session)
+            self.assertTrue(server_session.modified)
+            self.assertEqual(
+                set(self.rx._serializer().loads(token)),
+                {"s", "t"},
+            )
 
     def test_sid_token_is_rejected_in_another_session(self):
         with self.app.app_context(), mock.patch.object(
@@ -899,7 +910,8 @@ class FindReadCompare(unittest.TestCase):
     def test_the_page_rechallenges_once_after_an_rx_photo_bot_reply(self):
         page = open(os.path.join(REPO, "templates", "prescription.html"), encoding="utf-8").read()
         self.assertIn("j.code === 'RX_PHOTO_BOT' && !botRetried", page)
-        self.assertIn("challenge().then(function () { send(f, choice); }", page)
+        self.assertIn("challenge().then(resend, resend);", page)
+        self.assertIn("setTimeout(function () { send(f, choice); }, 1600);", page)
         self.assertIn("botRetried = false;", page)
 
 

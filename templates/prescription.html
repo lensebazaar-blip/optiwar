@@ -947,7 +947,8 @@ window.onload = function() {
             .then(function (j) {
                 if (j && j.code === 'RX_PHOTO_BOT' && !botRetried) {
                     botRetried = true;
-                    challenge().then(function () { send(f, choice); }, function () { send(f, choice); });
+                    var resend = function () { setTimeout(function () { send(f, choice); }, 1600); };
+                    challenge().then(resend, resend);
                     return;
                 }
                 if (!j || !j.ok) { say('err', esc((j && j.message) || 'Our reader had a problem on our side, not with your photo. Please try again in a minute or type the values below.')); done(); return; }

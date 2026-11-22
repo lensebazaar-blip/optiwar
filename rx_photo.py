@@ -720,12 +720,12 @@ def _session_id_hash(sid):
 
 
 def _new_token():
-    sid = getattr(session, "sid", None)
-    if sid:
-        return _serializer().dumps({"s": _session_id_hash(sid), "t": time.time()})
     nonce = session.get(SESSION_NONCE_KEY) or secrets.token_hex(8)
     session[SESSION_NONCE_KEY] = nonce
     session.modified = True
+    sid = getattr(session, "sid", None)
+    if sid:
+        return _serializer().dumps({"s": _session_id_hash(sid), "t": time.time()})
     return _serializer().dumps({"n": nonce, "t": time.time()})
 
 
