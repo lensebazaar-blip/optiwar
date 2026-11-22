@@ -20,6 +20,7 @@ from flask import Blueprint, Flask
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
+sys.modules.setdefault("test_reship", sys.modules[__name__])
 
 from tests.test_paid_order_pipeline import DDL, _connect  # noqa: E402
 from tests.test_razorpay_settlement import EXTRA_DDL  # noqa: E402
@@ -121,6 +122,15 @@ def _app():
     reship_api.register(bp)
     app.register_blueprint(bp)
     return app
+
+
+class ReshipModuleIdentityTests(unittest.TestCase):
+
+    def test_discovery_names_resolve_to_the_same_module(self):
+        self.assertIs(sys.modules["test_reship"], sys.modules[__name__])
+        if "tests.test_reship" in sys.modules:
+            self.assertIs(sys.modules["tests.test_reship"],
+                          sys.modules["test_reship"])
 
 
 def _payment(pid, rzp_order, amount=25000, currency="INR", status="captured", notes=None):

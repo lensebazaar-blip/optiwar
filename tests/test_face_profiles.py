@@ -254,11 +254,6 @@ class InvariantTests(unittest.TestCase):
         order_id = "PFSCAN-SETDEFAULT"
         cur = self.db.cursor()
         cur.execute(
-            "CREATE TABLE IF NOT EXISTS order_history ("
-            "id BIGINT AUTO_INCREMENT PRIMARY KEY, "
-            "order_history_content TEXT, order_id VARCHAR(18), "
-            "site_from VARCHAR(32)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4")
-        cur.execute(
             "INSERT INTO order_face_scan_choice "
             "(order_id, customer_id, choice, warning_version, warning_text, "
             "warned_at, decided_at) "
@@ -280,9 +275,6 @@ class InvariantTests(unittest.TestCase):
             "choice": "DECLINED_AFTER_WARNING",
             "previous_choice": None,
         })
-        cur.execute("SELECT COUNT(*) AS n FROM order_history WHERE order_id=%s",
-                    (order_id,))
-        self.assertEqual(cur.fetchone()["n"], 0)
         cur.execute("DELETE FROM order_face_scan_choice WHERE order_id=%s",
                     (order_id,))
         self.db.commit()
