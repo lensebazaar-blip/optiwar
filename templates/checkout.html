@@ -311,6 +311,16 @@ footer{ display:none !important; }
 .ow-ck-policy-accept input{ margin-top:3px;width:18px;height:18px;flex:0 0 18px;accent-color:#2563eb; }
 .ow-ck-policy-accept a{ color:#2563eb;font-weight:600;text-decoration:underline; }
 .ow-ck-policy-missing{ border-color:#dc2626;box-shadow:0 0 0 3px rgba(220,38,38,.15); }
+.ow-pf-scan{ margin:14px 0 12px;padding:16px;border:1px solid #cbd5e1;border-radius:14px;background:#f8fafc;text-align:left; }
+.ow-pf-scan h3{ margin:0 0 7px;font-size:16px;color:#0f172a; }
+.ow-pf-scan p{ margin:0 0 12px;font-size:13px;line-height:1.55;color:#334155; }
+.ow-pf-scan-actions{ display:flex;flex-wrap:wrap;gap:9px; }
+.ow-pf-scan-actions a,.ow-pf-scan-actions button{ display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:9px 14px;border:0;border-radius:10px;font:inherit;font-size:13px;font-weight:700;text-decoration:none;cursor:pointer; }
+.ow-pf-scan-primary{ background:#2563eb;color:#fff; }
+.ow-pf-scan-secondary{ background:#e2e8f0;color:#0f172a; }
+.ow-pf-warning{ margin-top:12px;padding:12px;border:1px solid #fed7aa;border-radius:10px;background:#fff7ed; }
+.ow-pf-warning p{ margin:0 0 8px;color:#7c2d12; }
+.ow-pf-warning .ow-ck-policy-accept{ margin-top:8px; }
 /* Desktop: center the terms widget */
 .ow-terms-wrap{ display:flex;justify-content:center;margin-top:16px; }
 @media(max-width:767px){ .ow-terms-wrap{ display:none !important; } }
@@ -1859,6 +1869,26 @@ footer{ display:none !important; }
         </div>
       </div>
 
+      {% if face_scan_step %}
+      <section class="ow-pf-scan" id="owProgressiveScan"
+               data-event-url="{{ url_for('main.checkout_face_scan_event') }}">
+        <h3>{{ face_scan_step.heading }}</h3>
+        <p>{{ face_scan_step.body }}</p>
+        <div class="ow-pf-scan-actions">
+          <a class="ow-pf-scan-primary" href="{{ face_scan_step.tryon_url }}">{{ face_scan_step.btn_scan }}</a>
+          <button class="ow-pf-scan-secondary" type="button" id="owPfSkip">{{ face_scan_step.btn_skip }}</button>
+        </div>
+        <div class="ow-pf-warning" id="owPfWarning" role="note" hidden>
+          <p>{{ face_scan_step.warning }}</p>
+          <label class="ow-ck-policy-accept" for="owFaceScanAck">
+            <input type="checkbox" id="owFaceScanAck" name="face_scan_ack" value="1" disabled>
+            <span>{{ face_scan_step.tick }}</span>
+          </label>
+          <span id="owPfEventStatus" aria-live="polite"></span>
+        </div>
+      </section>
+      {% endif %}
+
       {% if acceptance_text is defined %}
       {# The disclosure and the box live next to the Pay button, not in the
          long T&C page. The box is never pre-checked; the server refuses a
@@ -2171,6 +2201,15 @@ function owValidateForm() {
     if (el && !el.value.trim()) { el.classList.add('ow-ck-field-missing'); valid = false; }
   });
   if (!valid) owShowToast('Please fill all required fields');
+  var faceScan = document.getElementById('owProgressiveScan');
+  var faceScanAck = document.getElementById('owFaceScanAck');
+  if (valid && faceScan && (!faceScanAck || !faceScanAck.checked)) {
+    faceScan.classList.add('ow-ck-policy-missing');
+    owShowToast('Please take the face scan, or tick “I understand” to continue without it.');
+    faceScan.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    document.getElementById('owPfSkip').focus();
+    valid = false;
+  }
   var terms = document.getElementById('owTermsAccepted');
   if (valid && terms && !terms.checked) {
     document.getElementById('owPolicyBlock').classList.add('ow-ck-policy-missing');
@@ -2180,6 +2219,43 @@ function owValidateForm() {
   }
   return valid;
 }
+function owPostProgressiveScanEvent(eventName) {
+  var faceScan = document.getElementById('owProgressiveScan');
+  return fetch(faceScan.getAttribute('data-event-url'), {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+    body: 'event=' + encodeURIComponent(eventName)
+  }).then(function(response) {
+    return response.json().then(function(data) {
+      if (!response.ok || !data.ok) throw new Error('event_failed');
+      return data;
+    });
+  });
+}
+var owPfSkip = document.getElementById('owPfSkip');
+if (owPfSkip) owPfSkip.addEventListener('click', function() {
+  var warning = document.getElementById('owPfWarning');
+  var ack = document.getElementById('owFaceScanAck');
+  var status = document.getElementById('owPfEventStatus');
+  warning.hidden = false;
+  ack.disabled = true;
+  status.textContent = 'Saving your choice…';
+  owPostProgressiveScanEvent('warned').then(function() {
+    ack.disabled = false;
+    status.textContent = '';
+  }).catch(function() {
+    status.textContent = 'Please try again before continuing.';
+  });
+});
+var owFaceScanAck = document.getElementById('owFaceScanAck');
+if (owFaceScanAck) owFaceScanAck.addEventListener('change', function() {
+  var faceScan = document.getElementById('owProgressiveScan');
+  if (this.checked) {
+    faceScan.classList.remove('ow-ck-policy-missing');
+    owPostProgressiveScanEvent('accepted').catch(function() {});
+  }
+});
 document.getElementById('owTermsAccepted') && document.getElementById('owTermsAccepted').addEventListener('change', function() {
   document.getElementById('owPolicyBlock').classList.remove('ow-ck-policy-missing');
 });

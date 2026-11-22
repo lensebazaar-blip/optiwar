@@ -28,9 +28,15 @@ Stdlib only at import: deploy/deploy.py reads TABLES from here for the
 migration plan. Service functions take a DB-API connection with dict cursors.
 """
 
+import logging
 import os
 import uuid
 from datetime import datetime, timedelta
+
+try:
+    from . import progressive_scan
+except ImportError:
+    import progressive_scan
 
 REL_SELF = "self"
 RELATIONSHIPS = ("self", "spouse", "partner", "child", "parent", "sibling",
@@ -41,6 +47,7 @@ RELATIONSHIP_LABELS = {
     "other": "Other",
 }
 NAME_MAX = 60
+_LOG = logging.getLogger(__name__)
 
 ST_STARTED = "STARTED"
 ST_PROCESSING = "PROCESSING"
@@ -150,13 +157,17 @@ class NotFound(ProfileError):
 
 def ensure_schema(db):
     global _SCHEMA_READY
-    if _SCHEMA_READY:
-        return
     cur = db.cursor()
-    for _name, ddl in TABLES:
-        cur.execute(ddl)
-    db.commit()
-    _SCHEMA_READY = True
+    if not _SCHEMA_READY:
+        for _name, ddl in TABLES:
+            cur.execute(ddl)
+    try:
+        progressive_scan.ensure_schema(cur)
+    except Exception as exc:  # noqa: BLE001 - face scans must survive link-table issues
+        _LOG.warning("Progressive scan schema setup failed: %s", exc)
+    if not _SCHEMA_READY:
+        db.commit()
+        _SCHEMA_READY = True
 
 
 # --------------------------------------------------------------------------
@@ -560,6 +571,11 @@ def _mirror_default(cur, customer_id):
          s["eye_mouth"], s["recommended_diameter"], s["recommended_bridge"],
          s["recommended_length"], s["decentration"], s["frame_candidates"],
          s["measured_at"]))
+    try:
+        progressive_scan.link_later_scan(cur, customer_id, cur.lastrowid)
+    except Exception as exc:  # noqa: BLE001 - scan persistence is more important than linkage
+        _LOG.warning("Later progressive scan linking failed for customer %s: %s",
+                     customer_id, exc)
 
 
 # --------------------------------------------------------------------------

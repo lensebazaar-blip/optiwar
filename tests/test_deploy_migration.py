@@ -40,6 +40,7 @@ class DeployMigrationTest(unittest.TestCase):
                         os.path.join(REPO, "chat_attachments.py"))
         self.fp = _load("fp_for_deploy_test",
                         os.path.join(REPO, "face_profiles.py"))
+        self.ps = self.deploy.progressive_scan_module()
         self.fsi = self.deploy.face_scan_invites_module()
         self.fsg = self.deploy.face_scan_groups_module()
         self.fc = self.deploy.face_cart_module()
@@ -67,6 +68,7 @@ class DeployMigrationTest(unittest.TestCase):
         expected += ["%s (table)" % n for n, _d in self.ra.TABLES]
         expected += ["%s (table)" % n for n, _d in self.ca.TABLES]
         expected += ["%s (table)" % n for n, _d in self.fp.TABLES]
+        expected += ["%s (table)" % n for n, _d in self.ps.TABLES]
         expected += ["%s (table)" % n for n, _d in self.fsi.TABLES]
         expected += ["%s (table)" % n for n, _d in self.fsg.TABLES]
         expected += ["%s (table)" % n for n, _d in self.fc.TABLES]

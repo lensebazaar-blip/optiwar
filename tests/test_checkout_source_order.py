@@ -51,6 +51,42 @@ class CheckoutSourceOrder(unittest.TestCase):
         self.assertLess(body.index("cursor = db.cursor()"), body.index("shipping_options.choose("))
         self.assertLess(body.index("shipping_options.choose("), body.index("total_amount = grand_total"))
 
+    def test_progressive_scan_gate_runs_after_policy_and_before_order_creation(self):
+        with open(os.path.join(REPO, "models.py"), encoding="utf-8") as fh:
+            source = fh.read()
+        fn = next(n for n in ast.walk(ast.parse(source))
+                  if isinstance(n, ast.FunctionDef) and n.name == "checkout")
+        body = ast.get_source_segment(source, fn)
+        self.assertLess(body.index("policy_terms.require("),
+                        body.index("_progressive_scan_checkout_allowed(cart)"))
+        self.assertLess(body.index("_progressive_scan_checkout_allowed(cart)"),
+                        body.index("INSERT INTO order_intents"))
+        self.assertRegex(
+            body,
+            r"if not _progressive_scan_checkout_allowed\(cart\):\s+"
+            r"return redirect\(url_for\('main\.checkout_page'\)\)")
+        self.assertIn(
+            "Please take the face scan, or tick “I understand” to continue without it.",
+            source)
+
+    def test_progressive_scan_session_state_is_scoped_and_cleared_after_commit(self):
+        with open(os.path.join(REPO, "models.py"), encoding="utf-8") as fh:
+            source = fh.read()
+        page = source.split("def checkout_page():", 1)[1].split(
+            "\n@bp.route", 1)[0]
+        self.assertLess(page.index("session.pop('pf_warned_at'"),
+                        page.index("session['checkout_token']"))
+        checkout = source.split("def checkout():", 1)[1].split(
+            "\n@bp.route('/test-checkout'", 1)[0]
+        test_checkout = source.split("def test_checkout():", 1)[1].split(
+            "\n@bp.route", 1)[0]
+        for body in (checkout, test_checkout):
+            record = body.index("progressive_scan.record(")
+            commit = body.index("db.commit()", record)
+            pop = body.index("session.pop('pf_warned_at'", commit)
+            self.assertLess(commit, pop)
+            self.assertIn("session.pop('pf_accepted_at'", body[pop:])
+
 
 if __name__ == "__main__":
     unittest.main()

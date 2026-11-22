@@ -16,6 +16,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest import mock
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -368,6 +369,16 @@ class MigrationTests(unittest.TestCase):
         cur.execute("SELECT status FROM face_scans WHERE customer_id=%s ORDER BY id", (C1,))
         self.assertEqual([r["status"] for r in cur.fetchall()],
                          [self.fp.ST_SUPERSEDED, self.fp.ST_COMPLETED])
+
+    def test_later_scan_link_failure_does_not_fail_scan_save(self):
+        _legacy_row(self.db, C1)
+        self.fp.migrate_customer(self.db, C1, "A")
+        me = self.fp.self_profile(self.db, C1)
+        with mock.patch.object(
+                self.fp.progressive_scan, "link_later_scan",
+                side_effect=RuntimeError("link failed")):
+            scan_id = self.fp.record_scan(self.db, C1, me["id"], BASELINE)
+        self.assertGreater(scan_id, 0)
 
     def test_a_scan_on_a_non_default_person_leaves_the_legacy_row_alone(self):
         _legacy_row(self.db, C1)

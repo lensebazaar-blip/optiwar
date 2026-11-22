@@ -33,7 +33,7 @@ from .catalogue import (
     current_site, strip_ineligible_urls, age_group, ensure_gmc_columns,
     live_lenses, lens_matrix_summary, SITE_IN, SITE_COM,
 )
-from . import face_cart, face_fit, face_profiles, face_profiles_api, face_scan_groups_api, face_scan_invites_api, favorites_api, order_face_scan, order_rx_documents
+from . import face_cart, face_fit, face_profiles, face_profiles_api, face_scan_groups_api, face_scan_invites_api, favorites_api, order_face_scan, order_rx_documents, progressive_scan
 from . import (acr, lens_cart, lens_config, lens_documents, lens_feed,
                lens_order, lens_preview, lens_rx, lens_seo, lens_upload,
                lens_view, rx_photo, ip_notice, shipping_options, shipping_refunds, ops_controls,
@@ -81,6 +81,7 @@ face_scan_groups_api.register(bp)
 favorites_api.register(bp)
 order_face_scan.register(bp)
 order_rx_documents.register(bp)
+progressive_scan.register(bp)
 
 @bp.route('/eu/')
 @bp.route('/eu/<path:rest>')
@@ -2834,6 +2835,21 @@ def place_details():
         return jsonify({'result': {}})
 
 
+def _progressive_scan_checkout_allowed(cart):
+    if not progressive_scan.cart_needs_step(cart):
+        return True
+    cursor = get_db().cursor()
+    progressive_scan.ensure_schema(cursor)
+    scan_id = progressive_scan.latest_scan_id(
+        cursor, session.get('user_id'))
+    if progressive_scan.acknowledgement_is_valid(
+            scan_id, request.form.get('face_scan_ack'),
+            session.get('pf_warned_at')):
+        return True
+    flash('Please take the face scan, or tick “I understand” to continue without it.')
+    return False
+
+
 @bp.route('/checkout', methods=['GET'])
 def checkout_page():
 
@@ -3101,10 +3117,28 @@ def checkout_page():
     rx_documents = (order_rx_documents.checkout_documents(
         get_db().cursor(), user_id, cart) if user_id else {})
 
+    face_scan_step = None
+    if progressive_scan.cart_needs_step(cart):
+        _pf_cursor = get_db().cursor()
+        progressive_scan.ensure_schema(_pf_cursor)
+        if progressive_scan.latest_scan_id(_pf_cursor, user_id) is None:
+            face_scan_step = {
+                'heading': progressive_scan.HEADING,
+                'body': progressive_scan.BODY,
+                'btn_scan': progressive_scan.BTN_SCAN,
+                'btn_skip': progressive_scan.BTN_SKIP,
+                'warning': progressive_scan.WARNING,
+                'tick': progressive_scan.TICK,
+                'tryon_url': url_for(
+                    'main.spectacle_tryon', **{'return': '/checkout'}),
+            }
+
+    session.pop('pf_warned_at', None)
+    session.pop('pf_accepted_at', None)
     import uuid as _uuid
     session['checkout_token'] = str(_uuid.uuid4())
     _acr_stage(acr.STAGE_CHECKOUT)
-    return render_template('checkout.html', cart=cart,ship_days=ship_days, ship_is_preorder=ship_is_preorder, mixed_dispatch=mixed_dispatch, ship_usual=ship_usual, shipping_allowed=shipping_allowed, shipping_rules=shipping_rules, face_lines=face_lines,product_image_map=product_image_map, grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, right_eye=right_eye, left_eye=left_eye,right_pwr=right_pwr, right_lens_color=right_lens_color, right_cyl=right_cyl, right_qty=right_qty, right_axis=right_axis, right_add=right_add, left_pwr=left_pwr, left_lens_color=left_lens_color, left_cyl=left_cyl, left_qty=left_qty, left_axis=left_axis, left_add=left_add, lens_recommendations=lens_recommendations, prefill=prefill, saved_addresses=saved_addresses, lens_removal_pending=lens_removal_pending, lens_removal_confirm_text=lens_cart.CONFIRM_REMOVAL, rx_documents=rx_documents, **policy_terms.checkout_context(cart, _get_site_from()))
+    return render_template('checkout.html', cart=cart,ship_days=ship_days, ship_is_preorder=ship_is_preorder, mixed_dispatch=mixed_dispatch, ship_usual=ship_usual, shipping_allowed=shipping_allowed, shipping_rules=shipping_rules, face_lines=face_lines,product_image_map=product_image_map, grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, right_eye=right_eye, left_eye=left_eye,right_pwr=right_pwr, right_lens_color=right_lens_color, right_cyl=right_cyl, right_qty=right_qty, right_axis=right_axis, right_add=right_add, left_pwr=left_pwr, left_lens_color=left_lens_color, left_cyl=left_cyl, left_qty=left_qty, left_axis=left_axis, left_add=left_add, lens_recommendations=lens_recommendations, prefill=prefill, saved_addresses=saved_addresses, lens_removal_pending=lens_removal_pending, lens_removal_confirm_text=lens_cart.CONFIRM_REMOVAL, rx_documents=rx_documents, face_scan_step=face_scan_step, **policy_terms.checkout_context(cart, _get_site_from()))
 
 """
 @bp.route('/initiate-payment', methods=['POST'])
@@ -3202,6 +3236,8 @@ def checkout():
         policy_terms.require(request.form, _get_site_from())
     except policy_terms.NotAccepted as _na:
         flash(str(_na))
+        return redirect(url_for('main.checkout_page'))
+    if not _progressive_scan_checkout_allowed(cart):
         return redirect(url_for('main.checkout_page'))
 
     grand_total = 0
@@ -3509,6 +3545,11 @@ def checkout():
         policy_terms.record(cursor, order_id, _get_site_from(), cart,
                             checkout_token=_checkout_token, customer_id=customer_id,
                             ip_address=client_ip)
+        if progressive_scan.cart_needs_step(cart):
+            progressive_scan.record(
+                cursor, order_id, customer_id, _get_site_from(), cart,
+                progressive_scan.latest_scan_id(cursor, customer_id),
+                session.get('pf_warned_at'), session.get('pf_accepted_at'))
         if user_id and face_profiles_api.gate_enabled():
             # The person and fit each frame line was bought for, sealed with
             # the order; the profile may be renamed or deleted later.
@@ -3517,6 +3558,8 @@ def checkout():
         if not _reuse_order_id:
             cursor.execute("UPDATE order_intents SET order_id=%s, status='created' WHERE token=%s", (order_id, _checkout_token))
         db.commit()
+        session.pop('pf_warned_at', None)
+        session.pop('pf_accepted_at', None)
         current_app.logger.info(f'✅ Order {order_id} committed successfully.')
         '''
         # 📨 Send email confirmation
@@ -3605,6 +3648,8 @@ def test_checkout():
         policy_terms.require(request.form, _get_site_from())
     except policy_terms.NotAccepted as _na:
         flash(str(_na))
+        return redirect(url_for('main.checkout_page'))
+    if not _progressive_scan_checkout_allowed(cart):
         return redirect(url_for('main.checkout_page'))
 
     grand_total = 0
@@ -3725,6 +3770,11 @@ def test_checkout():
 
         policy_terms.record(cursor, order_id, _get_site_from(), cart,
                             customer_id=customer_id, ip_address=client_ip)
+        if progressive_scan.cart_needs_step(cart):
+            progressive_scan.record(
+                cursor, order_id, customer_id, _get_site_from(), cart,
+                progressive_scan.latest_scan_id(cursor, customer_id),
+                session.get('pf_warned_at'), session.get('pf_accepted_at'))
         if user_id and face_profiles_api.gate_enabled():
             # Same sealing as the real checkout, so a TEST order shows the person
             # and face fit each frame (and AI Glasses) line was bought for.
@@ -3739,6 +3789,8 @@ def test_checkout():
 
         order_rx_documents.attach_for_order(cursor, order_id, customer_id, cart)
         db.commit()
+        session.pop('pf_warned_at', None)
+        session.pop('pf_accepted_at', None)
         print(f"[TEST-CHECKOUT] Order {order_id} committed as TEST order")
 
         # Get profile/login email for CC
@@ -6429,6 +6481,8 @@ Response-Time: 24 hours
 def spectacle_tryon():
     if 'user_id' not in session:
         return redirect(url_for('auth.login', next=request.full_path.rstrip('?')))
+    checkout_return = progressive_scan.safe_return_path(
+        request.args.get('return'))
     # Multi-person accounts scan *for* somebody: the profile chosen before the
     # scan travels as ?profile=<id> and is resolved as the customer's own or
     # not at all. Without one, the person being shopped for is scanned, and
@@ -6455,7 +6509,8 @@ def spectacle_tryon():
             abort(404)
         if row:
             scan_for = face_profiles.public_view(row)
-    return render_template("tryon.html", scan_for=scan_for)
+    return render_template("tryon.html", scan_for=scan_for,
+                           checkout_return=checkout_return)
 
 
 @bp.route('/api/tryon/frames')
@@ -6575,6 +6630,10 @@ def api_tryon_save():
             current_app.logger.warning(f"tryon capture store failed: {e}")
 
     cursor = db.cursor()
+    try:
+        progressive_scan.ensure_schema(cursor)
+    except Exception as exc:
+        current_app.logger.warning("Progressive scan schema setup failed: %s", exc)
     
     # Delete old measurement for this customer (keep latest only)
     cursor.execute("DELETE FROM face_measurements WHERE customer_id = %s", (customer_id,))
@@ -6588,6 +6647,7 @@ def api_tryon_save():
     """, (customer_id, pd_far, pd_near, face_width, eye_mouth,
           rec_diameter, rec_bridge, rec_length,
           decentration, frame_candidates_json, screenshot_path))
+    progressive_scan.link_later_scan(cursor, customer_id, cursor.lastrowid)
     db.commit()
     
     return jsonify({
