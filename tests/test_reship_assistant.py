@@ -15,7 +15,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 sys.path.insert(0, os.path.join(REPO, "tests"))
 
-import test_reship as base  # noqa: E402  (the name discover loads it under)
+from tests import test_reship as base  # noqa: E402
 
 PKG = base.PKG
 reship = base.reship

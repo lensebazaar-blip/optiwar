@@ -6630,10 +6630,6 @@ def api_tryon_save():
             current_app.logger.warning(f"tryon capture store failed: {e}")
 
     cursor = db.cursor()
-    try:
-        progressive_scan.ensure_schema(cursor)
-    except Exception as exc:
-        current_app.logger.warning("Progressive scan schema setup failed: %s", exc)
     
     # Delete old measurement for this customer (keep latest only)
     cursor.execute("DELETE FROM face_measurements WHERE customer_id = %s", (customer_id,))
@@ -6647,7 +6643,9 @@ def api_tryon_save():
     """, (customer_id, pd_far, pd_near, face_width, eye_mouth,
           rec_diameter, rec_bridge, rec_length,
           decentration, frame_candidates_json, screenshot_path))
-    progressive_scan.link_later_scan(cursor, customer_id, cursor.lastrowid)
+    face_measurement_id = cursor.lastrowid
+    progressive_scan.link_later_scan(
+        cursor, customer_id, face_measurement_id)
     db.commit()
     
     return jsonify({

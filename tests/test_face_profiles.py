@@ -380,6 +380,39 @@ class MigrationTests(unittest.TestCase):
             scan_id = self.fp.record_scan(self.db, C1, me["id"], BASELINE)
         self.assertGreater(scan_id, 0)
 
+    def test_scan_save_skips_schema_setup_and_links_the_mirror_row_id(self):
+        _legacy_row(self.db, C1)
+        self.fp.migrate_customer(self.db, C1, "A")
+        me = self.fp.self_profile(self.db, C1)
+        with mock.patch.object(
+                self.fp.progressive_scan, "ensure_schema",
+                side_effect=AssertionError("scan path must not run DDL")) as ddl, \
+             mock.patch.object(
+                self.fp.progressive_scan, "link_later_scan") as link, \
+             mock.patch.object(self.db, "commit", wraps=self.db.commit) as commit:
+            self.fp.record_scan(
+                self.db, C1, me["id"], BASELINE, commit=False)
+            cur = self.db.cursor()
+            cur.execute(
+                "SELECT id FROM face_measurements WHERE customer_id=%s",
+                (C1,))
+            measurement_id = cur.fetchone()["id"]
+
+        ddl.assert_not_called()
+        self.assertEqual(link.call_args.args[2], measurement_id)
+        commit.assert_not_called()
+        self.db.rollback()
+
+    def test_ensure_schema_keeps_early_return_for_profile_tables(self):
+        db = mock.Mock()
+        cursor = db.cursor.return_value
+        with mock.patch.object(self.fp, "_SCHEMA_READY", True), \
+             mock.patch.object(self.fp.progressive_scan, "ensure_schema") as progressive:
+            self.fp.ensure_schema(db)
+        cursor.execute.assert_not_called()
+        db.commit.assert_not_called()
+        progressive.assert_called_once_with(cursor)
+
     def test_a_scan_on_a_non_default_person_leaves_the_legacy_row_alone(self):
         _legacy_row(self.db, C1)
         self.fp.migrate_customer(self.db, C1, "A")

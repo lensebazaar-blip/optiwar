@@ -40,7 +40,6 @@ class DeployMigrationTest(unittest.TestCase):
                         os.path.join(REPO, "chat_attachments.py"))
         self.fp = _load("fp_for_deploy_test",
                         os.path.join(REPO, "face_profiles.py"))
-        self.ps = self.deploy.progressive_scan_module()
         self.fsi = self.deploy.face_scan_invites_module()
         self.fsg = self.deploy.face_scan_groups_module()
         self.fc = self.deploy.face_cart_module()
@@ -68,7 +67,7 @@ class DeployMigrationTest(unittest.TestCase):
         expected += ["%s (table)" % n for n, _d in self.ra.TABLES]
         expected += ["%s (table)" % n for n, _d in self.ca.TABLES]
         expected += ["%s (table)" % n for n, _d in self.fp.TABLES]
-        expected += ["%s (table)" % n for n, _d in self.ps.TABLES]
+        expected += ["order_face_scan_choice (table)"]
         expected += ["%s (table)" % n for n, _d in self.fsi.TABLES]
         expected += ["%s (table)" % n for n, _d in self.fsg.TABLES]
         expected += ["%s (table)" % n for n, _d in self.fc.TABLES]
@@ -109,6 +108,10 @@ class DeployMigrationTest(unittest.TestCase):
         for table, columns in self.deploy.test_identity_module().ADDED_COLUMNS:
             expected += ["%s.%s (column)" % (table, n) for n, _d in columns]
         self.assertEqual(labels, expected)
+
+    def test_progressive_scan_module_is_in_release_sets(self):
+        self.assertIn("progressive_scan.py", self.deploy.DEPLOY_SET)
+        self.assertIn("progressive_scan.py", self.deploy.NEW_IN_RELEASE)
 
     def test_the_catalogue_columns_are_the_ones_catalogue_ensures(self):
         """Read out of the source rather than imported, because catalogue.py

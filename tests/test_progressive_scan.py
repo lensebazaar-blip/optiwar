@@ -1,4 +1,3 @@
-import importlib.util
 import os
 import re
 import unittest
@@ -121,8 +120,10 @@ class ProgressiveScanTests(unittest.TestCase):
         self.assertFalse(progressive_scan.cart_needs_step([]))
 
     def test_schema_and_latest_scan_lookup(self):
+        schema_was_ready = progressive_scan._SCHEMA_READY
         progressive_scan._SCHEMA_READY = False
-        self.addCleanup(setattr, progressive_scan, "_SCHEMA_READY", False)
+        self.addCleanup(setattr, progressive_scan, "_SCHEMA_READY",
+                        schema_was_ready)
         cur = FakeCursor(scan_row={"id": 73})
         progressive_scan.ensure_schema(cur)
         self.assertIn("order_face_scan_choice", cur.calls[0][0])
@@ -348,16 +349,16 @@ class ProgressiveScanTests(unittest.TestCase):
         scanned = template.render(result=result, order="ORDER-1", not_found=False)
         self.assertIn("Face scan on file at checkout", scanned)
 
-    def test_deploy_schema_plan_includes_progressive_scan_table(self):
-        spec = importlib.util.spec_from_file_location(
-            "progressive_scan_deploy_test",
-            os.path.join(REPO, "deploy", "deploy.py"))
-        deploy = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(deploy)
-        labels = [label for label, _ddl in deploy.migration()]
-        self.assertIn("order_face_scan_choice (table)", labels)
-        self.assertIn("progressive_scan.py", deploy.DEPLOY_SET)
-        self.assertIn("progressive_scan.py", deploy.NEW_IN_RELEASE)
+    def test_legacy_tryon_save_links_the_inserted_id_without_schema_setup(self):
+        with open(os.path.join(REPO, "models.py"), encoding="utf-8") as source_file:
+            source = source_file.read()
+        route = source.split("def api_tryon_save():", 1)[1].split(
+            "\n@bp.route", 1)[0]
+        self.assertNotIn("progressive_scan.ensure_schema", route)
+        self.assertLess(route.index("face_measurement_id = cursor.lastrowid"),
+                        route.index("progressive_scan.link_later_scan("))
+        self.assertIn(
+            "cursor, customer_id, face_measurement_id)", route)
 
 
 if __name__ == "__main__":

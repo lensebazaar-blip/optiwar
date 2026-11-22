@@ -157,17 +157,22 @@ class NotFound(ProfileError):
 
 def ensure_schema(db):
     global _SCHEMA_READY
+    if _SCHEMA_READY:
+        try:
+            progressive_scan.ensure_schema(db.cursor())
+        except Exception as exc:  # noqa: BLE001 - face scans must survive link-table issues
+            _LOG.warning("Progressive scan schema setup failed: %s", exc)
+        return
+
     cur = db.cursor()
-    if not _SCHEMA_READY:
-        for _name, ddl in TABLES:
-            cur.execute(ddl)
+    for _name, ddl in TABLES:
+        cur.execute(ddl)
     try:
         progressive_scan.ensure_schema(cur)
     except Exception as exc:  # noqa: BLE001 - face scans must survive link-table issues
         _LOG.warning("Progressive scan schema setup failed: %s", exc)
-    if not _SCHEMA_READY:
-        db.commit()
-        _SCHEMA_READY = True
+    db.commit()
+    _SCHEMA_READY = True
 
 
 # --------------------------------------------------------------------------
@@ -571,8 +576,10 @@ def _mirror_default(cur, customer_id):
          s["eye_mouth"], s["recommended_diameter"], s["recommended_bridge"],
          s["recommended_length"], s["decentration"], s["frame_candidates"],
          s["measured_at"]))
+    face_measurement_id = cur.lastrowid
     try:
-        progressive_scan.link_later_scan(cur, customer_id, cur.lastrowid)
+        progressive_scan.link_later_scan(
+            cur, customer_id, face_measurement_id)
     except Exception as exc:  # noqa: BLE001 - scan persistence is more important than linkage
         _LOG.warning("Later progressive scan linking failed for customer %s: %s",
                      customer_id, exc)
