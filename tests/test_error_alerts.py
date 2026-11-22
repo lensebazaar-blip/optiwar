@@ -116,6 +116,37 @@ class Alerts(AlertsBase):
         for fact in ("the customer's browser", "scripts.js:12 x is not a function"):
             self.assertIn(fact, body)
 
+    def test_a_page_document_line_one_error_is_not_mailed(self):
+        with self.assertLogs(self.app.logger, level="INFO") as captured:
+            r = self.client.post("/api/chat/dev-defect", json={
+                "code": "SITE_JS_ERROR",
+                "where": "/lenses/x:1 TypeError: injected script failed",
+                "page": "/lenses/x"})
+        self.assertEqual(r.status_code, 204)
+        self.assertEqual(self.mails, [])
+        self.assertTrue(any("DEV_DEFECT_UNCONFIRMED" in line
+                            for line in captured.output))
+
+    def test_a_script_file_line_one_error_is_still_mailed(self):
+        r = self.client.post("/api/chat/dev-defect", json={
+            "code": "SITE_JS_ERROR",
+            "where": "/static/js/scripts.js:1 TypeError: site script failed",
+            "page": "/lenses/x"})
+        self.assertEqual(r.status_code, 204)
+        self.assertEqual(len(self.mails), 1)
+        self.assertIn("scripts.js:1 TypeError: site script failed",
+                      self.mails[0][2])
+
+    def test_a_later_page_document_error_is_still_mailed(self):
+        r = self.client.post("/api/chat/dev-defect", json={
+            "code": "SITE_JS_ERROR",
+            "where": "/lenses/x:245 TypeError: site code failed",
+            "page": "/lenses/x"})
+        self.assertEqual(r.status_code, 204)
+        self.assertEqual(len(self.mails), 1)
+        self.assertIn("/lenses/x:245 TypeError: site code failed",
+                      self.mails[0][2])
+
     def test_notices_and_warnings_send_nothing_even_after_log_hygiene(self):
         import logging
         for handler in self.app.logger.handlers:
@@ -173,7 +204,9 @@ class Wiring(unittest.TestCase):
         self.assertIn("if (ours(el.src || el.href)) recheck(el);", js)
         self.assertIn("if (!r.ok) { report('SITE_ASSET_FAILED', short(url) + ' ' + r.status); return; }", js)
         self.assertIn("data-ow-retry", js)
-        self.assertIn("ow-errors.js') + '?v=2'", self._read("templates", "base.html"))
+        self.assertIn("function withoutQueryHash(url)", js)
+        self.assertIn("if (e.lineno === 1 && withoutQueryHash(e.filename) === withoutQueryHash(location.href)) return;", js)
+        self.assertIn("ow-errors.js') + '?v=3'", self._read("templates", "base.html"))
 
     def test_the_app_installs_it(self):
         self.assertIn("init_error_alerts(app)", self._read("__init__.py"))

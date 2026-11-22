@@ -35,12 +35,17 @@ CRAWLER = re.compile(r"[a-z]bot/|\bbot\b|spider|crawl|googleother|inspectiontool
 # 502 and 504 come from nginx when the app is down or slow: still reported.
 _SELF_RECORDED = {"SITE_HTTP_500", "SITE_HTTP_503"}
 _ASSET_5XX = re.compile(r"^/static/(\S+) 5\d\d$")
+_PAGE_LINE_ONE = re.compile(r"^(/[^\s:]*):1 ")
 
 
 def _unconfirmed(code, where):
     """A browser claim the server's own record shows did not happen."""
     if code in _SELF_RECORDED:
         return True
+    if code == "SITE_JS_ERROR":
+        m = _PAGE_LINE_ONE.match(str(where or ""))
+        # A page's first line is its doctype, not site JavaScript.
+        return bool(m and not m.group(1).endswith(".js"))
     m = _ASSET_5XX.match(str(where or "")) if code == "SITE_ASSET_FAILED" else None
     if not m:
         return False

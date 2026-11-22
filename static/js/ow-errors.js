@@ -19,6 +19,7 @@
   window.owReportError = report;
 
   function ours(url) { return String(url || '').indexOf(here) === 0; }
+  function withoutQueryHash(url) { return String(url || '').split(/[?#]/)[0]; }
   function short(url) { return String(url || '').replace(here, '').split('?')[0]; }
 
   /* A file the page failed to load is asked for once more. A server answer
@@ -44,6 +45,7 @@
       return;
     }
     if (!ours(e.filename)) return;
+    if (e.lineno === 1 && withoutQueryHash(e.filename) === withoutQueryHash(location.href)) return;
     report('SITE_JS_ERROR', short(e.filename) + ':' + e.lineno + ' ' + e.message);
   }, true);
 
