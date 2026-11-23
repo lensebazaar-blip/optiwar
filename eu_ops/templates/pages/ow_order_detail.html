@@ -209,8 +209,9 @@ function copyOrderText(){
     <div>Difference ₹{{ "%.2f"|format((offer.price_diff_minor|int)|abs / 100) }}: order is in {{ frame_offer_currency or 'unknown' }}, settle manually.</div>
     {% endif %}
     {% elif offer.status == 'REFUND_REQUESTED' %}
-    <div>Next action: review the customer's full-refund request.</div>
-    <a class="btn btn-sm btn-outline" href="{{ base }}/orders/ow/{{ order.order_id }}/refund/prepare">Prepare full refund</a>
+    <div>Next action: review the customer's full-refund request (₹{{ "%.2f"|format((offer.refund_balance_minor|int) / 100) }}).</div>
+    <a class="btn btn-sm btn-outline"
+       href="{{ base }}/orders/ow/{{ order.order_id }}/refund/prepare?amount={{ '%.2f'|format((offer.refund_balance_minor|int) / 100) }}&amp;reason_code=CUSTOMER_REFUND">Prepare full refund</a>
     {% elif offer.settlement == 'WAIVED' %}
     <div>Next action: no payment adjustment; fit and dispatch the selected frame.</div>
     {% endif %}

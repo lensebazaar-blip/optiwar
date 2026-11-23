@@ -74,6 +74,7 @@ def run(apply=False, now=None, client=None, notify=None, orders=None):
         order["order_quantity"] = int(
             offer.get("order_quantity") or product.get("quantity") or 1)
         order["total_minor"] = int(round(float(order.get("total") or 0) * 100))
+        order["refund_balance_minor"] = offer.get("refund_balance_minor")
         email_html, email_text = frame_offers.customer_email(
             order, failed, offer.get("candidates") or [], link_result["link"])
         subject = "Reminder: " + frame_offers.email_subject(offer["order_id"])

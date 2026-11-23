@@ -499,6 +499,9 @@ async def ow_order_detail(request: Request, order_id: str, user: dict = Depends(
         line_id = product.get("order_product_id")
         if line_id is not None:
             ok, offer = frame_offers_svc.latest(order_id, line_id)
+            if ok and offer and offer.get("refund_balance_minor") is None:
+                offer["refund_balance_minor"] = int(round(
+                    float(order.get("total") or 0) * 100))
             frame_offer_by_line[str(line_id)] = offer if ok else None
     frame_offer_currency = ""
     if any(offer and not offer.get("settled_at")
@@ -544,6 +547,8 @@ def _frame_offer_context(order, product, result=None, error=""):
                          or product.get("quantity") or 1)
     order_copy["order_quantity"] = order_quantity
     order_copy["total_minor"] = int(round(float(order.get("total") or 0) * 100))
+    order_copy["refund_balance_minor"] = (result or {}).get(
+        "refund_balance_minor")
     selected_candidates = [row for row in matches
                            if int(row["product_id"]) in chosen]
     for candidate in matches:
@@ -645,6 +650,7 @@ async def ow_frame_offer_send(request: Request, order_id: str,
     order_copy["order_quantity"] = int(
         created.get("order_quantity") or order_quantity)
     order_copy["total_minor"] = int(round(float(order.get("total") or 0) * 100))
+    order_copy["refund_balance_minor"] = created.get("refund_balance_minor")
     email_html, email_text = frame_offers_svc.customer_email(
         order_copy, failed, created.get("candidates") or candidates,
         created["link"])

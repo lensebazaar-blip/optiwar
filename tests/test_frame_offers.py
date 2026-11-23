@@ -46,8 +46,15 @@ def _package():
         int(row["amount_minor"]) for row in rows if row["status"] != refunds.FAILED)
     sys.modules[refunds.__name__] = refunds
     paid = types.ModuleType(name + ".paid_orders")
-    paid.order_amount_minor = lambda cursor, order_id: (
-        cursor.db.state["paid_total_minor"])
+
+    def order_amount_minor(cursor, order_id):
+        state = cursor.db.state
+        if state.get("delivery_fee_minor") is not None:
+            return (int(round(float(state["line"]["order_total"]) * 100))
+                    + int(state["delivery_fee_minor"]))
+        return state["paid_total_minor"]
+
+    paid.order_amount_minor = order_amount_minor
 
     def mark_out_of_stock(cursor, product_id):
         cursor.execute(
@@ -458,7 +465,8 @@ class OfferTransactionTests(unittest.TestCase):
     def test_guest_refund_button_shows_remaining_refundable_amount(self):
         token_db = FakeDB()
         token = "refund-token"
-        token_db.state["paid_total_minor"] = 254900
+        token_db.state["line"]["order_total"] = 2349
+        token_db.state["delivery_fee_minor"] = 20000
         token_db.state["refunds"] = [
             {"amount_minor": 20000, "status": "PROCESSED"}]
         token_db.state["offer"] = {
@@ -494,6 +502,13 @@ class OfferTransactionTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(
             "Cancel and refund me in full (₹2,349)",
+            response.get_data(as_text=True))
+        token_db.state["refunds"] = []
+        api._hits.clear()
+        response = app.test_client().get("/fq/" + token)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            "Cancel and refund me in full (₹2,549)",
             response.get_data(as_text=True))
 
     def test_ops_routes_require_auth_and_authorized_session_succeeds(self):
@@ -539,6 +554,36 @@ class OfferTransactionTests(unittest.TestCase):
             response = client.get("/ops/api/frame-offers/open")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json(), {"ok": True, "offers": []})
+
+        db.state["paid_total_minor"] = 254900
+        db.state["refunds"] = [
+            {"amount_minor": 20000, "status": "PROCESSED"}]
+        line = {"order_line_id": 11, "product_id": 10, "site_from": "in.optiwar.com",
+                "order_quantity": 1, "product_special_price": "100.00"}
+        with (patch.object(api.offers, "_line", return_value=line),
+              patch.object(api.offers, "matches", return_value=[]),
+              patch.object(api.offers, "_candidate_rows", return_value=[])):
+            response = client.get(
+                "/ops/api/orders/O-1/frame-matches?order_line_id=11")
+        self.assertEqual(response.get_json()["refund_balance_minor"], 234900)
+
+        created = {"offer_uuid": "offer-1", "order_line_id": 11,
+                   "order_quantity": 1, "expires_at": "2026-01-01",
+                   "candidates": []}
+        with patch.object(api.offers, "create_offer",
+                          return_value=(created, None, "https://example.test/fq/token")):
+            response = client.post("/ops/api/orders/O-1/frame-offer", json={
+                "order_line_id": 11, "reason": "QC_FAILED",
+                "product_ids": [20], "created_by": "Ops"})
+        self.assertEqual(response.get_json()["refund_balance_minor"], 234900)
+
+        with patch.object(api.offers, "latest_for_order",
+                          return_value=[dict(created, status="OFFERED")]):
+            response = client.get(
+                "/ops/api/orders/O-1/frame-offer?order_line_id=11")
+        self.assertEqual(response.get_json()["refund_balance_minor"], 234900)
+        self.assertEqual(
+            response.get_json()["offers"][0]["refund_balance_minor"], 234900)
 
 
 class ReminderLinkTests(unittest.TestCase):

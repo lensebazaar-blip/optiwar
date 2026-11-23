@@ -56,7 +56,11 @@ def latest(order_id, order_line_id=None):
     if not ok:
         return False, data
     rows = data.get("offers") or []
-    return True, rows[0] if rows else None
+    if not rows:
+        return True, None
+    if data.get("refund_balance_minor") is not None:
+        rows[0]["refund_balance_minor"] = data["refund_balance_minor"]
+    return True, rows[0]
 
 
 def create(order_id, order_line_id, reason, product_ids, created_by):
@@ -150,7 +154,10 @@ def customer_email(order, failed, candidates, link):
             '<br><a href="%s">Choose %s</a></td>' %
             (link_html, html.escape(candidate.get("code") or "")))
     link_html = html.escape(link, quote=True)
-    amount = money(order.get("total_minor") or 0)
+    refund_balance = order.get("refund_balance_minor")
+    if refund_balance is None:
+        refund_balance = order.get("total_minor") or 0
+    amount = money(refund_balance)
     heading = ("Prices are shown on each frame:" if any_payment
                else "There is no extra charge for any of them:")
     body = """<p>Hi {name},</p>

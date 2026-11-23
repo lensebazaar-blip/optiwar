@@ -113,6 +113,8 @@ def register(bp):
             int(line.get("order_quantity") or 1))
         return jsonify({"ok": True, "order_line_id": line["order_line_id"],
                         "order_quantity": int(line.get("order_quantity") or 1),
+                        "refund_balance_minor": offers.remaining_refundable_minor(
+                            cur, order_id),
                         "failed_price_minor": offers._minor(
                             line.get("product_special_price")),
                         "failed_product": {"product_id": line["product_id"],
@@ -128,6 +130,8 @@ def register(bp):
             return jsonify({"ok": False, "error": "unauthorized"}), 401
         data = request.get_json(silent=True) or {}
         db = _db()
+        refund_balance_minor = offers.remaining_refundable_minor(
+            db.cursor(), order_id)
         try:
             row, _token, link = offers.create_offer(
                 db, order_id, data.get("order_line_id"), data.get("reason"),
@@ -139,6 +143,7 @@ def register(bp):
                                 row["offer_uuid"], order_id, row["order_line_id"])
         return jsonify({"ok": True, "offer_uuid": row["offer_uuid"], "link": link,
                         "order_quantity": row["order_quantity"],
+                        "refund_balance_minor": refund_balance_minor,
                         "expires_at": row["expires_at"],
                         "candidates": row["candidates"]}), 201
 
@@ -149,7 +154,13 @@ def register(bp):
         db = _db()
         line_id = request.args.get("order_line_id") or None
         rows = offers.latest_for_order(db, order_id, line_id)
-        return jsonify({"ok": True, "offers": [offers.public_view(r) for r in rows]})
+        refund_balance_minor = offers.remaining_refundable_minor(
+            db.cursor(), order_id)
+        public_offers = [offers.public_view(row) for row in rows]
+        for offer in public_offers:
+            offer["refund_balance_minor"] = refund_balance_minor
+        return jsonify({"ok": True, "refund_balance_minor": refund_balance_minor,
+                        "offers": public_offers})
 
     @bp.route("/ops/api/orders/<order_id>/frame-offer/<offer_uuid>/settled",
                methods=["POST"])
@@ -168,7 +179,13 @@ def register(bp):
     def frame_offers_open():
         if not _ops_auth():
             return jsonify({"ok": False, "error": "unauthorized"}), 401
-        return jsonify({"ok": True, "offers": offers.open_offers(_db())})
+        db = _db()
+        rows = offers.open_offers(db)
+        cur = db.cursor()
+        for row in rows:
+            row["refund_balance_minor"] = offers.remaining_refundable_minor(
+                cur, row["order_id"])
+        return jsonify({"ok": True, "offers": rows})
 
     @bp.route("/ops/api/frame-offers/<offer_uuid>/link", methods=["GET"])
     def frame_offer_reminder_link(offer_uuid):
