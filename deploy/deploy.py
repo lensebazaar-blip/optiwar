@@ -74,7 +74,7 @@ RELEASES = os.environ.get("OPTIWAR_RELEASES", "/root/deploy_releases")
 # eligibility rule is only true if every read surface applies it, so shipping
 # models.py without chat.py, ai_api.py or orders.py would leave a lens visible
 # on .in through the chat, the fitting API or the favourites list.
-DEPLOY_SET = ("__init__.py", "log_hygiene.py", "pricing.py", "acr.py", "ai_api.py", "ai_client.py", "brand_compliance.py", "scripts/brand_compliance_apply.py", "catalogue.py", "chat.py",
+DEPLOY_SET = ("__init__.py", "log_hygiene.py", "pricing.py", "acr.py", "ai_api.py", "ai_client.py", "brand_compliance.py", "scripts/brand_compliance_apply.py", "catalogue.py", "chat.py", "chat_reco_guard.py",
               "chat_gateway.py", "contact_lens.py", "dev_defects.py",
               "products.py",
               "lens_minimums.py",
@@ -150,7 +150,7 @@ DEPLOY_SET = ("__init__.py", "log_hygiene.py", "pricing.py", "acr.py", "ai_api.p
 # new module; listing one here says the absence is expected and the file is to
 # be created. A rollback restores only what it replaced, so these stay behind —
 # harmless, because the code that imports them is reverted with them.
-NEW_IN_RELEASE = ("log_hygiene.py", "test_identity.py", "ai_language.py", "rx_lookup.py", "order_lookup.py", "satisfaction.py", "cart_lookup.py", "brand_compliance.py", "scripts/brand_compliance_apply.py", "paid_orders.py", "razorpay_events.py", "rx_powers.py",
+NEW_IN_RELEASE = ("log_hygiene.py", "test_identity.py", "ai_language.py", "rx_lookup.py", "order_lookup.py", "satisfaction.py", "cart_lookup.py", "brand_compliance.py", "chat_reco_guard.py", "scripts/brand_compliance_apply.py", "paid_orders.py", "razorpay_events.py", "rx_powers.py",
                   "razorpay_settlement.py", "razorpay_reconcile.py",
                   "refunds.py", "ops_refunds.py", "catalogue.py",
                   "contact_lens.py", "dev_defects.py", "lens_minimums.py",
