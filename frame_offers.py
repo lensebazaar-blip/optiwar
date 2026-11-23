@@ -118,9 +118,11 @@ def match_sql(site_from):
             .replace("p.sell_on_in = 1", "p.%s = 1" % column))
 
 
-def matches(cursor, product_id, site_from):
+def matches(cursor, product_id, site_from, qty=1):
     cursor.execute(match_sql(site_from), (int(product_id),))
-    return cursor.fetchall()
+    required = int(qty or 1)
+    return [row for row in cursor.fetchall()
+            if int(row.get("product_quantity") or 0) >= required]
 
 
 def _site_host(site_from):
@@ -219,8 +221,10 @@ def create_offer(db, order_id, order_line_id, reason, product_ids, created_by,
         line = _line(cur, order_id, order_line_id, lock=True)
         if not line:
             raise OfferError("line_not_found", "Order line not found", 404)
+        qty = int(line.get("order_quantity") or 1)
         candidates = _candidate_rows(
-            cur, [row for row in matches(cur, line["product_id"], line.get("site_from"))
+            cur, [row for row in matches(
+                cur, line["product_id"], line.get("site_from"), qty)
                   if int(row["product_id"]) in ids])
         if len(candidates) != len(ids):
             raise OfferError("candidate_changed",
@@ -353,6 +357,7 @@ def decide(db, row, product_id=None, refund=False, now=None):
             result = {"action": "refund", "order_id": live["order_id"],
                       "product_code": failed, "amount_minor": int(line.get("order_total") or 0) * 100}
         else:
+            qty = int(line.get("order_quantity") or 1)
             try:
                 pid = int(product_id)
             except (TypeError, ValueError):
@@ -361,9 +366,9 @@ def decide(db, row, product_id=None, refund=False, now=None):
             if not candidate:
                 raise OfferError("invalid_candidate", "Choose one of the offered frames")
             cur.execute(
-                "UPDATE products SET product_quantity=product_quantity-1 "
-                "WHERE product_id=%s AND product_quantity>=1 AND product_status='ACTIVE'",
-                (pid,))
+                "UPDATE products SET product_quantity=product_quantity-%s "
+                "WHERE product_id=%s AND product_quantity>=%s AND product_status='ACTIVE'",
+                (qty, pid, qty))
             if cur.rowcount != 1:
                 raise OfferError("sold_out", "That frame just sold out. Please choose another.", 409)
             cur.execute("SELECT product_quantity FROM products WHERE product_id=%s", (pid,))
@@ -377,7 +382,7 @@ def decide(db, row, product_id=None, refund=False, now=None):
                 raise OfferError("line_changed", "Order line could not be updated", 409)
             cur.execute("DELETE FROM stock_restocks WHERE order_line_id=%s AND reason='qc_failed'",
                         (int(live["order_line_id"]),))
-            diff = int(candidate["price_minor"]) - int(live["failed_price_minor"])
+            diff = (int(candidate["price_minor"]) - int(live["failed_price_minor"])) * qty
             settlement = settlement_for(diff)
             status = "PAYMENT_PENDING" if settlement == "PAYMENT_DUE" else "SWAPPED"
             cur.execute(

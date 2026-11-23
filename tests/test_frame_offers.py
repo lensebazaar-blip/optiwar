@@ -118,11 +118,12 @@ class FakeCursor:
             state["offer"]["status"] = "REFUND_REQUESTED"
             state["offer"]["decided_at"] = params[0]
             self.rowcount = 1
-        elif query.startswith("update products set product_quantity=product_quantity-1"):
+        elif query.startswith("update products set product_quantity=product_quantity-"):
             product = state["product"]
+            qty, _product_id, minimum = params
             if (product["product_status"] == "ACTIVE"
-                    and product["product_quantity"] >= 1):
-                product["product_quantity"] -= 1
+                    and product["product_quantity"] >= minimum):
+                product["product_quantity"] -= qty
                 self.rowcount = 1
         elif query.startswith("select product_quantity from products"):
             self.result = {"product_quantity": state["product"]["product_quantity"]}
@@ -204,6 +205,11 @@ class MatchQueryTests(unittest.TestCase):
         self.assertIn("f.product_id = %s", cursor.queries[-1][0])
         self.assertIn("p.sell_on_in = 1", cursor.queries[-1][0])
 
+    def test_matches_filters_for_order_quantity(self):
+        db = FakeDB()
+        db.state["matches"][0]["product_quantity"] = 1
+        self.assertEqual(offers.matches(db.cursor(), 774, "in.optiwar.com", 2), [])
+
 
 class OfferTransactionTests(unittest.TestCase):
     def setUp(self):
@@ -233,6 +239,13 @@ class OfferTransactionTests(unittest.TestCase):
         self.assertIn("out of stock", self.db.state["history"][0])
         self.assertNotIn("failed quality check", self.db.state["history"][0])
 
+    def test_create_offer_rejects_stock_below_line_quantity(self):
+        self.db.state["line"]["order_quantity"] = 2
+        self.db.state["matches"][0]["product_quantity"] = 1
+        with self.assertRaises(offers.OfferError) as caught:
+            self._create()
+        self.assertEqual(caught.exception.code, "candidate_changed")
+
     def test_swap_changes_line_stock_status_and_removes_qc_guard(self):
         row, _token, _link = self._create()
         decision = offers.decide(self.db, row, product_id=20, now=self.now)
@@ -243,6 +256,34 @@ class OfferTransactionTests(unittest.TestCase):
         self.assertIsNone(self.db.state["guard"])
         self.assertEqual(self.db.state["offer"]["status"], "SWAPPED")
         self.assertEqual(len(self.db.state["status_history"]), 1)
+
+    def test_quantity_two_reserves_two_and_doubles_the_difference(self):
+        self.db.state["line"]["order_quantity"] = 2
+        self.db.state["product"]["product_quantity"] = 2
+        self.db.state["matches"][0]["product_quantity"] = 2
+        self.db.state["matches"][0]["product_special_price"] = "150.00"
+        row, _token, _link = self._create()
+        result = offers.decide(self.db, row, product_id=20, now=self.now)
+        self.assertEqual(self.db.state["product"]["product_quantity"], 0)
+        self.assertEqual(result["diff_minor"], 10000)
+        self.assertEqual(self.db.state["offer"]["price_diff_minor"], 10000)
+        self.assertEqual(self.db.state["offer"]["settlement"], "PAYMENT_DUE")
+
+    def test_quantity_two_stock_race_rolls_back_when_only_one_remains(self):
+        self.db.state["line"]["order_quantity"] = 2
+        self.db.state["product"]["product_quantity"] = 2
+        self.db.state["matches"][0]["product_quantity"] = 2
+        row, _token, _link = self._create()
+        history_count = len(self.db.state["history"])
+        self.db.state["product"]["product_quantity"] = 1
+        with self.assertRaises(offers.OfferError) as caught:
+            offers.decide(self.db, row, product_id=20, now=self.now)
+        self.assertEqual(caught.exception.code, "sold_out")
+        self.assertEqual(self.db.state["product"]["product_quantity"], 1)
+        self.assertEqual(self.db.state["line"]["product_id"], 10)
+        self.assertEqual(self.db.state["offer"]["status"], "OFFERED")
+        self.assertEqual(len(self.db.state["history"]), history_count)
+        self.assertEqual(self.db.rollbacks, 1)
 
     def test_stock_race_rolls_back_without_changing_order_line(self):
         row, _token, _link = self._create()

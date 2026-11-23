@@ -108,7 +108,9 @@ def register(bp):
         line = offers._line(cur, order_id, line_id)
         if not line:
             return jsonify({"ok": False, "error": "line_not_found"}), 404
-        rows = offers.matches(cur, line["product_id"], line.get("site_from"))
+        rows = offers.matches(
+            cur, line["product_id"], line.get("site_from"),
+            int(line.get("order_quantity") or 1))
         return jsonify({"ok": True, "order_line_id": line["order_line_id"],
                         "failed_price_minor": offers._minor(
                             line.get("product_special_price")),
