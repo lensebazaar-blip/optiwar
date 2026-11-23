@@ -59,6 +59,24 @@
         <div style="background:#fef2f2;border:1px solid #fecaca;color:#b42318;padding:8px 10px;border-radius:6px;font-size:12px;margin-top:8px;">
             No money moved and the order status was not changed. Prepare a fresh refund to retry — it gets its own key.
         </div>
+        {% if refund.error_text and 'not enough balance' in refund.error_text|lower %}
+        <div style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:10px 12px;border-radius:6px;font-size:12px;margin-top:8px;">
+            <strong>Razorpay balance too low — refund by UPI.</strong>
+            {% if refund.upi_fallback and refund.upi_fallback.count is not none %}
+              Razorpay reports {{ refund.upi_fallback.count }} existing refund(s) for this payment.
+              {% if refund.upi_fallback.enabled %}
+              <a class="btn btn-sm btn-primary"
+                 href="{{ base }}/orders/ow/{{ order.order_id }}/refund/prepare?refund_method=upi&amp;amount={{ '%.2f'|format(refund.amount_minor / 100) }}&amp;reason_code=CUSTOMER_REFUND&amp;comment=Razorpay%20balance%20too%20low">
+                Record UPI refund
+              </a>
+              {% else %}
+              Do not record another refund; one already exists.
+              {% endif %}
+            {% else %}
+              The existing-refund count could not be read. UPI recording is disabled until it can be checked.
+            {% endif %}
+        </div>
+        {% endif %}
         {% endif %}
         <div style="margin-top:10px;display:flex;gap:8px;">
             <a href="{{ base }}/orders/ow/{{ order.order_id }}/refund/track?key={{ idempotency_key|urlencode }}" class="btn btn-sm btn-outline">↻ Refresh now</a>

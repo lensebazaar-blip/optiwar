@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Choose your Optiwar frame</title>
+  <style>
+    body{font:16px Arial,sans-serif;color:#172033;margin:0;background:#f8fafc}
+    main{max-width:900px;margin:24px auto;padding:20px;background:white;border-radius:12px}
+    .frames{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px}
+    label{border:1px solid #dbe2ea;border-radius:9px;padding:12px;display:block}
+    img{max-width:100%;height:150px;object-fit:contain}
+    button{background:#075985;color:white;border:0;padding:12px 18px;border-radius:6px;font-size:16px}
+    .error{color:#b42318;font-weight:bold}
+  </style>
+</head>
+<body><main>
+{% if state == 'choose' %}
+  <h1>Choose your replacement frame</h1>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <p>Your selected frame did not pass our quality check. Choose a replacement or ask for a full refund.</p>
+  <form method="post" action="/fq/choose">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="frames">
+      {% for candidate in offer.candidates %}
+      <label>
+        <input type="radio" name="product_id" value="{{ candidate.product_id }}" required>
+        {% if candidate.image_url %}<img src="{{ candidate.image_url }}" alt="{{ candidate.name }}">{% endif %}
+        <strong>{{ candidate.code }} · {{ candidate.name }}</strong>
+        <div>{{ candidate.size }} · {{ candidate.colour }}</div>
+        <div>{{ candidate.price_label }}</div>
+      </label>
+      {% endfor %}
+    </div>
+    <p><button type="submit">Choose this frame</button></p>
+  </form>
+  <form method="post" action="/fq/choose">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="refund" value="1">
+    <button type="submit">Cancel and refund me in full (₹{{ "{:,}".format(offer.remaining_refundable_minor|int // 100) }}{% if offer.remaining_refundable_minor|int % 100 %}.{{ "%02d"|format(offer.remaining_refundable_minor|int % 100) }}{% endif %})</button>
+  </form>
+  <p>The link works for 7 days.</p>
+{% elif state == 'done' %}
+  <h1>Thank you</h1>
+  <p>{{ message }}</p>
+{% elif state == 'expired' %}
+  <h1>This link is no longer available</h1>
+  <p>Please contact Optiwar if you need help with your order.</p>
+{% elif state == 'invalid' %}
+  <h1>We couldn't open this link</h1>
+  <p>Please use the latest link from Optiwar.</p>
+{% endif %}
+</main></body></html>

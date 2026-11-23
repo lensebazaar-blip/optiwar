@@ -137,6 +137,7 @@ def get_order(order_id: str):
                    c.customer_name, c.customer_email, c.customer_phone,
                    p.product_name, p.product_code, p.product_price,
                    p.product_special_price, p.product_category, p.product_color,
+                   p.product_size,
                    p.product_style, p.product_material, p.product_type, p.box_number,
                    p.product_image
             FROM orders o
@@ -216,6 +217,7 @@ def get_order(order_id: str):
                 "rx": rx_info,
                 "options": [],
                 "product_color": line.get("product_color"),
+                "size": line.get("product_size") or "",
                 "product_style": line.get("product_style"),
                 "product_type": line.get("product_type"),
                 "box_number": line.get("box_number"),

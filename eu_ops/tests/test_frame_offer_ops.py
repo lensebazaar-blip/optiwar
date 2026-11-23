@@ -1,0 +1,260 @@
+import importlib.util
+import os
+import re
+import sys
+import unittest
+from datetime import datetime, timedelta
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
+
+from jinja2 import DictLoader, Environment
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "eu_ops"))
+
+from services import frame_offers
+
+
+def _load_reminders():
+    path = ROOT / "eu_ops" / "scripts" / "frame_offer_reminders.py"
+    spec = importlib.util.spec_from_file_location("frame_offer_reminders_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class FrameOfferOpsTests(unittest.TestCase):
+    def test_frame_settlement_currency_gate(self):
+        self.assertTrue(frame_offers.is_inr_currency("INR"))
+        self.assertTrue(frame_offers.is_inr_currency(" inr "))
+        self.assertFalse(frame_offers.is_inr_currency("USD"))
+        self.assertFalse(frame_offers.is_inr_currency(""))
+
+    def test_latest_offer_preserves_settlement_fields(self):
+        row = {"offer_uuid": "offer-1", "settled_at": "2026-01-02 03:04:05",
+               "settled_ref": "REF-1", "refund_balance_minor": 234900}
+        with patch.object(frame_offers, "api_call",
+                          return_value=(True, {
+                              "refund_balance_minor": 234900, "offers": [row]})):
+            ok, offer = frame_offers.latest("930170", 11)
+        self.assertTrue(ok)
+        self.assertEqual(offer["settled_at"], row["settled_at"])
+        self.assertEqual(offer["settled_ref"], row["settled_ref"])
+        self.assertEqual(offer["refund_balance_minor"], 234900)
+
+    def test_customer_email_preview_uses_api_refund_balance(self):
+        order = {"order_id": "930170", "firstname": "A",
+                 "total_minor": 234900, "refund_balance_minor": 254900}
+        failed = {"name": "Old", "code": "A", "price_minor": 10000}
+        candidate = {"product_id": 1, "code": "B", "name": "New",
+                     "size": "52-18", "colour": "Black", "price_minor": 10200,
+                     "payment_due": False, "payment_due_message": ""}
+        email_html, _ = frame_offers.customer_email(
+            order, failed, [candidate], "https://optiwar.com/fq/token")
+        self.assertIn("full refund of ₹2,549", email_html)
+        self.assertNotIn("full refund of ₹2,349", email_html)
+        fallback_html, _ = frame_offers.customer_email(
+            {"firstname": "A", "total_minor": 234900},
+            failed, [candidate], "https://optiwar.com/fq/token")
+        self.assertIn("full refund of ₹2,349", fallback_html)
+
+        template_text = (ROOT / "eu_ops" / "templates" / "pages"
+                         / "ow_frame_offer.html").read_text()
+        template = Environment(loader=DictLoader({
+            "base.html": "{% block title %}{% endblock %}{% block content %}{% endblock %}",
+            "offer.html": template_text,
+        })).get_template("offer.html")
+        preview = template.render(
+            base="", order={"order_id": "930170"},
+            product={"name": "Old", "model": "A", "order_product_id": 11},
+            matches=[candidate], selected_ids={1},
+            selected_payment_due_message="", failed=failed,
+            order_quantity=1, error="", wa_template="ow_frame_qc_replace",
+            email_html=email_html, email_text="", wa_body="")
+        self.assertIn("full refund of ₹2,549", preview)
+
+        detail_source = (ROOT / "eu_ops" / "templates" / "pages"
+                         / "ow_order_detail.html").read_text()
+        refund_card = detail_source.split(
+            "{% elif offer.status == 'REFUND_REQUESTED' %}", 1)[1].split(
+                "{% elif offer.settlement == 'WAIVED' %}", 1)[0]
+        detail_template = Environment().from_string(
+            "{% if offer.status == 'REFUND_REQUESTED' %}" + refund_card
+            + "{% endif %}")
+        card = detail_template.render(
+            offer={"status": "REFUND_REQUESTED",
+                   "refund_balance_minor": 254900},
+            base="", order={"order_id": "930170"})
+        self.assertIn("₹2549.00", card)
+        self.assertIn("amount=2549.00", card)
+
+    def test_send_gate_and_approved_copy(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(frame_offers.wa_template(), "")
+        with patch.dict(os.environ, {"OW_FRAME_QC_WA_TEMPLATE": "ow_frame_qc_replace"}):
+            self.assertEqual(frame_offers.wa_template(), "ow_frame_qc_replace")
+            self.assertEqual(frame_offers.send_gate("QC_FAILED"),
+                             (True, ""))
+            self.assertEqual(frame_offers.send_gate("OUT_OF_STOCK"),
+                             (False, "Needs its own approved wording/template"))
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(
+                frame_offers.send_gate("QC_FAILED"),
+                (False, "Waiting for msg91 approval of ow_frame_qc_replace"))
+        with patch.dict(os.environ, {"OW_FRAME_QC_WA_TEMPLATE": "unapproved"}):
+            self.assertEqual(frame_offers.wa_template(), "")
+            self.assertFalse(frame_offers.send_gate("QC_FAILED")[0])
+        self.assertEqual(
+            frame_offers.send_gate("QC_FAILED", "unapproved"),
+            (False, "Waiting for msg91 approval of ow_frame_qc_replace"))
+        order = {"order_id": "930170", "firstname": "Soutrik", "total_minor": 10000}
+        failed = {"name": "No Art", "code": "AB28", "price_minor": 10000}
+        candidates = [{"product_id": 1, "code": "AB27", "name": "Frame", "size": "52-18",
+                       "colour": "Black", "price_minor": 10200}]
+        html, text = frame_offers.customer_email(order, failed, candidates, "https://optiwar.com/fq/token")
+        self.assertEqual(frame_offers.email_subject("930170"),
+                         "Your Optiwar order OW-930170: please choose a replacement frame")
+        self.assertIn("There is no extra charge for any of them:", html)
+        self.assertIn("No extra charge", html)
+        self.assertIn("https://optiwar.com/fq/token", html)
+        self.assertIn("Hi Soutrik", text)
+        self.assertNotIn("<p>", text)
+        self.assertIn("https://optiwar.com/fq/token", text)
+        self.assertEqual(frame_offers.WA_BODY,
+                         "Hello {{1}}, about your Optiwar order {{2}}: the frame you chose, {{3}}, "
+                         "did not pass our quality check, so we won't send it. We have similar "
+                         "frames in stock at no extra charge. Please choose a replacement, or ask "
+                         "for a full refund, here: {{4}}\n\nThe link works for 7 days.")
+        self.assertEqual(frame_offers.wa_values(
+            {"order_id": "930170", "firstname": "Soutrik"},
+            {"name": "No Art", "code": "AB28"}, "https://optiwar.com/fq/token"),
+            ["Soutrik", "OW-930170", "No Art (AB28)", "https://optiwar.com/fq/token"])
+
+    def test_payment_due_email_copy_changes_price_intro(self):
+        html, _ = frame_offers.customer_email(
+            {"order_id": "1", "firstname": "A"},
+            {"name": "Old", "code": "A", "price_minor": 10000},
+            [{"code": "B", "name": "New", "size": "", "colour": "",
+              "price_minor": 15000}], "https://optiwar.com/fq/x")
+        self.assertIn("Prices are shown on each frame:", html)
+        self.assertIn("Pay ₹50 more", html)
+
+    def test_customer_email_quotes_line_total_for_order_quantity(self):
+        failed = {"name": "Old", "code": "A", "price_minor": 10000}
+        candidate = [{"code": "B", "name": "New", "size": "", "colour": "",
+                      "price_minor": 13000}]
+        html, _ = frame_offers.customer_email(
+            {"firstname": "A", "order_quantity": 2}, failed, candidate,
+            "https://optiwar.com/fq/x")
+        self.assertIn("Pay ₹60 more", html)
+        html, _ = frame_offers.customer_email(
+            {"firstname": "A", "order_quantity": 1}, failed, candidate,
+            "https://optiwar.com/fq/x")
+        self.assertIn("No extra charge", html)
+
+    def test_payment_due_candidate_blocks_send_until_unticked(self):
+        failed = {"price_minor": 10000}
+        due = {"product_id": 1, "code": "AB27", "name": "Frame",
+               "size": "52-18", "colour": "Black", "price_minor": 20000,
+               "payment_due": True}
+        safe = {"product_id": 2, "code": "AB28", "name": "Frame",
+                "size": "52-18", "colour": "Black", "price_minor": 10200,
+                "payment_due": False}
+        message = (
+            "AB27 costs ₹100 more: the approved WhatsApp says no extra charge. "
+            "Untick it, or get a new template approved.")
+        with patch.dict(os.environ, {"OW_FRAME_QC_WA_TEMPLATE": "ow_frame_qc_replace"}):
+            due["payment_due_message"] = frame_offers.candidate_payment_due_message(
+                due, failed, 1)
+            safe["payment_due_message"] = frame_offers.candidate_payment_due_message(
+                safe, failed, 1)
+            self.assertEqual(
+                frame_offers.send_gate("QC_FAILED", candidates=[due, safe],
+                                       failed=failed, qty=1),
+                (False, message))
+            self.assertEqual(
+                frame_offers.send_gate("QC_FAILED", candidates=[safe],
+                                       failed=failed, qty=1),
+                (True, ""))
+
+        template_text = (ROOT / "eu_ops" / "templates" / "pages"
+                         / "ow_frame_offer.html").read_text()
+        template = Environment(loader=DictLoader({
+            "base.html": "{% block title %}{% endblock %}{% block content %}{% endblock %}",
+            "offer.html": template_text,
+        })).get_template("offer.html")
+        context = {
+            "base": "", "order": {"order_id": "1"},
+            "product": {"name": "Frame", "model": "AB28", "order_product_id": 11},
+            "matches": [due, safe], "selected_ids": {1},
+            "selected_payment_due_message": message, "failed": failed,
+            "order_quantity": 1, "error": "",
+            "wa_template": "ow_frame_qc_replace", "email_html": "",
+            "email_text": "", "wa_body": "",
+        }
+        html = template.render(**context)
+        button = re.search(r'<button id="frameOfferSend"[^>]*>', html).group(0)
+        self.assertIn("disabled", button)
+        self.assertIn(message, html)
+        context["selected_ids"] = {2}
+        context["selected_payment_due_message"] = ""
+        html = template.render(**context)
+        button = re.search(r'<button id="frameOfferSend"[^>]*>', html).group(0)
+        self.assertNotIn("disabled", button)
+
+    def test_day_three_reminder_and_day_seven_expiry(self):
+        reminders = _load_reminders()
+        now = datetime(2025, 1, 8)
+        base = {"offer_uuid": "u", "order_id": "1", "order_line_id": 2,
+                "reason": "QC_FAILED", "created_at": now - timedelta(days=3),
+                "expires_at": now + timedelta(days=4), "reminder_sent_at": None,
+                "failed_price_minor": 10000, "candidates": [],
+                "refund_balance_minor": 254900}
+        client = Mock()
+        client.open_offers.return_value = (True, {"offers": [dict(base)]})
+        client.reminder_link.return_value = (True, {"link": "https://optiwar.com/fq/x"})
+        client.mark.return_value = (True, {})
+        notify = Mock()
+        notify.send_email.return_value = (True, "ok")
+        notify.send_msg91_wa_template.return_value = (True, "ok")
+        orders = Mock()
+        orders.get_order.return_value = {
+            "order_id": "1", "firstname": "A", "email": "a@example.test",
+            "telephone": "919999999999", "total": 2349,
+            "products": [{"order_product_id": 2, "name": "Old", "model": "A"}]}
+        with patch.object(frame_offers, "wa_template", return_value="ow_frame_qc_replace"):
+            actions = reminders.run(True, now, client, notify, orders)
+        self.assertEqual(actions, [{"action": "remind", "offer_uuid": "u"}])
+        client.reminder_link.assert_called_once_with("u")
+        client.mark.assert_called_once_with("u", "reminder_sent")
+        notify.send_email.assert_called_once()
+        self.assertTrue(notify.send_email.call_args.args[1].startswith("Reminder: "))
+        self.assertIn("full refund of ₹2,549",
+                      notify.send_email.call_args.args[2])
+        notify.send_msg91_wa_template.assert_called_once()
+
+        expired = dict(base, created_at=now - timedelta(days=7),
+                       expires_at=now - timedelta(seconds=1))
+        client.open_offers.return_value = (True, {"offers": [expired]})
+        client.mark.reset_mock()
+        with patch.object(frame_offers, "wa_template", return_value="ow_frame_qc_replace"):
+            actions = reminders.run(True, now, client, notify, orders)
+        self.assertEqual(actions, [{"action": "expire", "offer_uuid": "u"}])
+        self.assertEqual(client.mark.call_args_list[0].args, ("u", "alerted"))
+        self.assertEqual(client.mark.call_args_list[1].args, ("u", "expired"))
+
+    def test_upi_fallback_is_read_only_and_requires_zero_refunds(self):
+        call = Mock(return_value=(True, {"items": []}))
+        state = frame_offers.upi_fallback_state("not enough balance", "pay_1", call)
+        self.assertEqual(state, {"count": 0, "enabled": True})
+        call.assert_called_once_with("/payments/pay_1/refunds", method="GET")
+        state = frame_offers.upi_fallback_state(
+            "not enough balance", "pay_1",
+            Mock(return_value=(True, {"items": [{"id": "rf_1"}]})))
+        self.assertEqual(state, {"count": 1, "enabled": False})
+        self.assertIsNone(frame_offers.upi_fallback_state("other", "pay_1", call))
+
+
+if __name__ == "__main__":
+    unittest.main()

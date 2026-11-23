@@ -33,7 +33,7 @@ from .catalogue import (
     current_site, strip_ineligible_urls, age_group, ensure_gmc_columns,
     live_lenses, lens_matrix_summary, SITE_IN, SITE_COM,
 )
-from . import face_cart, face_fit, face_profiles, face_profiles_api, face_scan_groups_api, face_scan_invites_api, favorites_api, order_face_scan, order_rx_documents, progressive_scan
+from . import face_cart, face_fit, face_profiles, face_profiles_api, face_scan_groups_api, face_scan_invites_api, favorites_api, frame_offers_api, order_face_scan, order_rx_documents, progressive_scan
 from . import (acr, lens_cart, lens_config, lens_documents, lens_feed,
                lens_order, lens_preview, lens_rx, lens_seo, lens_upload,
                lens_view, rx_photo, ip_notice, shipping_options, shipping_refunds, ops_controls,
@@ -80,6 +80,7 @@ face_scan_invites_api.register(bp)
 face_scan_groups_api.register(bp)
 favorites_api.register(bp)
 order_face_scan.register(bp)
+frame_offers_api.register(bp)
 order_rx_documents.register(bp)
 progressive_scan.register(bp)
 

@@ -16,7 +16,7 @@ import sys
 import unittest
 from unittest import mock
 
-from flask import Blueprint, Flask, jsonify
+from flask import Blueprint, Flask, jsonify, request, session
 
 # Requests are made as the storefront so that newer Flask's own host check
 # (TRUSTED_HOSTS) is satisfied and the only decision left is the guard's.
@@ -40,6 +40,7 @@ RESHIP_API = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file
 def _app(enforce=True):
     """A Flask app whose endpoint names match the real ones."""
     app = Flask(__name__)
+    app.secret_key = "test"
     app.config.update(CSRF_ENFORCE=enforce, TRUSTED_HOSTS=["optiwar.com"])
     bp = Blueprint("main", __name__)
 
@@ -55,6 +56,14 @@ def _app(enforce=True):
 
     @bp.route("/razorpay/verify", methods=["POST"])
     def razorpay_verify():
+        return jsonify(reached=True), 200
+
+    @bp.route("/fq/choose", methods=["POST"])
+    def frame_offer_choose():
+        if (not session.get("frame_offer_guest")
+                or request.form.get("csrf")
+                != session["frame_offer_guest"].get("csrf")):
+            return jsonify(reached=False), 403
         return jsonify(reached=True), 200
 
     pricing_bp = Blueprint("pricing", __name__)
@@ -108,6 +117,17 @@ class WebhookReachabilityTests(unittest.TestCase):
                        content_type="application/json", base_url=BASE)
         self.assertEqual(r.status_code, 403)
         self.assertNotIn("main.razorpay_verify", CSRF_EXEMPT_ENDPOINTS)
+
+    def test_frame_offer_guest_post_with_null_origin_reaches_session_csrf_view(self):
+        self.assertIn("main.frame_offer_choose", CSRF_EXEMPT_ENDPOINTS)
+        with _app().test_client() as c:
+            with c.session_transaction(base_url=BASE) as guest_session:
+                guest_session["frame_offer_guest"] = {"csrf": "bound-token"}
+            r = c.post(
+                "/fq/choose", data={"csrf": "bound-token"}, base_url=BASE,
+                headers={"Origin": "null"})
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.get_json()["reached"])
 
     def test_an_ops_bearer_call_with_no_origin_reaches_the_view(self):
         # Ops posts from its own server with the shared token; the view does

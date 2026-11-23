@@ -89,9 +89,11 @@
         <div class="form-group">
             <label>Refund method</label>
             <div style="display:flex;gap:16px;flex-wrap:wrap;">
-                <label><input type="radio" name="refund_method" value="gateway" checked>
+                <label><input type="radio" name="refund_method" value="gateway"
+                    {% if prefill_method != 'upi' %}checked{% endif %}>
                     Gateway — back to the customer's Razorpay payment</label>
-                <label><input type="radio" name="refund_method" value="upi">
+                <label><input type="radio" name="refund_method" value="upi"
+                    {% if prefill_method == 'upi' %}checked{% endif %}>
                     UPI — already paid by staff from the company UPI</label>
             </div>
         </div>
@@ -122,7 +124,7 @@
         <div class="form-group">
             <label>Refund amount ({{ facts.currency }})</label>
             <input type="text" name="amount" id="rfAmount" class="form-input"
-                   value="{{ facts.max_refundable_input }}" autocomplete="off">
+                   value="{{ prefill_amount or facts.max_refundable_input }}" autocomplete="off">
             <p style="font-size:11px;color:#94a3b8;margin-top:4px;">
                 In {{ facts.currency }}, because that is the currency this payment was captured in.
                 At most {{ facts.max_refundable_text }}. Optiwar rejects any other currency rather than converting it.
@@ -131,13 +133,13 @@
         <div class="form-group">
             <label>Reason</label>
             <select name="reason_code" id="rfReason" class="form-select">
-                {% for code, label in reasons %}<option value="{{ code }}">{{ label }}</option>{% endfor %}
+                {% for code, label in reasons %}<option value="{{ code }}" {% if code == prefill_reason %}selected{% endif %}>{{ label }}</option>{% endfor %}
             </select>
         </div>
         <div class="form-group">
             <label>Internal comment (kept in the refund ledger and order history)</label>
             <textarea name="comment" id="rfComment" class="form-textarea" rows="2"
-                      placeholder="e.g. Refund approved by EU Ops"></textarea>
+                      placeholder="e.g. Refund approved by EU Ops">{{ prefill_comment }}</textarea>
         </div>
         <div class="form-group">
             <label style="font-weight:600;margin-bottom:6px;display:block;">Notify customer</label>

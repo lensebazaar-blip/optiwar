@@ -256,24 +256,30 @@ def deduct_stock(cursor, order_id, currency, site, logger=None):
         cursor.execute(
             "UPDATE products SET sold_out_at=NOW() "
             "WHERE product_id=%s AND product_quantity<=0 AND sold_out_at IS NULL", (pid,))
-        # Lifecycle dual-write: ACTIVE -> OUT_OF_STOCK only (never overrides a
-        # manual SEASONAL/DISCONTINUED/ARCHIVED state).
-        cursor.execute(
-            "UPDATE products SET product_status='OUT_OF_STOCK', status_changed_at=NOW(), "
-            "status_changed_by='system-stock', status_reason='auto: stock depleted' "
-            "WHERE product_id=%s AND product_quantity<=0 AND product_status='ACTIVE'", (pid,))
-        if cursor.rowcount == 1:
-            cursor.execute(
-                "INSERT INTO product_status_history "
-                "(product_id, old_status, new_status, reason, changed_by) "
-                "VALUES (%s,'ACTIVE','OUT_OF_STOCK','auto: stock depleted','system-stock')",
-                (pid,))
+        mark_out_of_stock(cursor, pid)
         unit = (float(line_total) / qty) if qty else float(line_total)
         cursor.execute(
             "INSERT INTO sales_log (order_id, product_id, qty, unit_price, currency, site, is_test) "
             "VALUES (%s, %s, %s, %s, %s, %s, 0)",
             (order_id, pid, qty, unit, currency, site))
     return result
+
+
+def mark_out_of_stock(cursor, product_id):
+    """Apply the paid-order ACTIVE -> OUT_OF_STOCK transition to depleted stock."""
+    cursor.execute(
+        "UPDATE products SET product_status='OUT_OF_STOCK', status_changed_at=NOW(), "
+        "status_changed_by='system-stock', status_reason='auto: stock depleted' "
+        "WHERE product_id=%s AND product_quantity<=0 AND product_status='ACTIVE'",
+        (product_id,))
+    if cursor.rowcount == 1:
+        cursor.execute(
+            "INSERT INTO product_status_history "
+            "(product_id, old_status, new_status, reason, changed_by) "
+            "VALUES (%s,'ACTIVE','OUT_OF_STOCK','auto: stock depleted','system-stock')",
+            (product_id,))
+        return True
+    return False
 
 
 # ai_glasses.PREORDER_DAYS and ai_glasses.SHIP_DAYS[1], mirrored here because this
