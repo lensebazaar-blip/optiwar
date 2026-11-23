@@ -31,9 +31,30 @@ class ComplianceDataTest(unittest.TestCase):
         self.assertEqual(brand_compliance.HELD[332][0:1], ("AL69",))
         self.assertEqual(brand_compliance.HELD[332][2], "lens_sticker")
         self.assertEqual(brand_compliance.RENAMED[332][1],
-                         "OPTIWAR Round Metal AL69")
+                         "OPTIWAR Round Metal")
         self.assertEqual(brand_compliance.RENAMED[671][1],
-                         "OPTIWAR Browline AD61")
+                         "OPTIWAR Browline")
+
+    def test_new_names_do_not_repeat_the_sku(self):
+        # every page prints product_name then product_code
+        for product_id, (sku, name) in brand_compliance.RENAMED.items():
+            self.assertTrue(name.startswith("OPTIWAR "), name)
+            self.assertNotIn(sku, name)
+
+    def test_models_imports_every_compliance_name_it_uses(self):
+        # held_ids was used by /sitemap.xml without being imported: a NameError
+        # only once the static sitemap file exists, which no test had.
+        import ast
+        source = (ROOT / "models.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        imported = set()
+        for node in tree.body:
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                imported.update((a.asname or a.name).split(".")[0] for a in node.names)
+        public = {n for n in dir(brand_compliance) if not n.startswith("_")}
+        used = {n.id for n in ast.walk(tree)
+                if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+        self.assertEqual(sorted((used & public) - imported - {"re", "unicodedata"}), [])
 
     def test_held_helpers_and_storefront_predicates(self):
         import catalogue
@@ -151,6 +172,37 @@ class ProductRouteTest(unittest.TestCase):
                 response = client.get(path)
                 self.assertEqual(response.status_code, 301)
                 self.assertEqual(response.location, "/contact-lenses")
+
+    def test_sitemap_serves_the_static_file_without_held_frames(self):
+        xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n<urlset>\n'
+            '  <url><loc>https://optiwar.com/</loc></url>\n'
+            '  <url><loc>https://optiwar.com/categories/spectacles-frame/boss?pid=665</loc></url>\n'
+            '  <url><loc>https://optiwar.com/categories/spectacles-frame/louis-style?pid=671</loc></url>\n'
+            '  <url><loc>https://optiwar.com/categories/spectacles-frame/optiwar-baby-frame?pid=1</loc></url>\n'
+            '</urlset>')
+        new_slug = brand_compliance.slugify(brand_compliance.RENAMED[671][1])
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "static", "seo"))
+            with open(os.path.join(root, "static", "seo", "sitemap.xml"), "w") as fh:
+                fh.write(xml)
+            old_root = self.app.root_path
+            self.app.root_path = root
+            try:
+                for host in ("optiwar.com", "optiwar.in"):
+                    with self.subTest(host=host), \
+                            patch.object(self.models, "get_db", return_value=_ProductDB(None)), \
+                            patch.object(self.models, "_live_lens_rows", return_value=[]):
+                        response = self.app.test_client().get(
+                            "/sitemap.xml", base_url="https://%s" % host)
+                        body = response.get_data(as_text=True)
+                        self.assertEqual(response.status_code, 200)
+                        self.assertNotIn("pid=665", body)
+                        self.assertIn("/%s?pid=671" % new_slug, body)
+                        self.assertIn("pid=1<", body)
+                        self.assertIn("https://%s/" % host, body)
+            finally:
+                self.app.root_path = old_root
 
     def test_held_product_page_is_not_found(self):
         product = _row(668, "AB27", product_category="Spectacles Frame",
