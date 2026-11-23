@@ -123,12 +123,18 @@ class DeployMigrationTest(unittest.TestCase):
                       self.deploy.NEW_IN_RELEASE)
         for path in ("static/ai/frame_rules.json",
                      "static/ai/optiwar_ai_knowledge_base.json",
-                     "static/ai/product_catalog.json",
                      "products.py",
                      "templates/base.html", "templates/categories.html",
                      "templates/guide_frame_shapes.html",
                      "templates/all_frames.html", "templates/index.html"):
             self.assertIn(path, self.deploy.DEPLOY_SET)
+
+    def test_server_generated_product_catalog_is_not_deployed(self):
+        path = "static/ai/product_catalog.json"
+        self.assertTrue(os.path.isfile(os.path.join(REPO, path)))
+        self.assertNotIn(path, self.deploy.DEPLOY_SET)
+        self.assertNotIn(path, self.deploy.NEW_IN_RELEASE)
+        self.assertNotIn(path, self.deploy.REVIEWED_DRIFT)
 
     def test_frame_offer_schema_and_files_are_in_the_release(self):
         self.assertIn("frame_swap_offers (table)",
