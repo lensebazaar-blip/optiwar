@@ -19,6 +19,7 @@ from openai import OpenAI
 from . import acr
 from . import ai_language
 from . import brand_compliance
+from . import chat_reco_guard
 from . import cart_lookup
 from . import catalogue
 from . import chat_attachments
@@ -1164,7 +1165,7 @@ Currency: {currency}
 
 RULES:
 1. Be direct and brief. No long explanations unless customer explicitly asks for more details. Use the customer's name.
-2. Recommend products ONLY from the catalog below. Never invent products.
+2. Recommend products ONLY from the catalog below. Never invent products. Never offer or name another eyewear brand's frame (John Jacobs, Vincent Chase, Lenskart, Titan, Fastrack, Ray-Ban, Oakley or any other) as something we sell: every frame you list must be one search_products returned, written with its own name and code. If the search returns nothing, say so and offer broader filters.
 3. Do NOT show raw URLs to the customer. Instead list products by name, color, size, and price. Offer to navigate: 'Would you like me to show you these? Click here to let me take you there' and include [ACTION:NAVIGATE:/eyeglasses/all-spectacle-frames.html?color=X&facefit=Y] at the end.
 4. NEVER display full URLs (like https://optiwar.com/...) in your replies. The system will auto-navigate the customer when you include [ACTION:NAVIGATE:path]. Just say 'Let me take you there' or 'Click here to browse these'.
 5. NEVER recommend out-of-stock products (qty:0). Skip them entirely from your recommendations. Only show in-stock items (qty > 0).
@@ -2617,6 +2618,30 @@ def _clean_ai_reply(reply):
     return reply, actions, navigate_url
 
 
+def _real_frames_only(reply, session_id, is_india):
+    """Take out of the reply any frame the catalogue does not hold and any line
+    naming another eyewear brand (chat_reco_guard). A failure here never costs
+    the customer their answer: the reply goes out as it was and is logged."""
+    try:
+        searched = getattr(g, '_chat_nav_products', None) is not None
+        aig_on = False
+        if is_india:
+            from . import ai_glasses
+            aig_on = bool(ai_glasses.is_live() or ai_glasses.preview_active())
+        fixed, removed = chat_reco_guard.check(
+            reply, _load_catalog().get('products', []),
+            searched=searched, ai_glasses_on=aig_on)
+    except Exception:
+        current_app.logger.exception('chat: recommendation check failed')
+        return reply
+    if removed:
+        # model text only (invented product labels), never the customer's words
+        current_app.logger.warning(
+            'ACTIVITY:CHAT_INVENTED_PRODUCT session=%s removed=%d labels=%s',
+            session_id, len(removed), '; '.join(l[:60] for l in removed[:6]))
+    return fixed
+
+
 def _resolve_product_nav(navigate_url, user_message):
     """Deterministically point navigation at the matched product's canonical
     catalog URL instead of the LLM's freelanced link.
@@ -3442,6 +3467,7 @@ def chat_message():
 
     # Clean AI reply (handle action tags)
     ai_reply, actions, navigate_url = _clean_ai_reply(ai_reply)
+    ai_reply = _real_frames_only(ai_reply, session_id, is_india)
     actions.extend(rx_photo_actions)
     if nav_confirm is None:
         ai_reply = _face_offer(db, session_id, face_ctx, ai_reply, page_url)
