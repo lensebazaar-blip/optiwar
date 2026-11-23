@@ -119,6 +119,14 @@ class ProductRouteTest(unittest.TestCase):
         self.assertEqual(client.get("/categories/wayfarer").location,
                          "/categories/square")
 
+    def test_legacy_contact_lens_routes_redirect_to_listing(self):
+        client = self.app.test_client()
+        for path in ("/contact_lenses/x", "/contact_lenses/x/y"):
+            with self.subTest(path=path):
+                response = client.get(path)
+                self.assertEqual(response.status_code, 301)
+                self.assertEqual(response.location, "/contact-lenses")
+
     def test_held_product_page_is_not_found(self):
         product = _row(668, "AB27", product_category="Spectacles Frame",
                        product_slug="ray-ban-ab27", product_status="ACTIVE",
