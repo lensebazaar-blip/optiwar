@@ -2065,7 +2065,7 @@ def review_landing(token):
         JOIN products p ON rr.product_id = p.product_id
         JOIN customers c ON rr.customer_id = c.customer_id
         WHERE rr.token = %s AND rr.reviewed_at IS NULL
-    """, (token,))
+    """ + catalogue_site_filter(alias="p"), (token,))
     req = cur.fetchone()
     cur.close()
 
@@ -2092,6 +2092,11 @@ def get_reviews(product_id):
     from flask import jsonify
     db = get_db()
     cur = db.cursor()
+    cur.execute("SELECT * FROM products WHERE product_id = %s"
+                + catalogue_site_filter(), (product_id,))
+    if not is_product_allowed(cur.fetchone()):
+        cur.close()
+        return jsonify({"reviews": [], "avg_rating": 0, "count": 0}), 404
     cur.execute("""
         SELECT reviewer_name, rating, review_title, review_text,
                is_verified_purchase, date_created
@@ -4283,7 +4288,7 @@ def success(order_id):
        cursor.execute(
           '''select o.order_id, o.date_created, ca.address, ca.address2, ca.state,ca.zipcode, ca.country,
                     ca.delivery_phone, ca.delivery_email,
-                    p.product_name, p.product_image, p.product_special_price,p.product_category,product_code, 
+                    o.product_id AS product_id, p.product_name, p.product_image, p.product_special_price,p.product_category,product_code,
                     c.customer_email, c.customer_name, c.customer_phone,
                     o.order_quantity, o.order_total, 
                     rc.right_eye, rc.left_eye, rc.recommendations,
@@ -4304,6 +4309,9 @@ def success(order_id):
 
 
        order_details = normalize_rows(cursor.fetchall())
+       for order_detail in order_details:
+           order_detail['product_name'] = (
+               display_name(order_detail) or order_detail.get('product_name'))
        #print(f"Fetched order display: {order_details} and Types display")
        _host = request.host
        _ip = request.headers.get('X-Forwarded-For', request.remote_addr)
