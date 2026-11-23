@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Ship Order #E-{{ order.order_id }} — LensBazaar OPP{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <a href="{{ base }}/orders/{{ order.order_id }}" class="btn btn-sm btn-outline">&laquo; Back to Order</a>
+        <h1>Ship Order #E-{{ order.order_id }}</h1>
+    </div>
+</div>
+
+{% if error %}
+<div class="alert alert-error">
+    <strong>Error:</strong> {{ error }}
+    {% if error_details %}
+    <pre class="error-details">{{ error_details }}</pre>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="detail-grid">
+    <!-- Recipient Summary -->
+    <div class="card">
+        <h3>Recipient</h3>
+        <div class="info-row"><label>Name:</label> <span>{{ order.shipping_firstname }} {{ order.shipping_lastname }}</span></div>
+        <div class="info-row"><label>Address:</label> <span>{{ order.shipping_address_1 }}{% if order.shipping_address_2 %}, {{ order.shipping_address_2 }}{% endif %}</span></div>
+        <div class="info-row"><label>City:</label> <span>{{ order.shipping_city }}, {{ order.shipping_postcode }}</span></div>
+        <div class="info-row"><label>Country:</label> <span>{{ order.shipping_country }} ({{ order.shipping_country_code }})</span></div>
+        <div class="info-row"><label>Phone:</label> <span>{{ order.telephone }}</span></div>
+        <div class="info-row"><label>Email:</label> <span>{{ order.email }}</span></div>
+        <hr>
+        <div class="info-row"><label>Order Total (INR):</label> <span>&#8377;{{ "%.2f"|format(order.total_inr) }}</span></div>
+        <div class="info-row"><label>IGST @ 5%:</label> <span>&#8377;{{ "%.2f"|format(order.gst_amount) }}</span></div>
+        <div class="info-row" style="font-weight:700;"><label>INR Grand Total (incl. GST):</label> <span>&#8377;{{ "%.2f"|format(order.inr_grand_total) }}</span></div>
+        <div class="info-row"><label>Order Total (EUR):</label> <span>&euro;{{ "%.2f"|format(order.total_eur) }}</span></div>
+    </div>
+
+    <!-- Shipment Form -->
+    <div class="card">
+        <h3>FedEx Shipment Details</h3>
+        <form method="post" action="{{ base }}/orders/{{ order.order_id }}/ship" id="shipForm">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Weight (KG)</label>
+                    <input type="number" name="weight_kg" value="0.25" step="0.01" min="0.01" class="form-input" required>
+                </div>
+                <div class="form-group">
+                    <label>Length (CM)</label>
+                    <input type="number" name="length_cm" value="17" min="1" class="form-input" required>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Width (CM)</label>
+                    <input type="number" name="width_cm" value="17" min="1" class="form-input" required>
+                </div>
+                <div class="form-group">
+                    <label>Height (CM)</label>
+                    <input type="number" name="height_cm" value="7" min="1" class="form-input" required>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Customs Value (incl. GST)</label>
+                    <input type="number" name="customs_amount" value="{{ "%.2f"|format(order.inr_grand_total) }}" step="0.01" class="form-input" required>
+                </div>
+                <div class="form-group">
+                    <label>Currency</label>
+                    <select name="currency" class="form-select">
+                        <option value="INR" selected>INR</option>
+                        <option value="EUR">EUR</option>
+                        <option value="USD">USD</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>HS Code</label>
+                    <input type="text" name="hs_code" value="90013000" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label>Country of Manufacture</label>
+                    <input type="text" name="country_mfg" value="US" class="form-input">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Commodity Description</label>
+                    <input type="text" name="commodity_desc" value="contact lens" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label>Quantity</label>
+                    <input type="number" name="qty" value="{{ order.products|length if order.products else 1 }}" min="1" class="form-input">
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-success btn-lg"
+                        onclick="return confirm('Create FedEx AWB for order #E-{{ order.order_id }}?')">
+                    Create AWB &amp; Ship
+                </button>
+                <a href="{{ base }}/orders/{{ order.order_id }}" class="btn btn-outline">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Products in this order -->
+<div class="section">
+    <h2>Products</h2>
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr><th>Product</th><th>Model</th><th>Qty</th><th>Price</th><th>Total</th></tr>
+            </thead>
+            <tbody>
+                {% for p in order.products %}
+                <tr>
+                    <td>{{ p.name }}</td>
+                    <td>{{ p.model }}</td>
+                    <td>{{ p.quantity }}</td>
+                    <td>{{ "%.2f"|format(p.price) }}</td>
+                    <td>{{ "%.2f"|format(p.total) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

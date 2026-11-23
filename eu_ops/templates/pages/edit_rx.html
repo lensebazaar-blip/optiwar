@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}Edit Prescription — Order #E-{{ order.order_id }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <a href="{{ base }}/orders/{{ order.order_id }}" class="btn btn-sm btn-outline">&laquo; Back to Order</a>
+        <h1>Edit Prescription — Order #E-{{ order.order_id }}</h1>
+    </div>
+</div>
+
+<div class="detail-grid">
+    <div class="card">
+        <h3>Customer</h3>
+        <div class="info-row"><label>Name:</label> <span>{{ order.firstname }} {{ order.lastname }}</span></div>
+        <div class="info-row"><label>Email:</label> <span>{{ order.email }}</span></div>
+        <div class="info-row"><label>EUR Total:</label> <span>&euro;{{ "%.2f"|format(order.total_eur) }}</span></div>
+    </div>
+</div>
+
+<!-- Products with editable prescription fields -->
+<div class="section">
+    <h2>Products — Edit Prescription Data</h2>
+    <form id="rx-edit-form" method="post" action="{{ base }}/orders/{{ order.order_id }}/edit-rx/preview">
+        {% for p in order.products %}
+        {% if p.has_eye_options %}
+        <div class="card" style="margin-bottom:16px;">
+            <h3>{{ p.name }} <span style="color:#64748b; font-weight:400;">({{ p.model }})</span></h3>
+            <div style="display:flex; gap:20px; flex-wrap:wrap; margin-top:12px;">
+                {% if p.left_eye %}
+                <div style="background:#f0f7ff; border:1px solid #c4ddf7; border-radius:8px; padding:12px 16px; flex:1; min-width:240px;">
+                    <strong style="color:#1a5db0; font-size:12px;">LEFT EYE</strong>
+                    {% for opt in p.left_eye %}
+                    <div style="font-size:13px; margin-top:6px;">
+                        {{ opt.name }}:
+                        {% if opt.name.strip().lower() == 'quantity' %}
+                        <input type="number" name="qty_{{ opt.order_option_id }}"
+                               value="{{ opt.value }}" min="0"
+                               data-original="{{ opt.value }}" data-price="{{ p.price }}"
+                               data-product="{{ p.name }}" data-eye="LEFT"
+                               class="qty-input form-input"
+                               style="width:70px; display:inline-block; padding:4px 8px; font-weight:700;">
+                        <span style="color:#94a3b8; font-size:11px;">(was {{ opt.value }})</span>
+                        {% else %}
+                        <input type="text" name="rx_{{ opt.order_option_id }}"
+                               value="{{ opt.value }}"
+                               data-original="{{ opt.value }}"
+                               data-product="{{ p.name }}" data-eye="LEFT"
+                               data-field="{{ opt.name }}"
+                               class="rx-input form-input"
+                               style="width:100px; display:inline-block; padding:4px 8px;">
+                        <span style="color:#94a3b8; font-size:11px;">(was {{ opt.value }})</span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if p.right_eye %}
+                <div style="background:#fff5f0; border:1px solid #f7d4c4; border-radius:8px; padding:12px 16px; flex:1; min-width:240px;">
+                    <strong style="color:#b05a1a; font-size:12px;">RIGHT EYE</strong>
+                    {% for opt in p.right_eye %}
+                    <div style="font-size:13px; margin-top:6px;">
+                        {{ opt.name }}:
+                        {% if opt.name.strip().lower() == 'quantity' %}
+                        <input type="number" name="qty_{{ opt.order_option_id }}"
+                               value="{{ opt.value }}" min="0"
+                               data-original="{{ opt.value }}" data-price="{{ p.price }}"
+                               data-product="{{ p.name }}" data-eye="RIGHT"
+                               class="qty-input form-input"
+                               style="width:70px; display:inline-block; padding:4px 8px; font-weight:700;">
+                        <span style="color:#94a3b8; font-size:11px;">(was {{ opt.value }})</span>
+                        {% else %}
+                        <input type="text" name="rx_{{ opt.order_option_id }}"
+                               value="{{ opt.value }}"
+                               data-original="{{ opt.value }}"
+                               data-product="{{ p.name }}" data-eye="RIGHT"
+                               data-field="{{ opt.name }}"
+                               class="rx-input form-input"
+                               style="width:100px; display:inline-block; padding:4px 8px;">
+                        <span style="color:#94a3b8; font-size:11px;">(was {{ opt.value }})</span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+        {% endfor %}
+
+        <div class="card" style="margin-bottom:16px; border:1px solid #7c3aed; background:#f5f3ff;">
+            <h3 style="color:#7c3aed; margin-bottom:8px;">Ticket Reference</h3>
+            <div class="form-group" style="margin-bottom:0;">
+                <label>Ticket / Reference Number <span style="color:#94a3b8; font-size:12px;">(from customer support ticket)</span></label>
+                <input type="text" name="ticket_ref" class="form-input" placeholder="e.g. TKT-12345, JIRA-567, Email thread ref..."
+                       style="max-width:400px;">
+            </div>
+        </div>
+
+        <div class="form-group" style="margin-top:16px;">
+            <label>Agent Notes (internal)</label>
+            <textarea name="notes" class="form-input" rows="2" placeholder="e.g. Customer requested prescription change via support ticket"></textarea>
+        </div>
+
+        <div style="display:flex; gap:12px; margin-top:16px;">
+            <button type="submit" class="btn btn-primary" id="preview-btn" disabled>
+                Preview Changes &amp; Draft Email
+            </button>
+            <a href="{{ base }}/orders/{{ order.order_id }}" class="btn btn-outline">Cancel</a>
+        </div>
+    </form>
+</div>
+
+<script>
+document.querySelectorAll('.rx-input').forEach(input => {
+    input.addEventListener('change', recalculate);
+    input.addEventListener('input', recalculate);
+});
+document.querySelectorAll('.qty-input').forEach(input => {
+    input.addEventListener('change', recalculate);
+    input.addEventListener('input', recalculate);
+});
+
+function recalculate() {
+    let hasChanges = false;
+    document.querySelectorAll('.rx-input').forEach(input => {
+        if (input.value.trim() !== input.dataset.original.trim()) {
+            hasChanges = true;
+        }
+    });
+    document.querySelectorAll('.qty-input').forEach(input => {
+        const orig = parseInt(input.dataset.original);
+        const newVal = parseInt(input.value) || 0;
+        if (newVal !== orig) {
+            hasChanges = true;
+        }
+    });
+    document.getElementById('preview-btn').disabled = !hasChanges;
+}
+</script>
+{% endblock %}

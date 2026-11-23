@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Payout {{ d.batch.batch_ref }} — Reconciliation{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>{{ d.batch.batch_ref }}</h1>
+    <p>{{ d.batch.source }} · payout {{ d.batch.payout_date }} · {{ d.batch.line_count }} lines</p>
+</div>
+
+<style>
+.ev{background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;padding:16px 20px;margin-bottom:1.1rem}
+.ev h2{font-size:.95rem;margin:0 0 .7rem;color:#0f172a}
+.ev.ok{background:#f0fdf4;border-color:#bbf7d0}
+.ev.wait{background:#fffbeb;border-color:#fde68a}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px 22px}
+.kv div{font-size:.82rem}
+.kv .k{font-size:.66rem;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.03em}
+.rc-table{width:100%;border-collapse:collapse;font-size:.8rem}
+.rc-table th{background:#1e293b;color:#fff;text-align:left;padding:8px 10px;font-size:.68rem;text-transform:uppercase}
+.rc-table td{padding:8px 10px;border-bottom:1px solid #eef2f7}
+.rc-table td.num,.rc-table th.num{text-align:right;font-variant-numeric:tabular-nums}
+.rc-table tr.rev td{background:#fff7ed}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.74rem}
+.st{display:inline-block;padding:2px 9px;border-radius:999px;font-size:.66rem;font-weight:800}
+.st-SETTLED{background:#dcfce7;color:#15803d}
+.st-BANK_CREDITED{background:#dbeafe;color:#1d4ed8}
+.st-IN_PAYOUT{background:#e0e7ff;color:#4338ca}
+.st-OPEN{background:#fee2e2;color:#b91c1c}
+.st-RTO{background:#fef3c7;color:#b45309}
+</style>
+
+<div class="ev">
+    <h2>What the payer says it paid</h2>
+    <div class="kv">
+        <div><div class="k">Gross</div>INR {{ '{:,.2f}'.format(d.batch.gross_amount) }}</div>
+        <div><div class="k">Fee + tax</div>INR {{ '{:,.2f}'.format(d.batch.fee_amount + d.batch.tax_amount) }}</div>
+        <div><div class="k">Refunds / debits</div>INR {{ '{:,.2f}'.format(d.batch.refund_debit_amount) }}</div>
+        <div><div class="k">Net paid out</div><b>INR {{ '{:,.2f}'.format(d.batch.net_amount) }}</b></div>
+        <div><div class="k">Reference / UTR</div><span class="mono">{{ d.batch.bank_ref or '— not stated —' }}</span></div>
+        <div><div class="k">Expected account</div>…{{ d.batch.expected_tail or '?' }}</div>
+        {% if d.batch.original_name %}<div><div class="k">Source file</div>{{ d.batch.original_name }}</div>{% endif %}
+        {% if d.batch.sha256 %}<div><div class="k">File sha256</div><span class="mono">{{ d.batch.sha256[:16] }}…</span></div>{% endif %}
+    </div>
+</div>
+
+<div class="ev {% if d.batch.txn_date %}ok{% else %}wait{% endif %}">
+    <h2>{% if d.batch.txn_date %}Matched to the bank{% else %}No bank credit matched yet{% endif %}</h2>
+    {% if d.batch.txn_date %}
+    <div class="kv">
+        <div><div class="k">Credited</div>{{ d.batch.txn_date }}</div>
+        <div><div class="k">Account</div>…{{ d.batch.credited_tail }}</div>
+        <div><div class="k">Amount</div>INR {{ '{:,.2f}'.format(d.batch.credit_amount) }}</div>
+        <div><div class="k">Bank reference</div><span class="mono">{{ d.batch.credited_ref or '—' }}</span></div>
+    </div>
+    <p class="text-small mono" style="margin:.7rem 0 0">{{ d.batch.narration }}</p>
+    {% else %}
+    <p class="text-small" style="margin:0">The payout is recorded but no single credit of
+    INR {{ '{:,.2f}'.format(d.batch.net_amount) }} has been found in …{{ d.batch.expected_tail }}.
+    Either the statement covering it is not loaded, or the credit differs — neither is resolved by guessing.</p>
+    {% endif %}
+</div>
+
+<div class="ev">
+    <h2>Lines in this payout</h2>
+    <table class="rc-table">
+        <thead><tr><th>Order</th><th>AWB</th><th>Kind</th><th>Collected</th>
+            <th class="num">Gross</th><th class="num">Fee+tax</th><th class="num">Net</th>
+            <th>Reference</th><th>Receivable</th></tr></thead>
+        <tbody>
+        {% for l in d.lines %}
+        <tr class="{% if l.entity_kind != 'PAYMENT' %}rev{% endif %}">
+            <td><b>{{ l.order_id or '—' }}</b></td>
+            <td class="mono">{{ l.awb or '—' }}</td>
+            <td class="text-small">{{ l.entity_kind }}</td>
+            <td class="text-small">{{ l.collected_at or '—' }}</td>
+            <td class="num">{{ '{:,.2f}'.format(l.gross_amount) }}</td>
+            <td class="num">{{ '{:,.2f}'.format(l.fee_amount + l.tax_amount) }}</td>
+            <td class="num">{{ '{:,.2f}'.format(l.net_amount) }}</td>
+            <td class="mono">{{ l.payment_ref or l.raw_reference or '' }}</td>
+            <td class="text-small">
+                {% if l.receivable_id %}<a href="{{ base }}/recon/order/{{ l.receivable_id }}">{{ l.rec_state }}</a>
+                {% else %}<span class="text-muted">not a date we have ingested</span>{% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    <p class="text-small text-muted" style="margin:.8rem 0 0">Lines shaded orange are refunds, chargebacks or other debits: they name an
+    order but move money the other way, and are never counted as collection.</p>
+</div>
+{% endblock %}

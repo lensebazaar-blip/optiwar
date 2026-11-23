@@ -1,0 +1,718 @@
+{% extends "base.html" %}
+{% block title %}Order #E-{{ order.order_id }} — LensBazaar OPP{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <a href="{{ base }}/orders" class="btn btn-sm btn-outline">&laquo; Back to Orders</a>
+        <h1>Order #E-{{ order.order_id }}</h1>
+    </div>
+    <div style="display:flex; gap:8px; align-items:center;">
+        <button onclick="copyFullOrder()" class="btn btn-sm btn-outline" title="Copy full order for WhatsApp">📋 Copy Order</button>
+        <a href="{{ base }}/orders/{{ order.order_id }}/support-email" class="btn btn-sm btn-outline" style="background:#7c3aed; color:white; border-color:#7c3aed;" title="AI-drafted support email to customer">✉ Support</a>
+        <span class="status-badge status-{{ order.order_status_id }} badge-lg">{{ order.status_name }}</span>
+    </div>
+</div>
+
+<div class="detail-grid">
+    <!-- Customer Info -->
+    <div class="card">
+        <h3>Customer</h3>
+        <div class="info-row"><label>Name:</label> <span>{{ order.firstname }} {{ order.lastname }}</span></div>
+        <div class="info-row"><label>Email:</label> <span>{{ order.email }}</span></div>
+        <div class="info-row"><label>Phone:</label> <span>{{ order.telephone }}</span></div>
+        <div class="info-row"><label>Date:</label> <span>{{ order.date_added }}</span></div>
+        <div class="info-row"><label>Payment:</label> <span>{{ order.payment_method }}</span></div>
+    </div>
+
+    <!-- Shipping Info -->
+    <div class="card">
+        <h3>Shipping Address</h3>
+        <div class="info-row"><label>Name:</label> <span>{{ order.shipping_firstname }} {{ order.shipping_lastname }}</span></div>
+        {% if order.shipping_company %}<div class="info-row"><label>Company:</label> <span>{{ order.shipping_company }}</span></div>{% endif %}
+        <div class="info-row"><label>Address:</label> <span>{{ order.shipping_address_1 }}{% if order.shipping_address_2 %}, {{ order.shipping_address_2 }}{% endif %}</span></div>
+        <div class="info-row"><label>City:</label> <span>{{ order.shipping_city }}</span></div>
+        <div class="info-row"><label>Postcode:</label> <span>{{ order.shipping_postcode }}</span></div>
+        <div class="info-row"><label>Country:</label> <span>{{ order.shipping_country }} ({{ order.shipping_country_code }})</span></div>
+        <div class="info-row"><label>Zone:</label> <span>{{ order.shipping_zone }}</span></div>
+    </div>
+
+    <!-- Order Totals -->
+    <div class="card">
+        <h3>Order Total</h3>
+        {% for t in order.totals %}
+        <div class="info-row"><label>{{ t.title }}:</label> <span>{{ t.text }}</span></div>
+        {% endfor %}
+        <hr>
+        {% if edit_history %}
+        {% set total_refund_eur = edit_history | map(attribute='refund_amount_eur') | map('float') | sum %}
+        {% set total_refund_inr = edit_history | map(attribute='refund_amount_inr') | map('float') | sum %}
+        {% set original_eur = order.total_eur + total_refund_eur %}
+        {% set original_inr = order.total_inr + total_refund_inr %}
+        <div class="info-row"><label>Original EUR Total:</label> <span>&euro;{{ '%.2f'|format(original_eur) }}</span></div>
+        <div class="info-row" style="color:#dc2626;"><label>Edit Adjustment:</label> <span>-&euro;{{ '%.2f'|format(total_refund_eur) }}</span></div>
+        <div class="info-row total-row" style="font-size:16px;"><label>Adjusted EUR Total:</label> <span style="color:#16a34a; font-weight:700;">&euro;{{ '%.2f'|format(order.total_eur) }}</span></div>
+        <div class="info-row"><label>Adjusted INR Total:</label> <span>&#8377;{{ '%.2f'|format(order.total_inr) }}</span></div>
+        {% else %}
+        <div class="info-row total-row"><label>EUR Total:</label> <span>&euro;{{ '%.2f'|format(order.total_eur) }}</span></div>
+        <div class="info-row"><label>INR Total:</label> <span>&#8377;{{ '%.2f'|format(order.total_inr) }}</span></div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Products -->
+<div class="section">
+    <h2>Products</h2>
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr><th>Product</th><th>Model</th><th>Qty</th><th>Unit Price (EUR)</th><th>Total (EUR)</th><th>Rx / Options</th><th></th></tr>
+            </thead>
+            <tbody>
+                {% for p in order.products %}
+                <tr>
+                    <td>{{ p.name }}</td>
+                    <td>{{ p.model }}</td>
+                    <td>{{ p.quantity }}</td>
+                    <td>&euro;{{ "%.2f"|format(p.price|float * eur_rate) }}</td>
+                    <td>&euro;{{ "%.2f"|format(p.total|float * eur_rate) }}</td>
+                    <td>
+                        {% if p.has_eye_options %}
+                        <button class="btn btn-sm btn-outline" onclick="toggleRx('rx-{{ loop.index }}')" style="font-size:12px;">View Prescription</button>
+                        <div id="rx-{{ loop.index }}" style="display:none; margin-top:8px;">
+                            <div style="display:flex; gap:12px; flex-wrap:wrap;">
+                                {% if p.left_eye %}
+                                <div style="background:#f0f7ff; border:1px solid #c4ddf7; border-radius:6px; padding:8px 12px; min-width:130px;">
+                                    <strong style="color:#1a5db0; font-size:11px;">LEFT EYE</strong>
+                                    {% for opt in p.left_eye %}
+                                    <div style="font-size:12px; margin-top:2px;">{{ opt.name }}: <strong>{{ opt.value }}</strong></div>
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
+                                {% if p.right_eye %}
+                                <div style="background:#fff5f0; border:1px solid #f7d4c4; border-radius:6px; padding:8px 12px; min-width:130px;">
+                                    <strong style="color:#b05a1a; font-size:11px;">RIGHT EYE</strong>
+                                    {% for opt in p.right_eye %}
+                                    <div style="font-size:12px; margin-top:2px;">{{ opt.name }}: <strong>{{ opt.value }}</strong></div>
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% elif p.options %}
+                        <div style="font-size:12px;">
+                            {% for opt in p.options %}
+                            {{ opt.name }}: <strong>{{ opt.value }}</strong>{% if not loop.last %}, {% endif %}
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <span style="color:#999;">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <button class="btn btn-sm btn-outline" onclick="copyItem({{ loop.index0 }})" title="Copy item for WhatsApp" style="font-size:11px;">📋</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+    <div style="margin-top:10px;"><a href="{{ base }}/orders/{{ order.order_id }}/lot-numbers" class="btn btn-sm" style="background:#0e7490; color:white; border:none; font-size:12px;">📦 Input Lot Numbers</a></div>
+
+<!-- Supplier Assignment -->
+<div class="detail-grid">
+    <div class="card">
+        <h3>Supplier Assignment</h3>
+        {% if order.supplier %}
+        <div class="info-row"><label>Current Supplier:</label> <span><strong>{{ order.supplier.supplier_name }}</strong></span></div>
+        {% if order.supplier.supplier_reference %}
+        <div class="info-row"><label>Reference:</label> <span>{{ order.supplier.supplier_reference }}</span></div>
+        {% endif %}
+        {% if order.supplier.expected_ship_date %}
+        <div class="info-row"><label>Expected Ship Date:</label> <span><strong>{{ order.supplier.expected_ship_date }}</strong></span></div>
+        {% endif %}
+        <div class="info-row"><label>Last Updated:</label> <span>{{ order.supplier.date_modified }}</span></div>
+        <hr>
+        {% else %}
+        <p style="color:#999; margin-bottom:12px;">No supplier assigned yet.</p>
+        {% endif %}
+        <form method="post" action="{{ base }}/orders/{{ order.order_id }}/supplier">
+            <div class="form-group">
+                <label>{{ 'Change' if order.supplier else 'Assign' }} Supplier</label>
+                <select name="supplier_name" class="form-select" required>
+                    <option value="">— Select Supplier —</option>
+                    {% for s in supplier_list %}
+                    <option value="{{ s.name }}" {% if order.supplier and order.supplier.supplier_name == s.name %}selected{% endif %}>
+                        {{ s.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Reference / Notes</label>
+                <input type="text" name="supplier_reference" class="form-input"
+                       value="{{ order.supplier.supplier_reference if order.supplier else '' }}"
+                       placeholder="e.g. PO number, invoice ref">
+            </div>
+            <div class="form-group">
+                <label>Expected Ship / Receiving Date <span style="color:#94a3b8; font-weight:400;">(as confirmed by supplier)</span></label>
+                <input type="date" name="expected_ship_date" class="form-input"
+                       value="{{ order.supplier.expected_ship_date if order.supplier and order.supplier.expected_ship_date else '' }}">
+            </div>
+            <button type="submit" class="btn btn-primary"
+                    {% if order.supplier %}onclick="return confirm('Change supplier from {{ order.supplier.supplier_name }}?')"{% endif %}>
+                {{ 'Update Supplier' if order.supplier else 'Assign Supplier' }}
+            </button>
+        </form>
+        <hr style="margin:16px 0;">
+        <div>
+            <a href="#" onclick="document.getElementById('add-supplier-box').style.display='block'; this.style.display='none'; return false;"
+               style="font-size:13px; color:#2563eb; text-decoration:none;">+ Add New Supplier</a>
+            <div id="add-supplier-box" style="display:none; margin-top:10px; padding:12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px;">
+                <form method="post" action="{{ base }}/suppliers/add">
+                    <input type="hidden" name="order_id" value="{{ order.order_id }}">
+                    <div class="form-group">
+                        <label>Supplier Name <span style="color:#dc2626;">*</span></label>
+                        <input type="text" name="name" class="form-input" required placeholder="Supplier name">
+                    </div>
+                    <div class="form-group">
+                        <label>Email <span style="color:#94a3b8; font-weight:400;">(optional)</span></label>
+                        <input type="email" name="email" class="form-input" placeholder="supplier@example.com">
+                    </div>
+                    <div class="form-group">
+                        <label>Phone <span style="color:#94a3b8; font-weight:400;">(optional)</span></label>
+                        <input type="text" name="phone" class="form-input" placeholder="digits only">
+                    </div>
+                    <div class="form-group">
+                        <label>Address <span style="color:#94a3b8; font-weight:400;">(optional)</span></label>
+                        <input type="text" name="address" class="form-input" placeholder="City / address">
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="background:#059669;">Save Supplier</button>
+                    <a href="#" onclick="document.getElementById('add-supplier-box').style.display='none'; this.parentNode.parentNode.previousElementSibling.style.display='inline'; return false;"
+                       style="margin-left:8px; font-size:13px; color:#94a3b8;">Cancel</a>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="card">
+        <h3>Quick Actions</h3>
+        <div class="action-buttons">
+            <a href="{{ base }}/orders/{{ order.order_id }}/invoice" target="_blank" class="btn btn-primary btn-full" style="margin-bottom:10px;">
+                🖨 Print Invoice
+            </a>
+            <a href="{{ base }}/orders/{{ order.order_id }}/edit" class="btn btn-full" style="background:#f59e0b; color:white; border:none; margin-bottom:10px;">
+                Edit Order (Partial Shipment)
+            </a>
+            <a href="{{ base }}/orders/{{ order.order_id }}/edit-rx" class="btn btn-full" style="background:#7c3aed; color:white; border:none; margin-bottom:10px;">
+                💊 Edit Prescription
+            </a>
+            <a href="{{ base }}/orders/{{ order.order_id }}/edit-product" class="btn btn-full" style="background:#059669; color:white; border:none; margin-bottom:10px;">
+                🔄 Edit Product Change
+            </a>
+            <a href="{{ base }}/orders/{{ order.order_id }}/ship" class="btn btn-success btn-full">
+                Issue AWB (FedEx)
+            </a>
+
+            <form method="post" action="{{ base }}/orders/{{ order.order_id }}/alert-contact-failed" style="margin-top:10px;"
+                  onsubmit="return confirm('Send FedEx “unable to contact” alert to the customer via Email + WhatsApp?')">
+                <button type="submit" class="btn btn-full" style="background:#c2410c; color:white; border:none;">
+                    📞 FedEx Couldn't Contact — Alert Customer
+                </button>
+            </form>
+
+            {# ── IRN / E-Way Bill Section ── #}
+            {% if irn_info and irn_info.has_irn and irn_info.is_active %}
+            <div style="margin-top:12px; padding:10px; background:#f0fdf4; border:1px solid #86efac; border-radius:6px;">
+                <div style="font-size:11px; color:#166534; font-weight:600;">✓ IRN Generated</div>
+                <div style="font-size:11px; color:#444; margin-top:4px;">
+                    IRN: <strong>{{ irn_info.irn[:24] }}...</strong><br>
+                    Ack No: <strong>{{ irn_info.ack_no }}</strong><br>
+                    Invoice: <strong>{{ irn_info.invoice_no }}</strong>
+                    {% if irn_info.ewb_no %}<br>E-Way Bill: <strong>{{ irn_info.ewb_no }}</strong>{% endif %}
+                </div>
+                {% if not irn_info.ewb_no %}
+                <form method="post" action="{{ base }}/orders/{{ order.order_id }}/generate-ewb" style="margin-top:8px;">
+                    <button type="submit" class="btn btn-sm btn-warning btn-full" onclick="return confirm('Generate E-Way Bill for this order?')">
+                        📦 Generate E-Way Bill
+                    </button>
+                </form>
+                {% endif %}
+                <form method="post" action="{{ base }}/orders/{{ order.order_id }}/cancel-irn" style="margin-top:6px;">
+                    <input type="hidden" name="reason" value="1">
+                    <input type="hidden" name="remark" value="Cancelled from dashboard">
+                    <button type="submit" class="btn btn-sm btn-outline btn-full" style="font-size:11px; color:#dc2626; border-color:#dc2626;"
+                            onclick="return confirm('Cancel IRN? This cannot be undone after 24 hours.')">
+                        Cancel IRN
+                    </button>
+                </form>
+            </div>
+            {% elif irn_info and irn_info.has_irn and irn_info.is_cancelled %}
+            <div style="margin-top:12px; padding:10px; background:#fef2f2; border:1px solid #fca5a5; border-radius:6px;">
+                <div style="font-size:11px; color:#991b1b; font-weight:600;">✕ IRN Cancelled</div>
+                <div style="font-size:11px; color:#666; margin-top:4px;">IRN: {{ irn_info.irn[:24] }}...</div>
+                <form method="post" action="{{ base }}/orders/{{ order.order_id }}/generate-irn" style="margin-top:8px;">
+                    <button type="submit" class="btn btn-sm btn-primary btn-full">
+                        🔄 Re-generate IRN
+                    </button>
+                </form>
+            </div>
+            {% else %}
+            <form method="post" action="{{ base }}/orders/{{ order.order_id }}/generate-irn" style="margin-top:12px;">
+                <button type="submit" class="btn btn-full" style="background:#7c3aed; color:white; border:none;"
+                        onclick="return confirm('Generate IRN + E-Way Bill for this order?')">
+                    📜 Generate IRN + E-Way Bill
+                </button>
+            </form>
+            {% endif %}
+            {% if user.role == 'admin' %}
+            <button type="button" class="btn btn-danger btn-full" style="margin-top:10px;"
+                    onclick="document.getElementById('euRefundModal').style.display='flex'">
+                💸 Refund
+            </button>
+            {% else %}
+            <form method="post" action="{{ base }}/orders/{{ order.order_id }}/status" style="margin-top:10px;">
+                <input type="hidden" name="status_id" value="11">
+                <input type="hidden" name="comment" value="Refund requested by {{ user.username }}">
+                <button type="submit" class="btn btn-warning btn-full">
+                    Request Refund (Needs Approval)
+                </button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{# ── Pending Refund Section ── #}
+{% if pending_refund %}
+<div class="section" style="margin-top:16px;">
+    <div class="card" style="border:2px solid #f59e0b; background:#fffbeb;">
+        <h3 style="color:#92400e;">Pending Refund</h3>
+        <div class="info-row"><label>Refund Amount:</label>
+            <span style="color:#dc2626; font-size:20px; font-weight:700;">&euro;{{ "%.2f"|format(pending_refund.refund_amount_eur) }}</span>
+            <span style="color:#64748b; font-size:13px;">(&#8377;{{ "%.2f"|format(pending_refund.refund_amount_inr) }})</span>
+        </div>
+        {% if pending_refund.razorpay_payment_id %}
+        <div class="info-row"><label>Razorpay Payment ID:</label>
+            <span style="font-family:monospace; background:#f1f5f9; padding:2px 8px; border-radius:4px;">{{ pending_refund.razorpay_payment_id }}</span>
+            <a href="https://dashboard.razorpay.com/app/payments/{{ pending_refund.razorpay_payment_id }}" target="_blank"
+               style="font-size:12px; margin-left:8px;">Open in Razorpay</a>
+        </div>
+        {% endif %}
+        <div class="info-row"><label>Edited:</label> <span>{{ pending_refund.created_at }}</span></div>
+        {% if pending_refund.notes %}
+        <div class="info-row"><label>Notes:</label> <span>{{ pending_refund.notes }}</span></div>
+        {% endif %}
+        <hr style="margin:12px 0;">
+        <form method="post" action="{{ base }}/orders/{{ order.order_id }}/refund-complete" style="display:flex; gap:8px; align-items:end; flex-wrap:wrap;">
+            <input type="hidden" name="edit_id" value="{{ pending_refund.id }}">
+            <div class="form-group" style="flex:1; min-width:200px; margin:0;">
+                <label style="font-size:12px;">Razorpay Refund Reference</label>
+                <input type="text" name="refund_reference" class="form-input" placeholder="e.g. rfnd_XXXX or manual note" required>
+            </div>
+            <button type="submit" class="btn btn-success"
+                    onclick="return confirm('Mark this refund of EUR ' + '{{ '%.2f'|format(pending_refund.refund_amount_eur) }}' + ' as completed?')">
+                Mark Refund Completed
+            </button>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{# ── Edit History ── #}
+{% if edit_history %}
+<div class="section" style="margin-top:16px;">
+    <div class="card">
+        <h3>Order Edit History</h3>
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr><th>Date</th><th>Refund EUR</th><th>Refund INR</th><th>Status</th><th>Notes</th></tr>
+                </thead>
+                <tbody>
+                    {% for edit in edit_history %}
+                    <tr>
+                        <td>{{ edit.created_at }}</td>
+                        <td style="color:#dc2626; font-weight:600;">&euro;{{ "%.2f"|format(edit.refund_amount_eur) }}</td>
+                        <td>&#8377;{{ "%.2f"|format(edit.refund_amount_inr) }}</td>
+                        <td>
+                            {% if edit.refund_status == 'pending' %}
+                            <span style="background:#f59e0b; color:white; padding:2px 8px; border-radius:10px; font-size:11px;">Pending</span>
+                            {% elif edit.refund_status == 'completed' %}
+                            <span style="background:#22c55e; color:white; padding:2px 8px; border-radius:10px; font-size:11px;">Completed</span>
+                            {% else %}
+                            <span style="color:#94a3b8; font-size:11px;">No refund</span>
+                            {% endif %}
+                        </td>
+                        <td style="font-size:12px;">{{ edit.notes or '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Actions -->
+<div class="detail-grid">
+    <!-- Update Status -->
+    <div class="card">
+        <h3>Update Status</h3>
+        <form method="post" action="{{ base }}/orders/{{ order.order_id }}/status">
+            <div class="form-group">
+                <label>New Status</label>
+                <select name="status_id" class="form-select" required>
+                    {% for s in all_statuses %}
+                    <option value="{{ s.order_status_id }}" {% if order.order_status_id == s.order_status_id %}selected{% endif %}>
+                        {{ s.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Comment</label>
+                <textarea name="comment" class="form-textarea" rows="3"></textarea>
+            </div>
+            <div class="form-group">
+                <label style="font-weight:600; margin-bottom:6px; display:block;">Notify Customer</label>
+                <div style="display:flex; gap:16px; flex-wrap:wrap;">
+                    <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                        <input type="checkbox" name="notify_email" value="1"> ✉ Email
+                    </label>
+                    <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                        <input type="checkbox" name="notify_whatsapp" value="1"> 💬 WhatsApp
+                    </label>
+                    <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                        <input type="checkbox" name="notify_sms" value="1"> 📱 SMS
+                    </label>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Update Status</button>
+        </form>
+    </div>
+</div>
+
+<!-- Order History -->
+<div class="section">
+    <h2>Order History</h2>
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr><th>Date</th><th>Status</th><th>Comment</th><th>Tracking</th><th>By</th><th>Notified</th></tr>
+            </thead>
+            <tbody>
+                {% for h in order.history %}
+                <tr>
+                    <td class="text-small">{{ h.date_added }}</td>
+                    <td><span class="status-badge status-{{ h.order_status_id }}">{{ h.status_name }}</span></td>
+                    <td>{{ h.comment }}</td>
+                    <td>
+                        {{ h.tracking_number or '' }}
+                        {% if h.tracking_number %}
+                            {% for awb in order.awbs %}
+                                {% if awb.tracking_number == h.tracking_number and awb.label_pdf_path %}
+                                <br><a href="{{ base }}/awb/{{ awb.id }}/label" target="_blank" style="display:inline-block; margin-top:4px; padding:3px 10px; background:#2563eb; color:#fff; border-radius:4px; font-size:12px; text-decoration:none;">⬇ Download Label</a>
+                                    {% if awb.awb_status == 'created' %}
+                                    <form method="post" action="{{ base }}/awb/{{ awb.id }}/cancel" style="display:inline; margin-left:4px;">
+                                        <button type="submit" style="padding:3px 10px; background:#dc2626; color:#fff; border:none; border-radius:4px; font-size:12px; cursor:pointer;" onclick="return confirm('Cancel AWB {{ awb.tracking_number }}?')">✕ Cancel</button>
+                                    </form>
+                                    {% endif %}
+                                {% endif %}
+                            {% endfor %}
+                        {% endif %}
+                    </td>
+                    <td>{{ h.addedby }}</td>
+                    <td>{{ 'Yes' if h.notify else 'No' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{# ── Notification Logs ── #}
+{% if notif_logs %}
+<div class="section" style="margin-top:16px;">
+    <div class="card">
+        <h3>Notification Log</h3>
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Channel</th>
+                        <th>Event</th>
+                        <th>Recipient</th>
+                        <th>Status</th>
+                        <th>Receipt / Ref</th>
+                        <th>Details</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for n in notif_logs %}
+                    <tr>
+                        <td style="font-size:12px; white-space:nowrap;">{{ n.created_at }}</td>
+                        <td>
+                            {% if n.channel == 'email' %}<span style="background:#3b82f6; color:white; padding:2px 8px; border-radius:10px; font-size:11px;">Email</span>
+                            {% elif n.channel == 'whatsapp' %}<span style="background:#22c55e; color:white; padding:2px 8px; border-radius:10px; font-size:11px;">WhatsApp</span>
+                            {% elif n.channel == 'sms' %}<span style="background:#8b5cf6; color:white; padding:2px 8px; border-radius:10px; font-size:11px;">SMS</span>
+                            {% endif %}
+                        </td>
+                        <td style="font-size:12px;">{{ n.event }}</td>
+                        <td style="font-size:12px;">{{ n.recipient }}</td>
+                        <td>
+                            {% if n.success %}<span style="background:#22c55e; color:white; padding:2px 8px; border-radius:10px; font-size:11px;">Sent</span>
+                            {% else %}<span style="background:#ef4444; color:white; padding:2px 8px; border-radius:10px; font-size:11px;">Failed</span>
+                            {% endif %}
+                        </td>
+                        <td style="font-size:11px; font-family:monospace; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ n.reference }}">{{ n.reference or '—' }}</td>
+                        <td style="font-size:11px; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ n.message }}">{{ n.message }}</td>
+                        <td style="font-size:11px;">{% if n.channel == "email" and n.event.startswith("support_email") %}<a href="{{ base }}/orders/{{ order.order_id }}/support-email/view/{{ n.id }}" style="color:#2563eb;white-space:nowrap;">View email</a>{% if n.success %} &middot; <a href="{{ base }}/orders/{{ order.order_id }}/support-email?followup={{ n.id }}" style="color:#7c3aed;white-space:nowrap;">Follow-up &rarr;</a>{% endif %}{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Pending Approvals -->
+{% if order.approvals %}
+<div class="section">
+    <h2>Approval Requests</h2>
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr><th>Action</th><th>Requested By</th><th>Status</th><th>Date</th></tr>
+            </thead>
+            <tbody>
+                {% for a in order.approvals %}
+                <tr>
+                    <td>{{ a.action_type }}</td>
+                    <td>{{ a.requested_by_name }}</td>
+                    <td><span class="badge badge-{{ a.status }}">{{ a.status }}</span></td>
+                    <td>{{ a.created_at }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<!-- Copy-to-clipboard toast -->
+<div id="copy-toast" style="display:none; position:fixed; bottom:20px; right:20px; background:#333; color:#fff; padding:10px 20px; border-radius:8px; font-size:14px; z-index:9999;">
+    Copied to clipboard!
+</div>
+
+<script>
+function toggleRx(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    var btn = el.previousElementSibling;
+    if (el.style.display === 'none') {
+        el.style.display = 'block';
+        if (btn) btn.textContent = 'Hide Prescription';
+    } else {
+        el.style.display = 'none';
+        if (btn) btn.textContent = 'View Prescription';
+    }
+}
+
+function showToast(msg) {
+    var t = document.getElementById('copy-toast');
+    t.textContent = msg || 'Copied to clipboard!';
+    t.style.display = 'block';
+    setTimeout(function(){ t.style.display = 'none'; }, 2000);
+}
+
+// Product data for copy functions (masked as NEP for supplier communication)
+var orderData = {
+    id: "NEP-{{ order.order_id }}",
+    supplier: "{{ order.supplier.supplier_name if order.supplier else '' }}",
+    reference: "{{ order.supplier.supplier_reference if order.supplier else '' }}",
+    products: [
+        {% for p in order.products %}
+        {
+            name: {{ p.name|tojson }},
+            model: {{ p.model|tojson }},
+            qty: {{ p.quantity }},
+            has_rx: {{ 'true' if p.has_eye_options else 'false' }},
+            left_eye: [{% for o in p.left_eye %}{ name: {{ o.name|tojson }}, value: {{ o.value|tojson }} }{% if not loop.last %},{% endif %}{% endfor %}],
+            right_eye: [{% for o in p.right_eye %}{ name: {{ o.name|tojson }}, value: {{ o.value|tojson }} }{% if not loop.last %},{% endif %}{% endfor %}],
+            options: [{% for o in p.options %}{ name: {{ o.name|tojson }}, value: {{ o.value|tojson }} }{% if not loop.last %},{% endif %}{% endfor %}]
+        }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ]
+};
+
+function formatItemText(p, idx) {
+    var lines = [];
+    lines.push("*" + (idx+1) + ". " + p.name + "*");
+    lines.push("   Model: " + p.model);
+    lines.push("   Total Qty: " + p.qty);
+    if (p.has_rx) {
+        if (p.left_eye.length) {
+            lines.push("   *LEFT EYE:*");
+            p.left_eye.forEach(function(o){ lines.push("     " + o.name + ": " + o.value); });
+        }
+        if (p.right_eye.length) {
+            lines.push("   *RIGHT EYE:*");
+            p.right_eye.forEach(function(o){ lines.push("     " + o.name + ": " + o.value); });
+        }
+    } else if (p.options.length) {
+        var opts = p.options.map(function(o){ return o.name + ": " + o.value; }).join(", ");
+        lines.push("   Options: " + opts);
+    }
+    return lines.join("\n");
+}
+
+function copyItem(idx) {
+    var p = orderData.products[idx];
+    var text = "*Order #" + orderData.id + "*\n";
+    if (orderData.reference) text += "Reference: " + orderData.reference + "\n";
+    text += "\n" + formatItemText(p, 0);
+    navigator.clipboard.writeText(text).then(function(){ showToast('Item copied!'); });
+}
+
+function copyFullOrder() {
+    var lines = [];
+    lines.push("*Order #" + orderData.id + "*");
+    if (orderData.reference) lines.push("Reference: " + orderData.reference);
+    if (orderData.supplier) lines.push("Supplier: " + orderData.supplier);
+    lines.push("");
+    lines.push("*Products:*");
+    orderData.products.forEach(function(p, i){
+        lines.push(formatItemText(p, i));
+        lines.push("");
+    });
+    navigator.clipboard.writeText(lines.join("\n")).then(function(){ showToast('Full order copied!'); });
+}
+</script>
+
+{% if user.role == 'admin' %}
+{# ── Refund modal (Full / Partial with INR calculator) ── #}
+<div id="euRefundModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:10px;max-width:560px;width:94%;max-height:92vh;overflow:auto;padding:22px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <h3 style="margin:0;">Refund — Order #E-{{ order.order_id }}</h3>
+        <button type="button" class="btn btn-sm btn-outline" onclick="document.getElementById('euRefundModal').style.display='none'">✕</button>
+    </div>
+    <p style="font-size:12px;color:#64748b;margin:0 0 12px;">
+        Paid: <strong>&euro;{{ "%.2f"|format(order.total_eur) }}</strong>
+        (&#8377;{{ "%.2f"|format(order.total_inr) }}). Razorpay refunds in INR.
+    </p>
+    <form method="post" action="{{ base }}/orders/{{ order.order_id }}/refund" id="euRefundForm">
+        <div class="form-group">
+            <label style="font-weight:600;">Refund type</label>
+            <div style="display:flex;gap:20px;margin-top:4px;">
+                <label><input type="radio" name="refund_type" value="full" checked onchange="euRefundToggle()"> Full (refund entire paid amount)</label>
+            </div>
+            <div style="margin-top:4px;">
+                <label><input type="radio" name="refund_type" value="partial" onchange="euRefundToggle()"> Partial (deduct return/freight costs)</label>
+            </div>
+        </div>
+
+        <div id="euPartialFields" style="display:none;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:10px;">
+            <div class="form-group" style="margin-bottom:8px;">
+                <label style="font-size:12px;">Conversion rate (&#8377; per &euro;)</label>
+                <input type="number" step="0.01" name="rate" id="euRate" class="form-input"
+                       value="{{ "%.2f"|format(order.total_inr / order.total_eur if order.total_eur else 0) }}" oninput="euRefundCalc()">
+            </div>
+            <div class="form-group" style="margin-bottom:8px;">
+                <label style="font-size:12px;">Less: return goods processing cost (&#8377;)</label>
+                <input type="number" step="0.01" name="deduction_return" id="euDedReturn" class="form-input" value="0" oninput="euRefundCalc()">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+                <label style="font-size:12px;">Less: freight / other charges (&#8377;)</label>
+                <input type="number" step="0.01" name="deduction_freight" id="euDedFreight" class="form-input" value="0" oninput="euRefundCalc()">
+            </div>
+        </div>
+
+        <div id="euRefundResult" style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px;margin-bottom:10px;font-size:14px;">
+            <div>Refund to push (Razorpay): <strong id="euRefundInr">&#8377;{{ "%.2f"|format(order.total_inr) }}</strong></div>
+            <div>Shown to customer: <strong id="euRefundEur">&euro;{{ "%.2f"|format(order.total_eur) }}</strong></div>
+        </div>
+
+        <div class="form-group">
+            <label>Reason / details (optional)</label>
+            <textarea name="reason" id="euReason" class="form-textarea" rows="2" placeholder="e.g. Customer returned goods; deducted return processing + freight"></textarea>
+        </div>
+
+        <div class="form-group">
+            <label style="font-weight:600;margin-bottom:6px;display:block;">Notify customer (EWS)</label>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;">
+                <label><input type="checkbox" name="notify_email" value="1" checked> ✉ Email</label>
+                <label><input type="checkbox" name="notify_whatsapp" value="1" checked> 💬 WhatsApp</label>
+                <label><input type="checkbox" name="notify_sms" value="1" checked> 📱 SMS</label>
+            </div>
+            <p style="font-size:11px;color:#94a3b8;margin-top:4px;">
+                Email carries the full breakdown (DeepSeek-drafted). WhatsApp fires the approved
+                <code>order_refunded</code> template. All channels pre-selected — untick any you don't want.
+            </p>
+        </div>
+
+        <div style="display:flex;gap:10px;align-items:center;margin-top:6px;">
+            <button type="submit" class="btn btn-danger"
+                    onclick="return confirm('Record this refund, set the order status and notify the customer on the selected channels? You still book the amount in Razorpay and enter the reference to complete it.');">
+                Process Refund
+            </button>
+            <button type="button" class="btn btn-outline" onclick="euRefundDryRun()">🔍 Dry Run</button>
+        </div>
+    </form>
+  </div>
+</div>
+
+<script>
+var EU_PAID_EUR = {{ order.total_eur or 0 }};
+var EU_PAID_INR = {{ order.total_inr or 0 }};
+
+function euRefundToggle(){
+    var partial = document.querySelector('#euRefundForm input[name=refund_type][value=partial]').checked;
+    document.getElementById('euPartialFields').style.display = partial ? 'block' : 'none';
+    euRefundCalc();
+}
+function euRefundCalc(){
+    var partial = document.querySelector('#euRefundForm input[name=refund_type][value=partial]').checked;
+    var refInr, refEur;
+    if (!partial){
+        refInr = EU_PAID_INR;
+        refEur = EU_PAID_EUR;
+    } else {
+        var rate = parseFloat(document.getElementById('euRate').value) || 0;
+        var dr = parseFloat(document.getElementById('euDedReturn').value) || 0;
+        var df = parseFloat(document.getElementById('euDedFreight').value) || 0;
+        var base = EU_PAID_EUR * rate;
+        refInr = base - dr - df;
+        if (refInr < 0) refInr = 0;
+        refEur = rate ? (refInr / rate) : 0;
+    }
+    document.getElementById('euRefundInr').innerHTML = '&#8377;' + refInr.toFixed(2);
+    document.getElementById('euRefundEur').innerHTML = '&euro;' + refEur.toFixed(2);
+}
+function euRefundDryRun(){
+    var type = document.querySelector('#euRefundForm input[name=refund_type]:checked').value;
+    var rate = encodeURIComponent(document.getElementById('euRate').value || '0');
+    var dr = encodeURIComponent(document.getElementById('euDedReturn').value || '0');
+    var df = encodeURIComponent(document.getElementById('euDedFreight').value || '0');
+    var reason = encodeURIComponent(document.getElementById('euReason').value || '');
+    var chans = [];
+    document.querySelectorAll('#euRefundForm input[type=checkbox]:checked').forEach(function(c){
+        if (c.name === 'notify_email') chans.push('email');
+        if (c.name === 'notify_whatsapp') chans.push('whatsapp');
+        if (c.name === 'notify_sms') chans.push('sms');
+    });
+    if (!chans.length) chans = ['email'];
+    var url = "{{ base }}/orders/{{ order.order_id }}/refund-preview"
+              + "?refund_type=" + type + "&rate=" + rate
+              + "&deduction_return=" + dr + "&deduction_freight=" + df
+              + "&reason=" + reason + "&channels=" + chans.join(',');
+    window.open(url, '_blank');
+}
+</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Reports — LensBazaar OPP{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>📊 Reports</h1>
+    <p>Shipped Orders — select a site and date range, then view or export to CSV / PDF.</p>
+</div>
+
+<style>
+.rep-filter{background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;padding:18px 20px;margin-bottom:1.2rem}
+.rep-filter form{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end}
+.rep-field{display:flex;flex-direction:column;gap:4px}
+.rep-field label{font-size:.72rem;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.02em}
+.rep-field input,.rep-field select{padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:.85rem;min-width:150px}
+.rep-field input:focus,.rep-field select:focus{outline:none;border-color:#2563eb}
+.rep-btns{display:flex;gap:8px}
+.rep-btns button{padding:9px 16px;border:none;border-radius:8px;font-size:.8rem;font-weight:700;cursor:pointer}
+.btn-view{background:#2563eb;color:#fff}
+.btn-view:hover{background:#1d4ed8}
+.btn-csv{background:#16a34a;color:#fff}
+.btn-csv:hover{background:#15803d}
+.btn-pdf{background:#dc2626;color:#fff}
+.btn-pdf:hover{background:#b91c1c}
+.rep-summary{display:flex;gap:20px;flex-wrap:wrap;margin:0 0 1rem;font-size:.85rem}
+.rep-summary .chip{background:#f1f5f9;border-radius:999px;padding:6px 14px;font-weight:700;color:#334155}
+.rep-summary .chip b{color:#2563eb}
+.rep-table{width:100%;border-collapse:collapse;font-size:.8rem;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.rep-table th{background:#1e293b;color:#fff;text-align:left;padding:9px 10px;font-size:.72rem;text-transform:uppercase;letter-spacing:.02em}
+.rep-table td{padding:8px 10px;border-bottom:1px solid #eef2f7;vertical-align:top}
+.rep-table tr:hover td{background:#f8fafc}
+.rep-src{display:inline-block;padding:2px 8px;border-radius:6px;font-size:.65rem;font-weight:800;color:#fff}
+.src-eu{background:#2563eb}
+.src-ow{background:#ea580c}
+.rep-empty{padding:40px;text-align:center;color:#64748b;background:#fff;border-radius:12px}
+</style>
+
+<div class="rep-filter">
+    <form method="get" action="{{ base }}/reports/shipped">
+        <div class="rep-field">
+            <label>Site</label>
+            <select name="site">
+                <option value="all" {% if site=='all' %}selected{% endif %}>All Sites</option>
+                <option value="eu"  {% if site=='eu'  %}selected{% endif %}>EU LensBazaar</option>
+                <option value="ow"  {% if site=='ow'  %}selected{% endif %}>Optiwar</option>
+            </select>
+        </div>
+        <div class="rep-field">
+            <label>From (shipped date)</label>
+            <input type="date" name="from_date" value="{{ from_date }}" required>
+        </div>
+        <div class="rep-field">
+            <label>To (shipped date)</label>
+            <input type="date" name="to_date" value="{{ to_date }}" required>
+        </div>
+        <div class="rep-btns">
+            <button type="submit" name="fmt" value="html" class="btn-view">View</button>
+            <button type="submit" name="fmt" value="csv"  class="btn-csv">Export CSV</button>
+            <button type="submit" name="fmt" value="pdf"  class="btn-pdf">Export PDF</button>
+        </div>
+    </form>
+</div>
+
+{% if error_msg %}
+<div class="alert alert-error">{{ error_msg }}</div>
+{% endif %}
+
+{% if summary is not none %}
+<div class="rep-summary">
+    <span class="chip">Orders: <b>{{ summary.total_orders }}</b></span>
+    <span class="chip">Line items: <b>{{ summary.total_lines }}</b></span>
+    <span class="chip">Total qty: <b>{{ summary.total_qty }}</b></span>
+    <span class="chip">EU: <b>{{ summary.eu_orders }}</b></span>
+    <span class="chip">Optiwar: <b>{{ summary.ow_orders }}</b></span>
+</div>
+
+{% if rows %}
+<table class="rep-table">
+    <thead>
+        <tr>
+            <th>Order ID</th><th>Customer</th><th>Phone</th><th>Country</th>
+            <th>State/Zone</th><th>Shipped At</th><th>Product</th><th>Model</th>
+            <th>Qty</th><th>Options / Rx</th><th>AWB</th><th>Site</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for r in rows %}
+        <tr>
+            <td><b>{{ r.display_order_id }}</b></td>
+            <td>{{ r.customer_name }}</td>
+            <td>{{ r.telephone }}</td>
+            <td>{{ r.shipping_country }}</td>
+            <td>{{ r.shipping_zone }}</td>
+            <td>{{ r.shipped_at }}</td>
+            <td>{{ r.product_name }}</td>
+            <td>{{ r.product_model }}</td>
+            <td>{{ r.product_quantity }}</td>
+            <td>{{ r.options_text or '' }}</td>
+            <td>{{ r.awbno or '' }}</td>
+            <td><span class="rep-src src-{{ r.source }}">{{ r.source_label }}</span></td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="rep-empty">No shipped orders found for this site and date range.</div>
+{% endif %}
+{% endif %}
+{% endblock %}

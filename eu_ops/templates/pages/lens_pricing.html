@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}Lens Pricing — LensBazaar OPP{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Lens Pricing Manager</h1>
+    <p>Manage coating, thickness &amp; bifocal/progressive pricing for Optiwar</p>
+</div>
+
+{% if saved %}
+<div class="alert alert-success">Pricing saved successfully!</div>
+{% endif %}
+{% if error_msg %}
+<div class="alert alert-error">{{ error_msg }}</div>
+{% endif %}
+
+<style>
+.pricing-tabs{display:flex;gap:8px;margin-bottom:1.5rem;flex-wrap:wrap}
+.pricing-tab{padding:8px 18px;border-radius:999px;font-size:.8rem;font-weight:700;cursor:pointer;border:2px solid #e2e8f0;background:#fff;color:#475569;transition:.2s}
+.pricing-tab.active{background:#2563eb;color:#fff;border-color:#2563eb}
+.pricing-tab:hover:not(.active){border-color:#2563eb;color:#2563eb}
+.pricing-section{display:none}
+.pricing-section.active{display:block}
+.cat-title{font-size:1.1rem;font-weight:800;margin:1.2rem 0 .6rem;color:#334155}
+.price-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px}
+.price-card{background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:12px;transition:.2s}
+.price-card:hover{border-color:#2563eb;box-shadow:0 4px 12px rgba(37,99,235,.08)}
+.pc-icon{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;color:#fff;font-size:.75rem;font-weight:900;flex-shrink:0}
+.pc-info{flex:1}
+.pc-info strong{font-size:.85rem;display:block}
+.pc-info small{font-size:.72rem;color:#64748b}
+.pc-price{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.pc-price input{width:62px;padding:6px 6px;border:1.5px solid #e2e8f0;border-radius:6px;font-size:.82rem;font-weight:700;text-align:center}
+.pc-price input:focus{outline:none;border-color:#2563eb}
+.pc-price .save-btn{padding:6px 10px;background:#2563eb;color:#fff;border:none;border-radius:6px;font-size:.72rem;font-weight:700;cursor:pointer}
+.pc-price .save-btn:hover{background:#1d4ed8}
+.pc-price .saved-ok{color:#16a34a;font-size:.72rem;font-weight:700;display:none}
+.pc-curr-label{font-size:.65rem;font-weight:800;color:#64748b;margin-right:-2px}
+.price-card{grid-template-columns:auto 1fr auto;min-width:0}
+.ctx-label{display:inline-block;padding:3px 10px;border-radius:999px;font-size:.65rem;font-weight:800;text-transform:uppercase;margin-bottom:.4rem}
+.ctx-default{background:#dbeafe;color:#1e40af}
+.ctx-bifocal{background:#fef3c7;color:#92400e}
+.ctx-progressive{background:#ede9fe;color:#5b21b6}
+.json-area{margin-top:2rem}
+.json-area textarea{width:100%;height:320px;font-family:monospace;font-size:.78rem;padding:12px;border:1.5px solid #e2e8f0;border-radius:10px;resize:vertical}
+.json-area textarea:focus{outline:none;border-color:#2563eb}
+.json-area .btn-save-json{margin-top:.6rem;padding:10px 24px;background:#059669;color:#fff;border:none;border-radius:8px;font-size:.85rem;font-weight:700;cursor:pointer}
+.json-area .btn-save-json:hover{background:#047857}
+</style>
+
+<div class="pricing-tabs">
+<div class="pricing-tab active" onclick="switchPricingTab(this,'default')">Default Prices</div>
+<div class="pricing-tab" onclick="switchPricingTab(this,'when_bifocal')">When Bifocal Selected</div>
+<div class="pricing-tab" onclick="switchPricingTab(this,'when_progressive')">When Progressive Selected</div>
+<div class="pricing-tab" onclick="switchPricingTab(this,'json')">Raw JSON</div>
+</div>
+
+{% for ctx_key, ctx_data in pricing.items() %}
+<div class="pricing-section {% if ctx_key == 'default' %}active{% endif %}" id="psec-{{ ctx_key }}">
+<span class="ctx-label {% if ctx_key == 'default' %}ctx-default{% elif 'bifocal' in ctx_key %}ctx-bifocal{% else %}ctx-progressive{% endif %}">
+{{ ctx_key | replace("_"," ") | title }}
+</span>
+
+{% for cat_key, cat_items in ctx_data.items() %}
+<div class="cat-title">{{ cat_key | title }}</div>
+<div class="price-grid">
+{% for code, item in cat_items.items() %}
+<div class="price-card">
+<div class="pc-icon" style="background:{{ item.color }}">{{ item.short }}</div>
+<div class="pc-info">
+<strong>{{ item.name }}</strong>
+<small>{{ code }}</small>
+</div>
+<div class="pc-price">
+<span class="pc-curr-label">₹</span>
+<input type="number" value="{{ item.price }}" id="inp-{{ ctx_key }}-{{ cat_key }}-{{ code }}" min="0" step="10" title="INR Price">
+<span class="pc-curr-label">€</span>
+<input type="number" value="{{ item.price_eur|default(0) }}" id="inp-eur-{{ ctx_key }}-{{ cat_key }}-{{ code }}" min="0" step="0.5" title="EUR Price">
+<button class="save-btn" onclick="saveLensPrice('{{ ctx_key }}','{{ cat_key }}','{{ code }}')">Save</button>
+<span class="saved-ok" id="ok-{{ ctx_key }}-{{ cat_key }}-{{ code }}">Done</span>
+</div>
+</div>
+{% endfor %}
+</div>
+{% endfor %}
+</div>
+{% endfor %}
+
+<div class="pricing-section" id="psec-json">
+<div class="json-area">
+<h3>Edit Raw JSON (Advanced)</h3>
+<form method="post" action="{{ base }}/lens-pricing/bulk">
+<textarea name="pricing_json">{{ pricing_json }}</textarea>
+<button class="btn-save-json" type="submit">Save All</button>
+</form>
+</div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function switchPricingTab(el, tab) {
+  document.querySelectorAll(".pricing-section").forEach(function(s){s.classList.remove("active")});
+  document.querySelectorAll(".pricing-tab").forEach(function(t){t.classList.remove("active")});
+  document.getElementById("psec-" + tab).classList.add("active");
+  el.classList.add("active");
+}
+
+function saveLensPrice(ctx, cat, code) {
+  var inp = document.getElementById("inp-" + ctx + "-" + cat + "-" + code);
+  var inpEur = document.getElementById("inp-eur-" + ctx + "-" + cat + "-" + code);
+  var ok = document.getElementById("ok-" + ctx + "-" + cat + "-" + code);
+  var price = inp.value;
+  var priceEur = inpEur ? inpEur.value : "";
+  var body = "context=" + ctx + "&category=" + cat + "&code=" + code + "&price=" + price + "&price_eur=" + priceEur;
+  fetch("{{ base }}/lens-pricing/update", {
+    method: "POST",
+    headers: {"Content-Type": "application/x-www-form-urlencoded"},
+    body: body
+  })
+  .then(function(r){return r.json()})
+  .then(function(d){
+    if(d.success){
+      ok.style.display = "inline";
+      setTimeout(function(){ok.style.display="none"},2000);
+    } else {
+      alert("Error: " + (d.error || "Unknown"));
+    }
+  })
+  .catch(function(e){alert("Network error")});
+}
+</script>
+{% endblock %}

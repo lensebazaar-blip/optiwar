@@ -1,0 +1,122 @@
+{% set right_display = rx_eye_display(p.rx.get('right_eye')) %}
+{% set left_display = rx_eye_display(p.rx.get('left_eye')) %}
+{% set right_values = rx_eye_form(p.rx.get('right_eye')) %}
+{% set left_values = rx_eye_form(p.rx.get('left_eye')) %}
+<table style="border-collapse:collapse;margin:5px 0 4px;font-size:10px;width:100%;max-width:380px;">
+    <thead>
+        <tr style="color:#64748b;text-transform:uppercase;letter-spacing:.04em;">
+            <th style="border:1px solid #dbe3ec;padding:3px 5px;text-align:left;">Eye</th>
+            <th style="border:1px solid #dbe3ec;padding:3px 5px;">SPH</th>
+            <th style="border:1px solid #dbe3ec;padding:3px 5px;">CYL</th>
+            <th style="border:1px solid #dbe3ec;padding:3px 5px;">AXIS</th>
+            <th style="border:1px solid #dbe3ec;padding:3px 5px;">ADD</th>
+        </tr>
+    </thead>
+    <tbody style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">
+        {% if p.rx.get('right_eye') %}
+        <tr>
+            <th style="border:1px solid #dbe3ec;padding:3px 5px;text-align:left;font-family:Arial,sans-serif;">Right (OD)</th>
+            {% if right_display %}
+                <td style="border:1px solid #dbe3ec;padding:3px 5px;text-align:center;">{{ right_display.sph }}</td>
+                <td style="border:1px solid #dbe3ec;padding:3px 5px;text-align:center;">{{ right_display.cyl }}</td>
+                <td style="border:1px solid #dbe3ec;padding:3px 5px;text-align:center;">{{ right_display.axis }}</td>
+                <td style="border:1px solid #dbe3ec;padding:3px 5px;text-align:center;">{{ right_display.add }}</td>
+            {% else %}
+                <td colspan="4" style="border:1px solid #dbe3ec;padding:3px 5px;font-family:Arial,sans-serif;">{{ p.rx.get('right_eye') }}</td>
+            {% endif %}
+        </tr>
+        {% endif %}
+        {% if p.rx.get('left_eye') %}
+        <tr>
+            <th style="border:1px solid #dbe3ec;padding:3px 5px;text-align:left;font-family:Arial,sans-serif;">Left (OS)</th>
+            {% if left_display %}
+                <td style="border:1px solid #dbe3ec;padding:3px 5px;text-align:center;">{{ left_display.sph }}</td>
+                <td style="border:1px solid #dbe3ec;padding:3px 5px;text-align:center;">{{ left_display.cyl }}</td>
+                <td style="border:1px solid #dbe3ec;padding:3px 5px;text-align:center;">{{ left_display.axis }}</td>
+                <td style="border:1px solid #dbe3ec;padding:3px 5px;text-align:center;">{{ left_display.add }}</td>
+            {% else %}
+                <td colspan="4" style="border:1px solid #dbe3ec;padding:3px 5px;font-family:Arial,sans-serif;">{{ p.rx.get('left_eye') }}</td>
+            {% endif %}
+        </tr>
+        {% endif %}
+    </tbody>
+</table>
+{% if p.rx.addon_1_name %}<div>+{{ p.rx.addon_1_name }} (&#8377;{{ p.rx.addon_1_price or 0 }})</div>{% endif %}
+{% if p.rx.addon_2_name %}<div>+{{ p.rx.addon_2_name }} (&#8377;{{ p.rx.addon_2_price or 0 }})</div>{% endif %}
+{% if p.rx.addon_3_name %}<div>+{{ p.rx.addon_3_name }} (&#8377;{{ p.rx.addon_3_price or 0 }})</div>{% endif %}
+<div class="text-small text-muted" style="font-size:10px;">
+    {% if rx_change %}
+    Changed by Ops {{ rx_change.changed_by_name }} · {{ rx_change.changed_at_display or '—' }} · ref {{ rx_change.reference }}
+    {% else %}
+    As typed by the customer at checkout
+    {% endif %}
+</div>
+
+{% if rx_editable and p.rx_id %}
+{% set modal_id = 'rxChangeModal' ~ rx_product_loop_index ~ '_' ~ p.rx_id %}
+{% set right_form = right_values or {'sph': '', 'cyl': '', 'axis': '', 'add': ''} %}
+{% set left_form = left_values or {'sph': '', 'cyl': '', 'axis': '', 'add': ''} %}
+<div style="margin-top:5px;">
+<button type="button" class="btn btn-sm btn-outline" style="margin-top:5px;"
+        onclick="document.getElementById('{{ modal_id }}').style.display='flex'">Change Rx</button>
+</div>
+<div id="{{ modal_id }}" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:1100;align-items:center;justify-content:center;padding:14px;">
+    <div style="background:#fff;border-radius:10px;max-width:650px;width:96%;max-height:92vh;overflow:auto;padding:20px;box-shadow:0 18px 45px rgba(15,23,42,.25);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <h3 style="margin:0;">Change prescription · OW-{{ order.order_id }}</h3>
+            <button type="button" class="btn btn-sm btn-outline"
+                    onclick="document.getElementById('{{ modal_id }}').style.display='none'">✕</button>
+        </div>
+        <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/rx-change"
+              onsubmit="return validateOwRxForm(this)">
+            <input type="hidden" name="rx_id" value="{{ p.rx_id }}">
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;">
+                {% for eye_name, prefix, values in [('Right (OD)', 'r', right_form), ('Left (OS)', 'l', left_form)] %}
+                <fieldset style="border:1px solid #dbe3ec;border-radius:7px;padding:10px;">
+                    <legend style="font-size:12px;font-weight:700;">{{ eye_name }}</legend>
+                    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;">
+                        <label style="font-size:11px;">SPH
+                            <input type="text" inputmode="decimal" pattern="[+-]?([0-9]+(\.[0-9]+)?|\.[0-9]+)" name="{{ prefix }}_sph" value="{{ values.sph }}" data-rx-step="0.25" data-min="-20" data-max="20" oninput="this.setCustomValidity('')" required style="width:100%;box-sizing:border-box;">
+                        </label>
+                        <label style="font-size:11px;">CYL
+                            <input type="text" inputmode="decimal" pattern="[+-]?([0-9]+(\.[0-9]+)?|\.[0-9]+)" name="{{ prefix }}_cyl" value="{{ values.cyl }}" data-rx-step="0.25" data-min="-6" data-max="6" oninput="this.setCustomValidity('')" style="width:100%;box-sizing:border-box;">
+                        </label>
+                        <label style="font-size:11px;">AXIS
+                            <input type="text" inputmode="numeric" pattern="[0-9]*" name="{{ prefix }}_axis" value="{{ values.axis }}" data-rx-step="1" data-min="0" data-max="180" oninput="this.setCustomValidity('')" style="width:100%;box-sizing:border-box;">
+                        </label>
+                        <label style="font-size:11px;">ADD
+                            <input type="text" inputmode="decimal" pattern="[+]?[0-9]+(\.[0-9]+)?|[+]?\.[0-9]+" name="{{ prefix }}_add" value="{{ values.add }}" data-rx-step="0.25" data-min="0" data-max="4" oninput="this.setCustomValidity('')" {% if rx_needs_add(p.rx.get('recommendations')) %}required{% endif %} style="width:100%;box-sizing:border-box;">
+                        </label>
+                    </div>
+                </fieldset>
+                {% endfor %}
+            </div>
+            {% if rx_needs_add(p.rx.get('recommendations')) %}
+            <div style="font-size:11px;color:#92400e;margin:7px 0;">ADD required (progressive/bifocal)</div>
+            {% endif %}
+            <label style="display:block;font-size:12px;margin-top:8px;">Ticket / chat reference
+                <input type="text" name="reference" required maxlength="255"
+                       placeholder="Ticket / chat ref, e.g. OPTIWA-1036"
+                       style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px;">
+            </label>
+            <label style="display:flex;gap:7px;align-items:center;font-size:12px;margin:10px 0;">
+                <input type="checkbox" name="confirmed" value="1" required>
+                Customer has confirmed these new values
+            </label>
+            <div style="font-size:12px;font-weight:600;margin-bottom:5px;">Notify customer (EWS)</div>
+            <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;">
+                <label><input type="checkbox" name="notify_email" value="1" checked> Email</label>
+                <label><input type="checkbox" name="notify_whatsapp" value="1" checked> WhatsApp</label>
+                <label><input type="checkbox" name="notify_sms" value="1" checked> SMS</label>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">
+                <button type="submit" name="dry_run" value="1" formtarget="_blank" class="btn btn-outline">Preview customer email</button>
+                <button type="submit" name="dry_run" value="0" class="btn btn-primary"
+                        onclick="return confirm('Save these confirmed prescription values and notify the customer on the selected channels?')">Save &amp; notify customer</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% elif not rx_editable %}
+<div class="text-small text-muted" style="margin-top:5px;">Locked: AWB issued / order shipped</div>
+{% endif %}

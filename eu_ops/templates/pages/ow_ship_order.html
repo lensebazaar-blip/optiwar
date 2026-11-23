@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+{% block title %}Dispatch OW-{{ order.order_id }} — {{ courier }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <a href="{{ base }}/orders/ow/{{ order.order_id }}" class="btn btn-sm btn-outline">&laquo; Back to Order</a>
+        <h1>Dispatch OW-{{ order.order_id }} <span class="text-muted" style="font-size:14px;">via {{ courier }}</span></h1>
+    </div>
+</div>
+
+{% if error %}
+<div class="alert alert-error">
+    <strong>Error:</strong> {{ error }}
+    {% if error_details %}
+    <pre class="error-details">{{ error_details }}</pre>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="detail-grid">
+    <!-- Recipient Summary -->
+    <div class="card">
+        <h3>Recipient</h3>
+        <div class="info-row"><label>Name:</label> <span>{{ order.firstname }} {{ order.lastname }}</span></div>
+        <div class="info-row"><label>Address:</label> <span>{{ order.shipping_address_1 }}</span></div>
+        <div class="info-row"><label>State:</label> <span>{{ order.shipping_zone }}</span></div>
+        <div class="info-row"><label>Pincode:</label> <span>{{ order.shipping_postcode }}</span></div>
+        <div class="info-row"><label>Country:</label> <span>{{ order.shipping_country }}</span></div>
+        <div class="info-row"><label>Phone:</label> <span>{{ order.telephone }}</span></div>
+        <hr>
+        <div class="info-row" style="font-weight:700;"><label>INR Total:</label> <span>&#8377;{{ "%.2f"|format(order.total_inr) }}</span></div>
+        {% if serviceable %}
+        <div class="info-row"><label>Serviceable:</label>
+            <span style="color:#1a7f37;font-weight:600;">Yes — {{ serviceable.district }}
+            (Prepaid: {{ serviceable.pre_paid }}, COD: {{ serviceable.cod }})</span></div>
+        {% elif serviceable is not none %}
+        <div class="info-row"><label>Serviceable:</label>
+            <span style="color:#b42318;font-weight:600;">Pin {{ order.shipping_postcode }} not serviceable</span></div>
+        {% endif %}
+    </div>
+
+    <!-- Dispatch Form -->
+    <div class="card">
+        <h3>{{ courier }} Shipment Details{% if courier == 'DTDC' %}
+            <span style="font-size:11px;padding:2px 8px;border-radius:10px;color:#fff;background:{{ '#16a34a' if dtdc_live else '#d97706' }};">{{ 'LIVE' if dtdc_live else 'STAGING' }}</span>{% endif %}</h3>
+        {% if courier == 'DTDC' and not dtdc_configured %}
+        <div class="alert alert-error" style="margin-bottom:12px;">
+            DTDC is not configured on this server yet (DTDC_API_KEY / DTDC_CUSTOMER_CODE missing in .env).
+            <a href="{{ base }}/orders/ow/{{ order.order_id }}/ship?courier=Delhivery">Switch to Delhivery</a>.
+        </div>
+        {% endif %}
+        {% if reship %}
+        <div class="alert" style="margin-bottom:12px;background:#fff7ed;border:1px solid #f59e0b;color:#92400e;">
+            <strong>RESHIP of returned parcel</strong> — Optiwar shows this order as <strong>PAID</strong>. Reference <code>{{ reship_ref }}</code>.
+            The original AWB is kept (marked returned). No status, history or customer message is written from here —
+            after booking, type the courier + new AWB into Optiwar's <em>Record reshipment</em>.
+        </div>
+        {% endif %}
+        {% if rp_pickup %}
+        <div class="alert" style="margin-bottom:12px;background:#f5f3ff;border:1px solid #7c3aed;color:#4c1d95;">
+            <strong>FORWARD DISPATCH after reverse pickup</strong> {{ rp_pickup.reference }} (reverse AWB <code>{{ rp_pickup.waybill }}</code>).
+            This books a <strong>new</strong> AWB; the original sales AWB and the reverse AWB are kept unchanged.
+            No status, history or customer message is written from here — after booking press <em>Confirm Dispatch</em> on the order page and Optiwar records it and messages the customer.
+        </div>
+        {% endif %}
+        <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/ship" id="owShipForm">
+            <input type="hidden" name="courier" value="{{ courier }}">
+            <input type="hidden" name="reship" value="{{ 1 if reship else 0 }}">
+            <input type="hidden" name="rp" value="{{ rp_pickup.id if rp_pickup else 0 }}">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Courier</label>
+                    <select class="form-select" id="courierSwitch">
+                        <option value="Delhivery" {% if courier == 'Delhivery' %}selected{% endif %}>Delhivery</option>
+                        <option value="DTDC" {% if courier == 'DTDC' %}selected{% endif %}>DTDC</option>
+                    </select>
+                </div>
+                {% if courier == 'DTDC' %}
+                <div class="form-group">
+                    <label>DTDC Service <span class="text-muted" style="font-weight:400;">(from Shipment Mode)</span></label>
+                    <input type="text" name="service_type" class="form-input" id="dtdcService"
+                           value="{{ dtdc_services['Express'] }}" readonly style="background:#f6f7f9;">
+                </div>
+                {% endif %}
+                <div class="form-group">
+                    <label>Shipment Mode</label>
+                    <select name="shipping_mode" class="form-select" required>
+                        {% if courier == 'DTDC' %}
+                        <option value="Express" selected>Express</option>
+                        <option value="Surface" disabled>Surface (no DTDC series yet)</option>
+                        {% else %}
+                        <option value="Surface" selected>Surface</option>
+                        <option value="Express">Express</option>
+                        {% endif %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Payment Mode</label>
+                    <select name="payment_mode" class="form-select" id="paymentMode" required>
+                        <option value="Prepaid" selected>Prepaid</option>
+                        <option value="COD">COD</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Weight (KG)</label>
+                    <input type="number" name="weight_kg" value="0.25" step="0.01" min="0.01" class="form-input" required>
+                </div>
+                <div class="form-group">
+                    <label>Quantity</label>
+                    <input type="number" name="qty" value="{{ order.products|sum(attribute='quantity') if order.products else 1 }}" min="1" class="form-input">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Length (CM)</label>
+                    <input type="number" name="length_cm" value="{{ 10 if courier == 'DTDC' else 17 }}" min="1" class="form-input" required>
+                </div>
+                <div class="form-group">
+                    <label>Width (CM)</label>
+                    <input type="number" name="width_cm" value="{{ 10 if courier == 'DTDC' else 17 }}" min="1" class="form-input" required>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Height (CM)</label>
+                    <input type="number" name="height_cm" value="{{ 10 if courier == 'DTDC' else 7 }}" min="1" class="form-input" required>
+                </div>
+                <div class="form-group">
+                    <label>Declared Value (INR)</label>
+                    <input type="number" name="total_amount" value="{{ "%.2f"|format(order.total_inr) }}" step="0.01" class="form-input" required>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group" id="codGroup" style="display:none;">
+                    <label>COD Amount (INR)</label>
+                    <input type="number" name="cod_amount" value="{{ "%.2f"|format(order.total_inr) }}" step="0.01" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label>Products Description</label>
+                    <select name="products_desc" class="form-input">
+                        <option value="Spectacle Frames" selected>Spectacle Frames</option>
+                        <option value="Contact Lenses">Contact Lenses</option>
+                        <option value="Spectacle Frames and Contact Lenses">Spectacle Frames and Contact Lenses</option>
+                    </select>
+                </div>
+            </div>
+
+            <hr style="margin:18px 0;">
+            <h3 style="color:#0b5cab;">Order Changes &amp; Customer Approval</h3>
+            <p class="text-muted" style="font-size:12px;margin-top:-4px;">
+                Record any change made to the customer's original selection and whether they approved it.
+                These appear in the dispatch email. Leave empty if nothing changed.
+            </p>
+            {% for p in order.products %}
+                {% if p.rx and p.rx.recommendations %}
+                <div style="background:#f6f8fa;border:1px solid #e5e7eb;border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:12px;">
+                    <strong>Original selection ({{ p.name }}):</strong> {{ p.rx.recommendations }}
+                </div>
+                {% endif %}
+            {% endfor %}
+
+            <div id="changesWrap"></div>
+            <button type="button" class="btn btn-sm btn-outline" id="addChangeBtn" style="margin-top:6px;">+ Add change</button>
+
+            <div class="form-group" style="margin-top:12px;">
+                <label>Note to customer (optional)</label>
+                <textarea name="change_note" rows="2" class="form-input" placeholder="Any extra context to include in the email"></textarea>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-success btn-lg"
+                        onclick="return confirm('{% if reship %}Book RESHIP {{ courier }} AWB ({{ reship_ref }}) for OW-{{ order.order_id }}?\n\nNo customer message is sent; record the new AWB in Optiwar afterwards.{% else %}Create {{ courier }} AWB for OW-{{ order.order_id }}?\n\nThis books the shipment AND emails the customer.{% endif %}')"
+                        {% if courier == 'DTDC' and not dtdc_configured %}disabled{% endif %}>
+                    {% if reship %}Book Reship AWB{% else %}Create AWB &amp; Dispatch{% endif %}
+                </button>
+                {% if not reship %}<button type="button" class="btn btn-outline" id="dryRunBtn">🔍 Dry Run: Preview Email</button>{% endif %}
+                <a href="{{ base }}/orders/ow/{{ order.order_id }}" class="btn btn-outline">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+(function(){
+    var pm = document.getElementById('paymentMode');
+    var cod = document.getElementById('codGroup');
+    function sync(){ cod.style.display = (pm.value === 'COD') ? '' : 'none'; }
+    pm.addEventListener('change', sync); sync();
+
+    // Dynamic order-change rows
+    var wrap = document.getElementById('changesWrap');
+    function addRow(item, to){
+        var row = document.createElement('div');
+        row.className = 'form-row';
+        row.style.alignItems = 'flex-end';
+        row.innerHTML =
+            '<div class="form-group"><label>Original</label>'
+          + '<input type="text" name="change_item" class="form-input" placeholder="e.g. Blue Cut" value="'+(item||'')+'"></div>'
+          + '<div class="form-group"><label>Changed To</label>'
+          + '<input type="text" name="change_to" class="form-input" placeholder="e.g. Multi-Glare Protection" value="'+(to||'')+'"></div>'
+          + '<div class="form-group" style="max-width:130px;"><label>Approved</label>'
+          + '<select name="change_approved" class="form-select"><option value="Yes" selected>Yes</option><option value="No">No</option></select></div>'
+          + '<div class="form-group" style="max-width:44px;"><label>&nbsp;</label>'
+          + '<button type="button" class="btn btn-sm btn-outline rmChange">✕</button></div>';
+        wrap.appendChild(row);
+        row.querySelector('.rmChange').addEventListener('click', function(){ row.remove(); });
+    }
+    document.getElementById('addChangeBtn').addEventListener('click', function(){ addRow(); });
+
+    // Dry Run: submit the form (with changes) to the preview endpoint in a new tab
+    var form = document.getElementById('owShipForm');
+    var svc = document.getElementById('dtdcService');
+    if (svc) {
+        var map = {"Surface": "{{ dtdc_services['Surface'] }}", "Express": "{{ dtdc_services['Express'] }}"};
+        var sm = document.querySelector('select[name=shipping_mode]');
+        sm.addEventListener('change', function(){ svc.value = map[sm.value] || map.Express; });
+    }
+    document.getElementById('courierSwitch').addEventListener('change', function(){
+        window.location = '{{ base }}/orders/ow/{{ order.order_id }}/ship?courier=' + encodeURIComponent(this.value) + '{% if reship %}&reship=1{% endif %}{% if rp_pickup %}&rp={{ rp_pickup.id }}{% endif %}';
+    });
+    var dryBtn = document.getElementById('dryRunBtn');
+    if (dryBtn) dryBtn.addEventListener('click', function(){
+        var origAction = form.action, origTarget = form.target;
+        form.action = '{{ base }}/orders/ow/{{ order.order_id }}/notify-preview';
+        form.target = '_blank';
+        form.submit();
+        form.action = origAction; form.target = origTarget;
+    });
+})();
+</script>
+{% endblock %}

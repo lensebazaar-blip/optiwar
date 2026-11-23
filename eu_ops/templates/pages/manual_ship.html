@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}Manual DTDC Shipment{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>Manual DTDC Shipment
+            <span class="badge" style="background:{{ '#16a34a' if dtdc_live else '#f97316' }};color:#fff;">{{ 'LIVE' if dtdc_live else 'STAGING' }}</span>
+        </h1>
+        <p class="text-muted">Book a DTDC AWB to any address (store, optician, supplier return, sample) — not linked to an order, no customer notification is sent.</p>
+    </div>
+</div>
+
+{% if error %}
+<div class="alert alert-error"><strong>Error:</strong> {{ error }}
+    {% if error_details %}<pre class="error-details">{{ error_details }}</pre>{% endif %}
+</div>
+{% endif %}
+{% if success %}
+<div class="alert alert-success">{{ success|safe }}</div>
+{% endif %}
+{% if not dtdc_ok %}
+<div class="alert alert-error">DTDC is not configured (DTDC_API_KEY / DTDC_CUSTOMER_CODE missing in .env).</div>
+{% endif %}
+
+<div class="detail-grid">
+    <div class="card">
+        <h3>Consignee</h3>
+        <form method="post" action="{{ base }}/manual-ship" id="manual-ship-form">
+            <div class="form-group">
+                <label>Pick from address book</label>
+                <select class="form-select" id="ab-pick" onchange="fillFromBook(this)">
+                    <option value="">— enter a new address —</option>
+                    {% for a in addresses %}
+                    <option value="{{ a.id }}"
+                        data-name="{{ a.name }}" data-phone="{{ a.phone }}" data-a1="{{ a.address_1 }}"
+                        data-a2="{{ a.address_2 or '' }}" data-city="{{ a.city }}" data-state="{{ a.state }}"
+                        data-pin="{{ a.pincode }}" data-label="{{ a.label }}"
+                        {% if form.address_id|string == a.id|string %}selected{% endif %}>{{ a.label }} — {{ a.name }}, {{ a.city }} {{ a.pincode }}</option>
+                    {% endfor %}
+                </select>
+                <input type="hidden" name="address_id" id="address_id" value="{{ form.address_id or '' }}">
+            </div>
+            <div class="form-group"><label>Name *</label>
+                <input class="form-input" name="name" id="f-name" required value="{{ form.name or '' }}"></div>
+            <div class="form-group"><label>Phone *</label>
+                <input class="form-input" name="phone" id="f-phone" required value="{{ form.phone or '' }}" placeholder="10-digit mobile"></div>
+            <div class="form-group"><label>Address line 1 *</label>
+                <input class="form-input" name="address_1" id="f-a1" required value="{{ form.address_1 or '' }}"></div>
+            <div class="form-group"><label>Address line 2</label>
+                <input class="form-input" name="address_2" id="f-a2" value="{{ form.address_2 or '' }}"></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+                <div class="form-group"><label>City *</label>
+                    <input class="form-input" name="city" id="f-city" required value="{{ form.city or '' }}"></div>
+                <div class="form-group"><label>State *</label>
+                    <input class="form-input" name="state" id="f-state" required value="{{ form.state or '' }}"></div>
+                <div class="form-group"><label>PIN *</label>
+                    <input class="form-input" name="pincode" id="f-pin" required pattern="\d{6}" value="{{ form.pincode or '' }}"></div>
+            </div>
+            <div class="form-group">
+                <label><input type="checkbox" name="save_address" value="1" {% if form.save_address %}checked{% endif %}> Save / update in address book as</label>
+                <input class="form-input" name="label" id="f-label" value="{{ form.label or '' }}" placeholder="e.g. Gurgaon Store, Bausch Warehouse">
+            </div>
+
+            <h3 style="margin-top:16px;">Shipment</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                <div class="form-group"><label>Mode</label>
+                    <select class="form-select" name="shipping_mode">
+                        <option value="Express" {% if (form.shipping_mode or 'Express') == 'Express' %}selected{% endif %}>Express (B2C PRIORITY)</option>
+                        <option value="Surface" {% if form.shipping_mode == 'Surface' %}selected{% endif %}>Surface (B2C SMART EXPRESS — needs DTDC series)</option>
+                    </select></div>
+                <div class="form-group"><label>Payment</label>
+                    <select class="form-select" name="payment_mode" id="f-pay" onchange="document.getElementById('cod-row').style.display=this.value=='COD'?'':'none'">
+                        <option value="Prepaid" {% if (form.payment_mode or 'Prepaid') == 'Prepaid' %}selected{% endif %}>Prepaid (don't collect money)</option>
+                        <option value="COD" {% if form.payment_mode == 'COD' %}selected{% endif %}>COD</option>
+                    </select></div>
+                <div class="form-group"><label>Declared value (INR)</label>
+                    <input class="form-input" name="declared_value" type="number" step="0.01" min="0" value="{{ form.declared_value or '500' }}"></div>
+                <div class="form-group" id="cod-row" {% if form.payment_mode != 'COD' %}style="display:none"{% endif %}><label>COD amount (INR)</label>
+                    <input class="form-input" name="cod_amount" type="number" step="0.01" min="0" value="{{ form.cod_amount or '0' }}"></div>
+                <div class="form-group"><label>Weight (kg)</label>
+                    <input class="form-input" name="weight_kg" type="number" step="0.01" min="0.05" value="{{ form.weight_kg or '0.25' }}"></div>
+                <div class="form-group"><label>Products description</label>
+                    <select class="form-select" name="description">
+                        {% for d in descriptions %}
+                        <option value="{{ d }}" {% if (form.description or descriptions[0]) == d %}selected{% endif %}>{{ d }}</option>
+                        {% endfor %}
+                    </select></div>
+            </div>
+            <div class="form-group"><label>Purpose / internal note</label>
+                <input class="form-input" name="purpose" value="{{ form.purpose or '' }}" placeholder="e.g. replacement frame for store, supplier return"></div>
+            <button type="submit" class="btn btn-primary" {% if not dtdc_ok %}disabled{% endif %}
+                    onclick="return confirm('Book a real DTDC AWB to ' + document.getElementById('f-name').value + ', PIN ' + document.getElementById('f-pin').value + '?')">
+                📦 Generate DTDC AWB
+            </button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h3>Address book</h3>
+        {% if addresses %}
+        <table class="data-table" style="font-size:13px;">
+            <thead><tr><th>Label</th><th>Name / City</th><th>PIN</th><th></th></tr></thead>
+            <tbody>
+            {% for a in addresses %}
+            <tr>
+                <td><strong>{{ a.label }}</strong></td>
+                <td>{{ a.name }}<br><span class="text-muted">{{ a.city }}, {{ a.state }}</span></td>
+                <td>{{ a.pincode }}</td>
+                <td>
+                    <form method="post" action="{{ base }}/manual-ship/address/{{ a.id }}/delete" style="display:inline"
+                          onsubmit="return confirm('Remove {{ a.label }} from the address book?')">
+                        <button class="btn btn-sm btn-outline">✕</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted">No saved addresses yet. Tick "Save in address book" when booking.</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card" style="margin-top:20px;">
+    <h3>Manual shipments</h3>
+    {% if shipments %}
+    <table class="data-table" style="font-size:13px;">
+        <thead><tr><th>Ref</th><th>Date</th><th>To</th><th>AWB</th><th>Mode / Pay</th><th>Status</th><th>By</th><th>Purpose</th><th></th></tr></thead>
+        <tbody>
+        {% for s in shipments %}
+        <tr>
+            <td>{{ s.reference }}</td>
+            <td>{{ s.created_at.strftime('%d-%b %H:%M') if s.created_at else '' }}</td>
+            <td>{{ s.consignee_name }}<br><span class="text-muted">{{ s.city }} {{ s.pincode }}</span></td>
+            <td>{% if s.tracking_number %}<a href="https://www.dtdc.in/tracking.asp?strCnno={{ s.tracking_number }}" target="_blank">{{ s.tracking_number }}</a>{% else %}—{% endif %}</td>
+            <td>{{ s.shipping_mode }} / {{ s.payment_mode }}{% if s.payment_mode == 'COD' %} ₹{{ s.cod_amount }}{% endif %}</td>
+            <td><span class="badge badge-{{ 'success' if s.awb_status == 'created' else 'danger' if s.awb_status in ('cancelled','failed') else 'muted' }}">{{ s.awb_status }}</span></td>
+            <td>{{ s.created_by_name or '' }}</td>
+            <td>{{ s.purpose or '' }}</td>
+            <td style="white-space:nowrap;">
+                {% if s.tracking_number and s.awb_status == 'created' %}
+                <a class="btn btn-sm btn-outline" href="{{ base }}/manual-ship/{{ s.id }}/label">Label</a>
+                <form method="post" action="{{ base }}/manual-ship/{{ s.id }}/cancel" style="display:inline"
+                      onsubmit="return confirm('Cancel DTDC AWB {{ s.tracking_number }}?')">
+                    <button class="btn btn-sm btn-danger">Cancel AWB</button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="text-muted">No manual shipments yet.</p>
+    {% endif %}
+</div>
+
+<script>
+function fillFromBook(sel) {
+    var o = sel.options[sel.selectedIndex];
+    document.getElementById('address_id').value = o.value;
+    if (!o.value) return;
+    var m = {name:'f-name', phone:'f-phone', a1:'f-a1', a2:'f-a2', city:'f-city', state:'f-state', pin:'f-pin', label:'f-label'};
+    for (var k in m) document.getElementById(m[k]).value = o.dataset[k] || '';
+}
+</script>
+{% endblock %}

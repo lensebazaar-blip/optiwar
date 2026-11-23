@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Approvals — LensBazaar OPP{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Pending Approvals</h1>
+</div>
+
+{% if not pending %}
+<div class="empty-state">
+    <p>No pending approvals</p>
+</div>
+{% else %}
+<div class="table-responsive">
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Order</th>
+                <th>Customer</th>
+                <th>Action</th>
+                <th>Requested By</th>
+                <th>Date</th>
+                <th>Details</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for a in pending %}
+            <tr>
+                <td>#{{ a.id }}</td>
+                <td><a href="{{ base }}/orders/{{ a.order_id }}">#E-{{ a.order_id }}</a></td>
+                <td>{{ a.firstname }} {{ a.lastname }}</td>
+                <td><span class="badge">{{ a.action_type }}</span></td>
+                <td>{{ a.requested_by_name }}</td>
+                <td class="text-small">{{ a.created_at }}</td>
+                <td class="text-small">
+                    {% if a.action_data %}
+                    {% if a.action_data.new_status_id %}
+                    Status &rarr; {{ statuses.get(a.action_data.new_status_id, a.action_data.new_status_id) }}
+                    {% endif %}
+                    {% if a.action_data.comment %}
+                    <br>{{ a.action_data.comment }}
+                    {% endif %}
+                    {% endif %}
+                </td>
+                <td>
+                    <div style="display:flex;gap:5px;">
+                        <form method="post" action="{{ base }}/approvals/{{ a.id }}/approve">
+                            <input type="hidden" name="notes" value="">
+                            <button type="submit" class="btn btn-sm btn-success">Approve</button>
+                        </form>
+                        <form method="post" action="{{ base }}/approvals/{{ a.id }}/reject">
+                            <input type="hidden" name="notes" value="">
+                            <button type="submit" class="btn btn-sm btn-danger">Reject</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}

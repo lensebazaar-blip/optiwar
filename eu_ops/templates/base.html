@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}LensBazaar OPP{% endblock %}</title>
+    <link rel="stylesheet" href="{{ base }}/static/css/style.css">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    {% if user %}
+    <nav class="sidebar">
+        <div class="sidebar-header">
+            <h2>LB Orders</h2>
+            <span class="badge badge-{{ user.role }}">{{ user.role }}</span>
+        </div>
+        <ul class="nav-links">
+            <li><a href="{{ base }}/dashboard" class="{% if request.url.path.endswith('/dashboard') %}active{% endif %}">Dashboard</a></li>
+            <li><a href="{{ base }}/notes" class="{% if '/notes' in request.url.path %}active{% endif %}">📌 Notes</a></li>
+            <li><a href="{{ base }}/processing" class="{% if '/processing' in request.url.path %}active{% endif %}">📋 Processing</a></li>
+            <li><a href="{{ base }}/orders" class="{% if '/orders' in request.url.path and '/ship' not in request.url.path and '/processing' not in request.url.path %}active{% endif %}">Orders</a></li>
+            <li><a href="{{ base }}/returns" class="{% if request.url.path.endswith('/returns') %}active{% endif %}">↩ OW Returns{% if reship_ready %} <span style="background:#c0392b;color:#fff;border-radius:10px;padding:0 7px;font-size:11px;font-weight:700;" title="reship PAID — ready to ship">{{ reship_ready }}</span>{% endif %}</a></li>
+            <li><a href="{{ base }}/reverse-pickups" class="{% if request.url.path.endswith('/reverse-pickups') %}active{% endif %}">🔄 Reverse Pickups{% if rp_open %} <span style="background:#7c3aed;color:#fff;border-radius:10px;padding:0 7px;font-size:11px;font-weight:700;" title="waiting on an Ops action (inspect / refund / forward dispatch / exception)">{{ rp_open }}</span>{% endif %}</a></li>
+            <li><a href="{{ base }}/ow-new-order" class="{% if '/ow-new-order' in request.url.path %}active{% endif %}">🛒 New OW Order</a></li>
+            <li><a href="{{ base }}/manual-ship" class="{% if '/manual-ship' in request.url.path %}active{% endif %}">📦 Manual DTDC Ship</a></li>
+            {% if user.role == 'admin' %}
+            <li><a href="{{ base }}/approvals" class="{% if '/approvals' in request.url.path %}active{% endif %}">Approvals</a></li>
+            <li><a href="{{ base }}/users" class="{% if '/users' in request.url.path %}active{% endif %}">Users</a></li>
+            <li><a href="{{ base }}/activity" class="{% if '/activity' in request.url.path %}active{% endif %}">Activity Log</a></li>
+            <li><a href="{{ base }}/merchant" class="{% if '/merchant' in request.url.path %}active{% endif %}">⚙️ Merchant Center</a></li>
+            <li><a href="{{ base }}/site-content" class="{% if '/site-content' in request.url.path %}active{% endif %}">📝 Site Content</a></li>
+            <li><a href="{{ base }}/lens-pricing" class="{% if '/lens-pricing' in request.url.path %}active{% endif %}">💰 Lens Pricing</a></li>
+            <li><a href="{{ base }}/reports" class="{% if '/reports' in request.url.path %}active{% endif %}">📊 Reports</a></li>
+            <li><a href="{{ base }}/recon" class="{% if '/recon' in request.url.path %}active{% endif %}">🧾 Reconciliation</a></li>
+            <li><a href="{{ base }}/fda" class="{% if '/fda' in request.url.path %}active{% endif %}">🇺🇸 FDA Details</a></li>
+            {% endif %}
+        </ul>
+        <div class="sidebar-footer">
+            <span>{{ user.full_name or user.username }}</span>
+            <a href="{{ base }}/logout" class="btn btn-sm btn-outline">Logout</a>
+        </div>
+    </nav>
+    {% endif %}
+
+    <main class="{% if user %}content-with-sidebar{% else %}content-full{% endif %}">
+        {% if request.query_params.get('msg') %}
+        <div class="alert alert-success">{{ request.query_params.get('msg') }}</div>
+        {% endif %}
+        {% if request.query_params.get('error') %}
+        <div class="alert alert-error">{{ request.query_params.get('error') }}</div>
+        {% endif %}
+        {% block content %}{% endblock %}
+    </main>
+
+    <script src="{{ base }}/static/js/app.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

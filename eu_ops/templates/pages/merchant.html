@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}Merchant Center — {{ app_title }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>⚙️ Merchant Center</h1>
+    <p class="subtitle">Product management &amp; Google Merchant feeds</p>
+</div>
+
+<!-- Stats cards -->
+<div class="stats-row" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px;">
+    <div class="stat-card" style="flex:1;min-width:120px;background:#e8f5e9;padding:15px;border-radius:8px;text-align:center;">
+        <div style="font-size:24px;font-weight:700;color:#2e7d32;">{{ stats.active or 0 }}</div>
+        <div style="font-size:12px;color:#555;">Active Products</div>
+    </div>
+    <div class="stat-card" style="flex:1;min-width:120px;background:#e3f2fd;padding:15px;border-radius:8px;text-align:center;">
+        <div style="font-size:24px;font-weight:700;color:#1565c0;">{{ stats.eu_saleable or 0 }}</div>
+        <div style="font-size:12px;color:#555;">EU Saleable</div>
+    </div>
+    <div class="stat-card" style="flex:1;min-width:120px;background:#fff3e0;padding:15px;border-radius:8px;text-align:center;">
+        <div style="font-size:24px;font-weight:700;color:#e65100;">{{ stats.eu_restricted or 0 }}</div>
+        <div style="font-size:12px;color:#555;">EU Restricted</div>
+    </div>
+    <div class="stat-card" style="flex:1;min-width:120px;background:#fce4ec;padding:15px;border-radius:8px;text-align:center;">
+        <div style="font-size:24px;font-weight:700;color:#c62828;">{{ stats.disabled or 0 }}</div>
+        <div style="font-size:12px;color:#555;">Disabled</div>
+    </div>
+</div>
+
+<!-- Feed links -->
+<div style="background:#f5f5f5;padding:12px 16px;border-radius:8px;margin-bottom:20px;display:flex;gap:16px;flex-wrap:wrap;align-items:center;">
+    <strong>Feeds:</strong>
+    <a href="https://eu.lensbazaar.com/feeds/google_merchant_eu.xml" target="_blank" style="color:#1565c0;">📄 EU Feed (google_merchant_eu.xml)</a>
+    <a href="https://eu.lensbazaar.com/feeds/google_merchant_non_eu.xml" target="_blank" style="color:#e65100;">📄 Non-EU Feed (google_merchant_non_eu.xml)</a>
+    <button onclick="regenerateFeeds()" class="btn btn-sm" style="background:#1565c0;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;">🔄 Regenerate Feeds</button>
+    <span id="feed-status" style="font-size:12px;color:#666;"></span>
+</div>
+
+<!-- Filters -->
+<form method="get" action="{{ base }}/merchant" style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
+    <input type="text" name="search" value="{{ search }}" placeholder="Search by name or ID..." style="padding:8px 12px;border:1px solid #ccc;border-radius:4px;min-width:200px;">
+    <select name="category" style="padding:8px;border:1px solid #ccc;border-radius:4px;">
+        <option value="">All Categories</option>
+        {% for cat in categories %}
+        <option value="{{ cat }}" {% if cat == category_filter %}selected{% endif %}>{{ cat }}</option>
+        {% endfor %}
+    </select>
+    <select name="eu" style="padding:8px;border:1px solid #ccc;border-radius:4px;">
+        <option value="">All EU Status</option>
+        <option value="1" {% if eu_filter == '1' %}selected{% endif %}>EU Saleable</option>
+        <option value="0" {% if eu_filter == '0' %}selected{% endif %}>EU Restricted</option>
+    </select>
+    <button type="submit" class="btn btn-sm" style="background:#333;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;">Filter</button>
+    <a href="{{ base }}/merchant" style="padding:8px 12px;color:#666;text-decoration:none;">Clear</a>
+</form>
+
+<!-- Bulk actions -->
+<div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;">
+    <label style="font-size:13px;"><input type="checkbox" id="select-all" onchange="toggleSelectAll(this)"> Select All</label>
+    <button onclick="bulkAction(1)" class="btn btn-sm" style="background:#2e7d32;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px;">✅ Mark EU Saleable</button>
+    <button onclick="bulkAction(0)" class="btn btn-sm" style="background:#e65100;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px;">🚫 Mark EU Restricted</button>
+</div>
+
+<!-- Product table -->
+<div style="overflow-x:auto;">
+<table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <thead>
+        <tr style="background:#263238;color:#fff;">
+            <th style="padding:10px 6px;width:30px;"></th>
+            <th style="padding:10px 6px;width:50px;">ID</th>
+            <th style="padding:10px 8px;text-align:left;">Product Name</th>
+            <th style="padding:10px 8px;text-align:left;">Categories</th>
+            <th style="padding:10px 6px;">Brand</th>
+            <th style="padding:10px 6px;">Price</th>
+            <th style="padding:10px 6px;">EU Saleable</th>
+            <th style="padding:10px 6px;">Status</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for p in products %}
+        <tr style="border-bottom:1px solid #e0e0e0;{% if not p.status %}background:#fff5f5;{% elif not p.eu_saleable %}background:#fff8e1;{% endif %}" id="row-{{ p.product_id }}">
+            <td style="padding:8px 6px;text-align:center;"><input type="checkbox" class="product-cb" value="{{ p.product_id }}"></td>
+            <td style="padding:8px 6px;text-align:center;font-weight:600;">{{ p.product_id }}</td>
+            <td style="padding:8px;"><a href="https://eu.lensbazaar.com/{{ p.seo_url or ('index.php?route=product/product&product_id=' ~ p.product_id) }}" target="_blank" style="color:#1565c0;">{{ p.product_name }}</a></td>
+            <td style="padding:8px;color:#666;font-size:12px;">{{ p.categories or '—' }}</td>
+            <td style="padding:8px 6px;text-align:center;font-size:12px;">{{ p.manufacturer or '—' }}</td>
+            <td style="padding:8px 6px;text-align:center;">₹{{ "%.2f"|format(p.price) }}</td>
+            <td style="padding:8px 6px;text-align:center;">
+                <label class="switch" title="Toggle EU Saleable">
+                    <input type="checkbox" {% if p.eu_saleable %}checked{% endif %} onchange="toggleEU({{ p.product_id }}, this.checked ? 1 : 0)">
+                    <span class="slider round"></span>
+                </label>
+            </td>
+            <td style="padding:8px 6px;text-align:center;">
+                <label class="switch" title="Enable/Disable Product">
+                    <input type="checkbox" {% if p.status %}checked{% endif %} onchange="toggleStatus({{ p.product_id }}, this.checked ? 1 : 0)">
+                    <span class="slider round status-slider"></span>
+                </label>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+<p style="margin-top:12px;color:#888;font-size:12px;">Showing {{ products|length }} products</p>
+
+<style>
+.switch { position:relative; display:inline-block; width:42px; height:22px; }
+.switch input { opacity:0; width:0; height:0; }
+.slider { position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:#ccc; transition:.3s; border-radius:22px; }
+.slider:before { position:absolute; content:""; height:16px; width:16px; left:3px; bottom:3px; background:#fff; transition:.3s; border-radius:50%; }
+input:checked + .slider { background:#2e7d32; }
+input:checked + .slider.status-slider { background:#1565c0; }
+input:checked + .slider:before { transform:translateX(20px); }
+</style>
+
+<script>
+const BASE = '{{ base }}';
+
+function toggleEU(pid, val) {
+    fetch(BASE + '/merchant/toggle-eu', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'product_id=' + pid + '&value=' + val
+    }).then(r => r.json()).then(d => {
+        if (!d.ok) alert('Error: ' + (d.error || 'Unknown'));
+        let row = document.getElementById('row-' + pid);
+        if (row) row.style.background = val ? '' : '#fff8e1';
+    });
+}
+
+function toggleStatus(pid, val) {
+    fetch(BASE + '/merchant/toggle-status', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'product_id=' + pid + '&value=' + val
+    }).then(r => r.json()).then(d => {
+        if (!d.ok) alert('Error: ' + (d.error || 'Unknown'));
+        let row = document.getElementById('row-' + pid);
+        if (row) row.style.background = val ? '' : '#fff5f5';
+    });
+}
+
+function toggleSelectAll(cb) {
+    document.querySelectorAll('.product-cb').forEach(c => c.checked = cb.checked);
+}
+
+function bulkAction(val) {
+    let ids = [];
+    document.querySelectorAll('.product-cb:checked').forEach(c => ids.push(c.value));
+    if (!ids.length) { alert('Select products first'); return; }
+    let action = val ? 'EU Saleable' : 'EU Restricted';
+    if (!confirm('Mark ' + ids.length + ' products as ' + action + '?')) return;
+    fetch(BASE + '/merchant/bulk-eu', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({product_ids: ids, value: val})
+    }).then(r => r.json()).then(d => {
+        if (d.ok) location.reload();
+        else alert('Error: ' + (d.error || 'Unknown'));
+    });
+}
+
+function regenerateFeeds() {
+    let btn = event.target;
+    btn.disabled = true;
+    btn.textContent = '⏳ Generating...';
+    document.getElementById('feed-status').textContent = '';
+    fetch(BASE + '/merchant/regenerate-feeds', { method: 'POST' })
+        .then(r => r.json())
+        .then(d => {
+            btn.disabled = false;
+            btn.textContent = '🔄 Regenerate Feeds';
+            if (d.ok) {
+                document.getElementById('feed-status').textContent =
+                    '✓ Generated: ' + d.eu_count + ' EU products, ' + d.non_eu_count + ' non-EU products (' + new Date().toLocaleTimeString() + ')';
+                document.getElementById('feed-status').style.color = '#2e7d32';
+            } else {
+                document.getElementById('feed-status').textContent = 'Error: ' + (d.error || 'Unknown');
+                document.getElementById('feed-status').style.color = '#c62828';
+            }
+        });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}Refund Dry Run — OW-{{ order.order_id }}{% endblock %}
+{% block content %}
+{% set upi = upi|default({}) %}
+<div class="page-header">
+    <div>
+        <a href="{{ base }}/orders/ow/{{ order.order_id }}/refund/prepare" class="btn btn-sm btn-outline">&laquo; Edit draft</a>
+        <h1>Refund dry run — OW-{{ order.order_id }}</h1>
+        <span class="text-muted" style="font-size:12px;">
+            {% if refund_method == 'upi' %}
+            Nothing was recorded in Optiwar or sent to the customer. The staff UPI payment was made before this step.
+            {% else %}
+            Nothing was refunded and nothing was sent to the customer. This is the request Optiwar
+            would receive and the message the customer would read.
+            {% endif %}
+        </span>
+    </div>
+</div>
+
+{% if api_error %}
+<div style="background:#fef2f2;border:1px solid #fecaca;color:#b42318;padding:10px 12px;border-radius:6px;font-size:13px;margin-bottom:14px;">
+    <strong>Optiwar could not be read:</strong> {{ api_error }}
+</div>
+{% endif %}
+
+{% if copy_result %}
+<div style="background:{% if copy_result[0] %}#f0fdf4;border:1px solid #bbf7d0;color:#166534{% else %}#fef2f2;border:1px solid #fecaca;color:#b42318{% endif %};padding:10px 12px;border-radius:6px;font-size:13px;margin-bottom:14px;">
+    {% if copy_result[0] %}A copy of this email was sent to you, subject-prefixed “DRY RUN”. The customer received nothing.
+    {% else %}The copy to you could not be sent: {{ copy_result[1] }}{% endif %}
+</div>
+{% endif %}
+
+<div class="detail-grid">
+    <div class="card">
+        <h3>What would happen</h3>
+        <div class="info-row"><label>Refund:</label>
+            <span style="font-size:18px;font-weight:800;color:#b45309;">{{ amount_text }}</span></div>
+        <div class="info-row"><label>Refund method:</label>
+            <span>{% if refund_method == 'upi' %}UPI — already paid by staff{% else %}Gateway — Razorpay{% endif %}</span></div>
+        {% if refund_method == 'upi' %}
+        <div class="info-row"><label>Customer UPI ID:</label> <span>{{ upi.upi_vpa }}</span></div>
+        <div class="info-row"><label>Payee name:</label> <span>{{ upi.payee_name }}</span></div>
+        <div class="info-row"><label>UTR:</label> <span>{{ upi.utr }}</span></div>
+        <div class="info-row"><label>Date paid:</label> <span>{{ upi.paid_on }}</span></div>
+        {% endif %}
+        <div class="info-row"><label>Currency:</label> <span>{{ currency }}</span></div>
+        <div class="info-row"><label>Paid:</label> <span>{{ facts.captured_text or "—" }}</span></div>
+        <div class="info-row"><label>Already refunded:</label> <span>{{ facts.already_refunded_text or "—" }}</span></div>
+        <div class="info-row"><label>Payment reference:</label>
+            <span style="font-family:monospace;font-size:11px;">{{ facts.payment_ref or "—" }}</span></div>
+        <div class="info-row"><label>Reason:</label> <span>{{ reason_label }}</span></div>
+        <div class="info-row"><label>Order status would become:</label>
+            <span><strong>{{ requested_status or "unchanged" }}</strong> (from {{ facts.current_status or "—" }})</span></div>
+        <div class="info-row"><label>Would notify:</label>
+            <span>{% if channels %}{{ channels|join(', ') }}{% else %}nobody{% endif %}</span></div>
+        <div class="info-row"><label>Operator:</label> <span>{{ operator }}</span></div>
+        <div class="info-row"><label>Idempotency key:</label>
+            <span style="font-family:monospace;font-size:10px;">{{ idempotency_key }}</span></div>
+
+        {% if checks %}
+        <h3 style="margin-top:16px;">Validation, as Optiwar will apply it</h3>
+        {% for label, ok, detail in checks %}
+        <div style="display:flex;gap:8px;font-size:12px;padding:4px 0;border-bottom:1px solid #f1f5f9;">
+            <span style="color:{% if ok %}#166534{% else %}#b42318{% endif %};font-weight:700;">
+                {% if ok %}PASS{% else %}FAIL{% endif %}</span>
+            <span>{{ label }} <span style="color:#94a3b8;">— {{ detail }}</span></span>
+        </div>
+        {% endfor %}
+        <p style="font-size:11px;color:#94a3b8;margin-top:8px;">
+            Optiwar re-runs these against its own payment record when the refund is confirmed; these are
+            the same checks, read from it a moment ago.
+        </p>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <h3>Email the customer would receive</h3>
+        <div class="info-row"><label>To:</label> <span>{{ preview.to }}</span></div>
+        <div class="info-row"><label>From:</label> <span>{{ preview.from }}</span></div>
+        <div class="info-row"><label>Cc:</label> <span>{{ preview.cc }}</span></div>
+        <div class="info-row"><label>Subject:</label> <span><strong>{{ preview.subject }}</strong></span></div>
+        <div style="border:1px solid #e5e7eb;border-radius:6px;padding:10px;background:#fff;margin-top:8px;max-height:420px;overflow:auto;">
+            {{ preview.html|safe }}
+        </div>
+
+        <h3 style="margin-top:16px;">WhatsApp</h3>
+        <div class="info-row"><label>To:</label> <span>{{ preview.whatsapp_to }}</span></div>
+        <div class="info-row"><label>Template:</label>
+            <span style="font-family:monospace;font-size:11px;">{{ preview.wa_template }}</span></div>
+        <div class="info-row"><label>Values:</label>
+            <span style="font-size:12px;">{{ preview.wa_body|join(' | ') }}</span></div>
+
+        <h3 style="margin-top:16px;">SMS / plain text</h3>
+        <div style="border:1px solid #e5e7eb;border-radius:6px;padding:10px;background:#f8fafc;font-size:12px;white-space:pre-wrap;">{{ preview.text }}</div>
+    </div>
+</div>
+
+<div class="card" style="margin-top:16px;">
+    <h3>Request Optiwar would receive</h3>
+    <div style="font-size:12px;color:#475569;">
+        <code>POST {{ api_url }}</code><br>
+        <code>Authorization: Bearer ••••••••</code> &nbsp;
+        <code>X-Ops-Operator: {{ operator }}</code><br>
+        <code>Idempotency-Key: {{ idempotency_key }}</code>
+    </div>
+    <pre style="background:#0f172a;color:#e2e8f0;padding:12px;border-radius:6px;font-size:11px;overflow:auto;margin-top:8px;">{{ request_json }}</pre>
+    <p style="font-size:11px;color:#94a3b8;">
+        Amount and currency are instructions, not facts — Optiwar looks the payment up itself and
+        refuses anything that disagrees with it.
+    </p>
+</div>
+
+<form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/refund/dry-run"
+      style="margin-top:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+    <input type="hidden" name="amount_minor" value="{{ amount_minor }}">
+    <input type="hidden" name="currency" value="{{ currency }}">
+    <input type="hidden" name="reason_code" value="{{ reason_code }}">
+    <input type="hidden" name="refund_method" value="{{ refund_method or 'gateway' }}">
+    <input type="hidden" name="upi_vpa" value="{{ upi.upi_vpa or '' }}">
+    <input type="hidden" name="utr" value="{{ upi.utr or '' }}">
+    <input type="hidden" name="paid_on" value="{{ upi.paid_on or '' }}">
+    <input type="hidden" name="payee_name" value="{{ upi.payee_name or '' }}">
+    <input type="hidden" name="comment" value="{{ comment }}">
+    <input type="hidden" name="message_html" value="{{ message_html }}">
+    <input type="hidden" name="requested_status" value="{{ requested_status }}">
+    <input type="hidden" name="idempotency_key" value="{{ idempotency_key }}">
+    <input type="hidden" name="channels" value="{{ channels|join(',') }}">
+    <input type="hidden" name="send_copy" value="1">
+    <button type="submit" class="btn btn-outline">Email this copy to me</button>
+    <a href="{{ base }}/orders/ow/{{ order.order_id }}/refund/prepare" class="btn btn-outline">Edit the draft</a>
+    <span style="font-size:12px;color:#94a3b8;">
+        {% if refund_method == 'upi' %}
+        To record the already-paid UPI refund, go back to the preview screen and confirm it — a dry run never records it.
+        {% else %}
+        To actually refund, go back to the preview screen and use the confirm button — a dry run can never move money.
+        {% endif %}
+    </span>
+</form>
+{% endblock %}

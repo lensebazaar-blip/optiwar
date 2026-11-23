@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block title %}LOT Numbers — Order #E-{{ order.order_id }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <a href="{{ base }}/orders/{{ order.order_id }}" class="btn btn-sm btn-outline">&laquo; Back to Order</a>
+        <h1>LOT Numbers — Order #E-{{ order.order_id }}</h1>
+    </div>
+    <div>
+        {% if is_locked %}
+        <span style="background:#dcfce7; color:#166534; padding:4px 12px; border-radius:12px; font-size:12px; font-weight:600;">🔒 Locked</span>
+        {% else %}
+        <span style="background:#fef3c7; color:#92400e; padding:4px 12px; border-radius:12px; font-size:12px; font-weight:600;">📝 Editable</span>
+        {% endif %}
+    </div>
+</div>
+
+{% if message %}
+<div style="padding:12px 16px; border-radius:6px; margin-bottom:16px; 
+    {% if msg_type == 'error' %}background:#fef2f2; border:1px solid #fca5a5; color:#991b1b;
+    {% else %}background:#f0fdf4; border:1px solid #86efac; color:#166534;{% endif %}">
+    {{ message }}
+</div>
+{% endif %}
+
+{% if is_locked and not edit_mode %}
+<!-- ═══ LOCKED VIEW ═══ -->
+<div class="card" style="max-width:1000px;">
+    <h3>Scanned Items ({{ lot_entries|length }} units)</h3>
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Product</th>
+                    <th>Unit</th>
+                    <th>UPC (Scanned)</th>
+                    <th>LOT Number</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for entry in lot_entries %}
+                <tr>
+                    <td>{{ loop.index }}</td>
+                    <td>{{ entry.product_name }}</td>
+                    <td>{{ entry.unit_number }} of {{ entry.qty }}</td>
+                    <td style="font-family:monospace; font-size:12px;">{{ entry.upc or '—' }}</td>
+                    <td>
+                        {% if entry.lot_number %}
+                        <strong style="color:#166534;">{{ entry.lot_number }}</strong>
+                        {% else %}
+                        <span style="color:#dc2626;">Not entered</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if entry.lot_number and entry.upc %}
+                        <span style="background:#dcfce7; color:#166534; padding:2px 8px; border-radius:4px; font-size:11px;">✓ Done</span>
+                        {% else %}
+                        <span style="background:#fef2f2; color:#991b1b; padding:2px 8px; border-radius:4px; font-size:11px;">Pending</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Unlock form -->
+    <div style="margin-top:20px; padding:16px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px;">
+        <h4 style="margin:0 0 8px 0; font-size:14px;">🔐 Edit Locked LOT Numbers</h4>
+        <p style="color:#666; font-size:12px; margin-bottom:12px;">Enter passcode to unlock for editing.</p>
+        <form method="post" action="{{ base }}/orders/{{ order.order_id }}/lot-numbers/unlock" style="display:flex; gap:8px; align-items:end;">
+            <div class="form-group" style="margin:0; flex:1; max-width:250px;">
+                <input type="password" name="passcode" class="form-input" placeholder="Enter passcode" required>
+            </div>
+            <button type="submit" class="btn btn-primary" style="height:38px;">Unlock & Edit</button>
+        </form>
+    </div>
+</div>
+
+{% else %}
+<!-- ═══ EDITABLE VIEW: Scan UPC first, then LOT ═══ -->
+<div class="card" style="max-width:1000px;">
+    <h3>Order Products</h3>
+    <p style="color:#666; font-size:13px; margin-bottom:12px;">
+        For each unit (box), scan/enter the UPC barcode first. Once validated, enter the LOT number.
+    </p>
+    <div class="table-responsive" style="margin-bottom:16px;">
+        <table>
+            <thead><tr><th>Product</th><th>Model</th><th>Total Qty</th><th>Units Scanned</th></tr></thead>
+            <tbody>
+                {% for p in products_summary %}
+                <tr>
+                    <td>{{ p.name }}</td>
+                    <td>{{ p.model }}</td>
+                    <td><strong>{{ p.quantity }}</strong></td>
+                    <td>
+                        <span id="scanned-count-{{ p.order_product_id }}">{{ p.scanned }}</span> / {{ p.quantity }}
+                        {% if p.scanned >= p.quantity %}
+                        <span style="color:#166534; font-size:11px; margin-left:4px;">✓ Complete</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Scan Input Area -->
+<div class="card" style="max-width:1000px; margin-top:16px;">
+    <h3>📷 Scan UPC & Enter LOT</h3>
+    <form method="post" action="{{ base }}/orders/{{ order.order_id }}/lot-numbers/scan" id="scanForm">
+        {% if edit_mode %}
+        <input type="hidden" name="edit_mode" value="1">
+        {% endif %}
+        <div style="display:flex; gap:12px; align-items:end; flex-wrap:wrap; margin-bottom:16px;">
+            <div class="form-group" style="margin:0; flex:1; min-width:200px;">
+                <label style="font-size:12px; font-weight:600;">UPC Barcode</label>
+                <input type="text" name="upc" id="upc_input" class="form-input" 
+                       placeholder="Scan or type UPC barcode" required autofocus
+                       style="font-family:monospace; font-size:16px; padding:10px;">
+            </div>
+            <div class="form-group" style="margin:0; flex:1; min-width:200px;">
+                <label style="font-size:12px; font-weight:600;">LOT Number</label>
+                <input type="text" name="lot_number" id="lot_input" class="form-input" 
+                       placeholder="Enter LOT number" required
+                       style="font-size:16px; padding:10px;">
+            </div>
+            <button type="submit" class="btn btn-primary" style="height:44px; padding:0 20px;">
+                ➕ Add Unit
+            </button>
+        </div>
+    </form>
+    <p style="color:#888; font-size:11px;">Tip: After scanning UPC, press Tab to move to LOT field. Press Enter to add.</p>
+</div>
+
+<!-- Scanned entries so far -->
+{% if lot_entries %}
+<div class="card" style="max-width:1000px; margin-top:16px;">
+    <h3>Scanned Units ({{ lot_entries|length }})</h3>
+    <form method="post" action="{{ base }}/orders/{{ order.order_id }}/lot-numbers/save">
+        {% if edit_mode %}
+        <input type="hidden" name="edit_mode" value="1">
+        {% endif %}
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Product</th>
+                        <th>Unit</th>
+                        <th>UPC</th>
+                        <th>LOT Number</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in lot_entries %}
+                    <tr>
+                        <td>{{ loop.index }}</td>
+                        <td>{{ entry.product_name }}</td>
+                        <td>{{ entry.unit_number }}</td>
+                        <td style="font-family:monospace; font-size:12px;">{{ entry.upc }}</td>
+                        <td><strong>{{ entry.lot_number }}</strong></td>
+                        <td>
+                            <a href="{{ base }}/orders/{{ order.order_id }}/lot-numbers/delete/{{ entry.id }}{% if edit_mode %}?edit_mode=1{% endif %}" 
+                               class="btn btn-sm" style="background:#dc2626; color:white; border:none; font-size:11px;"
+                               onclick="return confirm('Remove this entry?')">✕</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div style="margin-top:16px; display:flex; gap:10px;">
+            <button type="submit" name="action" value="lock" class="btn btn-success"
+                    onclick="return confirm('Lock all entries? Editing will require a passcode.')">
+                🔒 Lock All
+            </button>
+            <a href="{{ base }}/orders/{{ order.order_id }}" class="btn btn-outline">Done (Keep Unlocked)</a>
+        </div>
+    </form>
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}

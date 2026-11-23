@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}Order {{ d.rec.order_id }} — Reconciliation{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Order {{ d.rec.order_id }}</h1>
+    <p>{{ d.rec.source_site }} · shipped {{ d.rec.shipped_at }} · <span class="st st-{{ d.rec.state }}">{{ d.rec.state }}</span></p>
+</div>
+
+<style>
+.ev{background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;padding:16px 20px;margin-bottom:1.1rem}
+.ev h2{font-size:.95rem;margin:0 0 .7rem;color:#0f172a}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px 22px}
+.kv div{font-size:.82rem}
+.kv .k{font-size:.66rem;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.03em}
+.rc-table{width:100%;border-collapse:collapse;font-size:.8rem}
+.rc-table th{background:#1e293b;color:#fff;text-align:left;padding:8px 10px;font-size:.68rem;text-transform:uppercase}
+.rc-table td{padding:8px 10px;border-bottom:1px solid #eef2f7;vertical-align:top}
+.rc-table td.num,.rc-table th.num{text-align:right;font-variant-numeric:tabular-nums}
+.st{display:inline-block;padding:2px 9px;border-radius:999px;font-size:.66rem;font-weight:800}
+.st-SETTLED{background:#dcfce7;color:#15803d}
+.st-BANK_CREDITED{background:#dbeafe;color:#1d4ed8}
+.st-IN_PAYOUT{background:#e0e7ff;color:#4338ca}
+.st-DELIVERED{background:#f1f5f9;color:#475569}
+.st-OPEN{background:#fee2e2;color:#b91c1c}
+.st-RTO{background:#fef3c7;color:#b45309}
+.st-REFUNDED{background:#f3e8ff;color:#7e22ce}
+.sev-HIGH{background:#fee2e2;color:#b91c1c}
+.sev-MEDIUM{background:#fef3c7;color:#b45309}
+.sev-LOW{background:#f1f5f9;color:#475569}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.74rem}
+.rto-ok{background:#f0fdf4;border:1.5px solid #bbf7d0}
+.rto-claim{background:#fffbeb;border:1.5px solid #fde68a}
+.step{border-left:3px solid #cbd5e1;padding:0 0 14px 14px;margin-left:6px;position:relative}
+.step:last-child{padding-bottom:0}
+.step:before{content:'';position:absolute;left:-7px;top:3px;width:11px;height:11px;border-radius:50%;background:#2563eb}
+.step .t{font-size:.66rem;color:#64748b;font-weight:700}
+.step .h{font-size:.85rem;font-weight:700;color:#0f172a}
+.step .r{font-size:.78rem;color:#475569}
+</style>
+
+<p><a class="btn btn-sm btn-outline" href="{{ base }}/recon?date={{ d.rec.shipped_at.date() }}">← back to {{ d.rec.shipped_at.date() }}</a></p>
+
+<div class="ev">
+    <h2>The sale</h2>
+    <div class="kv">
+        <div><div class="k">Receivable</div>INR {{ '{:,.2f}'.format(d.rec.amount_due_inr) }}</div>
+        <div><div class="k">Settled</div>INR {{ '{:,.2f}'.format(d.rec.amount_settled_inr) }}</div>
+        <div><div class="k">Refunded</div>INR {{ '{:,.2f}'.format(d.rec.amount_refunded_inr) }}</div>
+        <div><div class="k">Payment route</div>{{ d.rec.payment_bucket }}</div>
+        <div><div class="k">Courier</div>{{ d.rec.courier or '—' }} <span class="text-muted text-small">({{ d.rec.courier_source or 'unknown source' }})</span></div>
+        <div><div class="k">AWB</div><span class="mono">{{ d.rec.awb or '—' }}</span></div>
+        {% if d.rec.reverse_awbs %}<div><div class="k">Reverse AWB</div><span class="mono">{{ d.rec.reverse_awbs }}</span></div>{% endif %}
+        <div><div class="k">Currency</div>{{ d.rec.order_currency }} {{ '{:,.2f}'.format(d.rec.amount_due_ccy) }}{% if d.rec.fx_rate %} @ {{ d.rec.fx_rate }}{% endif %}</div>
+        <div><div class="k">Delivered</div>{{ d.rec.delivered_at or ('yes' if d.rec.delivered else 'not recorded') }}</div>
+        <div><div class="k">Invoice</div>{{ d.rec.invoice_no or '—' }}</div>
+    </div>
+</div>
+
+{% if d.rec.is_rto or d.rec.rto_claimed %}
+<div class="ev {% if d.rec.is_rto %}rto-ok{% else %}rto-claim{% endif %}">
+    <h2>{% if d.rec.is_rto %}Return verified — the goods are back in stock{% else %}Return claimed — goods NOT yet inwarded{% endif %}</h2>
+    {% if d.rec.is_rto %}
+    <div class="kv">
+        <div><div class="k">WMS inward</div><b>{{ d.rec.rto_inward_id }}</b></div>
+        <div><div class="k">UPC</div><span class="mono">{{ d.rec.rto_upc }}</span></div>
+        <div><div class="k">Product</div>{{ d.rec.rto_product or '—' }}</div>
+        <div><div class="k">Inwarded</div>{{ d.rec.rto_inward_at }}</div>
+        <div><div class="k">By</div>{{ d.rec.rto_inward_by }}</div>
+    </div>
+    <p class="text-small text-muted" style="margin:.7rem 0 0">The receivable is closed because the stock came back and was booked against
+    supplier RTO — not because the courier said so.</p>
+    {% else %}
+    <p class="text-small" style="margin:0">The courier or the desk says this is coming back, but no WMS inward against
+    supplier RTO proves it. The money stays owed until the goods are inwarded.</p>
+    {% endif %}
+    {% if d.rec.rto_evidence %}
+    <p class="text-small" style="margin:.6rem 0 0"><span class="k">Claim text</span><br>{{ d.rec.rto_evidence }}</p>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="ev">
+    <h2>What proves the money</h2>
+    {% if d.matches %}
+    <table class="rc-table">
+        <thead><tr><th>Payout</th><th>Source</th><th>Kind</th><th class="num">Gross</th><th class="num">Fee+tax</th><th class="num">Net</th><th>Matched by</th><th>Bank credit</th></tr></thead>
+        <tbody>
+        {% for m in d.matches %}
+            <tr>
+                <td><a href="{{ base }}/recon/payout/{{ m.batch_id }}">{{ m.batch_ref }}</a><br><span class="text-small text-muted">payout {{ m.payout_date }}</span></td>
+                <td class="text-small">{{ m.source }}</td>
+                <td class="text-small">{{ m.entity_kind }}</td>
+                <td class="num">{{ '{:,.2f}'.format(m.gross_amount) }}</td>
+                <td class="num">{{ '{:,.2f}'.format(m.fee_amount + m.tax_amount) }}</td>
+                <td class="num">{{ '{:,.2f}'.format(m.net_amount) }}</td>
+                <td class="text-small">{{ m.method }}{% if m.raw_reference %}<br><span class="mono text-muted">{{ m.raw_reference }}</span>{% endif %}</td>
+                <td class="text-small">
+                    {% if m.txn_date %}{{ m.txn_date }} · …{{ m.account_tail }}<br>
+                    <span class="mono text-muted">{{ m.bank_ref or '' }} {{ '{:,.2f}'.format(m.credit_amount) }}</span>
+                    {% else %}<span class="text-muted">not yet credited</span>{% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="text-small text-muted" style="margin:0">No settlement line is matched to this order yet.</p>
+    {% endif %}
+</div>
+
+{% if d.candidates %}
+<div class="ev">
+    <h2>Suggestions awaiting a human</h2>
+    <table class="rc-table">
+        <thead><tr><th>Level</th><th>Method</th><th class="num">Score</th><th class="num">Amount</th><th>Why it is only a suggestion</th></tr></thead>
+        <tbody>
+        {% for c in d.candidates %}
+        <tr><td>{{ c.match_level }}</td><td>{{ c.method }}</td><td class="num">{{ c.score }}</td>
+            <td class="num">{{ '{:,.2f}'.format(c.amount_inr) if c.amount_inr else '—' }}</td>
+            <td class="text-small">{{ c.rationale }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+<div class="ev">
+    <h2>State history</h2>
+    {% for h in d.history %}
+    <div class="step">
+        <div class="t">{{ h.changed_at }} · {{ h.changed_by }}</div>
+        <div class="h">{{ h.from_state }} → {{ h.to_state }}
+            {% if h.amount_inr %}<span class="text-muted">INR {{ '{:,.2f}'.format(h.amount_inr) }}</span>{% endif %}</div>
+        <div class="r">{{ h.reason }}</div>
+        {% if h.evidence_type %}<div class="mono text-muted">{{ h.evidence_type }} {{ h.evidence_id or '' }}</div>{% endif %}
+    </div>
+    {% endfor %}
+</div>
+
+{% if d.exceptions %}
+<div class="ev">
+    <h2>Exceptions</h2>
+    <table class="rc-table">
+        <thead><tr><th>Type</th><th>Severity</th><th>Status</th><th>Detail</th><th>Resolution</th></tr></thead>
+        <tbody>
+        {% for e in d.exceptions %}
+        <tr><td><b>{{ e.exc_type }}</b></td>
+            <td><span class="st sev-{{ e.severity }}">{{ e.severity }}</span></td>
+            <td>{{ e.status }}</td>
+            <td class="text-small">{{ e.detail }}</td>
+            <td class="text-small">{{ e.resolution or '—' }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}

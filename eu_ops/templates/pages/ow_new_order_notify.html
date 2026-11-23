@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Notify — OW-{{ draft.order_id }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <a href="{{ base }}/ow-new-order/{{ draft.id }}" class="btn btn-sm btn-outline">&laquo; Back to draft</a>
+        <h1>Order created — notify customer</h1>
+        <span class="text-muted" style="font-size:12px;">OW-{{ draft.order_id }} · {{ order.site }}</span>
+    </div>
+</div>
+
+{% if request.query_params.get('err') == 'not_verified' %}
+<div style="margin-bottom:12px;padding:10px 14px;border-radius:6px;background:#fdedec;border:1px solid #f5b7b1;color:#922b21;">
+    The order has not been verified in optiwar2 yet — nothing was sent. Run the SQL, then Verify.
+</div>
+{% endif %}
+
+{% if results %}
+<div class="card" style="margin-bottom:16px;">
+    <h3>Send results</h3>
+    {% for channel, res in results.items() %}
+    <div style="padding:8px 12px;border-radius:6px;margin-bottom:6px;
+        {% if res[0] %}background:#eafaf1;border:1px solid #a9dfbf;color:#1e6b42;
+        {% else %}background:#fdedec;border:1px solid #f5b7b1;color:#922b21;{% endif %}">
+        <strong>{{ channel }}:</strong> {{ 'sent' if res[0] else 'failed' }} — {{ res[1] }}
+    </div>
+    {% endfor %}
+    <p class="text-small text-muted">Every attempt is recorded in the notification log.</p>
+</div>
+{% endif %}
+
+{% if preview %}
+<div class="alert" style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:10px 14px;border-radius:6px;margin-bottom:16px;">
+    <strong>PREVIEW.</strong> Nothing has been sent. This is exactly what the customer would receive.
+</div>
+
+<div class="detail-grid">
+    <div class="card">
+        <h3>Email envelope</h3>
+        <div class="info-row"><label>From:</label> <span><strong>{{ preview.from }}</strong></span></div>
+        <div class="info-row"><label>To:</label> <span>{{ preview.to }}</span></div>
+        <div class="info-row"><label>Cc:</label> <span>{{ preview.cc }}</span></div>
+        <div class="info-row"><label>Subject:</label> <span>{{ preview.subject }}</span></div>
+    </div>
+    <div class="card">
+        <h3>WhatsApp (msg91)</h3>
+        <div class="info-row"><label>To:</label> <span>{{ preview.whatsapp_to }}</span></div>
+        <div class="info-row"><label>Template:</label> <span><code>{{ preview.wa_template }}</code></span></div>
+        <div style="font-size:12px;color:#333;margin-top:8px;">
+            {% for v in preview.wa_body %}<div>body_{{ loop.index }}: <strong>{{ v }}</strong></div>{% endfor %}
+        </div>
+        <p class="text-small" style="color:#92400e;margin-top:8px;">
+            This template must be approved on the Optiwar WABA before WhatsApp can deliver.
+            Until then the WhatsApp attempt will fail and be logged as failed.
+        </p>
+    </div>
+</div>
+
+<div class="card" style="margin-top:16px;">
+    <h3>Plain text (SMS / email text part)</h3>
+    <pre style="white-space:pre-wrap;font-size:12px;color:#333;">{{ preview.text }}</pre>
+</div>
+
+<div class="card" style="margin-top:16px;">
+    <h3>Email preview</h3>
+    <div style="border:1px solid #eee;padding:10px;">{{ preview.html | safe }}</div>
+</div>
+
+<div class="card" style="margin-top:16px;">
+    <h3>Send</h3>
+    {% if not ready %}
+    <div style="padding:10px 14px;border-radius:6px;background:#fdedec;border:1px solid #f5b7b1;color:#922b21;">
+        Sending is blocked until the order is verified in optiwar2.
+    </div>
+    {% else %}
+    <form method="post" action="{{ base }}/ow-new-order/{{ draft.id }}/notify-send"
+          onsubmit="return confirm('Send the order-created notification to the customer?');">
+        <input type="hidden" name="subject" value="{{ preview.subject }}">
+        <textarea name="body_html" class="form-input" rows="10" style="width:100%;font-family:monospace;font-size:11px;">{{ preview.html }}</textarea>
+        <div style="margin:10px 0;">
+            <label style="margin-right:14px;"><input type="checkbox" name="channels" value="email" checked> Email</label>
+            <label style="margin-right:14px;"><input type="checkbox" name="channels" value="whatsapp"> WhatsApp</label>
+            <label><input type="checkbox" name="channels" value="sms"> SMS</label>
+        </div>
+        <button type="submit" class="btn btn-primary">Send now</button>
+    </form>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Support Email — Order #E-{{ order.order_id }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <a href="{{ base }}/orders/{{ order.order_id }}" class="btn btn-sm btn-outline">&laquo; Back to Order</a>
+        <h1>Support Email — Order #E-{{ order.order_id }}</h1>
+    </div>
+</div>
+
+{% if previous %}
+<div class="card" style="margin-bottom:16px; border-left:4px solid #7c3aed;">
+    <h3 style="margin-top:0;">Follow-up to email sent {{ previous.sent_at }}</h3>
+    <div style="font-size:13px; margin-bottom:6px;"><strong>To:</strong> {{ previous.to }} &nbsp; <strong>Subject:</strong> {{ previous.subject }}</div>
+    {% if previous.no_body %}<div style="font-size:12px; color:#b45309;">Text of that email is not on record (sent before bodies were stored); the follow-up will reference it by subject and date.</div>{% else %}
+    <details><summary style="cursor:pointer; font-size:12px; color:#64748b;">Show previous email text</summary>
+        <pre style="white-space:pre-wrap; font-family:inherit; font-size:13px; background:#f8fafc; padding:12px; border-radius:6px;">{{ previous.text }}</pre>
+    </details>{% endif %}
+</div>
+{% endif %}
+
+{% if draft %}
+<!-- Draft Preview Mode -->
+<div class="card" style="margin-bottom:20px;">
+    <h3>Email Draft Preview</h3>
+    <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:16px; margin-bottom:16px;">
+        <div style="margin-bottom:8px;">
+            <strong>To:</strong> {{ draft.to }}
+        </div>
+        <div style="margin-bottom:8px;">
+            <strong>BCC:</strong> {{ draft.bcc }}
+        </div>
+        <div style="margin-bottom:8px;">
+            <strong>From:</strong> service@lensbazaar.com
+        </div>
+        <div style="margin-bottom:16px;">
+            <label style="font-weight:600; font-size:13px; display:block; margin-bottom:6px;">Subject (editable):</label>
+            <input type="text" id="emailSubject" value="{{ draft.subject }}" class="form-input" style="width:100%;">
+        </div>
+        <hr style="border:none; border-top:1px solid #e2e8f0; margin:12px 0;">
+        <label style="font-weight:600; font-size:13px; display:block; margin-bottom:6px;">Email Body (click inside to edit):</label>
+        <div id="emailBody" contenteditable="true" style="background:white; padding:16px; border-radius:6px; border:1px solid #93c5fd; min-height:200px; outline:none;">
+            {{ draft.body_html | safe }}
+        </div>
+        <span style="font-size:11px; color:#64748b;">Click inside the email body above to edit text. Changes will be sent as-is.</span>
+    </div>
+    
+    <div style="margin-bottom:16px;">
+        <form method="post" action="{{ base }}/orders/{{ order.order_id }}/support-email/send" id="sendForm" onsubmit="return syncDraft()">
+            <input type="hidden" name="subject" id="subjectHidden" value="{{ draft.subject }}">
+            <input type="hidden" name="body_html" id="bodyHtmlHidden" value="{{ draft.body_html_escaped }}">
+            <input type="hidden" name="to" value="{{ draft.to }}">
+            <input type="hidden" name="agent_notes" value="{{ agent_notes }}">
+            <input type="hidden" name="followup_id" value="{{ followup_id or 0 }}">
+            <div class="form-group" style="margin-bottom:12px;">
+                <label style="font-weight:600; font-size:13px;">CC (additional recipients, comma-separated):</label>
+                <input type="text" name="extra_cc" class="form-input" 
+                       placeholder="e.g., logistics@company.com, manager@lensbazaar.com"
+                       value="{{ extra_cc or '' }}" style="width:100%; margin-top:4px;">
+                <span style="font-size:11px; color:#64748b;">admin@lensbazaar.com is always included automatically</span>
+            </div>
+            <div style="display:flex; gap:12px; align-items:center;">
+                <button type="submit" class="btn btn-primary" style="background:#16a34a; border-color:#16a34a;">
+                    ✓ Confirm & Send Email
+                </button>
+        </form>
+        <form method="get" action="{{ base }}/orders/{{ order.order_id }}/support-email" style="display:inline;">
+            <input type="hidden" name="notes" value="{{ agent_notes }}">
+            {% if followup_id %}<input type="hidden" name="followup" value="{{ followup_id }}">{% endif %}
+            <button type="submit" class="btn btn-outline">
+                ↻ Regenerate Draft
+            </button>
+        </form>
+        <a href="{{ base }}/orders/{{ order.order_id }}" class="btn btn-outline" style="color:#dc2626; border-color:#dc2626;">
+            ✕ Cancel
+        </a>
+            </div>
+    </div>
+</div>
+
+{% else %}
+<!-- Input Mode -->
+{% if error %}
+<div style="background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:12px 16px; margin-bottom:16px; color:#dc2626;">
+    <strong>Error generating draft:</strong> {{ error }}
+</div>
+{% endif %}
+<div class="detail-grid">
+    <div class="card">
+        <h3>Customer Info</h3>
+        <div class="info-row"><label>Name:</label> <span>{{ order.firstname }} {{ order.lastname }}</span></div>
+        <div class="info-row"><label>Email:</label> <span>{{ order.email }}</span></div>
+        <div class="info-row"><label>Order Status:</label> <span>{{ order.status_name }}</span></div>
+    </div>
+    <div class="card">
+        <h3>Products</h3>
+        {% for p in order.products %}
+        <div style="margin-bottom:8px; font-size:13px;">
+            <strong>{{ p.name }}</strong> (Qty: {{ p.quantity }})
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card" style="margin-top:16px;">
+    <h3>Describe the Issue</h3>
+    <p style="color:#64748b; font-size:13px; margin-bottom:12px;">
+        Write a brief description of what happened and what to communicate to the customer. 
+        AI will draft a professional email based on your notes.
+    </p>
+    <form method="get" action="{{ base }}/orders/{{ order.order_id }}/support-email">
+        <div class="form-group">
+            {% if followup_id %}<input type="hidden" name="followup" value="{{ followup_id }}">{% endif %}
+            <textarea name="notes" rows="6" class="form-input" 
+                      placeholder="e.g., Shipment delayed due to customs clearance hold in destination country. Expected delivery extended by 3-5 business days. FedEx AWB 87324534 shows last scan at customs."
+                      style="width:100%; min-height:120px; font-size:14px;" required>{{ agent_notes or '' }}</textarea>
+        </div>
+        <button type="submit" class="btn btn-primary">
+            Generate Email Draft →
+        </button>
+    </form>
+</div>
+{% endif %}
+
+<script>
+function escapeHtmlEntities(s){
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function syncDraft(){
+    var body = document.getElementById('emailBody');
+    var subj = document.getElementById('emailSubject');
+    if (body) { document.getElementById('bodyHtmlHidden').value = escapeHtmlEntities(body.innerHTML); }
+    if (subj) { document.getElementById('subjectHidden').value = subj.value; }
+    return true;
+}
+</script>
+{% endblock %}

@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invoice #E-{{ order.order_id }} — LensBazaar Europe</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            font-size: 13px;
+            color: #222;
+            background: #fff;
+            padding: 20px;
+        }
+        .invoice-container {
+            max-width: 800px;
+            margin: 0 auto;
+            border: 1px solid #ccc;
+            padding: 30px;
+            page-break-after: always;
+        }
+        .invoice-container:last-of-type {
+            page-break-after: auto;
+        }
+        /* Header */
+        .invoice-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #003399;
+        }
+        .invoice-header .logo img {
+            width: 100px;
+            height: auto;
+            border-radius: 12px;
+        }
+        .invoice-header .company-info {
+            text-align: right;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+        .company-name {
+            font-size: 20px;
+            font-weight: bold;
+            color: #003399;
+            margin-bottom: 3px;
+        }
+        /* Invoice Meta */
+        .invoice-meta {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        .invoice-meta .col {
+            width: 48%;
+        }
+        .meta-table { width: 100%; }
+        .meta-table td {
+            padding: 3px 8px;
+            vertical-align: top;
+            font-size: 12px;
+        }
+        .meta-table td:first-child {
+            font-weight: 600;
+            white-space: nowrap;
+            width: 130px;
+        }
+        /* Address blocks */
+        .address-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        .address-block {
+            width: 48%;
+            border: 1px solid #ddd;
+            padding: 12px;
+            border-radius: 4px;
+        }
+        .address-block h4 {
+            font-size: 12px;
+            text-transform: uppercase;
+            color: #666;
+            margin-bottom: 6px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 4px;
+        }
+        .address-block p {
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        /* Products table */
+        .products-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 15px;
+        }
+        .products-table th {
+            background: #003399;
+            color: #fff;
+            padding: 8px 10px;
+            text-align: left;
+            font-size: 11px;
+            text-transform: uppercase;
+        }
+        .products-table td {
+            padding: 8px 10px;
+            border-bottom: 1px solid #eee;
+            font-size: 12px;
+            vertical-align: top;
+        }
+        .products-table tr:nth-child(even) td {
+            background: #f8f9fa;
+        }
+        .products-table .text-right { text-align: right; }
+        .products-table .text-center { text-align: center; }
+        .product-options {
+            font-size: 11px;
+            color: #555;
+            margin-top: 3px;
+        }
+        /* Totals */
+        .totals-section {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 20px;
+        }
+        .totals-table {
+            width: 300px;
+            border-collapse: collapse;
+        }
+        .totals-table td {
+            padding: 5px 10px;
+            font-size: 12px;
+        }
+        .totals-table td:last-child {
+            text-align: right;
+            font-weight: 500;
+        }
+        .totals-table .grand-total td {
+            border-top: 2px solid #003399;
+            font-size: 14px;
+            font-weight: 700;
+            padding-top: 8px;
+        }
+        /* Amount in words */
+        .amount-words {
+            margin-bottom: 15px;
+            font-size: 12px;
+            font-style: italic;
+            color: #444;
+        }
+        /* Footer */
+        .invoice-footer {
+            border-top: 1px solid #ddd;
+            padding-top: 15px;
+            font-size: 11px;
+            color: #666;
+            text-align: center;
+            line-height: 1.8;
+        }
+        .invoice-footer strong { color: #333; }
+        /* Print controls */
+        .print-controls {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .print-controls button {
+            background: #003399;
+            color: white;
+            border: none;
+            padding: 10px 30px;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            margin: 0 5px;
+        }
+        .print-controls button:hover { background: #002266; }
+        .print-controls .btn-back {
+            background: #6c757d;
+        }
+        .print-controls .btn-back:hover { background: #555; }
+        .invoice-type-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .badge-eur { background: #003399; color: #fff; }
+        .badge-inr { background: #ff6600; color: #fff; }
+        .gst-note {
+            font-size: 11px;
+            color: #666;
+            margin-bottom: 15px;
+            padding: 8px 12px;
+            background: #fff5eb;
+            border-left: 3px solid #ff6600;
+        }
+        .page-separator {
+            text-align: center;
+            margin: 30px 0;
+            color: #999;
+            font-size: 11px;
+        }
+        .page-separator hr {
+            border: none;
+            border-top: 2px dashed #ccc;
+            margin-bottom: 8px;
+        }
+        @media print {
+            .print-controls { display: none !important; }
+            .page-separator { display: none !important; }
+            body { padding: 0; }
+            .invoice-container { border: none; padding: 10px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="print-controls">
+    <button onclick="window.print()">🖨 Print Both Invoices</button>
+    <button class="btn-back" onclick="history.back()">← Back to Order</button>
+</div>
+
+{% if missing_origin %}
+<div style="max-width:800px; margin:0 auto 20px; padding:20px; border:2px solid #dc3545; border-radius:8px; background:#fff5f5;">
+    <h3 style="color:#dc3545; margin-bottom:10px; font-size:14px;">⚠️ Country of Origin Required</h3>
+    <p style="font-size:12px; color:#555; margin-bottom:12px;">
+        The following product(s) do not have a Country of Origin (manufacturer country) in the database. 
+        Please enter it below before printing the invoice. This is required for EU customs compliance.
+    </p>
+    <form method="POST" action="{{ base }}/orders/{{ order.order_id }}/set-origin">
+        <table style="width:100%; border-collapse:collapse; margin-bottom:12px;">
+            <thead>
+                <tr style="background:#f8d7da;">
+                    <th style="padding:8px; text-align:left; font-size:12px;">Product</th>
+                    <th style="padding:8px; text-align:left; font-size:12px; width:250px;">Country of Manufacture</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in missing_origin %}
+                <tr style="border-bottom:1px solid #eee;">
+                    <td style="padding:8px; font-size:12px;">{{ p.name }}</td>
+                    <td style="padding:8px;">
+                        <input type="text" name="origin_{{ p.order_product_id }}" required
+                               placeholder="e.g. Ireland, USA, Japan..."
+                               style="width:100%; padding:6px; border:1px solid #ccc; border-radius:4px; font-size:12px;">
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <button type="submit" style="background:#003399; color:white; border:none; padding:8px 20px; border-radius:4px; font-size:13px; cursor:pointer;">
+            Save & Generate Invoice
+        </button>
+    </form>
+</div>
+{% endif %}
+
+{# ═══════════════════════════════════════════════════ #}
+{# PAGE 1: EUR CUSTOMER INVOICE                       #}
+{# ═══════════════════════════════════════════════════ #}
+<div class="invoice-container">
+    <!-- Header -->
+    <div class="invoice-header">
+        <div class="logo">
+            <img src="{{ base }}/static/img/eu-logo.png" alt="LensBazaar Europe">
+        </div>
+        <div class="company-info">
+            <div class="company-name">LensBazaar Europe</div>
+            Krishna Ecommerce Technologies Private Limited<br>
+            Unit 418, Tower 4, DLF Corporate Greens<br>
+            Sec 74A, SPR, Gurugram 122004 (India)<br>
+            Tel: +91-80100 77770<br>
+            service@lensbazaar.com | https://eu.lensbazaar.com
+        </div>
+    </div>
+
+    <!-- Invoice Meta -->
+    <div class="invoice-meta">
+        <div class="col">
+            <table class="meta-table">
+                <tr><td>Invoice No.:</td><td>{{ invoice_no }}</td></tr>
+                <tr><td>Order ref:</td><td>E-{{ order.order_id }}</td></tr>
+                <tr><td>Date:</td><td>{{ invoice_date }}</td></tr>
+                <tr><td>Type:</td><td><span class="invoice-type-badge badge-eur">Customer Invoice (EUR)</span></td></tr>
+            </table>
+        </div>
+        <div class="col">
+            <table class="meta-table">
+                <tr><td>Payment:</td><td>{{ order.payment_method }}</td></tr>
+                <tr><td>Shipping:</td><td>{{ order.shipping_method or 'FedEx International' }}</td></tr>
+                <tr><td>Status:</td><td>{{ order.status_name }}</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <!-- Addresses -->
+    <div class="address-row">
+        <div class="address-block">
+            <h4>Bill To</h4>
+            <p>
+                <strong>{{ order.firstname }} {{ order.lastname }}</strong><br>
+                {{ order.payment_address_1 or order.shipping_address_1 }}
+                {% if order.payment_address_2 or order.shipping_address_2 %}, {{ order.payment_address_2 or order.shipping_address_2 }}{% endif %}<br>
+                {{ order.payment_city or order.shipping_city }}
+                {% if order.payment_postcode or order.shipping_postcode %} - {{ order.payment_postcode or order.shipping_postcode }}{% endif %}<br>
+                {{ order.payment_country or order.shipping_country }}<br>
+                {{ order.email }}<br>
+                {{ order.telephone }}
+            </p>
+        </div>
+        <div class="address-block">
+            <h4>Ship To</h4>
+            <p>
+                <strong>{{ order.shipping_firstname }} {{ order.shipping_lastname }}</strong><br>
+                {{ order.shipping_address_1 }}
+                {% if order.shipping_address_2 %}, {{ order.shipping_address_2 }}{% endif %}<br>
+                {{ order.shipping_city }}
+                {% if order.shipping_postcode %} - {{ order.shipping_postcode }}{% endif %}<br>
+                {{ order.shipping_country }}
+                {% if order.shipping_zone %}, {{ order.shipping_zone }}{% endif %}
+            </p>
+        </div>
+    </div>
+
+    <!-- Products EUR -->
+    <table class="products-table">
+        <thead>
+            <tr>
+                <th style="width:30%">Product</th>
+                <th>Model</th>
+                <th class="text-center">Qty</th>
+                <th class="text-center">HS Code</th>
+                <th class="text-center">Origin</th>
+                <th class="text-right">Unit Price (EUR)</th>
+                <th class="text-right">Total (EUR)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in line_items %}
+            <tr>
+                <td>
+                    {{ p.name }}
+                    {% if p.options %}
+                    <div class="product-options">
+                        {% for opt in p.options %}
+                        - {{ opt.name }}: {{ opt.value }}<br>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </td>
+                <td>{{ p.model }}</td>
+                <td class="text-center">{{ p.quantity }}</td>
+                <td class="text-center" style="font-family:monospace; font-size:11px;">90013000</td>
+                <td class="text-center" style="font-size:11px;">{{ p.country_of_origin or '—' }}</td>
+                <td class="text-right">&euro;{{ "%.2f"|format(p.price_eur) }}</td>
+                <td class="text-right">&euro;{{ "%.2f"|format(p.total_eur) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- EU Product Identifiers (Reg. 2025/842) -->
+    {% if product_identifiers %}
+    <div style="margin-bottom:15px;">
+        <div style="font-size:11px; font-weight:700; color:#003399; text-transform:uppercase; margin-bottom:6px; letter-spacing:0.5px;">
+            Product Identifiers (EU Reg. 2025/842)
+        </div>
+        <table class="products-table" style="font-size:11px;">
+            <thead>
+                <tr>
+                    <th>Product</th>
+                    <th>C127 (Merchant SKU)</th>
+                    <th>C128 (Mfr. LOT No.)</th>
+                    <th>C129 (UPC/GTIN)</th>
+                    <th>Y081</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for pid in product_identifiers %}
+                <tr>
+                    <td>{{ pid.name }}</td>
+                    <td style="font-family:monospace;">{{ pid.c127 }}</td>
+                    <td style="font-family:monospace;">{{ pid.c128 or '—' }}</td>
+                    <td style="font-family:monospace;">{{ pid.c129 or '—' }}</td>
+                    <td>{{ pid.y081 or '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+
+    <!-- Customs Declaration (EU Import Compliance) -->
+    <div style="margin-bottom:15px; padding:12px; border:1px solid #003399; border-radius:4px;">
+        <div style="font-size:11px; font-weight:700; color:#003399; text-transform:uppercase; margin-bottom:8px; letter-spacing:0.5px;">
+            Customs Declaration
+        </div>
+        <table style="width:100%; font-size:11px; border-collapse:collapse; line-height:1.8;">
+            <tr>
+                <td style="padding:2px 8px; width:50%; vertical-align:top;">
+                    <strong>Exporter:</strong><br>
+                    Krishna Ecommerce Technologies Pvt Ltd<br>
+                    Unit 418, Tower 4, DLF Corporate Greens<br>
+                    Sec 74A, SPR, Gurugram 122004, India<br>
+                    GSTIN: 06AAHCK4567A1ZP | IEC: AAHCK4567
+                </td>
+                <td style="padding:2px 8px; width:50%; vertical-align:top;">
+                    <strong>Consignee:</strong><br>
+                    {{ order.shipping_firstname }} {{ order.shipping_lastname }}<br>
+                    {{ order.shipping_address_1 }}{% if order.shipping_address_2 %}, {{ order.shipping_address_2 }}{% endif %}<br>
+                    {{ order.shipping_city }} {{ order.shipping_postcode }}<br>
+                    {{ order.shipping_country }}
+                </td>
+            </tr>
+        </table>
+        <table style="width:100%; font-size:11px; border-collapse:collapse; margin-top:8px; border-top:1px solid #e2e8f0; padding-top:6px;">
+            <tr>
+                <td style="padding:3px 8px;"><strong>Country of Destination:</strong> {{ order.shipping_country }}</td>
+                <td style="padding:3px 8px;"><strong>HS/Tariff Code:</strong> 9001.30.00</td>
+                <td style="padding:3px 8px;"><strong>No. of Items:</strong> {{ line_items|length }} item type(s)</td>
+            </tr>
+            <tr>
+                <td style="padding:3px 8px;"><strong>Incoterms:</strong> DDU (Delivered Duty Unpaid)</td>
+                <td style="padding:3px 8px;"><strong>Total Declared Value:</strong> &euro;{{ "%.2f"|format(order.total_eur) }}</td>
+                <td style="padding:3px 8px;"><strong>Currency:</strong> EUR</td>
+            </tr>
+            {% if order.awbs %}
+            <tr>
+                <td colspan="3" style="padding:3px 8px;"><strong>Transport Document:</strong> FedEx AWB {{ order.awbs[0].tracking_number }}</td>
+            </tr>
+            {% endif %}
+        </table>
+        <div style="margin-top:8px; padding-top:6px; border-top:1px solid #e2e8f0; font-size:10px; color:#555; line-height:1.6;">
+            I hereby declare that the information provided above is true and correct. The goods described are of Indian origin 
+            and are being exported for personal use of the consignee. Product identifiers are provided in accordance with 
+            EU Regulation 2025/842 (effective 1 July 2026). Duties and taxes are to be collected from the receiver (DDU).
+        </div>
+    </div>
+
+
+    <!-- EUR Totals -->
+    <div class="totals-section">
+        <table class="totals-table">
+            {% for t in order.totals %}
+            {% if loop.last %}
+            <tr class="grand-total">
+                <td>{{ t.title }}:</td>
+                <td>{{ t.text }}</td>
+            </tr>
+            {% else %}
+            <tr>
+                <td>{{ t.title }}:</td>
+                <td>{{ t.text }}</td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+            <tr class="grand-total">
+                <td>EUR Total:</td>
+                <td>&euro;{{ "%.2f"|format(order.total_eur) }}</td>
+            </tr>
+        </table>
+    </div>
+
+    <!-- AWB / Tracking -->
+    {% if order.awbs %}
+    <div style="margin-bottom: 15px; font-size: 12px;">
+        <strong>Shipping Tracking:</strong>
+        {% for a in order.awbs %}
+        {{ a.courier }} AWB: {{ a.tracking_number }}{% if not loop.last %}, {% endif %}
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Footer EUR -->
+    <div class="invoice-footer">
+        <strong>LensBazaar Europe</strong> — Your trusted source for contact lenses in Europe<br>
+        For support: service@lensbazaar.com | https://eu.lensbazaar.com<br>
+        This is a computer-generated invoice. Does not require a signature.
+    </div>
+</div>
+
+{# ═══════════════════════════════════════════════════ #}
+{# VISIBLE PAGE BREAK (on screen)                     #}
+{# ═══════════════════════════════════════════════════ #}
+<div class="page-separator">
+    <hr>
+    ✂ Page 2 — INR Export Invoice (for Indian accounting) ✂
+</div>
+
+{# ═══════════════════════════════════════════════════ #}
+{# PAGE 2: INR EXPORT INVOICE (Indian Accounting)     #}
+{# ═══════════════════════════════════════════════════ #}
+<div class="invoice-container">
+
+    {# ── IRN Banner (if e-Invoice generated) ── #}
+    {% if irn_info and irn_info.has_irn and irn_info.is_active %}
+    <div style="text-align:center; font-size:12px; font-weight:700; color:#003399; margin-bottom:10px; text-transform:uppercase; letter-spacing:0.5px;">
+        Tax Invoice
+    </div>
+    <div style="text-align:center; font-size:10px; color:#666; margin-bottom:12px;">
+        (SUPPLY MEANT FOR EXPORT/SUPPLY TO SEZ UNIT OR SEZ DEVELOPER FOR AUTHORISED OPERATIONS ON PAYMENT OF IGST)
+    </div>
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:15px; padding:10px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:4px;">
+        <div style="font-size:11px; line-height:1.8;">
+            <strong>IRN:</strong> {{ irn_info.irn }}<br>
+            <strong>Ack No.:</strong> {{ irn_info.ack_no }}<br>
+            <strong>Ack Date:</strong> {{ irn_info.ack_dt }}
+            {% if irn_info.ewb_no %}<br><strong>e-Way Bill No.:</strong> {{ irn_info.ewb_no }}{% endif %}
+        </div>
+        <div style="text-align:right;">
+            {{ irn_info.qr_html|safe }}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Header -->
+    <div class="invoice-header">
+        <div class="logo">
+            <img src="{{ base }}/static/img/eu-logo.png" alt="LensBazaar Europe">
+        </div>
+        <div class="company-info">
+            <div class="company-name">LensBazaar Europe</div>
+            Krishna Ecommerce Technologies Private Limited<br>
+            GSTIN: 06AAHCK4567A1ZP<br>
+            Unit 418, Tower 4, DLF Corporate Greens<br>
+            Sec 74A, SPR, Gurugram 122004 (India)<br>
+            Tel: +91-80100 77770<br>
+            service@lensbazaar.com | https://eu.lensbazaar.com
+        </div>
+    </div>
+
+    <!-- Invoice Meta -->
+    <div class="invoice-meta">
+        <div class="col">
+            <table class="meta-table">
+                <tr><td>Invoice No.:</td><td>{% if irn_info and irn_info.has_irn %}{{ irn_info.invoice_no }}{% else %}{{ invoice_no }}{% endif %}</td></tr>
+                <tr><td>Order ref:</td><td>E-{{ order.order_id }}</td></tr>
+                <tr><td>Date:</td><td>{{ invoice_date }}</td></tr>
+                <tr><td>Type:</td><td><span class="invoice-type-badge badge-inr">Export Invoice (INR + GST)</span></td></tr>
+                {% if irn_info and irn_info.ewb_no %}
+                <tr><td>e-Way Bill No.:</td><td><strong>{{ irn_info.ewb_no }}</strong></td></tr>
+                {% endif %}
+            </table>
+        </div>
+        <div class="col">
+            <table class="meta-table">
+                <tr><td>Payment:</td><td>{{ order.payment_method }}</td></tr>
+                <tr><td>Shipping:</td><td>{{ order.shipping_method or 'FedEx International' }}</td></tr>
+                <tr><td>Status:</td><td>{{ order.status_name }}</td></tr>
+                <tr><td>HSN Code:</td><td>90013000</td></tr>
+                {% if order.awbs %}
+                <tr><td>Dispatch Doc:</td><td>{{ order.awbs[0].tracking_number }} (FedEx)</td></tr>
+                {% endif %}
+            </table>
+        </div>
+    </div>
+
+    <!-- Addresses -->
+    <div class="address-row">
+        <div class="address-block">
+            <h4>Supplier</h4>
+            <p>
+                <strong>Krishna Ecommerce Technologies Pvt Ltd</strong><br>
+                GSTIN: 06AAHCK4567A1ZP<br>
+                Unit 418, Tower 4, DLF Corporate Greens<br>
+                Sec 74A, SPR, Gurugram 122004<br>
+                Haryana, India
+            </p>
+        </div>
+        <div class="address-block">
+            <h4>Ship To (Export)</h4>
+            <p>
+                <strong>{{ order.shipping_firstname }} {{ order.shipping_lastname }}</strong><br>
+                {{ order.shipping_address_1 }}
+                {% if order.shipping_address_2 %}, {{ order.shipping_address_2 }}{% endif %}<br>
+                {{ order.shipping_city }}
+                {% if order.shipping_postcode %} - {{ order.shipping_postcode }}{% endif %}<br>
+                {{ order.shipping_country }}
+                {% if order.shipping_zone %}, {{ order.shipping_zone }}{% endif %}
+            </p>
+        </div>
+    </div>
+
+    <!-- Products INR -->
+    <table class="products-table">
+        <thead>
+            <tr>
+                <th style="width:40%">Product</th>
+                <th>Model</th>
+                <th class="text-center">Qty</th>
+                <th class="text-right">Unit Price (INR)</th>
+                <th class="text-right">Total (INR)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in line_items %}
+            <tr>
+                <td>
+                    {{ p.name }}
+                    {% if p.options %}
+                    <div class="product-options">
+                        {% for opt in p.options %}
+                        - {{ opt.name }}: {{ opt.value }}<br>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </td>
+                <td>{{ p.model }}</td>
+                <td class="text-center">{{ p.quantity }}</td>
+                <td class="text-right">&#8377;{{ "%.2f"|format(p.price_inr) }}</td>
+                <td class="text-right">&#8377;{{ "%.2f"|format(p.total_inr) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- INR Totals with GST -->
+    <div class="totals-section">
+        <table class="totals-table">
+            <tr>
+                <td>Sub-Total:</td>
+                <td>&#8377;{{ "%.2f"|format(order.inr_subtotal) }}</td>
+            </tr>
+            <tr>
+                <td>Shipping:</td>
+                <td>&#8377;0.00</td>
+            </tr>
+            <tr>
+                <td>IGST @ {{ order.gst_rate }}%:</td>
+                <td>&#8377;{{ "%.2f"|format(order.gst_amount) }}</td>
+            </tr>
+            <tr class="grand-total">
+                <td>Grand Total (INR):</td>
+                <td>&#8377;{{ "%.2f"|format(order.inr_grand_total) }}</td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="gst-note">
+        Export under LUT/Bond. IGST @ {{ order.gst_rate }}% charged on taxable value &#8377;{{ "%.2f"|format(order.inr_subtotal) }}.<br>
+        Supply meant for export on payment of IGST.
+    </div>
+
+    <!-- AWB / Tracking -->
+    {% if order.awbs %}
+    <div style="margin-bottom: 15px; font-size: 12px;">
+        <strong>Shipping Tracking:</strong>
+        {% for a in order.awbs %}
+        {{ a.courier }} AWB: {{ a.tracking_number }}{% if not loop.last %}, {% endif %}
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {# ── E-Way Bill Details (bottom of INR invoice) ── #}
+    {% if irn_info and irn_info.ewb_no %}
+    <div style="margin-top:20px; padding:12px; border:1px solid #94a3b8; border-radius:4px;">
+        <div style="font-weight:700; font-size:12px; margin-bottom:6px; color:#1e3a5f;">e-Way Bill Details</div>
+        <table style="width:100%; font-size:11px; border-collapse:collapse;">
+            <tr>
+                <td style="padding:3px 8px;"><strong>EWB No.:</strong> {{ irn_info.ewb_no }}</td>
+                <td style="padding:3px 8px;"><strong>Mode:</strong> Air (Courier)</td>
+                <td style="padding:3px 8px;"><strong>Distance:</strong> ~28 KM</td>
+            </tr>
+            <tr>
+                <td style="padding:3px 8px;"><strong>From:</strong> Gurgaon, Haryana (06)</td>
+                <td style="padding:3px 8px;"><strong>To:</strong> {{ order.shipping_country }} (96)</td>
+                <td style="padding:3px 8px;"><strong>Port:</strong> INDEL4 (Delhi Air Cargo)</td>
+            </tr>
+            <tr>
+                <td style="padding:3px 8px;"><strong>Transporter:</strong> FedEx Express</td>
+                <td style="padding:3px 8px;"><strong>Transporter ID:</strong> 27AABCF6516A1Z3</td>
+                {% if order.awbs %}
+                <td style="padding:3px 8px;"><strong>Transport Doc:</strong> {{ order.awbs[0].tracking_number }}</td>
+                {% endif %}
+            </tr>
+            {% if irn_info.ewb_valid_till %}
+            <tr>
+                <td colspan="3" style="padding:3px 8px;"><strong>Valid Till:</strong> {{ irn_info.ewb_valid_till }}</td>
+            </tr>
+            {% endif %}
+        </table>
+    </div>
+    {% endif %}
+
+    <!-- Footer INR -->
+    <div class="invoice-footer">
+        <strong>Krishna Ecommerce Technologies Pvt Ltd</strong> | GSTIN: 06AAHCK4567A1ZP | HSN: 90013000<br>
+        {% if irn_info and irn_info.has_irn and irn_info.is_active %}
+        IRN: {{ irn_info.irn }} | Ack No: {{ irn_info.ack_no }}<br>
+        {% endif %}
+        For support: service@lensbazaar.com | https://eu.lensbazaar.com<br>
+        This is a computer-generated export invoice. Does not require a signature.
+    </div>
+</div>
+
+</body>
+</html>

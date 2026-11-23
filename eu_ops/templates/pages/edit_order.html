@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}Edit Order #E-{{ order.order_id }} — LensBazaar OPP{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <a href="{{ base }}/orders/{{ order.order_id }}" class="btn btn-sm btn-outline">&laquo; Back to Order</a>
+        <h1>Edit Order #E-{{ order.order_id }} — Partial Shipment</h1>
+    </div>
+</div>
+
+<div class="detail-grid">
+    <div class="card">
+        <h3>Customer</h3>
+        <div class="info-row"><label>Name:</label> <span>{{ order.firstname }} {{ order.lastname }}</span></div>
+        <div class="info-row"><label>Email:</label> <span>{{ order.email }}</span></div>
+        <div class="info-row"><label>EUR Total:</label> <span>&euro;{{ "%.2f"|format(order.total_eur) }}</span></div>
+    </div>
+    <div class="card" id="refund-summary" style="display:none;">
+        <h3 style="color:#dc2626;">Refund Summary</h3>
+        <div id="refund-details"></div>
+        <div class="info-row total-row" style="margin-top:12px;">
+            <label>Total Refund:</label>
+            <span style="color:#dc2626; font-size:18px; font-weight:700;" id="refund-total">&euro;0.00</span>
+        </div>
+    </div>
+</div>
+
+<!-- Products with editable quantities only -->
+<div class="section">
+    <h2>Products — Reduce Quantities</h2>
+    <form id="edit-form" method="post" action="{{ base }}/orders/{{ order.order_id }}/edit/preview">
+        {% for p in order.products %}
+        <div class="card" style="margin-bottom:16px;">
+            <h3>{{ p.name }} <span style="color:#64748b; font-weight:400;">({{ p.model }})</span></h3>
+            <div class="info-row"><label>Unit Price:</label> <span>&euro;{{ "%.2f"|format(p.price|float * eur_rate) }} (&#8377;{{ "%.2f"|format(p.price|float) }})</span></div>
+            <div class="info-row"><label>Current Qty:</label> <span>{{ p.quantity }}</span></div>
+
+            {% if p.has_eye_options %}
+            <div style="display:flex; gap:20px; flex-wrap:wrap; margin-top:12px;">
+                {% if p.left_eye %}
+                <div style="background:#f0f7ff; border:1px solid #c4ddf7; border-radius:8px; padding:12px 16px; flex:1; min-width:200px;">
+                    <strong style="color:#1a5db0; font-size:12px;">LEFT EYE</strong>
+                    {% for opt in p.left_eye %}
+                    <div style="font-size:13px; margin-top:6px;">
+                        {{ opt.name }}:
+                        {% if opt.name.strip().lower() == 'quantity' %}
+                        <input type="number" name="qty_{{ opt.order_option_id }}"
+                               value="{{ opt.value }}" min="0" max="{{ opt.value }}"
+                               data-original="{{ opt.value }}" data-price="{{ p.price }}"
+                               data-product="{{ p.name }}" data-eye="LEFT"
+                               class="qty-input form-input"
+                               style="width:70px; display:inline-block; padding:4px 8px; font-weight:700;">
+                        <span style="color:#94a3b8; font-size:11px;">(was {{ opt.value }})</span>
+                        {% else %}
+                        <strong>{{ opt.value }}</strong>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if p.right_eye %}
+                <div style="background:#fff5f0; border:1px solid #f7d4c4; border-radius:8px; padding:12px 16px; flex:1; min-width:200px;">
+                    <strong style="color:#b05a1a; font-size:12px;">RIGHT EYE</strong>
+                    {% for opt in p.right_eye %}
+                    <div style="font-size:13px; margin-top:6px;">
+                        {{ opt.name }}:
+                        {% if opt.name.strip().lower() == 'quantity' %}
+                        <input type="number" name="qty_{{ opt.order_option_id }}"
+                               value="{{ opt.value }}" min="0" max="{{ opt.value }}"
+                               data-original="{{ opt.value }}" data-price="{{ p.price }}"
+                               data-product="{{ p.name }}" data-eye="RIGHT"
+                               class="qty-input form-input"
+                               style="width:70px; display:inline-block; padding:4px 8px; font-weight:700;">
+                        <span style="color:#94a3b8; font-size:11px;">(was {{ opt.value }})</span>
+                        {% else %}
+                        <strong>{{ opt.value }}</strong>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            {% else %}
+            <!-- Non-eye product: simple qty edit -->
+            <div style="margin-top:12px;">
+                <label>Quantity:</label>
+                <input type="number" name="simple_qty_{{ p.order_product_id }}"
+                       value="{{ p.quantity }}" min="0" max="{{ p.quantity }}"
+                       data-original="{{ p.quantity }}" data-price="{{ p.price }}"
+                       data-product="{{ p.name }}" data-eye="N/A"
+                       class="qty-input form-input"
+                       style="width:70px; display:inline-block; padding:4px 8px; font-weight:700;">
+                <span style="color:#94a3b8; font-size:11px;">(was {{ p.quantity }})</span>
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+
+        <div class="form-group" style="margin-top:16px;">
+            <label>Agent Notes (internal)</label>
+            <textarea name="notes" class="form-input" rows="2" placeholder="e.g. Customer requested partial shipment"></textarea>
+        </div>
+
+        <div style="display:flex; gap:12px; margin-top:16px;">
+            <button type="submit" class="btn btn-primary" id="preview-btn" disabled>
+                Preview Changes &amp; Draft Email
+            </button>
+            <a href="{{ base }}/orders/{{ order.order_id }}" class="btn btn-outline">Cancel</a>
+        </div>
+    </form>
+</div>
+
+<script>
+const eurRate = {{ eur_rate }};
+
+document.querySelectorAll('.qty-input').forEach(input => {
+    input.addEventListener('change', recalculate);
+    input.addEventListener('input', recalculate);
+});
+
+function recalculate() {
+    let totalRefundINR = 0;
+    let hasChanges = false;
+    let detailsHTML = '';
+
+    document.querySelectorAll('.qty-input').forEach(input => {
+        const orig = parseInt(input.dataset.original);
+        const newVal = parseInt(input.value) || 0;
+        if (newVal < orig) {
+            hasChanges = true;
+            const removed = orig - newVal;
+            const price = parseFloat(input.dataset.price);
+            const refundINR = removed * price;
+            const refundEUR = refundINR * eurRate;
+            totalRefundINR += refundINR;
+            detailsHTML += '<div class="info-row" style="font-size:13px;">' +
+                '<label>' + input.dataset.product + ' (' + input.dataset.eye + '):</label> ' +
+                '<span>' + orig + ' &rarr; ' + newVal + ' (&minus;' + removed + ') = <strong style="color:#dc2626;">&euro;' + refundEUR.toFixed(2) + '</strong></span></div>';
+        }
+    });
+
+    const summary = document.getElementById('refund-summary');
+    const details = document.getElementById('refund-details');
+    const total = document.getElementById('refund-total');
+    const btn = document.getElementById('preview-btn');
+
+    if (totalRefundINR > 0) {
+        summary.style.display = 'block';
+        details.innerHTML = detailsHTML;
+        total.textContent = '\u20ac' + (totalRefundINR * eurRate).toFixed(2);
+    } else {
+        summary.style.display = 'none';
+    }
+    btn.disabled = !hasChanges;
+}
+</script>
+{% endblock %}

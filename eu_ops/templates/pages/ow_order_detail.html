@@ -1,0 +1,1085 @@
+{% extends "base.html" %}
+{% block title %}Order OW-{{ order.order_id }} — Optiwar{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <a href="{{ base }}/orders?source=optiwar" class="btn btn-sm btn-outline">&laquo; Back to Optiwar Orders</a>
+        <h1>Order OW-{{ order.order_id }}</h1>
+        <span class="text-muted" style="font-size:12px;">Source: optiwar.com</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:12px;">
+        <button type="button" id="copyOrderBtn" class="btn btn-sm" style="background:#0f766e; color:white; border-color:#0f766e;" title="Copy a clean order text for vendor WhatsApp" onclick="copyOrderText()">📋 Copy order</button>
+        <a href="{{ base }}/orders/ow/{{ order.order_id }}/support-email" class="btn btn-sm" style="background:#7c3aed; color:white; border-color:#7c3aed;" title="AI-drafted support email to customer">✉ Support</a>
+        <span class="status-badge status-{{ order.order_status_id }} badge-lg">{{ order.status_name }}</span>
+    </div>
+</div>
+{% if request.query_params.get('success') %}
+<div class="alert alert-success">{{ request.query_params.get('success') }}</div>
+{% endif %}
+<textarea id="owCopyText" style="position:absolute;left:-9999px;top:-9999px;" aria-hidden="true">{{ copy_text }}</textarea>
+<script>
+function copyOrderText(){
+    var txt = document.getElementById('owCopyText').value;
+    var btn = document.getElementById('copyOrderBtn');
+    function done(ok){
+        btn.textContent = ok ? '✓ Copied' : '⚠ Copy failed';
+        setTimeout(function(){ btn.textContent = '📋 Copy order'; }, 1800);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(txt).then(function(){done(true);}, function(){fallback();});
+    } else { fallback(); }
+    function fallback(){
+        var ta = document.getElementById('owCopyText');
+        ta.style.left='0'; ta.style.top='0'; ta.select();
+        try { done(document.execCommand('copy')); } catch(e){ done(false); }
+        ta.style.left='-9999px'; ta.style.top='-9999px';
+    }
+}
+</script>
+
+<div class="detail-grid">
+    <!-- Customer Info -->
+    <div class="card">
+        <h3>Customer</h3>
+        <div class="info-row"><label>Name:</label> <span>{{ order.firstname }} {{ order.lastname }}</span></div>
+        <div class="info-row"><label>Email:</label> <span>{{ order.email }}</span></div>
+        <div class="info-row"><label>Phone:</label> <span>{{ order.telephone }}</span></div>
+        <div class="info-row"><label>Date:</label> <span>{{ order.date_added }}</span></div>
+        <div class="info-row"><label>Payment:</label> <span>{{ order.payment_method }}</span></div>
+    </div>
+
+    <!-- Payment link -->
+    <div class="card">
+        <h3>Payment Link</h3>
+        {% if pay_links %}
+        {% for l in pay_links %}
+        <div class="info-row"><label>Link:</label>
+            <span><a href="{{ l.short_url }}" target="_blank" rel="noopener">{{ l.short_url }}</a></span></div>
+        <div class="info-row"><label>Amount:</label>
+            <span>{{ l.currency }} {{ '%.2f'|format(l.amount_minor / 100) }}</span></div>
+        <div class="info-row"><label>Status:</label>
+            <span>{{ l.status }}{% if l.paid_at %} · paid {{ l.paid_at }}{% endif %}</span></div>
+        <div class="info-row"><label>Payment id:</label> <span>{{ l.payment_id or '—' }}</span></div>
+        <div class="info-row"><label>Created:</label> <span>{{ l.created_at }}</span></div>
+        {% if not loop.last %}<hr>{% endif %}
+        {% endfor %}
+        {% else %}
+        <p class="text-small text-muted">No payment link created for this order yet.</p>
+        {% endif %}
+        {% if pay_draft_id %}
+        <a href="{{ base }}/ow-new-order/{{ pay_draft_id }}" class="btn btn-outline btn-sm">
+            {% if pay_links %}Manage links{% else %}Create payment link{% endif %}
+        </a>
+        {% endif %}
+    </div>
+
+    <!-- Shipping Info -->
+    <div class="card">
+        <h3>Shipping Address</h3>
+        {% if order.shipping_address_1 %}
+        <div class="info-row"><label>Address:</label> <span>{{ order.shipping_address_1 }}</span></div>
+        {% endif %}
+        {% if order.shipping_zone %}
+        <div class="info-row"><label>State:</label> <span>{{ order.shipping_zone }}</span></div>
+        {% endif %}
+        <div class="info-row"><label>Postcode:</label> <span>{{ order.shipping_postcode }}</span></div>
+        <div class="info-row"><label>Country:</label> <span>{{ order.shipping_country }}</span></div>
+    </div>
+
+    <!-- Order Totals -->
+    <div class="card">
+        <h3>Order Total</h3>
+        {% for t in order.totals %}
+        <div class="info-row"><label>{{ t.title }}:</label> <span>{{ t.text }}</span></div>
+        {% endfor %}
+        <hr>
+        <div class="info-row total-row"><label>INR Total:</label> <span>&#8377;{{ "%.0f"|format(order.total_inr) }}</span></div>
+    </div>
+</div>
+
+<!-- Products -->
+<div class="section">
+    <h2>Products</h2>
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>Product</th>
+                    <th>Code</th>
+                    <th>Qty</th>
+                    <th>Unit Price (INR)</th>
+                    <th>Total (INR)</th>
+                    <th>Rx / Lens Info</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in order.products %}
+                <tr>
+                    <td>
+                        {{ p.name }}
+                        {% if p.product_color %}
+                        <div style="font-size:11px;color:#666">Color: {{ p.product_color }}</div>
+                        {% endif %}
+                        {% if p.product_type %}
+                        <div style="font-size:11px;color:#666">Type: {{ p.product_type }}</div>
+                        {% endif %}
+                        {% if p.box_number %}
+                        <div style="font-size:11px;color:#666">Box no.: {{ p.box_number }}</div>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if p.image_urls %}
+                        <a href="#" class="ow-code-link" title="View {{ p.image_urls|length }} product image(s)"
+                           data-images='{{ p.image_urls|tojson }}' data-title="{{ p.model }} — {{ p.name }}"
+                           onclick="owShowImages(this);return false;" style="font-weight:600;text-decoration:underline dotted;">{{ p.model }}</a>
+                        <div style="font-size:10px;color:#6b7280;">{{ p.image_urls|length }} img</div>
+                        {% else %}
+                        {{ p.model }}
+                        {% if p.product_id %}<div style="font-size:10px;color:#9ca3af;">no images</div>{% endif %}
+                        {% endif %}
+                    </td>
+                    <td>{{ p.quantity }}</td>
+                    <td>&#8377;{{ "%.0f"|format(p.price) }}</td>
+                    <td>&#8377;{{ "%.0f"|format(p.total) }}</td>
+                    <td style="font-size:11px;">
+                        {% if p.rx %}
+                        <strong>{{ p.rx.recommendations or '' }}</strong><br>
+                        {% set rx_change = rx_last_change.get(p.rx_id) or rx_last_change.get(p.rx_id|string) %}
+                        {% set rx_product_loop_index = loop.index %}
+                        {% include 'partials/ow_rx_table.html' %}
+                        {% else %}
+                        —
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% if face_scan is not none %}
+<div class="card" id="faceScanCard" style="margin-bottom:16px;border-left:4px solid #2563eb;">
+    <h3>Face scan (Optiwar)</h3>
+    {% if not face_scan.get('ok') %}
+    <div style="font-size:12px;color:#92400e;margin-bottom:8px;">
+        Optiwar face-scan API: {{ face_scan.get('error') or 'unavailable' }}
+    </div>
+    {% endif %}
+    {% for warning in face_scan.get('warnings') or [] %}
+    <div style="font-size:12px;color:#b42318;margin:4px 0;">{{ warning }}</div>
+    {% endfor %}
+
+    {% if face_scan.get('ok') %}
+        {% if face_scan.get('status') == 'NO_SCAN' %}
+        <div><strong>No face scan</strong></div>
+        <textarea readonly rows="3" style="width:100%;margin-top:6px;">To make your progressive lenses we need your pupil distance. Please sign in at optiwar.in and open Try-On / Face scan (https://optiwar.in/tryon). It takes about a minute with your phone or laptop camera. Reply here once done.</textarea>
+        {% elif face_scan.get('status') == 'SCAN_FOUND' %}
+            {% for raw_line in face_scan.get('lines') or [] %}
+                {% set line = raw_line if raw_line is mapping else {} %}
+                {% set scan = line.get('scan') if line.get('scan') is mapping else {} %}
+                {% set fit = line.get('fit') if line.get('fit') is mapping else {} %}
+                {% set capture = scan.get('capture') if scan.get('capture') is mapping else {} %}
+                {% set line_name = line.get('product_name') or line.get('name') or line.get('frame_code') or line.get('model') %}
+                {% set line_code = line.get('product_code') or line.get('code') %}
+                {% set line_size = line.get('product_size') or line.get('catalogue_size') or line.get('frame_size') or line.get('size') %}
+                {% set fit_label = fit.get('label') or '' %}
+                {% set compact_fit_label = fit_label|upper|replace('_', '')|replace(' ', '') %}
+                {% set fit_classification = (fit.get('classification') or '')|lower %}
+                {% set actual_dimensions = fit.get('actual_dimensions') if fit.get('actual_dimensions') is mapping else {} %}
+                {% set recommended_dimensions = fit.get('recommended_dimensions') if fit.get('recommended_dimensions') is mapping else {} %}
+                {% set actual_size = actual_dimensions.get('size') %}
+                {% set recommended_size = recommended_dimensions.get('size') %}
+                {% set actual_bridge = actual_dimensions.get('bridge') %}
+                {% set recommended_bridge = recommended_dimensions.get('bridge') %}
+            <div class="face-scan-line" style="border-top:1px solid #e5e7eb;padding:10px 0;">
+                <strong>{{ line_name or 'Order line' }}{% if line_code %} · {{ line_code }}{% endif %}{% if line_size %} · {{ line_size }}{% endif %}</strong>
+                {% if line.get('person') %}<div class="text-small">Person: {{ line.get('person') }}</div>{% endif %}
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:4px 12px;font-size:13px;margin-top:6px;">
+                    <div>PD far (mm): {{ fmt_mm(scan.get('pd_far')) if scan.get('pd_far') is not none else '—' }}</div>
+                    <div>PD near (mm): {{ fmt_mm(scan.get('pd_near')) if scan.get('pd_near') is not none else '—' }}</div>
+                    <div>Face width (mm): {{ fmt_mm(scan.get('face_width')) if scan.get('face_width') is not none else '—' }}</div>
+                    <div>Recommended size: {{ fmt_mm(scan.get('recommended_size')) if scan.get('recommended_size') is not none else '—' }}</div>
+                    {% if scan.get('decentration') is not none %}
+                    <div>Decentration (mm): {{ fmt_mm(scan.get('decentration')) }}</div>
+                    {% endif %}
+                    <div>
+                        Fit:
+                        {% if fit.get('matched') is sameas false or fit_classification in ('not_matched', 'no_match') or compact_fit_label == 'NOTMATCHED' %}
+                        <strong style="color:#b42318;">Not matched — contact the customer before glazing</strong>
+                        {% else %}
+                        {{ fit_label or '—' }}
+                        {% endif %}
+                        {% if fit.get('reasons') %}
+                        <ul style="margin:3px 0 0 18px;padding:0;">
+                            {% for reason in fit.get('reasons') %}<li>{{ reason }}</li>{% endfor %}
+                        </ul>
+                        {% endif %}
+                        {% if actual_size and recommended_size %}
+                        <div>Frame vs recommended: {{ actual_size }} vs {{ recommended_size }}</div>
+                        {% endif %}
+                        {% if actual_bridge is not none and recommended_bridge is not none and ((actual_bridge|string|float - recommended_bridge|string|float)|abs >= 5) %}
+                        <div style="color:#92400e;">bridge {{ fmt_mm(actual_bridge) }} vs {{ fmt_mm(recommended_bridge) }} mm — confirm comfort with the customer</div>
+                        {% endif %}
+                    </div>
+                    <div>Measured at: {{ fmt_measured_at(scan.get('measured_at')) if scan.get('measured_at') is not none else '—' }}</div>
+                </div>
+                <div class="text-small" style="margin-top:5px;">
+                    {% if scan.get('scanned_before_order') %}before order{% else %}after order{% endif %}
+                    · Source:
+                    {% if 'source' in line %}
+                        {% if line.get('source') == 'account_scan' %}account scan{% elif line.get('source') == 'order_snapshot' %}order snapshot{% else %}{{ line.get('source') }}{% endif %}
+                    {% elif scan.get('source') %}
+                        {{ scan.get('source') }}
+                    {% elif scan.get('scanned_before_order') %}
+                        order snapshot
+                    {% else %}
+                        account scan
+                    {% endif %}
+                    {% if scan.get('hours_from_order') is not none %}
+                    · ({{ '%.1f'|format(scan.get('hours_from_order')|float|abs) }} h {% if scan.get('scanned_before_order') %}before{% else %}after{% endif %} order)
+                    {% endif %}
+                </div>
+                {% if capture.get('available') %}
+                <button type="button" class="btn btn-sm btn-outline face-scan-photo-button"
+                        data-target="faceScanPhotoLine{{ loop.index }}"
+                        data-src="{{ base }}/orders/ow/{{ order.order_id }}/face-scan/photo{% if capture.get('scan_id') is not none %}?scan_id={{ capture.get('scan_id') }}{% endif %}">
+                    View photo
+                </button>
+                <img id="faceScanPhotoLine{{ loop.index }}" alt="Optiwar face scan photo"
+                     style="display:none;max-width:100%;margin-top:8px;">
+                {% elif capture.get('reason') %}
+                <div class="text-small text-muted">Photo: not available ({{ capture.get('reason') }})</div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        {% endif %}
+
+        {% if face_scan.get('people') %}
+        <div style="border-top:1px solid #e5e7eb;padding-top:8px;margin-top:4px;">
+            <strong>People on this account</strong>
+            <ul style="margin:4px 0 0 18px;padding:0;">
+                {% for raw_person in face_scan.get('people') %}
+                    {% set person = raw_person if raw_person is mapping else {} %}
+                    {% set person_scan = person.get('scan') if person.get('scan') is mapping else person %}
+                    {% set person_name = person.get('display_name') or person.get('name') or person.get('full_name') or person.get('person_name') or person.get('customer_name') %}
+                    {% set relation = person.get('relation') or person.get('relationship') or person.get('relation_to_customer') or person.get('type') %}
+                    {% set person_capture = person.get('capture') if person.get('capture') is mapping else (person_scan.get('capture') if person_scan.get('capture') is mapping else {}) %}
+                    {% set person_scan_id = person.get('scan_id') if person.get('scan_id') is not none else person_scan.get('scan_id') %}
+                    {% set person_pd_far = person.get('pd_far') if person.get('pd_far') is not none else person_scan.get('pd_far') %}
+                    {% set person_pd_near = person.get('pd_near') if person.get('pd_near') is not none else person_scan.get('pd_near') %}
+                    {% set person_size = person.get('recommended_size') if person.get('recommended_size') is not none else person_scan.get('recommended_size') %}
+                    {% set person_measured_at = person.get('measured_at') if person.get('measured_at') is not none else person_scan.get('measured_at') %}
+                <li>
+                    <strong>{{ person_name or 'Unknown' }}</strong>{% if relation %} — {{ relation }}{% endif %}
+                    {% if person_pd_far is not none or person_pd_near is not none %}
+                    · PD far/near: {{ fmt_mm(person_pd_far) if person_pd_far is not none else '—' }} / {{ fmt_mm(person_pd_near) if person_pd_near is not none else '—' }}
+                    {% endif %}
+                    {% if person_size is not none %} · size {{ fmt_mm(person_size) }}{% endif %}
+                    {% if person_measured_at is not none %} · measured {{ fmt_measured_at(person_measured_at) }}{% endif %}
+                    {% if person_capture.get('available') %}
+                    <div>
+                        <button type="button" class="btn btn-sm btn-outline face-scan-photo-button"
+                                data-target="faceScanPhotoPerson{{ loop.index }}"
+                                data-src="{{ base }}/orders/ow/{{ order.order_id }}/face-scan/photo{% if person_scan_id is not none %}?scan_id={{ person_scan_id }}{% endif %}">
+                            View photo
+                        </button>
+                        <img id="faceScanPhotoPerson{{ loop.index }}" alt="Optiwar face scan photo"
+                             style="display:none;max-width:100%;margin-top:8px;">
+                    </div>
+                    {% elif person_capture.get('reason') %}
+                    <div class="text-small text-muted">Photo: not available ({{ person_capture.get('reason') }})</div>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+    {% endif %}
+
+    <div class="text-small text-muted" style="border-top:1px solid #e5e7eb;padding-top:8px;margin-top:8px;">
+        Scan has no monocular PD or fitting height. Progressives: PD far ÷ 2 per eye unless the Rx gives monocular values; take fitting height from the frame or customer and note its source on the job card. Photo kept by Optiwar for 7 days; do not download, screenshot, forward or print it. Views are logged.
+    </div>
+</div>
+<script>
+document.querySelectorAll('.face-scan-photo-button').forEach(function(button) {
+    button.addEventListener('click', function() {
+        var image = document.getElementById(button.getAttribute('data-target'));
+        if (image && !image.getAttribute('src')) {
+            image.setAttribute('src', button.getAttribute('data-src'));
+            image.style.display = 'block';
+        }
+    });
+});
+</script>
+{% endif %}
+
+{% if rx_docs_live %}
+<div class="card" id="rxDocumentsCard" style="margin-bottom:16px;border-left:4px solid #7c3aed;">
+    <h3>Prescription photos</h3>
+    <button type="button" class="btn btn-sm btn-outline" id="rxDocumentsLoadButton"
+            data-url="{{ base }}/orders/ow/{{ order.order_id }}/rx-documents/card">
+        Show prescription photos
+    </button>
+    <div id="rxDocumentsFragment" aria-live="polite"></div>
+    <div class="text-small text-muted" style="border-top:1px solid #e5e7eb;padding-top:8px;margin-top:8px;">
+        Read SPH/CYL/AXIS/ADD from the photo yourself; the AI reading is only a suggestion. Never change the order's prescription without the customer's confirmation. Progressive/bifocal: fitting height and monocular PD come from the face scan or the customer. Don't download or forward photos.
+    </div>
+</div>
+<script>
+(function() {
+    var card = document.getElementById('rxDocumentsCard');
+    var button = document.getElementById('rxDocumentsLoadButton');
+    var target = document.getElementById('rxDocumentsFragment');
+    if (!card || !button || !target) return;
+
+    button.addEventListener('click', async function() {
+        button.disabled = true;
+        button.textContent = 'Loading prescription photos…';
+        target.textContent = '';
+        target.style.cssText = '';
+        try {
+            var response = await fetch(button.getAttribute('data-url'), {
+                headers: {'Accept': 'text/html'}
+            });
+            var fragment = await response.text();
+            if (!response.ok) throw new Error('Prescription photos could not be loaded (HTTP ' + response.status + ')');
+            target.innerHTML = fragment;
+            button.textContent = 'Refresh prescription photos';
+            button.disabled = false;
+        } catch (error) {
+            target.textContent = error.message || 'Prescription photos could not be loaded';
+            target.style.cssText = 'font-size:12px;color:#92400e;margin-top:8px;';
+            button.textContent = 'Show prescription photos';
+            button.disabled = false;
+        }
+    });
+
+    card.addEventListener('click', function(event) {
+        var photoButton = event.target.closest('.rx-document-photo-button');
+        if (!photoButton) return;
+        var frame = document.getElementById(photoButton.getAttribute('data-target'));
+        if (frame && !frame.getAttribute('src')) {
+            frame.setAttribute('src', photoButton.getAttribute('data-src'));
+            frame.style.display = 'block';
+        }
+    });
+})();
+</script>
+{% endif %}
+
+{% if rpickups %}
+<div class="card" id="rpCard" style="margin-bottom:16px;border-left:4px solid #7c3aed;">
+    <h3>🔄 Reverse Pickup (Delhivery)</h3>
+    <table class="table" style="width:100%;">
+        <thead><tr><th>Reference</th><th>Waybill</th><th>Status</th><th>Reason</th><th>Booked</th><th>Optiwar / customer EWS</th><th></th></tr></thead>
+        <tbody>
+        {% for p in rpickups %}
+        {% set pend = p.syncs | selectattr('state', 'ne', 'synced') | list %}
+        {% set done = p.syncs | selectattr('state', 'eq', 'synced') | list %}
+        <tr>
+            <td>{{ p.reference }}</td>
+            <td><a href="https://www.delhivery.com/track/package/{{ p.waybill }}" target="_blank">{{ p.waybill }}</a></td>
+            <td>{% if p.status == 'cancelled' %}<span style="color:#b42318;">CANCELLED {{ p.cancelled_at or '' }}</span>{% else %}<strong style="color:#7c3aed;">PICKUP BOOKED</strong>{% endif %}</td>
+            <td>{{ p.reason }}{% if p.remarks %}<br><span class="text-small text-muted">{{ p.remarks }}</span>{% endif %}</td>
+            <td>{{ p.created_at }}<br><span class="text-small text-muted">{{ p.created_by_name or '' }}</span></td>
+            <td>
+                {% if pend %}
+                    <span style="color:#b42318;font-weight:600;">⚠ OPTIWAR SYNC PENDING</span>
+                    <span class="text-small">{{ pend[0].last_error }}</span>
+                    <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/reship-sync/{{ pend[0].id }}/retry" style="display:inline;margin-left:6px;">
+                        <button type="submit" class="btn btn-sm btn-primary">Retry Sync</button></form>
+                {% elif done %}
+                    <span style="color:#1a7f37;font-weight:600;">Optiwar synchronized ✓</span>
+                    <span class="text-small text-muted">{{ done[0].synced_at }}{% if p.notif and p.notif.status %} · Optiwar: {{ p.notif.status }}{% endif %}</span>
+                    {% if p.notif %}
+                    <div class="text-small" style="margin-top:4px;">
+                        {% for ch in ['email', 'whatsapp'] %}
+                        {% set st = p.notif.channels.get(ch) %}
+                        <div>{{ ch|capitalize }}:
+                            {% if not st %}<span class="text-muted">not reported</span>
+                            {% elif st[0] == 'SENT' %}<strong style="color:#1a7f37;">SENT</strong> <span class="text-muted">{{ st[1] }}</span>
+                            {% elif st[0] == 'FAILED' %}<strong style="color:#b42318;">FAILED</strong> <span class="text-muted">{{ st[1] }}</span>
+                            {% else %}<strong style="color:#92400e;">SKIPPED</strong> <span class="text-muted">{{ st[1] }}</span>{% endif %}
+                        </div>
+                        {% endfor %}
+                        {% if p.notif.failed and not p.notif.channels.values()|selectattr(0, 'eq', 'FAILED')|list %}<div style="color:#b42318;">{{ p.notif.failed }} failed notification(s)</div>{% endif %}
+                        {% if 'SENT' not in p.notif.channels.values()|map(attribute=0)|list %}<div style="color:#92400e;">Customer not messaged by Optiwar — inform customer separately.</div>{% endif %}
+                    </div>
+                    {% endif %}
+                {% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
+            <td>{% if p.status != 'cancelled' %}
+                <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/reverse-pickup/{{ p.id }}/cancel"
+                      onsubmit="return confirm('Cancel Delhivery reverse pickup {{ p.waybill }}?');">
+                    <button type="submit" class="btn btn-sm btn-outline">Cancel</button></form>{% endif %}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    <p class="text-small text-muted">Original shipment AWB is unchanged. When this parcel arrives use <strong>Record Received</strong> below — not the RTO "Confirm Return Received" form (that starts the ₹250 reship flow).</p>
+
+    {% set fcol = {'PAID':'#16a34a','WAIVED':'#2563eb','REFUNDED':'#475569','PARTIALLY_REFUNDED':'#475569','DUE':'#b45309'} %}
+    <div style="padding:8px 10px;border:1px solid #e5e7eb;border-radius:6px;margin:8px 0;">
+        <strong>₹250 fee (Optiwar):</strong>
+        <span style="font-weight:700;color:{{ fcol.get(rp_fee.state, '#b42318') }};">{{ rp_fee.state or 'NO FEE RECORD FROM OPTIWAR' }}</span>
+        {% if rp_fee.amount_text %}<span class="text-small"> · {{ rp_fee.amount_text }}</span>{% endif %}
+        {% if rp_fee.payment_id %}<span class="text-small"> · Razorpay {{ rp_fee.payment_id }}</span>{% endif %}
+        {% if rp_fee.waiver_code %}<span class="text-small"> · waiver {{ rp_fee.waiver_code }}</span>{% endif %}
+        {% if rp_fee.refunded_minor %}<span class="text-small"> · refunded {{ rp_fee.refunded_text }}{% if rp_fee.refund_state %} ({{ rp_fee.refund_state }}){% endif %}{% if rp_fee.refund_ref %} ref {{ rp_fee.refund_ref }}{% endif %}</span>{% endif %}
+        {% if rp_fee.consent_at %}<span class="text-small"> · customer consent {{ rp_fee.consent_at }}{% if rp_fee.consent_by %} ({{ rp_fee.consent_by }}){% endif %}</span>{% endif %}
+        {% if rp_fee_error %}<div class="text-small" style="color:#92400e;">Optiwar state API: {{ rp_fee_error }}{% if rp_fee.state %} — last pushed state shown ({{ rp_fee.updated_at }}){% endif %}</div>{% endif %}
+        {% if rp_fee.waiver_by %}<div class="text-small">Optiwar waiver audit: <strong>{{ rp_fee.waiver_code }}</strong> by {{ rp_fee.waiver_by }} at {{ rp_fee.waiver_at }}{% if rp_fee.waiver_note %} — {{ rp_fee.waiver_note }}{% endif %}</div>{% endif %}
+        {% for n in rp_fee.notifications %}<div class="text-small">Customer {{ n.channel or 'email' }} ({{ n.notification_type }}): <strong style="color:{{ '#027a48' if n.status == 'SENT' else '#b42318' if n.status in ['FAILED', 'NO_EMAIL'] else '#92400e' }};">{{ n.status }}</strong>{% if n.status == 'SENT' and n.sent_at %} {{ n.sent_at }}{% elif n.status in ['PENDING', 'SENDING', 'FAILED'] %} — Optiwar retrying ({{ n.attempt_count or 0 }} attempt{{ '' if n.attempt_count == 1 else 's' }}{% if n.last_error %}, last error: {{ n.last_error }}{% endif %}); do not repeat the action{% endif %}</div>{% endfor %}
+        {% for w in rp_waivers %}<div class="text-small">Waiver requested {{ w.created_at }} by {{ w.created_by_name or '' }}: <strong>{{ w.reason_code }}</strong> {{ w.note }}</div>{% endfor %}
+        {% if not rp_waivers and rp_fee.state not in ['PAID', 'WAIVED', 'REFUNDED', 'PARTIALLY_REFUNDED'] and 'waive' in rp_live %}
+        {% set ap = rpickups | selectattr('status', 'ne', 'cancelled') | list %}
+        <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/reverse-pickup-fee/waive" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:6px;"
+              onsubmit="return confirm('Waive the ₹250 fee? Audited under your login. The customer is not asked to pay.');">
+            <input type="hidden" name="pickup_id" value="{{ ap[0].id if ap else 0 }}">
+            <select name="reason_code" required><option value="">— waiver reason code —</option>
+                {% for code, label in rp_waiver_codes %}<option value="{{ code }}">{{ code }} — {{ label }}</option>{% endfor %}</select>
+            <input type="text" name="note" placeholder="note (required for OTHER)" maxlength="500" style="min-width:240px;">
+            <button type="submit" class="btn btn-sm btn-outline">Waive ₹250 (audited)</button>
+        </form>
+        {% endif %}
+    </div>
+
+    {% set rp_missing = ['state', 'waive', 'reason', 'received', 'inspection', 'forward', 'complete'] | reject('in', rp_live) | list %}
+    {% if rp_missing %}<div class="text-small" style="color:#92400e;">Optiwar lifecycle endpoints not live yet: {{ rp_missing | join(', ') }} — those actions are hidden until Optiwar confirms them.</div>{% endif %}
+    {% for p in rpickups if p.case %}
+    {% set c = p.case %}{% set l = c.life %}
+    {% set bcol = {'booked':'#7c3aed','in_transit':'#6d28d9','inspect':'#d97706','refund':'#b91c1c','consent':'#92400e','forward':'#15803d','shipped':'#2563eb','complete':'#475569','abandoned':'#6b7280','exception':'#dc2626'} %}
+    <div style="border:2px solid {{ bcol.get(c.bucket, '#999') }};border-radius:8px;padding:10px 12px;margin-top:8px;">
+        <div><strong>{{ p.reference }}</strong> · reverse AWB {{ p.waybill }} ·
+            <span style="font-weight:700;color:{{ bcol.get(c.bucket, '#999') }};">{{ c.label }}</span>
+            {% if c.tracking and c.tracking.status %}<span class="text-small text-muted"> · Delhivery: {{ c.tracking.status }}{% if c.tracking.instructions %} — {{ c.tracking.instructions }}{% endif %} {{ c.tracking.at }}</span>{% endif %}
+            {% if c.note %}<div class="text-small" style="color:#b42318;">{{ c.note }}</div>{% endif %}
+            {% if c.fee.ow_label %}<div class="text-small text-muted">Optiwar: {{ c.fee.ow_label }} ({{ c.fee.queue_state }})</div>{% endif %}</div>
+
+        {% for s in c.pending %}
+        <div class="text-small" style="color:#b42318;margin-top:4px;">⚠ Optiwar not yet told ({{ s.kind }}, {{ s.attempts }} attempt(s)): {{ s.last_error }}
+            <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/reship-sync/{{ s.id }}/retry" style="display:inline;"><button class="btn btn-sm btn-primary">Retry Sync</button></form></div>
+        {% endfor %}
+
+        {% if 'reason' in rp_live %}
+        <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/reverse-pickup/{{ p.id }}/reason" style="display:flex;gap:6px;align-items:center;margin-top:6px;"
+              onsubmit="return confirm('Change the return reason? Recorded and sent to Optiwar; the Delhivery booking is not touched.');">
+            <span class="text-small">Return reason: <strong>{{ p.reason }}</strong></span>
+            <select name="reason" style="font-size:12px;">{% for r in rp_reasons %}<option {% if r == p.reason %}selected{% endif %}>{{ r }}</option>{% endfor %}</select>
+            <button class="btn btn-sm btn-outline">Change reason</button>
+        </form>
+        {% else %}<div class="text-small" style="margin-top:6px;">Return reason: <strong>{{ p.reason }}</strong></div>{% endif %}
+
+        {% if l.received_at %}<div class="text-small" style="margin-top:6px;">REVERSE PICKUP RECEIVED {{ l.received_at }} · condition <strong>{{ l.parcel_condition }}</strong>{% if l.received_notes %} · {{ l.received_notes }}{% endif %}</div>{% endif %}
+        {% if l.defect is not none %}<div class="text-small">INSPECTION {{ l.inspected_at }} · MANUFACTURING DEFECT: <strong>{{ 'YES' if l.defect == 1 else 'NO' }}</strong> · {{ l.inspection_remarks }}
+            {% for e in c.evidence %} · <a href="{{ base }}/orders/ow/{{ order.order_id }}/reverse-pickup-evidence/{{ e.id }}" target="_blank">{{ e.filename }}</a>{% endfor %}</div>{% endif %}
+        {% for r in c.fee.refunds %}<div class="text-small">₹250 FEE REFUND (Optiwar, automatic) · <strong>{{ r.state }}</strong>{% if r.amount_minor %} · ₹{{ '%d.%02d' % (r.amount_minor // 100, r.amount_minor % 100) }}{% endif %}{% if r.refund_id %} · ref {{ r.refund_id }}{% endif %}{% if r.attempts %} · {{ r.attempts }} attempt(s){% endif %}{% if r.refunded_at %} · {{ r.refunded_at }}{% endif %}{% if r.error %} · <span style="color:#b42318;">{{ r.error }}</span>{% endif %}</div>{% endfor %}
+        {% if c.fee.hold and l.defect == 0 %}<div class="text-small">HOLD (Optiwar) · {{ c.fee.hold.days_held }} day(s) held · <strong>{{ c.fee.hold.days_remaining }} day(s) left</strong> · abandon at {{ c.fee.hold.abandon_at }}{% if c.fee.hold.abandoned %} · ABANDONED {{ c.fee.hold.abandoned_at }}{% endif %}</div>{% endif %}
+        {% if l.fwd_awb %}<div class="text-small">NEW FORWARD {{ l.fwd_courier }} <strong>{{ l.fwd_awb }}</strong> booked {{ l.fwd_booked_at }}{% if l.fwd_dispatch_at %} · dispatched {{ l.fwd_dispatch_at }} · {{ l.fwd_type }}{% endif %}</div>{% endif %}
+        {% if c.fee.forward %}<div class="text-small">Optiwar records forward {{ c.fee.forward.type }} {{ c.fee.forward.courier }} {{ c.fee.forward.awb }} · {{ c.fee.forward.shipped_at }}</div>{% endif %}
+        {% if l.completed_at %}<div class="text-small">COMPLETE {{ l.completed_at }} · {{ l.outcome }}{% if l.completion_note %} · {{ l.completion_note }}{% endif %}</div>
+        {% elif c.fee.completion %}<div class="text-small">COMPLETE (Optiwar) {{ c.fee.completion.completed_at }} · {{ c.fee.completion.outcome }}{% if c.fee.completion.note %} · {{ c.fee.completion.note }}{% endif %}</div>{% endif %}
+
+        {% if c.bucket in ['booked', 'in_transit'] and not c.pending and 'received' in rp_live %}
+        <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/reverse-pickup/{{ p.id }}/received" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px;"
+              onsubmit="return confirm('Record reverse parcel {{ p.waybill }} as physically received at Ops?');">
+            <select name="parcel_condition" required><option value="">— parcel condition —</option>{% for x in rp_conditions %}<option>{{ x }}</option>{% endfor %}</select>
+            <input type="text" name="notes" placeholder="notes" maxlength="500" style="min-width:220px;">
+            <button class="btn btn-sm" style="background:#d97706;color:#fff;border-color:#d97706;">📥 Record Received (parcel in hand)</button>
+        </form>
+        {% elif c.bucket == 'inspect' and 'inspection' in rp_live %}
+        <form method="post" enctype="multipart/form-data" action="{{ base }}/orders/ow/{{ order.order_id }}/reverse-pickup/{{ p.id }}/inspection" style="margin-top:8px;"
+              onsubmit="return confirm('Record the inspection result? It cannot be changed afterwards and Optiwar acts on it.');">
+            <strong>🔍 Inspect Return</strong> — MANUFACTURING DEFECT:
+            <label><input type="radio" name="manufacturing_defect" value="YES" required> YES</label>
+            <label><input type="radio" name="manufacturing_defect" value="NO"> NO</label>
+            <textarea name="remarks" rows="2" required placeholder="inspection remarks (required)" style="width:100%;margin-top:4px;"></textarea>
+            <div class="text-small">Photos / evidence (optional, internal): <input type="file" name="evidence" multiple accept="image/*,.pdf,.mp4"></div>
+            <button class="btn btn-sm btn-primary" style="margin-top:4px;">Save inspection</button>
+        </form>
+        {% elif c.bucket == 'refund' %}
+        <div class="text-small" style="margin-top:8px;color:#b91c1c;">Defect confirmed. Optiwar refunds the ₹250 automatically and emails the customer — no Ops action. Forward dispatch opens once Optiwar reports REFUNDED.</div>
+        {% elif c.bucket == 'consent' %}
+        <div class="text-small" style="margin-top:8px;color:#92400e;">Optiwar sent the "Return Inspection Update" email. Waiting for the customer's reply — Optiwar support records it (CUSTOMER_RETURN_CONSENT_RECEIVED) and this case moves to READY FOR FORWARD DISPATCH by itself.</div>
+        {% elif c.bucket == 'forward' and not l.fwd_awb and 'forward' in rp_live %}
+        <div style="margin-top:8px;">
+            <a class="btn btn-sm btn-success" href="{{ base }}/orders/ow/{{ order.order_id }}/ship?courier=Delhivery&rp={{ p.id }}">📦 Book forward dispatch (Delhivery)</a>
+            <a class="btn btn-sm btn-outline" href="{{ base }}/orders/ow/{{ order.order_id }}/ship?courier=DTDC&rp={{ p.id }}">DTDC</a>
+        </div>
+        {% elif c.bucket == 'forward' and l.fwd_awb and not l.fwd_dispatch_at and 'forward' in rp_live %}
+        <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/reverse-pickup/{{ p.id }}/dispatched" style="margin-top:8px;"
+              onsubmit="return confirm('Confirm {{ l.fwd_courier }} {{ l.fwd_awb }} was physically handed to the courier? Optiwar is told and messages the customer.');">
+            <select name="shipment_type" required>{% for code, label in rp_ship_types.get(l.defect, ()) %}<option value="{{ code }}">{{ code }} — {{ label }}</option>{% endfor %}</select>
+            <button class="btn btn-sm btn-success">🚚 Confirm Dispatch ({{ l.fwd_awb }})</button>
+        </form>
+        {% elif c.bucket == 'shipped' and 'complete' in rp_live %}
+        <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/reverse-pickup/{{ p.id }}/complete" style="margin-top:8px;"
+              onsubmit="return confirm('Mark the return case COMPLETE (forward shipment delivered)?');">
+            <input type="hidden" name="outcome" value="shipped">
+            <button class="btn btn-sm btn-outline">✓ Delivered — complete case</button>
+        </form>
+        {% endif %}
+        {% if c.bucket == 'forward' and l.defect == 1 and not l.fwd_awb and 'complete' in rp_live %}
+        <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/reverse-pickup/{{ p.id }}/complete" style="display:flex;gap:6px;margin-top:6px;"
+              onsubmit="return confirm('Close as PRODUCT_REFUNDED? Optiwar accepts this only if the product refund was executed in the return-refund console.');">
+            <input type="hidden" name="outcome" value="PRODUCT_REFUNDED">
+            <input type="text" name="note" placeholder="note (optional)" maxlength="500" style="min-width:260px;">
+            <button class="btn btn-sm btn-outline">Close: product refunded, nothing ships back</button>
+        </form>
+        {% endif %}
+
+        <details style="margin-top:8px;"><summary class="text-small">Return history ({{ p.timeline|length }})</summary>
+            <table class="table" style="font-size:12px;">
+                {% for at, what, detail, who in p.timeline %}
+                <tr><td style="white-space:nowrap;">{{ at }}</td><td><strong>{{ what }}</strong></td><td>{{ detail }}</td><td class="text-muted">{{ who }}</td></tr>
+                {% endfor %}
+            </table></details>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- Quick Actions -->
+<div class="detail-grid">
+    <div class="card">
+        <h3>Quick Actions</h3>
+        <div class="action-buttons">
+            <a href="{{ base }}/orders/ow/{{ order.order_id }}/invoice" target="_blank" class="btn btn-primary btn-full" style="margin-bottom:10px;">
+                🖨 Print Invoice
+            </a>
+            <a href="{{ base }}/orders/ow/{{ order.order_id }}/gst-invoice" target="_blank" class="btn btn-primary btn-full" style="margin-bottom:10px; background:#0f766e; border-color:#0f766e;">
+                🧾 GST Tax Invoice
+            </a>
+            <a href="{{ base }}/orders/ow/{{ order.order_id }}/upgrade" class="btn btn-full" style="margin-bottom:10px; background:#16a34a; color:#fff; border-color:#16a34a;">
+                🎁 Free Lens Upgrade{% if order.upgrade and (order.upgrade.status or 'applied') == 'applied' %} ✓{% if order.upgrade.locked %} 🔒{% endif %}{% endif %}
+            </a>
+            <button type="button" class="btn btn-success btn-full" style="margin-bottom:10px;" onclick="openCourierPick()">
+                📦 Dispatch (Delhivery / DTDC)
+            </button>
+            <a href="{{ base }}/orders/ow/{{ order.order_id }}/reverse-pickup" class="btn btn-full" style="margin-bottom:10px; background:#7c3aed; color:#fff; border-color:#7c3aed;">
+                🔄 Reverse Pickup (Delhivery){% for p in rpickups if p.status != 'cancelled' %}{% if loop.first %} ✓ {{ p.waybill }}{% endif %}{% endfor %}
+            </a>
+            <a href="{{ base }}/orders/ow/{{ order.order_id }}/notify-preview" target="_blank" class="btn btn-outline btn-full">
+                🔍 Dry Run: Preview Customer Email
+            </a>
+        </div>
+    </div>
+
+    <!-- Courier AWB / Tracking -->
+    <div class="card">
+        <h3>Courier Dispatch</h3>
+        {% if order.awbs %}
+        {% for a in order.awbs %}
+        <div style="padding:8px 0;border-bottom:1px solid #eee;">
+            <div class="info-row"><label>Courier:</label> <span><strong>{{ a.courier or 'Delhivery' }}</strong></span></div>
+            <div class="info-row"><label>AWB:</label>
+                <span><a href="{{ track_url(a.courier, a.tracking_number) }}" target="_blank">{{ a.tracking_number }}</a></span></div>
+            <div class="info-row"><label>Status:</label> <span>{{ a.awb_status }}</span></div>
+            <div class="info-row"><label>Created:</label> <span>{{ a.created_at }}</span></div>
+            <div style="margin-top:6px;">
+                {% if a.awb_status != 'cancelled' %}
+                <a href="{{ base }}/awb/ow/{{ a.id }}/label" target="_blank" class="btn btn-sm btn-outline">Download Label</a>
+                {% endif %}
+                {% if a.awb_status not in ('cancelled', 'returned') %}
+                <form method="post" action="{{ base }}/awb/ow/{{ a.id }}/cancel" style="display:inline;"
+                      onsubmit="return confirm('Cancel AWB {{ a.tracking_number }}?');">
+                    <button type="submit" class="btn btn-sm btn-outline" style="color:#b42318;">Cancel AWB</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <p class="text-muted" style="font-size:13px;">No AWB created yet. Use “Dispatch” and pick Delhivery or DTDC.</p>
+        {% endif %}
+    </div>
+
+    {% if order.awbs %}
+    <!-- Returned parcel / Reship (Optiwar reship pilot) -->
+    <div class="card" id="reshipCard">
+        <h3>Returned Parcel / Reship</h3>
+        {% set rs_msg = request.query_params.get('reship_done') %}
+        {% if rs_msg and reships %}
+        {% set r = reships[0] %}
+        <div class="alert" style="background:#ecfdf5;border:1px solid #16a34a;color:#065f46;margin-bottom:10px;">
+            <strong>Reship AWB booked.</strong>
+            Courier <code id="rsCourier">{{ r.new_courier }}</code>
+            <button type="button" class="btn btn-sm btn-outline" onclick="rsCopy('rsCourier')">Copy</button>
+            &nbsp; New AWB <code id="rsAwb">{{ r.new_awb }}</code>
+            <button type="button" class="btn btn-sm btn-outline" onclick="rsCopy('rsAwb')">Copy</button>
+            <div style="font-size:12px;margin-top:4px;">Original AWB {{ r.original_awb }} kept as history. The AWB is sent to Optiwar automatically (see status below); Optiwar notifies the customer.</div>
+        </div>
+        {% endif %}
+
+        {% if reship is none %}
+        <p class="text-muted" style="font-size:13px;">Reship queue API not configured (OPS_API_TOKEN).</p>
+        {% elif reship.error %}
+        <p style="font-size:13px;color:#b42318;">Optiwar reship queue unreachable: {{ reship.error }}</p>
+        {% elif not reship.status %}
+        <p class="text-muted" style="font-size:13px;">Not in Optiwar's reship queue (no return in progress).</p>
+        {% else %}
+        {% set st = reship.status %}
+        {% set pend = reship.pending_syncs or [] %}
+        {% set rr_pending = pend|selectattr('kind', 'equalto', 'return_received')|list %}
+        {% set ship_pending = pend|selectattr('kind', 'equalto', 'ship')|list %}
+        {% set dl = reship.deadline %}
+
+        {% if rr_pending %}
+        <div class="alert" style="background:#fef3c7;border:1px solid #f59e0b;color:#7c2d12;margin:6px 0;">
+            <strong>RETURN RECEIVED LOCALLY</strong> ({{ rr_pending[0].created_at }})<br>
+            ⚠ <strong>OPTIWAR SYNC PENDING</strong> — {{ rr_pending[0].last_error or 'not attempted' }}
+            (attempts: {{ rr_pending[0].attempts }})
+            <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/reship-sync/{{ rr_pending[0].id }}/retry" style="display:inline;margin-left:8px;">
+                <button type="submit" class="btn btn-sm btn-primary">Retry Sync</button></form>
+            <div style="font-size:12px;margin-top:4px;">Do not re-receive the parcel. Retry is idempotent.</div>
+        </div>
+        {% endif %}
+
+        <div class="info-row"><label>Optiwar status:</label>
+            <span><strong style="padding:2px 10px;border-radius:10px;color:#fff;font-size:12px;
+                background:{{ '#16a34a' if st == 'PAID' else '#d97706' if st in ('RETURNED','RETURNING','PAYMENT_PENDING') else '#2563eb' if st == 'RESHIPPED' else '#7f1d1d' if st == 'ABANDONED' else '#6b7280' }};">
+                {%- if st == 'RETURNED' %}RETURNED TO OPS ✓{% elif st == 'PAID' %}🟢 RESHIP PAID{% else %}{{ st }}{% endif %}</strong>
+                {% if reship.entry and reship.entry.paid_at %} <span class="text-muted" style="font-size:12px;">paid {{ reship.entry.paid_at }}</span>{% endif %}
+            </span></div>
+
+        {% if st in ('RETURNED','PAYMENT_PENDING','PAID','RESHIPPED','ABANDONED') and reship.entry %}
+        {% set e = reship.entry %}
+        <div style="font-size:13px;line-height:1.7;margin:6px 0;">
+            <div><strong>Optiwar synchronized ✓</strong>
+                <span class="text-muted">returned to Ops {{ e.ops_return_confirmed_at or '' }}{% if e.ops_return_confirmed_by %} · by {{ e.ops_return_confirmed_by }}{% endif %}{% if e.return_reason %} · reason: {{ e.return_reason }}{% endif %}</span></div>
+            <div><strong>Customer notification:</strong>
+                {% if reship.notifications %}
+                    {% if e.notification_state and e.notification_state.last_at %}<span class="text-muted" style="font-size:12px;">customer notified {{ e.notification_state.last_at }} · </span>{% endif %}
+                    {% for ch, v in reship.notifications.items() %}
+                    <span style="padding:1px 7px;border-radius:8px;font-size:11px;font-weight:700;color:#fff;background:{{ '#16a34a' if v == 'SENT' else '#b91c1c' if 'FAILED' in v else '#6b7280' }};">{{ ch|capitalize }}: {{ v }}</span>
+                    {% endfor %}
+                {% else %}
+                    <span class="text-muted">sent by Optiwar on receipt (delivery status not yet exposed by Optiwar's queue API)</span>
+                {% endif %}</div>
+            <div><strong>Reship payment:</strong>
+                {% if st in ('RETURNED','PAYMENT_PENDING') %}<span style="color:#b45309;font-weight:700;">AWAITING ₹250 CUSTOMER PAYMENT</span> <span class="text-muted">— no reship action; Optiwar/Razorpay verifies it</span>
+                {% elif st == 'PAID' %}<span style="color:#15803d;font-weight:700;">PAID ₹{{ e.fee_amount or 250 }}</span> <span class="text-muted">{{ e.paid_at }}</span>
+                {% elif st == 'RESHIPPED' %}<span style="color:#15803d;font-weight:700;">PAID</span> <span class="text-muted">{{ e.paid_at }}</span>
+                {% else %}<span style="color:#7f1d1d;font-weight:700;">NOT RECEIVED</span>{% endif %}</div>
+            {% if st in ('RETURNED','PAYMENT_PENDING','ABANDONED') %}
+            <div><strong>Holding period:</strong> {{ dl.holding_days if dl else 60 }} days
+                {% if dl and dl.supplied %}
+                    · <strong>remaining {{ dl.days_remaining if dl.days_remaining is not none else '?' }} days</strong>
+                    · abandonment date <strong>{{ dl.abandon_at.strftime('%d %b %Y') if dl.abandon_at else '—' }}</strong>
+                    {% if dl.on_hold %}<div style="color:#1d4ed8;font-weight:700;">ON HOLD — abandonment suspended{% if dl.hold_reason %} ({{ dl.hold_reason }}){% endif %}</div>{% endif %}
+                    {% if dl.warning %}<div style="color:#b91c1c;font-weight:700;">⚠ ABANDONMENT APPROACHING — {{ dl.days_remaining }} days remaining</div>{% endif %}
+                {% else %}
+                    · <span class="text-muted">abandonment date not yet supplied by Optiwar (not calculated here — Optiwar is authoritative)</span>
+                {% endif %}</div>
+            {% endif %}
+            {% if st == 'ABANDONED' %}
+            <div style="color:#7f1d1d;font-weight:700;">ABANDONED — 60-day holding period expired. Customer notified by Optiwar.
+                Move goods to <em>ABANDONED — AWAITING DISPOSITION</em>; no disposal without the approved process.</div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if st == 'RETURNING' and not rr_pending %}
+        <p class="text-muted" style="font-size:13px;margin:6px 0;">Courier is returning the parcel{% if reship.returning and reship.returning.awb %} (AWB {{ reship.returning.awb }}){% endif %}.
+            When it is physically here and checked, use <strong>Confirm Return Received</strong> below — it tells Optiwar automatically.</p>
+        {% elif st == 'PAID' and reship.booked %}
+        {% set b = reship.booked %}
+        <div class="alert" style="background:#fff7ed;border:1px solid #f59e0b;color:#7c2d12;margin:6px 0;">
+            <strong>COURIER BOOKED</strong> — {{ b.new_courier }} AWB <code id="rsAwbB">{{ b.new_awb }}</code>
+            <button type="button" class="btn btn-sm btn-outline" onclick="rsCopy('rsAwbB')">Copy</button>
+            ({{ b.reference }}, {{ b.created_at }})<br>
+            {% if ship_pending %}
+            ⚠ <strong>OPTIWAR SYNC PENDING</strong> — {{ ship_pending[0].last_error or 'not attempted' }} (attempts: {{ ship_pending[0].attempts }})
+            <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/reship-sync/{{ ship_pending[0].id }}/retry" style="display:inline;margin-left:8px;">
+                <button type="submit" class="btn btn-sm btn-primary">Retry Sync</button></form>
+            <div style="font-size:12px;margin-top:4px;">Do not book a second AWB. Retry is idempotent.</div>
+            {% else %}
+            <span class="text-muted" style="font-size:12px;">Waiting for Optiwar to show RESHIPPED. No second booking is allowed; cancel this AWB first if it must be rebooked.</span>
+            {% endif %}
+        </div>
+        {% elif st == 'PAID' %}
+        <p style="font-size:13px;margin:6px 0;color:#065f46;"><strong>READY TO SHIP.</strong> Book the new AWB; it is sent to Optiwar automatically and the customer gets the tracking.</p>
+        <button type="button" class="btn btn-success btn-full" style="margin-bottom:8px;" onclick="openReshipPick()">🔁 Reship Now</button>
+        {% elif st == 'RESHIPPED' %}
+        <p class="text-muted" style="font-size:13px;margin:6px 0;">Reshipped{% if reship.entry and reship.entry.new_awb %} — {{ reship.entry.new_courier }} {{ reship.entry.new_awb }} ({{ reship.entry.reshipped_at }}){% endif %}. Original AWB kept as history.</p>
+        {% endif %}
+        {% endif %}
+
+        {% if reships %}
+        <div style="margin-top:8px;font-size:12px;">
+            <strong>Reships booked here</strong>
+            {% for r in reships %}
+            <div style="padding:4px 0;border-top:1px solid #eee;">{{ r.created_at }} · {{ r.reference }} · {{ r.new_courier }}
+                <a href="{{ track_url(r.new_courier, r.new_awb) }}" target="_blank">{{ r.new_awb }}</a>
+                <span class="text-muted">(original {{ r.original_awb }}; Optiwar {{ r.optiwar_status }}{% if r.optiwar_paid_at %} paid {{ r.optiwar_paid_at }}{% endif %}; by {{ r.created_by_name or r.created_by }})</span></div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if reship and reship.syncs %}
+        <details style="margin-top:8px;font-size:12px;">
+            <summary style="cursor:pointer;">Optiwar sync log ({{ reship.syncs|length }})</summary>
+            {% for s in reship.syncs %}
+            <div style="padding:3px 0;border-top:1px solid #eee;">{{ s.created_at }} · {{ s.kind }} ·
+                <strong style="color:{{ '#15803d' if s.state == 'synced' else '#b91c1c' }};">{{ s.state }}</strong>
+                · HTTP {{ s.http_status or '—' }} · attempts {{ s.attempts }}{% if s.last_error %} · {{ s.last_error }}{% endif %}{% if s.synced_at %} · synced {{ s.synced_at }}{% endif %}</div>
+            {% endfor %}
+        </details>
+        {% endif %}
+
+        {% set can_receive = reship and reship.status == 'RETURNING' and not (reship.pending_syncs or []) %}
+        <details id="return-receipt" style="margin-top:10px;" {% if can_receive %}open{% endif %}>
+            <summary style="cursor:pointer;font-size:13px;font-weight:600;">{% if can_receive %}Confirm Return Received (parcel physically in hand){% else %}Return receipt record{% endif %}</summary>
+            {% if can_receive %}
+            <p style="font-size:12px;margin:6px 0;color:#7c2d12;">Only with the parcel physically checked in. Saving tells Optiwar automatically: the customer is notified and the ₹250 reship option opens. Tracking status alone is not enough.</p>
+            {% elif reship and reship.status and reship.status != 'RETURNING' %}
+            <p class="text-muted" style="font-size:12px;margin:6px 0;">Receipt already confirmed with Optiwar. Additional records here are local notes only.</p>
+            {% else %}
+            <p class="text-muted" style="font-size:12px;margin:6px 0;">Local record. Optiwar can only be told once the courier reports the parcel as returning.</p>
+            {% endif %}
+            <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/return-receipt"
+                  {% if can_receive %}onsubmit="return confirm('Parcel is physically here and checked? This notifies Optiwar and the customer.');"{% endif %}>
+                {% set orig = order.awbs|selectattr('awb_status', 'ne', 'cancelled')|list|last %}
+                <input type="hidden" name="awb" value="{{ orig.tracking_number if orig else '' }}">
+                <input type="hidden" name="courier" value="{{ orig.courier if orig else '' }}">
+                <div class="form-group"><label>Parcel condition</label>
+                    <select name="parcel_condition" class="form-select" required>
+                        {% for c in receipt_conditions %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+                    </select></div>
+                <div class="form-group"><label>Return reason (as told by courier)</label>
+                    <input name="return_reason" class="form-input" placeholder="address not found / customer unavailable / refused" {% if can_receive %}required{% endif %}></div>
+                <div class="form-group"><label>Remarks</label>
+                    <textarea name="remarks" class="form-textarea" rows="2"></textarea></div>
+                <button type="submit" class="btn btn-sm {% if can_receive %}btn-success{% else %}btn-primary{% endif %}">{% if can_receive %}✓ Confirm Return Received{% else %}Save receipt note{% endif %}</button>
+            </form>
+            {% for rc in receipts %}
+            <div style="font-size:12px;padding:4px 0;border-top:1px solid #eee;">{{ rc.received_at }} · {{ rc.parcel_condition }}{% if rc.return_reason %} · {{ rc.return_reason }}{% endif %}
+                · received by {{ rc.received_by_name or rc.received_by }}{% if rc.remarks %}<br><span class="text-muted">{{ rc.remarks }}</span>{% endif %}</div>
+            {% endfor %}
+        </details>
+    </div>
+    {% endif %}
+
+    <!-- Update Status -->
+    <div class="card">
+        <h3>Update Status</h3>
+        <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/status">
+            <div class="form-group">
+                <label>New Status</label>
+                <select name="status_id" class="form-select" required>
+                    {% for s in ow_statuses %}
+                    <option value="{{ s.id }}" {% if order.status_name == s.name %}selected{% endif %}>{{ s.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Comment</label>
+                <textarea name="comment" id="ow-status-comment" class="form-textarea" rows="3"></textarea>
+                <div style="margin-top:6px;font-size:12px;">
+                    Preset: <a href="#" onclick="document.getElementById('ow-status-comment').value='Handed to customer - in-person pickup, no courier';return false;">Handed to customer (in-person pickup)</a>
+                    <span style="color:#6b7280;"> — use this exact preset for store/manual pickups; Optiwar's tracker closes the order on the phrase "handed to customer".</span>
+                </div>
+            </div>
+            <div class="form-group">
+                <label style="font-weight:600;margin-bottom:6px;display:block;">Notify Customer</label>
+                <div style="display:flex;gap:16px;flex-wrap:wrap;">
+                    <label style="display:flex;align-items:center;gap:4px;cursor:pointer;">
+                        <input type="checkbox" name="notify_email" value="1"> ✉ Email</label>
+                    <label style="display:flex;align-items:center;gap:4px;cursor:pointer;">
+                        <input type="checkbox" name="notify_whatsapp" value="1"> 💬 WhatsApp</label>
+                    <label style="display:flex;align-items:center;gap:4px;cursor:pointer;">
+                        <input type="checkbox" name="notify_sms" value="1"> 📱 SMS</label>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Update Status</button>
+        </form>
+    </div>
+
+    <!-- Refund -->
+    <div class="card">
+        <h3>Refund</h3>
+        <p style="font-size:12px;color:#64748b;margin-bottom:10px;">
+            Opens a draft against Optiwar's own payment record — paid amount, currency and what is still
+            refundable. Gateway refunds are issued by Optiwar; UPI refunds are recorded here only after
+            staff have paid the customer.
+        </p>
+        <a href="{{ base }}/orders/ow/{{ order.order_id }}/refund/prepare" class="btn"
+           style="background:#b45309;color:#fff;border-color:#b45309;">
+            💸 Issue Refund (Gateway / UPI)
+        </a>
+        <p style="font-size:11px;color:#94a3b8;margin-top:10px;">
+            Refunded outside the system (bank transfer, UPI, cash)?
+            <a href="#" onclick="document.getElementById('refundModal').style.display='flex';return false;">Record it without moving money</a>
+            — logs it in Order History and emails Accounts; the order status stays as-is.
+        </p>
+    </div>
+
+    <!-- Record-only refund modal -->
+    <div id="refundModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;">
+      <div style="background:#fff;border-radius:10px;max-width:520px;width:92%;max-height:90vh;overflow:auto;padding:22px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <h3 style="margin:0;">Record a refund — OW-{{ order.order_id }}</h3>
+            <button type="button" class="btn btn-sm btn-outline" onclick="document.getElementById('refundModal').style.display='none'">✕</button>
+        </div>
+        <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/partial-refund" id="prForm">
+            <input type="hidden" name="mode" value="manual">
+            <div style="background:#fef3c7;border:1px solid #fde68a;color:#92400e;padding:10px 12px;border-radius:6px;font-size:12px;margin-bottom:8px;">
+                This <strong>records</strong> a refund you paid out yourself. No money moves and the order status is unchanged.
+                To refund the original payment, use <strong>Prepare Refund</strong> instead.
+            </div>
+
+            <div id="prManualFields">
+                <div class="form-group">
+                    <label>Refund Amount</label>
+                    <input type="text" name="amount" id="prAmount" class="form-input" placeholder="e.g. ₹200">
+                </div>
+                <div class="form-group">
+                    <label>Reason / details</label>
+                    <textarea name="reason" id="prReason" class="form-textarea" rows="2" placeholder="e.g. Minor coating defect adjustment"></textarea>
+                </div>
+                <div class="form-group">
+                    <label style="font-weight:600;margin-bottom:6px;display:block;">Notify customer (EWS)</label>
+                    <div style="display:flex;gap:16px;flex-wrap:wrap;">
+                        <label><input type="checkbox" name="notify_email" value="1" checked> ✉ Email</label>
+                        <label><input type="checkbox" name="notify_whatsapp" value="1" checked> 💬 WhatsApp</label>
+                        <label><input type="checkbox" name="notify_sms" value="1" checked> 📱 SMS</label>
+                    </div>
+                    <p style="font-size:11px;color:#94a3b8;margin-top:4px;">All channels pre-selected — untick any you don't want.</p>
+                </div>
+                <div class="form-group" style="border-top:1px dashed #e2e8f0;padding-top:10px;">
+                    <label style="font-weight:600;margin-bottom:6px;display:block;">
+                        <input type="checkbox" name="notify_accounts" value="1" checked> 🧾 Send refund to Accounts
+                    </label>
+                    <input type="email" name="accounts_email" id="prAccountsEmail" class="form-input"
+                           value="{{ accounts_email_default }}" placeholder="accounts@optiwar.com">
+                    <p style="font-size:11px;color:#94a3b8;margin-top:4px;">
+                        A refund summary (with the EWS receipts) is emailed to Accounts to book it.
+                        <strong>admin@optiwar.com is always CC'd.</strong>
+                    </p>
+                </div>
+            </div>
+
+            <div style="display:flex;gap:10px;align-items:center;margin-top:6px;">
+                <button type="submit" id="prSubmit" class="btn" style="background:#b45309;color:#fff;border-color:#b45309;"
+                        onclick="return confirm('Record this refund, notify the customer on the selected channels, and email the refund summary to Accounts (CC admin@optiwar.com)? No money is moved and the order status will NOT change.');">
+                    Record Refund
+                </button>
+                <button type="button" class="btn btn-outline" onclick="prDryRun()">🔍 Dry Run</button>
+            </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Order History -->
+    <div class="card">
+        <h3>Order History</h3>
+        {% if order.history %}
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <thead>
+                <tr style="background:#f6f8fa;text-align:left;">
+                    <th style="padding:6px 8px;">Date</th>
+                    <th style="padding:6px 8px;">Detail</th>
+                    <th style="padding:6px 8px;">Tracking</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for h in order.history %}
+                <tr style="border-bottom:1px solid #eee;">
+                    <td style="padding:6px 8px;white-space:nowrap;">{{ h.date_added }}</td>
+                    <td style="padding:6px 8px;">{{ h.comment }}</td>
+                    <td style="padding:6px 8px;">
+                        {% for a in order.awbs %}
+                            {% if a.tracking_number and a.tracking_number in h.comment %}
+                            <a href="{{ track_url(a.courier, a.tracking_number) }}" target="_blank">{{ a.courier or 'Delhivery' }} {{ a.tracking_number }}</a>
+                            {% endif %}
+                        {% endfor %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted" style="font-size:13px;">No history yet.</p>
+        {% endif %}
+    </div>
+
+    <!-- Notification Log -->
+    <div class="card">
+        <h3>Notification Log</h3>
+        {% if notif_logs %}
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <thead>
+                <tr style="background:#f6f8fa;text-align:left;">
+                    <th style="padding:6px 8px;">Date</th>
+                    <th style="padding:6px 8px;">Channel</th>
+                    <th style="padding:6px 8px;">Event</th>
+                    <th style="padding:6px 8px;">Recipient</th>
+                    <th style="padding:6px 8px;">Status</th>
+                    <th style="padding:6px 8px;">Receipt / Ref</th>
+                    <th style="padding:6px 8px;">Details</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for n in notif_logs %}
+                <tr style="border-bottom:1px solid #eee;">
+                    <td style="padding:6px 8px;white-space:nowrap;">{{ n.created_at }}</td>
+                    <td style="padding:6px 8px;text-transform:capitalize;">{{ n.channel }}</td>
+                    <td style="padding:6px 8px;">{{ n.event }}</td>
+                    <td style="padding:6px 8px;">{{ n.recipient }}</td>
+                    <td style="padding:6px 8px;">
+                        {% if n.success and n.delivery_status == "failed" %}
+                        <span style="color:#b42318;font-weight:700;">Failed (msg91)</span>
+                        <div style="font-size:10px;color:#64748b;">{{ n.delivery_reason or "—" }}{% if n.delivery_at %} · {{ n.delivery_at }}{% endif %}</div>
+                        {% elif n.success and n.delivery_status == "read" %}
+                        <span style="color:#16a34a;font-weight:700;">Read</span>
+                        <div style="font-size:10px;color:#64748b;">{{ n.delivery_at }}</div>
+                        {% elif n.success and n.delivery_status == "delivered" %}
+                        <span style="color:#16a34a;font-weight:700;">Delivered</span>
+                        <div style="font-size:10px;color:#64748b;">{{ n.delivery_at }}</div>
+                        {% elif n.success and n.delivery_status == "sent" %}
+                        <span style="color:#16a34a;font-weight:700;">Sent</span>
+                        <div style="font-size:10px;color:#64748b;">{{ n.delivery_at }}</div>
+                        {% elif n.success and n.channel == "whatsapp" and n.reference and not n.delivery_status %}
+                        <span style="color:#b45309;font-weight:700;">Accepted - no delivery report yet</span>
+                        {% elif n.success %}<span style="color:#16a34a;font-weight:700;">Sent</span>
+                        {% else %}<span style="color:#b42318;font-weight:700;">Failed</span>{% endif %}
+                    </td>
+                    <td style="padding:6px 8px;font-family:monospace;font-size:11px;color:#0f172a;">{{ n.reference or "—" }}</td>
+                    <td style="padding:6px 8px;color:#555;">{{ n.message }}{% if n.channel == "email" and n.event.startswith("support_email") %}<a href="{{ base }}/orders/ow/{{ order.order_id }}/support-email/view/{{ n.id }}" style="color:#2563eb;white-space:nowrap;">View email</a>{% if n.success %} &middot; <a href="{{ base }}/orders/ow/{{ order.order_id }}/support-email?followup={{ n.id }}" style="color:#7c3aed;white-space:nowrap;">Follow-up &rarr;</a>{% endif %}{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted" style="font-size:13px;">No notifications sent yet.</p>
+        {% endif %}
+    </div>
+</div>
+
+<div id="courierPick" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;"
+     onclick="if(event.target===this) closeCourierPick()">
+    <div style="background:#fff;border-radius:10px;padding:22px 26px;width:360px;max-width:92vw;box-shadow:0 10px 40px rgba(0,0,0,.3);">
+        <h3 style="margin:0 0 6px;">Dispatch OW-{{ order.order_id }}</h3>
+        <p class="text-muted" style="font-size:13px;margin:0 0 14px;">Choose the courier. The AWB is booked with that courier and the customer is emailed / WhatsApp'd as usual.</p>
+        <a href="{{ base }}/orders/ow/{{ order.order_id }}/ship?courier=Delhivery" class="btn btn-success btn-full" style="margin-bottom:8px;">🚚 Delhivery</a>
+        <a href="{{ base }}/orders/ow/{{ order.order_id }}/ship?courier=DTDC" class="btn btn-full" style="margin-bottom:8px;background:#d3262c;color:#fff;border-color:#d3262c;">🚚 DTDC</a>
+        <button type="button" class="btn btn-outline btn-full" onclick="closeCourierPick()">Cancel</button>
+    </div>
+</div>
+<div id="reshipPick" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;"
+     onclick="if(event.target===this) closeReshipPick()">
+    <div style="background:#fff;border-radius:10px;padding:22px 26px;width:380px;max-width:92vw;box-shadow:0 10px 40px rgba(0,0,0,.3);">
+        <h3 style="margin:0 0 6px;">Reship OW-{{ order.order_id }}</h3>
+        <p class="text-muted" style="font-size:13px;margin:0 0 14px;">Books a NEW AWB for the returned parcel (Optiwar shows PAID). The original AWB is kept. No customer message is sent from Ops — Optiwar's console does that when you record the reshipment.</p>
+        <a href="{{ base }}/orders/ow/{{ order.order_id }}/ship?courier=DTDC&reship=1" class="btn btn-full" style="margin-bottom:8px;background:#d3262c;color:#fff;border-color:#d3262c;">🚚 DTDC</a>
+        <a href="{{ base }}/orders/ow/{{ order.order_id }}/ship?courier=Delhivery&reship=1" class="btn btn-success btn-full" style="margin-bottom:8px;">🚚 Delhivery</a>
+        <button type="button" class="btn btn-outline btn-full" onclick="closeReshipPick()">Cancel</button>
+    </div>
+</div>
+<script>
+function openReshipPick(){ document.getElementById('reshipPick').style.display = 'flex'; }
+function closeReshipPick(){ document.getElementById('reshipPick').style.display = 'none'; }
+function rsCopy(id){
+    var t = document.getElementById(id).textContent.trim();
+    if (navigator.clipboard) { navigator.clipboard.writeText(t); }
+    else { var ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
+}
+function openCourierPick(){ document.getElementById('courierPick').style.display = 'flex'; }
+function closeCourierPick(){ document.getElementById('courierPick').style.display = 'none'; }
+function prDryRun(){
+    var amount = encodeURIComponent(document.getElementById('prAmount').value || '');
+    var reason = encodeURIComponent(document.getElementById('prReason').value || '');
+    var chans = [];
+    document.querySelectorAll('#prForm input[type=checkbox]:checked').forEach(function(c){
+        if (c.name === 'notify_email') chans.push('email');
+        if (c.name === 'notify_whatsapp') chans.push('whatsapp');
+        if (c.name === 'notify_sms') chans.push('sms');
+    });
+    if (!chans.length) chans = ['email'];
+    var url = "{{ base }}/orders/ow/{{ order.order_id }}/partial-refund-preview"
+              + "?amount=" + amount + "&reason=" + reason + "&channels=" + chans.join(',');
+    window.open(url, '_blank');
+}
+
+/* Product image gallery (click on product code) */
+var owImgs = [], owIdx = 0;
+function owShowImages(a){
+    owImgs = JSON.parse(a.getAttribute('data-images') || '[]'); owIdx = 0;
+    if (!owImgs.length) return;
+    document.getElementById('owImgTitle').textContent = a.getAttribute('data-title') || '';
+    var t = document.getElementById('owImgThumbs'); t.innerHTML = '';
+    owImgs.forEach(function(u, i){
+        var im = document.createElement('img'); im.src = u; im.loading = 'lazy';
+        im.style.cssText = 'height:64px;width:64px;object-fit:cover;border:2px solid #e5e7eb;border-radius:4px;cursor:pointer;';
+        im.onclick = function(){ owGo(i); }; t.appendChild(im);
+    });
+    document.getElementById('owImgModal').style.display = 'flex';
+    owGo(0);
+}
+function validateOwRxForm(form){
+    for (const field of form.querySelectorAll("[data-rx-step]")) {
+        const raw = field.value.trim();
+        const isAxis = field.name.endsWith("_axis");
+        const cylinder = isAxis ? Number(form.elements[field.name.replace("_axis", "_cyl")].value || 0) : 0;
+        if (!raw) {
+            if (isAxis && cylinder !== 0) {
+                field.setCustomValidity("AXIS 1–180 is required when CYL is not 0");
+                field.reportValidity();
+                return false;
+            }
+            continue;
+        }
+        const value = Number(raw);
+        const step = Number(field.dataset.rxStep);
+        const min = isAxis && cylinder !== 0 ? 1 : Number(field.dataset.min);
+        const max = Number(field.dataset.max);
+        const onStep = Math.abs(value / step - Math.round(value / step)) < 1e-8;
+        if (!Number.isFinite(value) || value < min || value > max || !onStep) {
+            field.setCustomValidity(`Enter a value from ${min} to ${max} in ${step} steps.`);
+            field.reportValidity();
+            return false;
+        }
+        field.setCustomValidity("");
+    }
+    return true;
+}
+function owGo(i){
+    owIdx = (i + owImgs.length) % owImgs.length;
+    var m = document.getElementById('owImgMain'); m.src = owImgs[owIdx];
+    document.getElementById('owImgOpen').href = owImgs[owIdx];
+    document.getElementById('owImgCount').textContent = (owIdx+1) + ' / ' + owImgs.length;
+    document.querySelectorAll('#owImgThumbs img').forEach(function(im, k){ im.style.borderColor = k===owIdx ? '#2563eb' : '#e5e7eb'; });
+}
+function owCloseImages(){ document.getElementById('owImgModal').style.display = 'none'; }
+document.addEventListener('keydown', function(e){
+    if (document.getElementById('owImgModal').style.display !== 'flex') return;
+    if (e.key === 'Escape') owCloseImages();
+    if (e.key === 'ArrowRight') owGo(owIdx+1);
+    if (e.key === 'ArrowLeft') owGo(owIdx-1);
+});
+</script>
+
+<div id="owImgModal" onclick="if(event.target===this)owCloseImages()"
+     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:8px;padding:16px;max-width:900px;width:92%;max-height:92vh;overflow:auto;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <strong id="owImgTitle"></strong>
+            <div>
+                <span id="owImgCount" class="text-muted" style="margin-right:12px;"></span>
+                <a id="owImgOpen" href="#" target="_blank" class="btn btn-sm btn-outline">Open full size</a>
+                <button class="btn btn-sm btn-outline" onclick="owCloseImages()">✕</button>
+            </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+            <button class="btn btn-sm btn-outline" onclick="owGo(owIdx-1)">&lsaquo;</button>
+            <div style="flex:1;text-align:center;">
+                <img id="owImgMain" src="" alt="product image" style="max-width:100%;max-height:60vh;object-fit:contain;"
+                     onerror="this.alt='Image not found on optiwar.com: '+this.src">
+            </div>
+            <button class="btn btn-sm btn-outline" onclick="owGo(owIdx+1)">&rsaquo;</button>
+        </div>
+        <div id="owImgThumbs" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;"></div>
+    </div>
+</div>
+{% endblock %}

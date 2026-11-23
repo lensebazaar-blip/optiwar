@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Refund tracking — OW-{{ order.order_id }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <a href="{{ base }}/orders/ow/{{ order.order_id }}" class="btn btn-sm btn-outline">&laquo; Back to Order</a>
+        <h1>Refund tracking — OW-{{ order.order_id }}</h1>
+        <span class="text-muted" style="font-size:12px;">
+            Live from Optiwar's refund ledger; pending Gateway refunds are refreshed with the payment provider on each load.
+        </span>
+    </div>
+</div>
+
+{% if api_error %}
+<div class="alert" style="background:#fef2f2;border:1px solid #fecaca;color:#b42318;padding:10px 14px;border-radius:6px;margin-bottom:16px;">
+    <strong>Could not read the refund from Optiwar:</strong> {{ api_error }}
+</div>
+{% endif %}
+
+{% if refund %}
+<div class="detail-grid">
+    <div class="card">
+        <h3>Refund
+            {% if refund.status == 'PROCESSED' %}<span style="color:#16a34a;font-weight:800;">SUCCESS</span>
+            {% elif refund.status == 'FAILED' %}<span style="color:#b42318;font-weight:800;">FAILED</span>
+            {% else %}<span style="color:#b45309;font-weight:800;">{{ refund.status }}</span>{% endif %}
+        </h3>
+        <div class="info-row"><label>Amount:</label>
+            <span style="font-size:18px;font-weight:800;">{{ refund.amount_text }}</span></div>
+        <div class="info-row"><label>Method:</label> <span>{{ refund.method or "GATEWAY" }}</span></div>
+        {% if refund.method == 'UPI' %}
+        <div class="info-row"><label>Customer UPI ID:</label> <span>{{ refund.upi.upi_vpa }}</span></div>
+        <div class="info-row"><label>Payee name:</label> <span>{{ refund.upi.payee_name }}</span></div>
+        <div class="info-row"><label>UTR:</label> <span>{{ refund.upi.utr }}</span></div>
+        <div class="info-row"><label>Date paid:</label> <span>{{ refund.upi.paid_on }}</span></div>
+        {% endif %}
+        <div class="info-row"><label>Type:</label> <span>{{ refund.refund_type }}</span></div>
+        <div class="info-row"><label>Reason:</label> <span>{{ refund.reason_label }}</span></div>
+        <div class="info-row"><label>Provider refund id:</label>
+            <span style="font-family:monospace;font-size:11px;">{{ refund.provider_refund_id or "— not yet issued" }}</span></div>
+        <div class="info-row"><label>Provider state:</label> <span>{{ refund.provider_state or "—" }}</span></div>
+        <div class="info-row"><label>Payment reference:</label>
+            <span style="font-family:monospace;font-size:11px;">{{ refund.payment_ref }}</span></div>
+        <div class="info-row"><label>Requested by:</label> <span>{{ refund.requested_by }}</span></div>
+        <div class="info-row"><label>Requested at:</label> <span>{{ refund.requested_at }}</span></div>
+        <div class="info-row"><label>Completed at:</label> <span>{{ refund.completed_at or "—" }}</span></div>
+        <div class="info-row"><label>Idempotency key:</label>
+            <span style="font-family:monospace;font-size:10px;">{{ refund.idempotency_key }}</span></div>
+        {% if refund.error_text %}
+        <div style="background:#fef2f2;border:1px solid #fecaca;color:#b42318;padding:8px 10px;border-radius:6px;font-size:12px;margin-top:8px;">
+            Provider said: {{ refund.error_text }}
+        </div>
+        {% endif %}
+        {% if refund.status == 'PENDING' %}
+        <div style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:8px 10px;border-radius:6px;font-size:12px;margin-top:8px;">
+            The provider accepted the refund and has not settled it yet. This page refreshes itself; it will show SUCCESS when the provider says so.
+        </div>
+        {% elif refund.status == 'FAILED' %}
+        <div style="background:#fef2f2;border:1px solid #fecaca;color:#b42318;padding:8px 10px;border-radius:6px;font-size:12px;margin-top:8px;">
+            No money moved and the order status was not changed. Prepare a fresh refund to retry — it gets its own key.
+        </div>
+        {% endif %}
+        <div style="margin-top:10px;display:flex;gap:8px;">
+            <a href="{{ base }}/orders/ow/{{ order.order_id }}/refund/track?key={{ idempotency_key|urlencode }}" class="btn btn-sm btn-outline">↻ Refresh now</a>
+            <a href="{{ base }}/orders/ow/{{ order.order_id }}/refund/prepare" class="btn btn-sm btn-outline">Prepare another refund</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>Notification Log <span style="font-size:11px;color:#94a3b8;font-weight:400;">(refund messages only)</span></h3>
+        {% if notif_logs %}
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <thead><tr style="background:#f6f8fa;text-align:left;">
+                <th style="padding:6px 8px;">Date</th><th style="padding:6px 8px;">Channel</th>
+                <th style="padding:6px 8px;">Status</th><th style="padding:6px 8px;">Receipt</th>
+            </tr></thead>
+            <tbody>
+            {% for n in notif_logs %}
+            <tr style="border-bottom:1px solid #eee;">
+                <td style="padding:6px 8px;white-space:nowrap;">{{ n.created_at }}</td>
+                <td style="padding:6px 8px;text-transform:capitalize;">{{ n.channel }}</td>
+                <td style="padding:6px 8px;">
+                    {% if n.success %}<span style="color:#16a34a;font-weight:700;">Sent</span>
+                    {% else %}<span style="color:#b42318;font-weight:700;">Failed</span>{% endif %}
+                </td>
+                <td style="padding:6px 8px;font-family:monospace;font-size:11px;">{{ n.reference or "—" }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <p style="font-size:11px;color:#94a3b8;margin-top:8px;">
+            A failed message here does not affect the refund above — the money has left regardless. Resend from the order page.
+        </p>
+        {% else %}
+        <p class="text-muted" style="font-size:13px;">No refund notifications recorded for this order.</p>
+        {% endif %}
+    </div>
+</div>
+{% else %}
+<div class="card">
+    <p style="font-size:13px;">
+        No refund is recorded against key
+        <code style="font-size:11px;">{{ idempotency_key }}</code>.
+        If a confirmation timed out, that means the refund never reached the provider and nothing was charged back.
+    </p>
+</div>
+{% endif %}
+
+{% if refund and refund.status == 'PENDING' %}
+<script>setTimeout(function(){ location.reload(); }, 20000);</script>
+{% endif %}
+{% endblock %}

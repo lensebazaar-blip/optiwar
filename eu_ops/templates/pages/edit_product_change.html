@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% block title %}Edit Product Change — Order #E-{{ order.order_id }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <a href="{{ base }}/orders/{{ order.order_id }}" class="btn btn-sm btn-outline">&laquo; Back to Order</a>
+        <h1>Edit Product Change — Order #E-{{ order.order_id }}</h1>
+    </div>
+</div>
+
+<div class="detail-grid">
+    <div class="card">
+        <h3>Customer</h3>
+        <div class="info-row"><label>Name:</label> <span>{{ order.firstname }} {{ order.lastname }}</span></div>
+        <div class="info-row"><label>Email:</label> <span>{{ order.email }}</span></div>
+        <div class="info-row"><label>EUR Total:</label> <span>&euro;{{ "%.2f"|format(order.total_eur) }}</span></div>
+    </div>
+</div>
+
+<div class="section">
+    <h2>Products — Change Product</h2>
+    <p style="color:#64748b; font-size:13px; margin-bottom:16px;">
+        Change the product name below. Prescription data (Power, Cylinder, Axis, Quantity) will remain the same.
+    </p>
+    <form id="product-change-form" method="post" action="{{ base }}/orders/{{ order.order_id }}/edit-product/preview">
+        {% for p in order.products %}
+        <div class="card" style="margin-bottom:16px; border:1px solid #e2e8f0;">
+            <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                <div style="flex:1; min-width:300px;">
+                    <label style="font-size:12px; color:#64748b; font-weight:600;">Current Product:</label>
+                    <div style="font-size:15px; font-weight:600; color:#1e293b; margin:4px 0;">{{ p.name }}</div>
+                    <div style="font-size:12px; color:#94a3b8;">Model: {{ p.model }} | Qty: {{ p.quantity }}</div>
+                </div>
+                <div style="flex:1; min-width:300px; position:relative;">
+                    <label style="font-size:12px; color:#059669; font-weight:600;">New Product (search catalog):</label>
+                    <input type="text" id="search_{{ p.order_product_id }}"
+                           class="product-search-input form-input"
+                           data-pid="{{ p.order_product_id }}"
+                           style="width:100%; padding:8px 12px; font-size:14px; margin-top:4px;"
+                           placeholder="Type to search products... (min 2 chars)"
+                           autocomplete="off">
+                    <div id="results_{{ p.order_product_id }}" class="search-results" style="display:none; position:absolute; z-index:100; background:#fff; border:1px solid #e2e8f0; border-radius:6px; width:100%; max-height:200px; overflow-y:auto; box-shadow:0 4px 12px rgba(0,0,0,0.1); margin-top:2px;"></div>
+                    <input type="hidden" name="new_name_{{ p.order_product_id }}" id="new_name_{{ p.order_product_id }}" value="{{ p.name }}" data-original="{{ p.name }}" class="product-name-input">
+                    <div id="selected_{{ p.order_product_id }}" style="margin-top:8px; padding:8px 12px; background:#f0fdf4; border:1px solid #86efac; border-radius:6px; display:none;">
+                        <span style="font-weight:600; color:#16a34a;" id="sel_name_{{ p.order_product_id }}"></span>
+                        <span style="margin-left:12px; color:#059669; font-weight:600;" id="sel_price_{{ p.order_product_id }}"></span>
+                    </div>
+                    <div style="margin-top:8px;">
+                        <label style="font-size:12px; color:#059669; font-weight:600;">EUR Price (from catalog):</label>
+                        <input type="number" name="new_price_{{ p.order_product_id }}" id="price_{{ p.order_product_id }}"
+                               value="{{ '%.2f'|format(p.price|float * eur_rate) }}"
+                               data-original="{{ '%.2f'|format(p.price|float * eur_rate) }}"
+                               step="0.01" min="0" readonly
+                               class="price-input form-input"
+                               style="width:140px; padding:6px 10px; font-size:14px; margin-top:4px; background:#f1f5f9;">
+                        <span style="color:#94a3b8; font-size:11px; margin-left:6px;">Current: &euro;{{ '%.2f'|format(p.price|float * eur_rate) }} &times; {{ p.quantity }}</span>
+                    </div>
+                    <input type="hidden" name="old_name_{{ p.order_product_id }}" value="{{ p.name }}">
+                    <input type="hidden" name="model_{{ p.order_product_id }}" value="{{ p.model }}">
+                    <input type="hidden" name="old_price_eur_{{ p.order_product_id }}" value="{{ '%.2f'|format(p.price|float * eur_rate) }}">
+                    <input type="hidden" name="quantity_{{ p.order_product_id }}" value="{{ p.quantity }}">
+                    <input type="hidden" name="new_product_id_{{ p.order_product_id }}" id="new_product_id_{{ p.order_product_id }}" value="">
+                </div>
+            </div>
+
+            {% if p.has_eye_options %}
+            <div style="margin-top:12px; padding:10px; background:#f8fafc; border-radius:6px; border:1px solid #e2e8f0;">
+                <div style="font-size:11px; color:#64748b; font-weight:600; margin-bottom:6px;">PRESCRIPTION (will not change):</div>
+                <div style="display:flex; gap:16px; flex-wrap:wrap;">
+                    {% if p.left_eye %}
+                    <div style="font-size:12px;">
+                        <strong style="color:#1a5db0;">LEFT:</strong>
+                        {% for opt in p.left_eye %}
+                        {% if opt.name.strip().lower() != 'quantity' %}
+                        {{ opt.name }}: <strong>{{ opt.value }}</strong>{% if not loop.last %}, {% endif %}
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    {% if p.right_eye %}
+                    <div style="font-size:12px;">
+                        <strong style="color:#b05a1a;">RIGHT:</strong>
+                        {% for opt in p.right_eye %}
+                        {% if opt.name.strip().lower() != 'quantity' %}
+                        {{ opt.name }}: <strong>{{ opt.value }}</strong>{% if not loop.last %}, {% endif %}
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+
+        <div class="card" style="margin-bottom:16px; border:1px solid #059669; background:#f0fdf4;">
+            <h3 style="color:#059669; margin-bottom:8px;">Ticket Reference</h3>
+            <div class="form-group" style="margin-bottom:0;">
+                <label>Ticket / Reference Number <span style="color:#94a3b8; font-size:12px;">(from customer support ticket)</span></label>
+                <input type="text" name="ticket_ref" class="form-input" placeholder="e.g. TKT-12345, JIRA-567, Email thread ref..."
+                       style="max-width:400px;">
+            </div>
+        </div>
+
+        <div class="form-group" style="margin-top:16px;">
+            <label>Agent Notes (internal)</label>
+            <textarea name="notes" class="form-input" rows="2" placeholder="e.g. Customer requested product change via support ticket"></textarea>
+        </div>
+
+        <div style="display:flex; gap:12px; margin-top:16px;">
+            <button type="submit" class="btn btn-primary" id="preview-btn" disabled>
+                Preview Changes &amp; Draft Email
+            </button>
+            <a href="{{ base }}/orders/{{ order.order_id }}" class="btn btn-outline">Cancel</a>
+        </div>
+    </form>
+</div>
+
+<script>
+let searchTimeout = null;
+
+document.querySelectorAll('.product-search-input').forEach(input => {
+    input.addEventListener('input', function() {
+        const pid = this.dataset.pid;
+        const query = this.value.trim();
+        const resultsDiv = document.getElementById('results_' + pid);
+
+        if (searchTimeout) clearTimeout(searchTimeout);
+
+        if (query.length < 2) {
+            resultsDiv.style.display = 'none';
+            return;
+        }
+
+        searchTimeout = setTimeout(() => {
+            fetch('{{ base }}/api/products/search?q=' + encodeURIComponent(query))
+                .then(r => r.json())
+                .then(data => {
+                    if (data.length === 0) {
+                        resultsDiv.innerHTML = '<div style="padding:10px; color:#94a3b8; font-size:13px;">No products found</div>';
+                    } else {
+                        resultsDiv.innerHTML = data.map(p =>
+                            '<div class="search-result-item" style="padding:8px 12px; cursor:pointer; border-bottom:1px solid #f1f5f9; font-size:13px;" ' +
+                            'data-model="' + p.model + '" data-price="' + p.eur_price + '" data-id="' + p.product_id + '" ' +
+                            'onmouseover="this.style.background=\'#f0fdf4\'" onmouseout="this.style.background=\'#fff\'">' +
+                            '<strong>' + p.model + '</strong> <span style="color:#059669; float:right;">€' + p.eur_price.toFixed(2) + '</span></div>'
+                        ).join('');
+                    }
+                    resultsDiv.style.display = 'block';
+
+                    resultsDiv.querySelectorAll('.search-result-item').forEach(item => {
+                        item.addEventListener('click', function() {
+                            selectProduct(pid, this.dataset.model, parseFloat(this.dataset.price), this.dataset.id);
+                            resultsDiv.style.display = 'none';
+                        });
+                    });
+                });
+        }, 300);
+    });
+
+    input.addEventListener('blur', function() {
+        const pid = this.dataset.pid;
+        setTimeout(() => { document.getElementById('results_' + pid).style.display = 'none'; }, 200);
+    });
+});
+
+function selectProduct(pid, model, eurPrice, productId) {
+    document.getElementById('new_name_' + pid).value = model;
+    document.getElementById('price_' + pid).value = eurPrice.toFixed(2);
+    document.getElementById('new_product_id_' + pid).value = productId;
+    document.getElementById('search_' + pid).value = model;
+
+    const selDiv = document.getElementById('selected_' + pid);
+    document.getElementById('sel_name_' + pid).textContent = model;
+    document.getElementById('sel_price_' + pid).textContent = '€' + eurPrice.toFixed(2);
+    selDiv.style.display = 'block';
+
+    recalculate();
+}
+
+function recalculate() {
+    let hasChanges = false;
+    document.querySelectorAll('.product-name-input').forEach(input => {
+        if (input.value.trim() !== input.dataset.original.trim()) {
+            hasChanges = true;
+        }
+    });
+    document.querySelectorAll('.price-input').forEach(input => {
+        if (parseFloat(input.value).toFixed(2) !== parseFloat(input.dataset.original).toFixed(2)) {
+            hasChanges = true;
+        }
+    });
+    document.getElementById('preview-btn').disabled = !hasChanges;
+}
+</script>
+{% endblock %}

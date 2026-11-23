@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Reverse Pickup OW-{{ order.order_id }} — Delhivery{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <a href="{{ base }}/orders/ow/{{ order.order_id }}" class="btn btn-sm btn-outline">&laquo; Back to Order</a>
+        <h1>Reverse Pickup OW-{{ order.order_id }} <span class="text-muted" style="font-size:14px;">via Delhivery</span></h1>
+    </div>
+</div>
+
+{% if request.query_params.get('error') %}
+<div class="alert alert-error"><strong>Error:</strong> {{ request.query_params.get('error') }}</div>
+{% endif %}
+{% if request.query_params.get('msg') %}
+<div class="alert alert-success">{{ request.query_params.get('msg') }}</div>
+{% endif %}
+
+{% set rq = fee.request %}
+{% if rq and rq.source == 'customer' %}
+<div class="card" style="margin-bottom:16px;border-left:4px solid #0e7490;">
+    <h3>Customer return request (Optiwar){% if fee.ow_label %} — <span style="color:#0e7490;">{{ fee.ow_label }}</span>{% endif %}</h3>
+    <div class="info-row"><label>Requested:</label> <span>{{ rq.requested_at }}</span></div>
+    <div class="info-row"><label>Reason:</label> <span><strong>{{ rq.reason_code or '' }}</strong> {{ rq.reason or '' }}</span></div>
+    {% if rq.description %}<div class="info-row"><label>Customer says:</label> <span>{{ rq.description }}</span></div>{% endif %}
+    {% if rq.declarations %}<div class="info-row"><label>Declarations:</label> <span>v{{ rq.declarations.version }} accepted {{ rq.declarations.accepted_at }}</span></div>{% endif %}
+    {% if rq.photos %}<div class="info-row"><label>Photos:</label> <span>{% for ph in rq.photos %}<a href="{{ ph.url if ph is mapping else ph }}" target="_blank" rel="noopener">photo {{ loop.index }}</a> {% endfor %}<span class="text-small text-muted">(links expire after 10 minutes; reload the page for fresh ones; Optiwar logs each view)</span></span></div>{% endif %}
+    {% if rq.decision and rq.decision.status %}
+    <p class="text-small">Decision <strong>{{ rq.decision.status }}</strong> by {{ rq.decision.decided_by }} at {{ rq.decision.decided_at }}{% if rq.decision.note %} — {{ rq.decision.note }}{% endif %}</p>
+    {% elif 'decision' in rp_live %}
+    <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/reverse-pickup-request/decision" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;"
+          onsubmit="return confirm('Send this decision to Optiwar? Optiwar emails the customer and it cannot be changed.');">
+        <div class="form-group"><label>Decision *</label>
+            <select name="decision" required><option value="">— select —</option>
+            {% for code, label in decisions %}<option value="{{ code }}">{{ label }}</option>{% endfor %}</select></div>
+        <div class="form-group" style="flex:1;min-width:260px;"><label>Note (at least 10 characters unless approving; the customer sees it)</label><input type="text" name="note" maxlength="1000"></div>
+        <button type="submit" class="btn btn-primary">Send decision</button>
+    </form>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="card" style="margin-bottom:16px;border-left:4px solid {{ '#16a34a' if fee_ok else '#b45309' }};">
+    <h3>₹250 reverse-pickup fee (Optiwar) —
+        <span style="color:{{ '#16a34a' if fee_ok else '#b45309' }};">{{ fee.state or 'NO FEE RECORD' }}</span></h3>
+    {% if fee.error %}<p class="text-small" style="color:#b42318;">Optiwar state API: {{ fee.error }}{% if fee.state %} — showing the last state Optiwar pushed ({{ fee.updated_at }}){% endif %}</p>{% endif %}
+    {% if fee.amount_text %}<p class="text-small">Fee {{ fee.amount_text }}{% if fee.payment_id %} · Razorpay {{ fee.payment_id }}{% endif %}{% if fee.waiver_code %} · waiver {{ fee.waiver_code }}{% endif %}</p>{% endif %}
+    {% if fee_ok %}
+        <p class="text-small" style="color:#1a7f37;">Fee {{ fee.state }} per Optiwar — booking allowed.</p>
+    {% elif fee.bookable %}
+        <p class="text-small" style="color:#92400e;"><strong>Booking is blocked:</strong> {{ fee.block_reason }}.</p>
+    {% else %}
+        <p class="text-small" style="color:#92400e;"><strong>Booking is blocked</strong> until Optiwar shows the fee PAID (customer pays in My Orders) or WAIVED. Nobody can mark it paid here.</p>
+        {% if waivers %}
+        <p class="text-small">Waiver requested {{ waivers[0].created_at }} by {{ waivers[0].created_by_name or '' }}: <strong>{{ waivers[0].reason_code }}</strong> {{ waivers[0].note }}
+            {% if waiver_pending %}— <span style="color:#b42318;">Optiwar has not accepted it yet ({{ waiver_pending[0].last_error }})</span>
+            <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/reship-sync/{{ waiver_pending[0].id }}/retry" style="display:inline;"><button class="btn btn-sm btn-primary">Retry Sync</button></form>{% endif %}</p>
+        {% elif fee.state not in ['PAID', 'REFUNDED', 'PARTIALLY_REFUNDED'] and 'waive' in rp_live %}
+        <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/reverse-pickup-fee/waive" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;"
+              onsubmit="return confirm('Waive the ₹250 fee for OW-{{ order.order_id }}? This is audited under your login.');">
+            <div class="form-group"><label>Waive fee — reason code *</label>
+                <select name="reason_code" required><option value="">— select —</option>
+                {% for code, label in waiver_codes %}<option value="{{ code }}">{{ code }} — {{ label }}</option>{% endfor %}</select></div>
+            <div class="form-group" style="flex:1;min-width:220px;"><label>Note (required for OTHER)</label><input type="text" name="note" maxlength="500"></div>
+            <button type="submit" class="btn btn-outline">Waive ₹250 (audited)</button>
+        </form>
+        {% endif %}
+    {% endif %}
+</div>
+
+{% if existing %}
+<div class="alert alert-error">
+    A reverse pickup is already booked: <strong>{{ existing[0].waybill }}</strong> ({{ existing[0].reference }}, {{ existing[0].created_at }}).
+    Cancel it on the order page before booking another.
+</div>
+{% endif %}
+
+<div class="detail-grid">
+    <div class="card">
+        <h3>Pick up from (customer)</h3>
+        <div class="info-row"><label>Name:</label> <span>{{ order.shipping_firstname or order.firstname }} {{ order.shipping_lastname or order.lastname }}</span></div>
+        <div class="info-row"><label>Address:</label> <span>{{ order.shipping_address_1 }} {{ order.shipping_address_2 or '' }}</span></div>
+        <div class="info-row"><label>City / State:</label> <span>{{ order.shipping_city }} / {{ order.shipping_zone }}</span></div>
+        <div class="info-row"><label>Pincode:</label> <span>{{ order.shipping_postcode }}</span></div>
+        <div class="info-row"><label>Phone:</label> <span>{{ order.telephone }}</span></div>
+        <div class="info-row"><label>Reverse pickup:</label>
+            {% if serviceable.error %}<span style="color:#b42318;">check failed: {{ serviceable.error }}</span>
+            {% elif serviceable.pickup == 'Y' %}<span style="color:#1a7f37;font-weight:600;">Available — {{ serviceable.district or serviceable.city }}</span>
+            {% else %}<span style="color:#b42318;font-weight:600;">Delhivery does not pick up from {{ order.shipping_postcode }}</span>{% endif %}</div>
+        <hr>
+        <h3 style="margin-top:8px;">Deliver to (our warehouse)</h3>
+        <div class="info-row"><label>Delhivery warehouse:</label> <span>{{ warehouse.name }}</span></div>
+        <div class="info-row"><label>Address:</label> <span>{{ warehouse.add }}, {{ warehouse.city }} {{ warehouse.pin_code }}</span></div>
+        {% if forward %}<div class="info-row"><label>Original shipment:</label> <span>{{ forward.courier }} {{ forward.tracking_number }}</span></div>{% endif %}
+    </div>
+
+    <div class="card">
+        <h3>Book reverse pickup</h3>
+        <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/reverse-pickup"
+              onsubmit="return confirm('Book a Delhivery reverse pickup from the customer for OW-{{ order.order_id }}?');">
+            <div class="form-group"><label>Reference</label><input type="text" value="{{ reference }}" disabled></div>
+            <div class="form-group"><label>Return reason *</label>
+                <select name="reason" required>
+                    <option value="">— select —</option>
+                    {% for r in reasons %}<option>{{ r }}</option>{% endfor %}
+                </select></div>
+            <div class="form-group"><label>Item description</label>
+                <input type="text" name="products_desc" value="{{ (order.products[0].name if order.products else 'Spectacle Frames')[:60] }}"></div>
+            <div class="form-group"><label>Weight (kg)</label><input type="number" step="0.01" name="weight_kg" value="0.25"></div>
+            <div style="display:flex;gap:8px;">
+                <div class="form-group"><label>L cm</label><input type="number" name="length_cm" value="17"></div>
+                <div class="form-group"><label>W cm</label><input type="number" name="width_cm" value="17"></div>
+                <div class="form-group"><label>H cm</label><input type="number" name="height_cm" value="7"></div>
+            </div>
+            <div class="form-group"><label>Remarks (internal, also sent to Optiwar)</label>
+                <textarea name="remarks" rows="2"></textarea></div>
+            <p class="text-small text-muted">Delhivery collects from the customer and delivers to our warehouse. No email/WhatsApp is sent from Ops — Optiwar is notified automatically; the order page then shows whether Optiwar messaged the customer (email/WhatsApp SENT or SKIPPED).</p>
+            <button type="submit" class="btn btn-success btn-full"
+                    {% if existing or serviceable.pickup != 'Y' or not fee_ok %}disabled{% endif %}>🔄 Book Delhivery Reverse Pickup</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

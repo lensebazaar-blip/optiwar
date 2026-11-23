@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+{% block title %}Prepare Refund — OW-{{ order.order_id }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <a href="{{ base }}/orders/ow/{{ order.order_id }}" class="btn btn-sm btn-outline">&laquo; Back to Order</a>
+        <h1>Prepare Refund — OW-{{ order.order_id }}</h1>
+        <span class="text-muted" style="font-size:12px;">
+            Draft only. Gateway refunds are issued by Optiwar after confirmation; UPI is recorded after staff have already paid the customer.
+        </span>
+    </div>
+</div>
+
+{% if api_error %}
+<div class="alert" style="background:#fef2f2;border:1px solid #fecaca;color:#b42318;padding:10px 14px;border-radius:6px;margin-bottom:16px;">
+    <strong>Optiwar refused or could not be reached:</strong> {{ api_error }}
+</div>
+{% endif %}
+
+{% if not api_configured %}
+<div class="alert" style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:10px 14px;border-radius:6px;margin-bottom:16px;">
+    <strong>No refund credential on this platform.</strong> Optiwar must provide
+    <code>OPS_REFUND_API_TOKEN</code> (scope <code>orders:read</code>, <code>refunds:create</code>) before a refund can be issued from here.
+</div>
+{% endif %}
+
+{% if facts %}
+<div class="detail-grid">
+    <div class="card">
+        <h3>What Optiwar says about this payment</h3>
+        <p style="font-size:11px;color:#94a3b8;margin-top:-6px;">
+            Read from the Optiwar payment record and the payment provider — not from this browser.
+        </p>
+        <div class="info-row"><label>Order:</label> <span><strong>OW-{{ order.order_id }}</strong></span></div>
+        <div class="info-row"><label>Storefront:</label> <span>{{ facts.storefront or "—" }}</span></div>
+        <div class="info-row"><label>Payment status:</label>
+            <span>
+                {% if facts.payment_status == 'PAID' %}<strong style="color:#16a34a;">PAID</strong>
+                {% else %}<strong style="color:#b42318;">{{ facts.payment_status }}</strong>{% endif %}
+                {% if facts.provider_state %}<span class="text-muted" style="font-size:11px;"> · provider says {{ facts.provider_state }}</span>{% endif %}
+            </span></div>
+        <div class="info-row"><label>Currency:</label> <span><strong>{{ facts.currency or "—" }}</strong></span></div>
+        <div class="info-row"><label>Paid:</label> <span><strong>{{ facts.captured_text }}</strong></span></div>
+        <div class="info-row"><label>Previously refunded:</label> <span>{{ facts.already_refunded_text }}</span></div>
+        <div class="info-row"><label>Available to refund:</label>
+            <span style="font-size:16px;font-weight:800;">{{ facts.max_refundable_text }}</span></div>
+        <div class="info-row"><label>Payment reference:</label>
+            <span style="font-family:monospace;font-size:11px;">{{ facts.payment_ref or "—" }}</span></div>
+        <div class="info-row"><label>Current order status:</label> <span>{{ facts.current_status or "—" }}</span></div>
+        {% if facts.fulfilled %}
+        <div style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:8px 10px;border-radius:6px;font-size:12px;margin-top:8px;">
+            This order is already <strong>fulfilled</strong> — the goods have shipped. Refunding it is an operational decision, not an automatic one.
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <h3>Refunds already on this order</h3>
+        {% if facts.refunds %}
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <thead><tr style="background:#f6f8fa;text-align:left;">
+                <th style="padding:6px 8px;">Amount</th><th style="padding:6px 8px;">Status</th>
+                <th style="padding:6px 8px;">Reason</th><th style="padding:6px 8px;">Requested</th>
+            </tr></thead>
+            <tbody>
+            {% for r in facts.refunds %}
+            <tr style="border-bottom:1px solid #eee;">
+                <td style="padding:6px 8px;"><strong>{{ r.amount_text }}</strong></td>
+                <td style="padding:6px 8px;">{{ r.status }}</td>
+                <td style="padding:6px 8px;">{{ r.reason_label }}</td>
+                <td style="padding:6px 8px;white-space:nowrap;">{{ r.requested_at }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted" style="font-size:13px;">None. This would be the first refund on this payment.</p>
+        {% endif %}
+    </div>
+</div>
+
+{% if facts.payment_status == 'PAID' and facts.max_refundable_minor > 0 %}
+<form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/refund/review" id="rfForm">
+<input type="hidden" name="idempotency_key" value="{{ idempotency_key }}">
+<input type="hidden" name="seeded_draft" id="rfSeed" value="{{ seeded_draft }}">
+<div class="detail-grid">
+    <div class="card">
+        <h3>Refund</h3>
+        <div class="form-group">
+            <label>Refund method</label>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;">
+                <label><input type="radio" name="refund_method" value="gateway" checked>
+                    Gateway — back to the customer's Razorpay payment</label>
+                <label><input type="radio" name="refund_method" value="upi">
+                    UPI — already paid by staff from the company UPI</label>
+            </div>
+        </div>
+        <fieldset id="rfUpiFields" disabled
+                  style="display:none;border:0;padding:0;margin:0;min-width:0;">
+            <div class="form-group">
+                <label>Customer UPI ID</label>
+                <input type="text" name="upi_vpa" class="form-input" autocomplete="off" required>
+            </div>
+            <div class="form-group">
+                <label>Name shown in the UPI app</label>
+                <input type="text" name="payee_name" class="form-input" autocomplete="off" required>
+            </div>
+            <div class="form-group">
+                <label>12-digit UTR</label>
+                <input type="text" name="utr" class="form-input" inputmode="numeric"
+                       pattern="\d{12}" maxlength="12" autocomplete="off" required>
+            </div>
+            <div class="form-group">
+                <label>Date paid</label>
+                <input type="date" name="paid_on" class="form-input"
+                       value="{{ upi_today }}" max="{{ upi_today }}" required>
+            </div>
+            <p style="font-size:12px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:9px 11px;">
+                Pay the customer by UPI first, then enter the details. Ops records the refund; nothing is paid from here.
+            </p>
+        </fieldset>
+        <div class="form-group">
+            <label>Refund amount ({{ facts.currency }})</label>
+            <input type="text" name="amount" id="rfAmount" class="form-input"
+                   value="{{ facts.max_refundable_input }}" autocomplete="off">
+            <p style="font-size:11px;color:#94a3b8;margin-top:4px;">
+                In {{ facts.currency }}, because that is the currency this payment was captured in.
+                At most {{ facts.max_refundable_text }}. Optiwar rejects any other currency rather than converting it.
+            </p>
+        </div>
+        <div class="form-group">
+            <label>Reason</label>
+            <select name="reason_code" id="rfReason" class="form-select">
+                {% for code, label in reasons %}<option value="{{ code }}">{{ label }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Internal comment (kept in the refund ledger and order history)</label>
+            <textarea name="comment" id="rfComment" class="form-textarea" rows="2"
+                      placeholder="e.g. Refund approved by EU Ops"></textarea>
+        </div>
+        <div class="form-group">
+            <label style="font-weight:600;margin-bottom:6px;display:block;">Notify customer</label>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;">
+                <label><input type="checkbox" name="notify_email" value="1" checked> ✉ Email</label>
+                <label><input type="checkbox" name="notify_whatsapp" value="1"> 💬 WhatsApp</label>
+                <label><input type="checkbox" name="notify_sms" value="1"> 📱 SMS</label>
+            </div>
+            <p style="font-size:11px;color:#94a3b8;margin-top:4px;">
+                Sent only after the selected refund method is recorded. A failed message is reported as a failed message — it never unwinds the refund.
+            </p>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>Customer message <span style="font-size:11px;color:#94a3b8;font-weight:400;">(editable — this exact text is what goes out and what is stored)</span></h3>
+        <p style="font-size:11px;color:#94a3b8;margin-top:-6px;">
+            AI writes the wording only. The amount, currency and payment reference come from Optiwar and cannot be changed here.
+        </p>
+        <textarea name="message_html" id="rfMessage" class="form-textarea" rows="10"
+                  style="font-family:monospace;font-size:12px;">{{ draft_html }}</textarea>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:8px;">
+            <button type="button" class="btn btn-sm btn-outline" onclick="rfAiDraft()" id="rfAiBtn">✨ Generate AI draft</button>
+            <span id="rfAiNote" style="font-size:11px;color:#94a3b8;"></span>
+        </div>
+        <div id="rfStaleNote" style="display:none;background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:8px 10px;border-radius:6px;font-size:12px;margin-top:8px;">
+            You changed the amount after this wording was written — check it still names the right amount. The preview screen will not let a message contradict the refund.
+        </div>
+    </div>
+</div>
+
+<div style="margin-top:14px;display:flex;gap:10px;align-items:center;">
+    <button type="submit" class="btn btn-primary">Preview Refund &raquo;</button>
+    <a href="{{ base }}/orders/ow/{{ order.order_id }}" class="btn btn-outline">Cancel</a>
+    <span style="font-size:11px;color:#94a3b8;">Next screen shows the final amount and asks for a deliberate confirmation.</span>
+</div>
+</form>
+{% elif facts.payment_status != 'PAID' %}
+<div class="alert" style="background:#fef2f2;border:1px solid #fecaca;color:#b42318;padding:10px 14px;border-radius:6px;">
+    This order has no successful captured payment, so there is nothing to refund. An unpaid order cannot be marked Refunded.
+</div>
+{% else %}
+<div class="alert" style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:10px 14px;border-radius:6px;">
+    Nothing is left to refund on this payment — {{ facts.captured_text }} was captured and {{ facts.already_refunded_text }} has already been refunded.
+</div>
+{% endif %}
+{% endif %}
+
+<script>
+function rfStaleCheck(){
+    var seed = document.getElementById('rfSeed');
+    var msg = document.getElementById('rfMessage');
+    var note = document.getElementById('rfStaleNote');
+    if (!seed || !msg || !note) return;
+    // Untouched standard wording is rewritten server-side, so only an edited or
+    // AI-written message can go stale when the amount changes.
+    note.style.display = (msg.value.trim() === seed.value.trim()) ? 'none' : 'block';
+}
+
+function rfAiDraft(){
+    var btn = document.getElementById('rfAiBtn');
+    var note = document.getElementById('rfAiNote');
+    btn.disabled = true; note.textContent = 'Drafting…';
+    var qs = "?amount=" + encodeURIComponent(document.getElementById('rfAmount').value || '')
+           + "&currency={{ facts.currency }}"
+           + "&reason_code=" + encodeURIComponent(document.getElementById('rfReason').value || '')
+           + "&comment=" + encodeURIComponent(document.getElementById('rfComment').value || '');
+    fetch("{{ base }}/orders/ow/{{ order.order_id }}/refund/ai-draft" + qs)
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+          document.getElementById('rfMessage').value = d.html || '';
+          note.textContent = d.ok ? 'AI draft inserted — edit freely.'
+                                  : 'AI unavailable; standard template kept.';
+          btn.disabled = false;
+          document.getElementById('rfStaleNote').style.display = 'none';
+      })
+      .catch(function(){
+          note.textContent = 'AI unavailable; standard template kept.';
+          btn.disabled = false;
+      });
+}
+
+function rfMethodChanged(){
+    var selected = document.querySelector('input[name="refund_method"]:checked');
+    var fields = document.getElementById('rfUpiFields');
+    if (!fields) return;
+    var isUpi = selected && selected.value === 'upi';
+    fields.style.display = isUpi ? 'block' : 'none';
+    fields.disabled = !isUpi;
+}
+
+(function(){
+    var amount = document.getElementById('rfAmount');
+    if (amount) amount.addEventListener('input', rfStaleCheck);
+    document.addEventListener('DOMContentLoaded', rfMethodChanged);
+    window.addEventListener('pageshow', rfMethodChanged);
+    document.querySelectorAll('input[name="refund_method"]').forEach(function(radio){
+        radio.addEventListener('change', rfMethodChanged);
+    });
+    rfMethodChanged();
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+{% block title %}Reconciliation — LensBazaar OPP{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>🧾 Reconciliation</h1>
+    <p>Every shipped order for one day, and the evidence that the money arrived.</p>
+</div>
+
+<style>
+.rc-bar{background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;padding:16px 20px;margin-bottom:1.1rem}
+.rc-bar form{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end}
+.rc-field{display:flex;flex-direction:column;gap:4px}
+.rc-field label{font-size:.72rem;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.02em}
+.rc-field input,.rc-field select{padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:.85rem}
+.rc-go{padding:9px 18px;border:none;border-radius:8px;background:#2563eb;color:#fff;font-weight:700;font-size:.8rem;cursor:pointer}
+.rc-go:hover{background:#1d4ed8}
+.rc-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:1.1rem}
+.rc-card{background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;padding:14px 16px}
+.rc-card .k{font-size:.68rem;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.03em}
+.rc-card .v{font-size:1.4rem;font-weight:800;color:#0f172a;margin-top:4px}
+.rc-card.good .v{color:#15803d}
+.rc-card.warn .v{color:#b45309}
+.rc-card.bad .v{color:#b91c1c}
+.rc-table{width:100%;border-collapse:collapse;font-size:.8rem;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.rc-table th{background:#1e293b;color:#fff;text-align:left;padding:9px 10px;font-size:.7rem;text-transform:uppercase;letter-spacing:.02em}
+.rc-table td{padding:8px 10px;border-bottom:1px solid #eef2f7;vertical-align:top}
+.rc-table tr:hover td{background:#f8fafc}
+.rc-table td.num,.rc-table th.num{text-align:right;font-variant-numeric:tabular-nums}
+.st{display:inline-block;padding:2px 9px;border-radius:999px;font-size:.66rem;font-weight:800;letter-spacing:.02em}
+.st-SETTLED{background:#dcfce7;color:#15803d}
+.st-BANK_CREDITED{background:#dbeafe;color:#1d4ed8}
+.st-IN_PAYOUT{background:#e0e7ff;color:#4338ca}
+.st-DELIVERED{background:#f1f5f9;color:#475569}
+.st-OPEN{background:#fee2e2;color:#b91c1c}
+.st-RTO{background:#fef3c7;color:#b45309}
+.st-REFUNDED{background:#f3e8ff;color:#7e22ce}
+.st-WRITTEN_OFF{background:#e2e8f0;color:#475569}
+.sev-HIGH{background:#fee2e2;color:#b91c1c}
+.sev-MEDIUM{background:#fef3c7;color:#b45309}
+.sev-LOW{background:#f1f5f9;color:#475569}
+.rc-sec{margin-top:1.6rem}
+.rc-sec h2{font-size:1rem;margin:0 0 .6rem;color:#0f172a}
+.rc-empty{padding:32px;text-align:center;color:#64748b;background:#fff;border-radius:12px}
+.rc-ok{padding:14px 18px;background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:12px;color:#15803d;font-weight:700;font-size:.85rem}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.74rem}
+.rc-days a{display:inline-block;margin:0 6px 6px 0;padding:4px 10px;border-radius:8px;background:#f1f5f9;color:#334155;font-size:.74rem;font-weight:700;text-decoration:none}
+.rc-days a:hover{background:#e2e8f0}
+.rc-days a.on{background:#2563eb;color:#fff}
+.rc-run{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px dashed #e2e8f0}
+.rc-run button{padding:9px 16px;border:none;border-radius:8px;font-size:.8rem;font-weight:700;cursor:pointer}
+.btn-dry{background:#0f766e;color:#fff}
+.btn-dry:hover{background:#115e59}
+.btn-commit{background:#b45309;color:#fff}
+.btn-commit:hover{background:#92400e}
+.rc-run button[disabled]{background:#e2e8f0;color:#94a3b8;cursor:not-allowed}
+.rc-run .hint{font-size:.74rem;color:#64748b}
+.rc-out{background:#0f172a;color:#e2e8f0;border-radius:12px;padding:14px 18px;margin-bottom:1.1rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.74rem;white-space:pre-wrap;max-height:420px;overflow:auto}
+.rc-out h3{color:#fff;font-family:system-ui,sans-serif;font-size:.9rem;margin:0 0 .6rem}
+.rc-out .step{color:#7dd3fc;font-weight:700}
+.rc-out .fail{color:#fca5a5;font-weight:700}
+.rc-run-ok{background:#f0fdf4;border:1.5px solid #bbf7d0;color:#15803d;padding:12px 16px;border-radius:12px;margin-bottom:1rem;font-size:.85rem;font-weight:700}
+.rc-run-bad{background:#fef2f2;border:1.5px solid #fecaca;color:#b91c1c;padding:12px 16px;border-radius:12px;margin-bottom:1rem;font-size:.85rem;font-weight:700}
+</style>
+
+<div class="rc-bar">
+    <form method="get" action="{{ base }}/recon">
+        <div class="rc-field">
+            <label>Shipping date</label>
+            <input type="date" name="date" value="{{ data.date }}">
+        </div>
+        <button class="rc-go" type="submit">View day</button>
+    </form>
+    {% if days %}
+    <div class="rc-days" style="margin-top:12px">
+        {% for d in days %}
+        <a href="{{ base }}/recon?date={{ d.d }}" class="{% if d.d.isoformat() == data.date %}on{% endif %}">{{ d.d }} · {{ d.orders }}</a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="rc-run">
+        <form method="post" action="{{ base }}/recon/run">
+            <input type="hidden" name="date" value="{{ data.date }}">
+            <input type="hidden" name="mode" value="dry">
+            <button class="btn-dry" type="submit" {% if not runner_up %}disabled{% endif %}>Dry run {{ data.date }}</button>
+        </form>
+        <form method="post" action="{{ base }}/recon/run"
+              onsubmit="return confirm('Write the reconciliation for {{ data.date }}?')">
+            <input type="hidden" name="date" value="{{ data.date }}">
+            <input type="hidden" name="mode" value="commit">
+            <button class="btn-commit" type="submit"
+                    {% if not runner_up or data.date not in dry_seen %}disabled{% endif %}>Commit {{ data.date }}</button>
+        </form>
+        <span class="hint">
+            {% if not runner_up %}
+                The reconciliation runner is not answering — nothing can be run from here.
+            {% elif data.date in dry_seen %}
+                Dry run passed for this date, so Commit is unlocked. It writes the same result.
+            {% else %}
+                Dry run first. A day is never written before somebody has seen what it would do.
+            {% endif %}
+        </span>
+    </div>
+</div>
+
+{% if run %}
+<div class="{% if run.ok %}rc-run-ok{% else %}rc-run-bad{% endif %}">
+    {% if run.ok %}
+        {% if run.mode == 'commit' %}Committed {{ run.date }}.{% else %}Dry run of {{ run.date }} succeeded — nothing was written.{% endif %}
+    {% else %}
+        {{ run.mode | default('run') | capitalize }} of {{ run.date }} did not complete{% if run.error %}: {{ run.error }}{% endif %}. Nothing beyond the failing step was attempted.
+    {% endif %}
+</div>
+<div class="rc-out">
+    <h3>What the runner reported</h3>
+{% for s in run.steps %}<span class="{% if s.ok %}step{% else %}fail{% endif %}">── {{ s.step }} {% if s.ok %}ok{% else %}FAILED{% endif %} ──</span>
+{{ s.output }}
+
+{% endfor %}</div>
+{% endif %}
+
+{% if not data.rows %}
+<div class="rc-empty">Nothing ingested for {{ data.date }}.</div>
+{% else %}
+
+<div class="rc-cards">
+    <div class="rc-card"><div class="k">Orders</div><div class="v">{{ data.totals.orders }}</div></div>
+    <div class="rc-card"><div class="k">Receivable</div><div class="v">{{ '{:,.2f}'.format(data.totals.due) }}</div></div>
+    <div class="rc-card good"><div class="k">Settled to bank</div><div class="v">{{ '{:,.2f}'.format(data.totals.settled) }}</div></div>
+    <div class="rc-card warn"><div class="k">Returned (RTO)</div><div class="v">{{ '{:,.2f}'.format(data.totals.rto) }}</div></div>
+    <div class="rc-card {% if data.totals.open %}bad{% else %}good{% endif %}"><div class="k">Still owed</div><div class="v">{{ '{:,.2f}'.format(data.totals.open) }}</div></div>
+</div>
+
+<table class="rc-table">
+    <thead><tr>
+        <th>Order</th><th>Site</th><th>Bucket</th><th>Courier</th><th>AWB</th>
+        <th class="num">Due</th><th class="num">Settled</th><th>State</th>
+        <th>Payout</th><th>Banked</th><th></th>
+    </tr></thead>
+    <tbody>
+    {% for r in data.rows %}
+        <tr>
+            <td><b>{{ r.order_id }}</b></td>
+            <td class="text-small">{{ r.source_site }}</td>
+            <td class="text-small">{{ r.payment_bucket }}</td>
+            <td class="text-small">{{ r.courier or '—' }}</td>
+            <td class="mono">{{ r.awb or '—' }}</td>
+            <td class="num">{{ '{:,.2f}'.format(r.amount_due_inr) }}</td>
+            <td class="num">{{ '{:,.2f}'.format(r.amount_settled_inr) }}</td>
+            <td><span class="st st-{{ r.state }}">{{ r.state }}</span></td>
+            <td class="text-small">
+                {% if r.batch_ids %}
+                    {% for bid in r.batch_ids.split(',') %}<a href="{{ base }}/recon/payout/{{ bid }}">{{ r.batches.split(', ')[loop.index0] }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+                {% else %}—{% endif %}
+            </td>
+            <td class="text-small">
+                {% if r.banked_on %}{{ r.banked_on }}<br><span class="mono text-muted">…{{ r.bank_tail }} {{ r.bank_ref or '' }}</span>{% else %}—{% endif %}
+            </td>
+            <td><a class="btn btn-sm btn-outline" href="{{ base }}/recon/order/{{ r.id }}">Evidence</a></td>
+        </tr>
+    {% endfor %}
+    </tbody>
+    <tfoot><tr class="total-row">
+        <td colspan="5"><b>Total</b></td>
+        <td class="num"><b>{{ '{:,.2f}'.format(data.totals.due) }}</b></td>
+        <td class="num"><b>{{ '{:,.2f}'.format(data.totals.settled) }}</b></td>
+        <td colspan="4"></td>
+    </tr></tfoot>
+</table>
+
+<div class="rc-sec">
+    <h2>Open exceptions</h2>
+    {% if data.exceptions %}
+    <table class="rc-table">
+        <thead><tr><th>Type</th><th>Severity</th><th>Order</th><th class="num">Amount</th><th>Detail</th><th>Raised</th></tr></thead>
+        <tbody>
+        {% for e in data.exceptions %}
+            <tr>
+                <td><b>{{ e.exc_type }}</b></td>
+                <td><span class="st sev-{{ e.severity }}">{{ e.severity }}</span></td>
+                <td>{% if e.receivable_id %}<a href="{{ base }}/recon/order/{{ e.receivable_id }}">{{ e.order_id }}</a>{% else %}{{ e.order_id or '—' }}{% endif %}</td>
+                <td class="num">{{ '{:,.2f}'.format(e.amount) if e.amount else '—' }}</td>
+                <td class="text-small">{{ e.detail }}</td>
+                <td class="text-small">{{ e.first_seen_at }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="rc-ok">No open exceptions for this day — every order is either settled to a bank credit or accounted for by returned goods.</div>
+    {% endif %}
+</div>
+
+{% if data.buckets %}
+<div class="rc-sec">
+    <h2>By payment route</h2>
+    <table class="rc-table">
+        <thead><tr><th>Route</th><th class="num">Orders</th><th class="num">Due</th><th class="num">Settled</th><th class="num">Difference</th></tr></thead>
+        <tbody>
+        {% for name, b in data.buckets %}
+            <tr>
+                <td><b>{{ name }}</b></td>
+                <td class="num">{{ b.n }}</td>
+                <td class="num">{{ '{:,.2f}'.format(b.due) }}</td>
+                <td class="num">{{ '{:,.2f}'.format(b.settled) }}</td>
+                <td class="num">{{ '{:,.2f}'.format(b.due - b.settled) }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}

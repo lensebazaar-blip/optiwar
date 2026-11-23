@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Verify Code — LensBazaar OPP{% endblock %}
+{% block content %}
+<div class="auth-container">
+    <div class="auth-card">
+        <h1>Verification</h1>
+        <p>Enter the 6-digit code sent to your email</p>
+        {% if message %}
+        <div class="alert alert-info">{{ message }}</div>
+        {% endif %}
+        {% if error %}
+        <div class="alert alert-error">{{ error }}</div>
+        {% endif %}
+        <form method="post" action="{{ base }}/verify-otp">
+            <input type="hidden" name="user_id" value="{{ user_id }}">
+            <div class="form-group">
+                <label for="otp_code">Verification Code</label>
+                <input type="text" id="otp_code" name="otp_code" maxlength="6"
+                       pattern="[0-9]{6}" required autofocus
+                       style="text-align:center; font-size:24px; letter-spacing:8px;">
+            </div>
+            <button type="submit" class="btn btn-primary btn-full">Verify</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

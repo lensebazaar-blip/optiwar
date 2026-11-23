@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Activity Log — LensBazaar OPP{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Activity Log</h1>
+</div>
+
+<div class="table-responsive">
+    <table>
+        <thead>
+            <tr><th>Time</th><th>User</th><th>Action</th><th>Entity</th><th>IP</th><th>Details</th></tr>
+        </thead>
+        <tbody>
+            {% for log in logs %}
+            <tr>
+                <td class="text-small">{{ log.created_at }}</td>
+                <td>{{ log.username or 'System' }}</td>
+                <td>{{ log.action }}</td>
+                <td>
+                    {% if log.entity_type == 'order' %}
+                    <a href="{{ base }}/orders/{{ log.entity_id }}">#E-{{ log.entity_id }}</a>
+                    {% else %}
+                    {{ log.entity_type or '' }} {{ log.entity_id or '' }}
+                    {% endif %}
+                </td>
+                <td class="text-small">{{ log.ip_address or '' }}</td>
+                <td class="text-small">{{ log.details or '' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="pagination">
+    {% if page > 1 %}
+    <a href="{{ base }}/activity?page={{ page - 1 }}" class="btn btn-sm">&laquo; Prev</a>
+    {% endif %}
+    <span class="page-info">Page {{ page }}</span>
+    <a href="{{ base }}/activity?page={{ page + 1 }}" class="btn btn-sm">Next &raquo;</a>
+</div>
+{% endblock %}
