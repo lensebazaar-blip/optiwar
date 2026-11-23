@@ -114,6 +114,18 @@ class DeployMigrationTest(unittest.TestCase):
         self.assertIn("progressive_scan.py", self.deploy.DEPLOY_SET)
         self.assertIn("progressive_scan.py", self.deploy.NEW_IN_RELEASE)
 
+    def test_brand_compliance_module_and_catalogues_are_deployable(self):
+        self.assertIn("brand_compliance.py", self.deploy.DEPLOY_SET)
+        self.assertIn("brand_compliance.py", self.deploy.NEW_IN_RELEASE)
+        for path in ("static/ai/frame_rules.json",
+                     "static/ai/optiwar_ai_knowledge_base.json",
+                     "static/ai/product_catalog.json",
+                     "products.py",
+                     "templates/base.html", "templates/categories.html",
+                     "templates/guide_frame_shapes.html",
+                     "templates/all_frames.html", "templates/index.html"):
+            self.assertIn(path, self.deploy.DEPLOY_SET)
+
     def test_frame_offer_schema_and_files_are_in_the_release(self):
         self.assertIn("frame_swap_offers (table)",
                       [label for label, _sql in self.deploy.migration()])

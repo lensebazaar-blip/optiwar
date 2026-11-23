@@ -167,8 +167,8 @@ msgid "Half Frames Specs"
 msgstr "Halbrandfassungen"
 
 #: templates/base.html:703
-msgid "Club Master Specs"
-msgstr "Clubmaster-Fassungen"
+msgid "Browline Specs"
+msgstr "Browline-Fassungen"
 
 #: templates/base.html:704
 msgid "Rounded-Glass Specs"
@@ -401,4 +401,3 @@ msgstr "Hier einloggen"
 #: templates/terms-and-conditions.html:17
 msgid "Terms and Conditions"
 msgstr "AGB"
-

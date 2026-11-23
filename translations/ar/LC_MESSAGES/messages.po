@@ -168,8 +168,8 @@ msgid "Half Frames Specs"
 msgstr "مواصفات النصف إطار"
 
 #: templates/base.html:703
-msgid "Club Master Specs"
-msgstr "مواصفات كلاب ماستر"
+msgid "Browline Specs"
+msgstr "مواصفات براولاين"
 
 #: templates/base.html:704
 msgid "Rounded-Glass Specs"
@@ -402,4 +402,3 @@ msgstr "سجل الدخول هنا"
 #: templates/terms-and-conditions.html:17
 msgid "Terms and Conditions"
 msgstr "الشروط والأحكام"
-

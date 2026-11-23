@@ -33,6 +33,7 @@ from .catalogue import (
     current_site, strip_ineligible_urls, age_group, ensure_gmc_columns,
     live_lenses, lens_matrix_summary, SITE_IN, SITE_COM,
 )
+from .brand_compliance import RENAMED, display_name, slugify
 from . import face_cart, face_fit, face_profiles, face_profiles_api, face_scan_groups_api, face_scan_invites_api, favorites_api, frame_offers_api, order_face_scan, order_rx_documents, progressive_scan
 from . import (acr, lens_cart, lens_config, lens_documents, lens_feed,
                lens_order, lens_preview, lens_rx, lens_seo, lens_upload,
@@ -505,6 +506,7 @@ def api_search():
 
         cursor.execute(sql, like_params + filter_params)
         products = cursor.fetchall()
+        _apply_display_names(products)
         print("✅ API Search found %d products for: %s" % (len(products), query))
     except Exception as e:
         print("🔥 API Search failed: %s" % e)
@@ -574,10 +576,14 @@ def autocomplete():
     term = request.args.get('term', '')
     db = get_db()
     cursor = db.cursor()
-    cursor.execute("SELECT DISTINCT product_name FROM products WHERE product_name LIKE %s "
+    cursor.execute("SELECT DISTINCT product_id, product_name FROM products WHERE product_name LIKE %s "
                    "AND product_quantity > 0" + catalogue_site_filter() + " LIMIT 10",
                    (f"%{term}%",))
-    suggestions = [row for row in cursor.fetchall()]
+    suggestions = []
+    for row in cursor.fetchall():
+        name = display_name(row) or row.get('product_name')
+        if name and name not in suggestions:
+            suggestions.append(name)
     cursor.close()
     #conn.close()
     return jsonify(suggestions)
@@ -598,6 +604,7 @@ def index():
     cursor.execute("SELECT * FROM products where product_image!='NULL' AND product_quantity!=0"
                    + catalogue_site_filter() + " order by RAND() LIMIT 48")
     products = cursor.fetchall()
+    _apply_display_names(products)
     # Homepage grid (scripts.js loadProducts) is inlined for ALL products.
     # Attach PRIMARY media only (limit=1), and dump a TRIMMED projection to JS
     # (only the fields loadProducts actually reads) so the inline payload stays
@@ -674,7 +681,10 @@ def add_to_cart():
             return "Product not found", 404
     finally:
         _cur.close()
-    product_name = request.form['product_name']
+    product_name = display_name({
+        'product_id': product_id,
+        'product_name': request.form['product_name'],
+    })
     product_special_price = safe_float(request.form['product_special_price'])
     product_code = request.form['product_code']
     product_price = safe_float(request.form['product_price'])
@@ -1174,7 +1184,25 @@ def list_category():
       else:
           return "Category not found", 404
 
-@bp.route('/contact_lenses/<categories>/<products>')
+def _apply_display_names(products):
+    for product in products or ():
+        if isinstance(product, dict):
+            product['product_name'] = display_name(product) or product.get('product_name')
+            product_id = int(product.get('product_id') or 0)
+            if product_id in RENAMED:
+                product['product_slug'] = slugify(product['product_name'])
+            if (product.get('product_category_square')
+                    or product.get('product_category_wayfarer')):
+                product['product_category_square'] = 1
+                product['product_category_wayfarer'] = 1
+            if (product.get('product_category_clubmaster')
+                    or product.get('product_category_browline')):
+                product['product_category_clubmaster'] = 1
+                product['product_category_browline'] = 1
+    return products
+
+
+@bp.route('/contact_lenses/<category>/<product>')
 def show_product(category, product):
     if category in categories and product in categories[category]['products']:
        return render_template(f"{category}/{product}.html", product=product, category=categories[category])
@@ -1198,7 +1226,10 @@ def add_to_cart_wcl():
         # .in invariant can be enforced for a lens someone posts directly.
         if not sellable_here(cursor, product_id):
             return "Product not found", 404
-        product_name = request.form.get('product_name', '').strip()
+        product_name = display_name({
+            'product_id': product_id,
+            'product_name': request.form.get('product_name', '').strip(),
+        })
         product_price = safe_float(request.form.get('product_price', 0))
         product_code = request.form['product_code']
         product_special_price = safe_float(request.form.get('product_special_price', 0))
@@ -1393,9 +1424,9 @@ CATEGORY_QUERIES = {
     'rectangle': 'SELECT * FROM products WHERE product_category_rectangle = 1 AND product_image IS NOT NULL AND product_image != "" AND product_image != "NULL" AND product_quantity > 0',
     'round': 'SELECT * FROM products WHERE product_category_round = 1 AND product_image IS NOT NULL AND product_image != "" AND product_image != "NULL" AND product_quantity > 0',
     'rounded': 'SELECT * FROM products WHERE product_category_round = 1 AND product_image IS NOT NULL AND product_image != "" AND product_image != "NULL" AND product_quantity > 0',
-    'clubmaster': 'SELECT * FROM products WHERE product_category_clubmaster = 1 AND product_image IS NOT NULL AND product_image != "" AND product_image != "NULL" AND product_quantity > 0',
+    'browline': 'SELECT * FROM products WHERE (product_category_browline = 1 OR product_category_clubmaster = 1) AND product_image IS NOT NULL AND product_image != "" AND product_image != "NULL" AND product_quantity > 0',
     'rimless': 'SELECT * FROM products WHERE product_category_rimless = 1 AND product_image IS NOT NULL AND product_image != "" AND product_image != "NULL" AND product_quantity > 0',
-    'square': 'SELECT * FROM products WHERE product_category_square = 1 AND product_image IS NOT NULL AND product_image != "" AND product_image != "NULL" AND product_quantity > 0',
+    'square': 'SELECT * FROM products WHERE (product_category_square = 1 OR product_category_wayfarer = 1) AND product_image IS NOT NULL AND product_image != "" AND product_image != "NULL" AND product_quantity > 0',
     'Spectacles Frame': 'SELECT * FROM products WHERE product_category = "Spectacles Frame" AND product_image IS NOT NULL AND product_image != "" AND product_image != "NULL" AND product_quantity > 0',
     'panto-frames': 'SELECT * FROM products WHERE product_category_panto = 1 AND product_image IS NOT NULL AND product_image != "" AND product_image != "NULL" AND product_quantity > 0',
 }
@@ -1427,6 +1458,7 @@ def all_spectacle_frames():
     )
     products = cursor.fetchall()
     cursor.close()
+    _apply_display_names(products)
     # Fetch matching frame IDs for logged-in users (cached in Redis for 30min)
     matching_ids = []
     face_meas = {}
@@ -1481,7 +1513,7 @@ def all_spectacle_frames():
                         AND product_quantity > 0
                         AND product_size IS NOT NULL AND product_size != ''
                         AND product_size REGEXP '^[0-9]+-[0-9]+-[0-9]+$'
-                    """)
+                    """ + catalogue_site_filter())
                     matching_ids = face_fit.matching_product_ids(
                         cursor2.fetchall(),
                         {"pd_far": pd_far, "face_width": face_w,
@@ -1566,16 +1598,24 @@ def api_frames():
             'oval': 'product_category_oval',
             'round': 'product_category_round',
             'square': 'product_category_square',
-            'wayfarer': 'product_category_wayfarer',
             'aviator': 'product_category_aviator',
             'cateye': 'product_category_cateye',
-            'clubmaster': 'product_category_clubmaster',
+            'browline': 'product_category_browline',
             'panto': 'product_category_panto',
             'kids': 'product_category_kids',
             'supra': 'product_category_supra'
         }
-        col = shape_col_map.get(shape.lower())
-        if col:
+        canonical_shape = {'wayfarer': 'square', 'classic square': 'square',
+                           'classic-square': 'square', 'clubmaster': 'browline'}.get(
+            shape.lower(), shape.lower())
+        col = shape_col_map.get(canonical_shape)
+        if canonical_shape == 'square':
+            where_clauses.append(
+                "(product_category_square = 1 OR product_category_wayfarer = 1)")
+        elif canonical_shape == 'browline':
+            where_clauses.append(
+                "(product_category_browline = 1 OR product_category_clubmaster = 1)")
+        elif col:
             where_clauses.append("{} = 1".format(col))
 
     if facematch_ids:
@@ -1610,6 +1650,7 @@ def api_frames():
     cursor.execute(data_sql, params)
     products = cursor.fetchall()
     cursor.close()
+    _apply_display_names(products)
 
     items = []
     for p in products:
@@ -1713,6 +1754,9 @@ def product_page(category, product_slug):
         return "Product not found", 404
 
     expected_slug = product["product_slug"]
+    if product_id in RENAMED:
+        product["product_name"] = display_name(product)
+        expected_slug = slugify(product["product_name"])
     # D1 fix: guard for NULL/empty slug — return 404 instead of crashing
     if not expected_slug or expected_slug == 'none':
         return "Product not found", 404
@@ -1798,11 +1842,12 @@ def product_page(category, product_slug):
         ('product_category_rectangle', 'Rectangle'),
         ('product_category_oval', 'Oval'),
         ('product_category_round', 'Round'),
-        ('product_category_square', 'Square'),
-        ('product_category_wayfarer', 'Wayfarer'),
+        ('product_category_square', 'Classic Square'),
+        ('product_category_wayfarer', 'Classic Square'),
         ('product_category_aviator', 'Aviator'),
         ('product_category_cateye', 'Cat Eye'),
-        ('product_category_clubmaster', 'Clubmaster'),
+        ('product_category_clubmaster', 'Browline'),
+        ('product_category_browline', 'Browline'),
         ('product_category_panto', 'Panto'),
         ('product_category_kids', 'Kids'),
         ('product_category_supra', 'Supra'),
@@ -2075,6 +2120,10 @@ def get_reviews(product_id):
 
 @bp.route('/categories/<category>', methods=['GET'])
 def categories(category=None):
+    if category == 'clubmaster':
+        return redirect(url_for('main.categories', category='browline'), code=301)
+    if category == 'wayfarer':
+        return redirect(url_for('main.categories', category='square'), code=301)
     db = get_db()
     cursor = db.cursor()
     query = CATEGORY_QUERIES.get(category)
@@ -2086,6 +2135,7 @@ def categories(category=None):
 
     #print(f"Categories print {products}")
     cursor.close()
+    _apply_display_names(products)
     return render_template('categories.html',category=category,products=products)
 
 
@@ -2312,8 +2362,13 @@ def add_to_cart_with_lenses():
     cursor = db.cursor()
 
     product_id = request.form['product_id']
+    if not sellable_here(cursor, product_id):
+        return "Product not found", 404
     product_price = request.form['product_price']
-    product_name = request.form['product_name']
+    product_name = display_name({
+        'product_id': product_id,
+        'product_name': request.form['product_name'],
+    })
     right_pwr = request.form['right_pwr']
     right_cyl = request.form['right_cyl']
     right_axis = request.form['right_axis']
@@ -2850,6 +2905,12 @@ def _progressive_scan_checkout_allowed(cart):
     return False
 
 
+def _drop_ineligible_cart_lines(cart, cursor):
+    kept = [item for item in cart
+            if sellable_here(cursor, item.get('product_id'), current_site())]
+    return kept, len(cart) - len(kept)
+
+
 @bp.route('/checkout', methods=['GET'])
 def checkout_page():
 
@@ -2859,6 +2920,14 @@ def checkout_page():
         return redirect(url_for('auth.login', next=url_for('main.checkout_page')))
 
     cart = [item for item in session.get('cart', []) if item.get('product_id') is not None]
+    if cart:
+        _guard_cursor = get_db().cursor()
+        cart, _removed = _drop_ineligible_cart_lines(cart, _guard_cursor)
+        _guard_cursor.close()
+        if _removed:
+            session['cart'] = cart
+            _persist_cart(cart)
+            flash('Unavailable products were removed from your cart. Please review it.')
     # --- Auto-correct prices for current site (EUR vs INR) ---
     _is_eur_site = not _req_is_india()
     if cart:
@@ -3216,6 +3285,19 @@ def checkout():
     if not cart:
         flash('Your cart is empty.')
         return redirect(url_for('main.index'))
+    _guard_cursor = get_db().cursor()
+    cart, _removed = _drop_ineligible_cart_lines(cart, _guard_cursor)
+    _guard_cursor.close()
+    if _removed:
+        session['cart'] = cart
+        _persist_cart(cart)
+        flash('Unavailable products were removed from your cart. Please review it before ordering.')
+        return redirect(url_for('main.checkout_page'))
+    for item in cart:
+        renamed = display_name(item)
+        if renamed:
+            item['product_name'] = renamed
+    session['cart'] = cart
     # Last word on the lens minimums: an order is not placed for a cart the
     # rule would not accept, whatever the page showed.
     cart, _dropped = lens_cart.revalidate(
@@ -4449,6 +4531,9 @@ def google_merchant_feed():
 
     items = []
     for p in rows:
+        p['product_name'] = display_name(p) or p.get('product_name')
+        if int(p.get('product_id') or 0) in RENAMED:
+            p['product_slug'] = slugify(p['product_name'])
         # Feed inclusion policy: ACTIVE + in-stock only (drops OUT_OF_STOCK etc.).
         if not is_merchant_eligible(p):
             continue
@@ -5123,6 +5208,27 @@ def sitemap_xml():
     if os.path.exists(static_sitemap):
         with open(static_sitemap, 'r') as f:
             xml = f.read()
+        held = set(held_ids())
+
+        def clean_product_url(match):
+            block = match.group(0)
+            product_match = re.search(r'([?&]pid=)(\d+)(?:&[^<]*)?</loc>', block)
+            if not product_match:
+                return block
+            product_id = int(product_match.group(2))
+            if product_id in held:
+                return ''
+            if product_id in RENAMED:
+                new_slug = slugify(RENAMED[product_id][1])
+                block = re.sub(
+                    r'(<loc>https?://[^<]*/categories/[^/<]+/)[^/?<]+(\?pid=%s[^<]*</loc>)'
+                    % product_id,
+                    lambda url: url.group(1) + new_slug + url.group(2),
+                    block,
+                )
+            return block
+
+        xml = re.sub(r'<url\b[^>]*>.*?</url>', clean_product_url, xml, flags=re.S)
     else:
         # Fallback: minimal sitemap
         xml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
@@ -5166,7 +5272,7 @@ def image_sitemap_xml():
     db = get_db()
     cur = db.cursor()
     cur.execute("""
-        SELECT product_id, product_category, product_slug, product_image,
+        SELECT product_id, product_name, product_category, product_slug, product_image,
                product_vertical
         FROM products
         WHERE (discontinued = 0 OR discontinued IS NULL)
@@ -5187,6 +5293,8 @@ def image_sitemap_xml():
         # advertise a released one twice.
         if is_contact_lens(p):
             continue
+        if int(p.get('product_id') or 0) in RENAMED:
+            p['product_slug'] = slugify(display_name(p))
         angles = versioned_angle_urls(p.get('product_image') or '', base, limit=25)
         if not angles:
             continue
@@ -5265,12 +5373,20 @@ def api_products():
         conditions.append("(product_name LIKE %s OR product_code LIKE %s OR product_color LIKE %s)")
         params.extend([f'%{search_q}%', f'%{search_q}%', f'%{search_q}%'])
     if shape:
-        shape_col = f'product_category_{shape.lower()}'
-        # Validate shape column exists
-        valid_shapes = ['rectangle', 'oval', 'round', 'square', 'wayfarer', 'horn',
-                       'browline', 'aviator', 'cateye', 'clubmaster', 'panto', 'quatra', 'supra']
-        if shape.lower() in valid_shapes:
-            conditions.append(f"`{shape_col}` = 1")
+        shape_name = shape.lower()
+        canonical_shape = {'wayfarer': 'square', 'classic square': 'square',
+                           'classic-square': 'square', 'clubmaster': 'browline'}.get(
+            shape_name, shape_name)
+        valid_shapes = {'rectangle', 'oval', 'round', 'square', 'horn',
+                        'browline', 'aviator', 'cateye', 'panto', 'quatra', 'supra'}
+        if canonical_shape == 'square':
+            conditions.append(
+                "(product_category_square = 1 OR product_category_wayfarer = 1)")
+        elif canonical_shape == 'browline':
+            conditions.append(
+                "(product_category_browline = 1 OR product_category_clubmaster = 1)")
+        elif canonical_shape in valid_shapes:
+            conditions.append(f"`product_category_{canonical_shape}` = 1")
     
     where_clause = " AND ".join(conditions) if conditions else "1=1"
     offset = (page - 1) * per_page
@@ -5330,21 +5446,24 @@ def api_products():
             'rectangle': 'product_category_rectangle',
             'oval': 'product_category_oval',
             'round': 'product_category_round',
-            'square': 'product_category_square',
-            'wayfarer': 'product_category_wayfarer',
             'aviator': 'product_category_aviator',
             'cateye': 'product_category_cateye',
-            'clubmaster': 'product_category_clubmaster',
             'panto': 'product_category_panto',
             'horn': 'product_category_horn',
-            'browline': 'product_category_browline',
         }
         for shape_name, field in shape_fields.items():
             if prod.get(field) and int(prod[field]) == 1:
                 shapes.append(shape_name)
+        if (int(prod.get('product_category_square') or 0) == 1
+                or int(prod.get('product_category_wayfarer') or 0) == 1):
+            shapes.append('Classic Square')
+        if (int(prod.get('product_category_clubmaster') or 0) == 1
+                or int(prod.get('product_category_browline') or 0) == 1):
+            shapes.append('Browline')
         
         # Auto-generate description
-        desc_parts = [prod.get('product_name', ''), prod.get('product_code', '')]
+        product_name = display_name(prod) or prod.get('product_name', '')
+        desc_parts = [product_name, prod.get('product_code', '')]
         if prod.get('product_color'):
             desc_parts.append(f"- {prod['product_color']}")
         desc_parts.append(prod.get('product_category', ''))
@@ -5358,7 +5477,8 @@ def api_products():
         description = ' '.join([p for p in desc_parts if p])
         
         # Build product URL
-        slug = prod.get('product_slug', '')
+        slug = (slugify(product_name) if int(prod.get('product_id') or 0) in RENAMED
+                else prod.get('product_slug', ''))
         cat = prod.get('product_category', '')
         pid = prod.get('product_id', '')
         product_url = f"https://optiwar.com/categories/{cat}/{slug}?pid={pid}"
@@ -5372,7 +5492,7 @@ def api_products():
         item = {
             "id": prod.get('product_id'),
             "code": prod.get('product_code'),
-            "name": prod.get('product_name'),
+            "name": product_name,
             "category": prod.get('product_category'),
             "description": description,
             "price": {
@@ -5412,7 +5532,7 @@ def api_products():
         },
         "filters_available": {
             "category": ["Spectacles Frame", "Hearing Aids", "Contact Lenses"],
-            "shape": ["rectangle", "oval", "round", "square", "wayfarer", "aviator", "cateye", "clubmaster", "panto", "horn", "browline"],
+        "shape": ["rectangle", "oval", "round", "square", "aviator", "cateye", "browline", "panto", "horn"],
             "size": ["Small", "Medium", "Large", "Extra Large"],
             "price_range": {"min": 0, "max": 10000, "currency": "INR"},
             "in_stock": ["true", "false"]
@@ -5450,14 +5570,23 @@ def api_product_detail(product_id):
         prod = product
     else:
         return jsonify({"error": "Internal format error"}), 500
+    prod['product_name'] = display_name(prod) or prod.get('product_name')
+    if product_id in RENAMED:
+        prod['product_slug'] = slugify(prod['product_name'])
     
     # Determine shapes
     shapes = []
-    shape_fields = ['rectangle', 'oval', 'round', 'square', 'wayfarer', 'aviator',
-                   'cateye', 'clubmaster', 'panto', 'horn', 'browline']
+    shape_fields = ['rectangle', 'oval', 'round', 'aviator',
+                    'cateye', 'panto', 'horn']
     for s in shape_fields:
         if prod.get(f'product_category_{s}') and int(prod[f'product_category_{s}']) == 1:
             shapes.append(s)
+    if (int(prod.get('product_category_square') or 0) == 1
+            or int(prod.get('product_category_wayfarer') or 0) == 1):
+        shapes.append('Classic Square')
+    if (int(prod.get('product_category_browline') or 0) == 1
+            or int(prod.get('product_category_clubmaster') or 0) == 1):
+        shapes.append('Browline')
     
     # Auto-generate description
     desc_parts = [prod.get('product_name', ''), prod.get('product_code', '')]
@@ -5569,7 +5698,7 @@ def openapi_spec():
                     "parameters": [
                         {"name": "category", "in": "query", "schema": {"type": "string", "enum": ["Spectacles Frame", "Hearing Aids", "Contact Lenses"]}},
                         {"name": "color", "in": "query", "schema": {"type": "string"}, "description": "Filter by color name (partial match)"},
-                        {"name": "shape", "in": "query", "schema": {"type": "string", "enum": ["rectangle", "oval", "round", "square", "wayfarer", "aviator", "cateye", "clubmaster", "panto", "horn", "browline"]}},
+                        {"name": "shape", "in": "query", "schema": {"type": "string", "enum": ["rectangle", "oval", "round", "square", "aviator", "cateye", "browline", "panto", "horn"]}},
                         {"name": "size", "in": "query", "schema": {"type": "string", "enum": ["Small", "Medium", "Large", "Extra Large"]}, "description": "Face fit / perception value"},
                         {"name": "min_price", "in": "query", "schema": {"type": "number"}, "description": "Minimum price in INR"},
                         {"name": "max_price", "in": "query", "schema": {"type": "number"}, "description": "Maximum price in INR"},
@@ -5593,7 +5722,7 @@ def openapi_spec():
                     "summary": "Search and list products (v1 — recommended)",
                     "description": "Currency-aware product catalog with full filtering. Returns structured JSON with pricing, availability, images, and sizing.",
                     "parameters": [
-                        {"name": "category", "in": "query", "schema": {"type": "string", "enum": ["supra","clubmaster","round","rectangle","rimless","square","cateye","aviator"]}},
+                        {"name": "category", "in": "query", "schema": {"type": "string", "enum": ["supra","browline","round","rectangle","rimless","square","cateye","aviator"]}},
                         {"name": "color", "in": "query", "schema": {"type": "string"}, "description": "Filter by color (partial match)"},
                         {"name": "shape", "in": "query", "schema": {"type": "string"}},
                         {"name": "size", "in": "query", "schema": {"type": "string", "enum": ["Small","Medium","Large","Extra Large"]}, "description": "Face fit"},
@@ -5674,7 +5803,7 @@ def api_v1_products():
     if category:
         shape_col_map = {
             'supra': 'product_category_supra',
-            'clubmaster': 'product_category_clubmaster',
+            'browline': 'product_category_browline',
             'round': 'product_category_round',
             'rectangle': 'product_category_rectangle',
             'rimless': 'product_category_rimless',
@@ -5682,19 +5811,40 @@ def api_v1_products():
             'cateye': 'product_category_cateye',
             'aviator': 'product_category_aviator',
             'oval': 'product_category_oval',
-            'wayfarer': 'product_category_wayfarer',
         }
-        col = shape_col_map.get(category.lower())
-        if col:
-            conditions.append(f"{col} = 'yes'")
+        category_name = category.lower()
+        canonical_category = {
+            'clubmaster': 'browline', 'wayfarer': 'square',
+            'classic square': 'square', 'classic-square': 'square',
+        }.get(category_name, category_name)
+        col = shape_col_map.get(canonical_category)
+        if canonical_category == 'browline':
+            conditions.append(
+                "(product_category_browline = 1 OR product_category_clubmaster = 1)")
+        elif canonical_category == 'square':
+            conditions.append(
+                "(product_category_square = 1 OR product_category_wayfarer = 1)")
+        elif col:
+            conditions.append(f"{col} = 1")
     
     if color:
         conditions.append("(product_color LIKE %s OR product_primary_color LIKE %s)")
         params.extend([f'%{color}%', f'%{color}%'])
     
     if shape:
-        conditions.append("product_shape LIKE %s")
-        params.append(f'%{shape}%')
+        shape_name = shape.lower()
+        canonical_shape = {'clubmaster': 'browline', 'wayfarer': 'square',
+                           'classic square': 'square', 'classic-square': 'square'}.get(
+            shape_name, shape_name)
+        if canonical_shape == 'browline':
+            conditions.append(
+                "(product_category_browline = 1 OR product_category_clubmaster = 1)")
+        elif canonical_shape == 'square':
+            conditions.append(
+                "(product_category_square = 1 OR product_category_wayfarer = 1)")
+        else:
+            conditions.append("product_shape LIKE %s")
+            params.append(f'%{shape}%')
     
     if size:
         conditions.append("product_perception_value = %s")
@@ -5765,6 +5915,15 @@ def api_v1_products():
                 'product_slug': r[19], 'product_details': r[20], 'product_gender': r[21],
                 'product_image': r[22]
             }
+
+        row['product_name'] = display_name(row) or row.get('product_name')
+        if int(row.get('product_id') or 0) in RENAMED:
+            row['product_slug'] = slugify(row['product_name'])
+        if row.get('product_shape'):
+            row['product_shape'] = re.sub(
+                r'\bwayfarer\b', 'Classic Square',
+                re.sub(r'\bclubmaster\b', 'Browline', str(row['product_shape']),
+                       flags=re.I), flags=re.I)
         
         price = float(row['product_special_price_eur']) if currency == 'EUR' and row.get('product_special_price_eur') else float(row['product_special_price'] or 0)
         mrp = float(row['product_price_eur']) if currency == 'EUR' and row.get('product_price_eur') else float(row['product_price'] or 0)
@@ -5927,6 +6086,9 @@ def api_v1_product_media(code):
     is_india = _req_is_india()
     base = 'https://optiwar.in' if is_india else 'https://optiwar.com'
     cat = (row.get('product_category') or '').lower().replace(' ', '-')
+    row['product_name'] = display_name(row) or row.get('product_name')
+    if int(row.get('product_id') or 0) in RENAMED:
+        row['product_slug'] = slugify(row['product_name'])
     canonical = '%s/categories/%s/%s?pid=%s' % (base, cat, row.get('product_slug'), row['product_id'])
     color = row.get('color_display') or row.get('product_color') or ''
     name = ('%s %s' % (row.get('product_name') or '', row.get('product_code') or '')).strip()
@@ -6003,23 +6165,24 @@ def api_v1_categories():
         currency = 'INR'
     
     cats = [
-        ('supra', 'Half Frame (Supra)', 'product_category_supra'),
-        ('clubmaster', 'Clubmaster', 'product_category_clubmaster'),
-        ('round', 'Round', 'product_category_round'),
-        ('rectangle', 'Rectangle', 'product_category_rectangle'),
-        ('rimless', 'Rimless / 3-Piece', 'product_category_rimless'),
-        ('square', 'Square', 'product_category_square'),
-        ('cateye', 'Cat Eye', 'product_category_cateye'),
-        ('aviator', 'Aviator', 'product_category_aviator'),
+        ('supra', 'Half Frame (Supra)', 'product_category_supra=1'),
+        ('browline', 'Browline', '(product_category_browline=1 OR product_category_clubmaster=1)'),
+        ('round', 'Round', 'product_category_round=1'),
+        ('rectangle', 'Rectangle', 'product_category_rectangle=1'),
+        ('rimless', 'Rimless / 3-Piece', 'product_category_rimless=1'),
+        ('square', 'Classic Square', '(product_category_square=1 OR product_category_wayfarer=1)'),
+        ('cateye', 'Cat Eye', 'product_category_cateye=1'),
+        ('aviator', 'Aviator', 'product_category_aviator=1'),
     ]
     
     price_col = 'product_special_price_eur' if currency == 'EUR' else 'product_special_price'
     
     categories = []
-    for slug, name, col in cats:
+    for slug, name, predicate in cats:
         cursor.execute(f"""
             SELECT COUNT(*), MIN({price_col}), MAX({price_col})
-            FROM products WHERE {col} = 'yes' AND product_quantity > 0
+            FROM products WHERE {predicate} AND product_quantity > 0
+            {catalogue_site_filter()}
         """)
         row = cursor.fetchone()
         count = row[0] if isinstance(row, tuple) else list(row.values())[0]
@@ -6057,20 +6220,21 @@ def guide_frame_shapes():
     cursor = db.cursor()
     
     style_configs = [
-        ('supra', 'Half Frame (Supra)', 'product_category_supra', 'Everyday wear, lightweight, minimalist'),
-        ('clubmaster', 'Clubmaster', 'product_category_clubmaster', 'Retro-classic, professional, unisex'),
-        ('round', 'Round', 'product_category_round', 'Vintage look, oval/square faces'),
-        ('rectangle', 'Rectangle', 'product_category_rectangle', 'Professional, round faces'),
-        ('rimless', 'Rimless / 3-Piece', 'product_category_rimless', 'Ultra-lightweight, nearly invisible'),
-        ('square', 'Square', 'product_category_square', 'Bold/modern look, round/oval faces'),
+        ('supra', 'Half Frame (Supra)', 'product_category_supra=1', 'Everyday wear, lightweight, minimalist'),
+        ('browline', 'Browline', '(product_category_browline=1 OR product_category_clubmaster=1)', 'Retro-classic, professional, unisex'),
+        ('round', 'Round', 'product_category_round=1', 'Vintage look, oval/square faces'),
+        ('rectangle', 'Rectangle', 'product_category_rectangle=1', 'Professional, round faces'),
+        ('rimless', 'Rimless / 3-Piece', 'product_category_rimless=1', 'Ultra-lightweight, nearly invisible'),
+        ('square', 'Classic Square', '(product_category_square=1 OR product_category_wayfarer=1)', 'Bold/modern look, round/oval faces'),
     ]
     
     styles = []
-    for slug, name, col, best_for in style_configs:
+    for slug, name, predicate, best_for in style_configs:
         cursor.execute(f"""
             SELECT COUNT(*), MIN(product_special_price), MIN(product_special_price_eur)
             FROM products 
-            WHERE {col} = 'yes' AND product_quantity > 0
+            WHERE {predicate} AND product_quantity > 0
+            {catalogue_site_filter()}
         """)
         row = cursor.fetchone()
         count = row[0] if isinstance(row, tuple) else row['COUNT(*)']
@@ -6142,7 +6306,7 @@ def llms_txt():
 - Factory outlet pricing — save up to 70% vs retail optical stores
 - Free complimentary single-vision lenses with every frame
 - Lens upgrades: Anti-Glare (₹50/€5), Blue Cut (₹100/€7), Multi Anti-Glare (₹200/€7), Polarized (₹800/€10), Thin (₹100/€10), Extra-Thin (₹350/€7), Photo-Grey (₹350/€10), Photo-Brown (₹650/€10), Bifocal KT (₹250/€8), Bifocal D (₹500/€8), Progressive (₹1000/€10)
-- Categories: Supra (Half Frame), Clubmaster, Round, Rectangle, Rimless, Square
+- Categories: Supra (Half Frame), Browline, Round, Rectangle, Rimless, Classic Square
 - Ships globally via FedEx / DHL — free shipping, no minimums
 - Support via ticketing only — 24hr response time
 
@@ -6151,7 +6315,7 @@ def llms_txt():
 - Search: GET /api/v1/products?q={query}&category={cat}&color={color}&shape={shape}&min_price={min}&max_price={max}&in_stock=true
 - Product detail: GET /api/v1/products/{id}?currency=INR or EUR
 - Categories API: GET /api/v1/categories?currency=INR or EUR
-- Categories: supra, clubmaster, round, rectangle, rimless, square
+- Categories: supra, browline, round, rectangle, rimless, square
 - OpenAPI spec: /api/openapi.json
 - AI plugin: /.well-known/ai-plugin.json
 - UCP discovery: /.well-known/ucp
@@ -6212,11 +6376,11 @@ def llms_txt():
 - Homepage: https://optiwar.com/
 - All Frames: https://optiwar.com/eyeglasses/all-spectacle-frames.html
 - Supra: https://optiwar.com/categories/supra
-- Clubmaster: https://optiwar.com/categories/clubmaster
+- Browline: https://optiwar.com/categories/browline
 - Round: https://optiwar.com/categories/round
 - Rectangle: https://optiwar.com/categories/rectangle
 - Rimless: https://optiwar.com/categories/rimless
-- Square: https://optiwar.com/categories/square
+- Classic Square: https://optiwar.com/categories/square
 - Lenses Guide: https://optiwar.com/lenses
 - Frame Shapes Guide: https://optiwar.com/guides/frame-shapes
 - Face Measurement: https://optiwar.com/tryon
@@ -6264,8 +6428,8 @@ def ai_faq():
         {
             'id': 'products', 'label': 'Products', 'title': 'Product Categories',
             'questions': [
-                {'q': 'What product categories does Optiwar offer?', 'a': f'Optiwar offers: (1) <strong>Spectacle Frames</strong> \u2014 998+ frames in Supra, Clubmaster, Round, Rectangle, Rimless, and Square styles ({c}499\u2013{c}999 INR / \u20ac5\u2013\u20ac11 EUR). (2) <strong>Contact Lenses</strong>. (3) <strong>Hearing Aids</strong>.'},
-                {'q': 'What spectacle frame styles are available?', 'a': 'Supra (Half Frame), Clubmaster, Round, Rectangle, Rimless, and Square. Browse all at <a href="' + site_url + '/eyeglasses/all-spectacle-frames.html">All Frames</a>.'},
+                {'q': 'What product categories does Optiwar offer?', 'a': f'Optiwar offers: (1) <strong>Spectacle Frames</strong> \u2014 998+ frames in Supra, Browline, Round, Rectangle, Rimless, and Classic Square styles ({c}499\u2013{c}999 INR / \u20ac5\u2013\u20ac11 EUR). (2) <strong>Contact Lenses</strong>. (3) <strong>Hearing Aids</strong>.'},
+                {'q': 'What spectacle frame styles are available?', 'a': 'Supra (Half Frame), Browline, Round, Rectangle, Rimless, and Classic Square. Browse all at <a href="' + site_url + '/eyeglasses/all-spectacle-frames.html">All Frames</a>.'},
                 {'q': 'Are frames suitable for all ages?', 'a': 'Yes \u2014 frames come in lens widths from 42mm to 58mm+, suitable for teens through adults. Use the size guide to find the right fit.'},
                 {'q': 'Can I order prescription sunglasses?', 'a': f'Yes. Select any frame and add Polarized lenses ({c}800/\u20ac10) or Photochromic lenses (from {c}350/\u20ac10) to create prescription sunglasses.'},
             ]
@@ -6275,7 +6439,7 @@ def ai_faq():
             'questions': [
                 {'q': 'What does frame size (e.g. 52-18-140) mean?', 'a': 'Three numbers: <strong>Lens Width \u2013 Bridge Width \u2013 Temple Length</strong>, all in mm. Example: 52-18-140 means 52mm lens, 18mm bridge, 140mm temple arm.'},
                 {'q': 'How do I choose the right frame size?', 'a': f'Use Optiwar\'s <a href="{site_url}/tryon">face measurement tool</a> \u2014 it uses your camera to measure face width and recommend suitable sizes. Or measure an existing pair (size is printed inside the temple arm).'},
-                {'q': 'What frame shapes suit my face?', 'a': f'Round faces suit angular frames (Rectangle, Square). Oval faces suit most styles. Square faces suit round/curved frames. Heart-shaped faces suit wider-bottom frames. Try the <a href="{site_url}/guides/frame-shapes">Frame Shapes Guide</a>.'},
+                {'q': 'What frame shapes suit my face?', 'a': f'Round faces suit angular frames (Rectangle, Classic Square). Oval faces suit most styles. Square faces suit round/curved frames. Heart-shaped faces suit wider-bottom frames. Try the <a href="{site_url}/guides/frame-shapes">Frame Shapes Guide</a>.'},
             ]
         },
         {
@@ -6525,12 +6689,13 @@ def spectacle_tryon():
 def api_tryon_frames():
     db = get_db()
     cursor = db.cursor()
-    cursor.execute("""
+    cursor.execute(f"""
         SELECT product_id, product_name, product_code, product_image, product_size
         FROM products
         WHERE product_category = 'Spectacles Frame'
         AND product_image IS NOT NULL AND product_image != ''
         AND product_quantity > 0
+        {catalogue_site_filter()}
         ORDER BY RAND()
         LIMIT 12
     """)
@@ -6552,7 +6717,7 @@ def api_tryon_frames():
                     pass
         frames.append({
             "id": row['product_id'],
-            "name": f"{row['product_name']} {row['product_code']}",
+            "name": f"{display_name(row) or row['product_name']} {row['product_code']}",
             "image": f"/static/{img}",
             "frame_width_mm": frame_width_mm,
             "scale": 2.25
@@ -6722,7 +6887,7 @@ def api_tryon_matching_frames():
                    "recommended_diameter": rec_d, "recommended_bridge": rec_b,
                    "recommended_length": rec_l}
     
-    cursor.execute("""
+    cursor.execute(f"""
         SELECT product_id, product_name, product_code, product_image, product_size, 
                product_price, product_color, product_shape
         FROM products
@@ -6731,6 +6896,7 @@ def api_tryon_matching_frames():
         AND product_quantity > 0
         AND product_size IS NOT NULL AND product_size != ''
         AND product_size REGEXP '^[0-9]+-[0-9]+-[0-9]+$'
+        {catalogue_site_filter()}
     """)
     rows = cursor.fetchall()
     
@@ -6751,7 +6917,7 @@ def api_tryon_matching_frames():
         
         matching.append({
             "id": row['product_id'],
-            "name": f"{row['product_name'] or ''} {row['product_code'] or ''}".strip(),
+            "name": f"{display_name(row) or row['product_name'] or ''} {row['product_code'] or ''}".strip(),
             "image": f"/static/{img}",
             "media": build_media_primary(row['product_image'] or ''),
             "size": row['product_size'],

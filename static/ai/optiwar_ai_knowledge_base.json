@@ -49,7 +49,7 @@
     },
     {
       "question": "What product categories does Optiwar offer?",
-      "answer": "Optiwar offers: (1) Spectacle Frames — \"712 in-stock frames\" (actual current count) in categories including Supra (Half Frame), Clubmaster, Round, Rectangle, Rimless, and Square.  The primary focus is spectacle frames with prescription lenses.",
+      "answer": "Optiwar offers: (1) Spectacle Frames — \"712 in-stock frames\" (actual current count) in categories including Supra (Half Frame), Browline, Round, Rectangle, Rimless, and Classic Square.  The primary focus is spectacle frames with prescription lenses.",
       "category": "product_categories",
       "intent": "product_range",
       "confidence": "high",
@@ -58,7 +58,7 @@
     },
     {
       "question": "What spectacle frame styles are available?",
-      "answer": "Optiwar carries frames in these styles: Supra (Half Frame), Clubmaster, Round, Rectangle, Rimless, and Square. Over 998 frames are in stock with various colors and sizes.",
+      "answer": "Optiwar carries frames in these styles: Supra (Half Frame), Browline, Round, Rectangle, Rimless, and Classic Square. Over 998 frames are in stock with various colors and sizes.",
       "category": "frames",
       "intent": "frame_styles",
       "confidence": "high",
@@ -580,7 +580,7 @@
     },
     {
       "question": "What frame shapes are best for my face?",
-      "answer": "Optiwar's frame shape guide helps match frame styles to face shapes: Round faces suit angular frames (Rectangle, Square). Oval faces suit most styles. Square faces suit round or curved frames. Heart-shaped faces suit wider bottom frames. Use the face measurement tool at /tryon for personalized recommendations based on your actual face dimensions.",
+      "answer": "Optiwar's frame shape guide helps match frame styles to face shapes: Round faces suit angular frames (Rectangle, Classic Square). Oval faces suit most styles. Square faces suit round or curved frames. Heart-shaped faces suit wider bottom frames. Use the face measurement tool at /tryon for personalized recommendations based on your actual face dimensions.",
       "category": "frame_size",
       "intent": "frame_shape_guide",
       "confidence": "high",
@@ -697,7 +697,7 @@
     },
     {
       "question": "How do I use the search and filtering features?",
-      "answer": "Use the search bar to find frames by name or code. The All Frames page at /eyeglasses/all-spectacle-frames.html allows filtering by category (Supra, Clubmaster, Round, Rectangle, Rimless, Square), color, price range, and availability. The API also supports these filters: GET /api/v1/products?category=round&color=black&min_price=499&max_price=999&in_stock=true",
+      "answer": "Use the search bar to find frames by name or code. The All Frames page at /eyeglasses/all-spectacle-frames.html allows filtering by category (Supra, Browline, Round, Rectangle, Rimless, Classic Square), color, price range, and availability. The API also supports these filters: GET /api/v1/products?category=round&color=black&min_price=499&max_price=999&in_stock=true",
       "category": "product_categories",
       "intent": "search_filter",
       "confidence": "high",

@@ -167,8 +167,8 @@ msgid "Half Frames Specs"
 msgstr "Especificaciones de Semiarmazón"
 
 #: templates/base.html:703
-msgid "Club Master Specs"
-msgstr "Especificaciones Club Master"
+msgid "Browline Specs"
+msgstr "Gafas browline"
 
 #: templates/base.html:704
 msgid "Rounded-Glass Specs"
@@ -401,4 +401,3 @@ msgstr "Inicia sesión aquí"
 #: templates/terms-and-conditions.html:17
 msgid "Terms and Conditions"
 msgstr "Términos y condiciones"
-

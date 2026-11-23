@@ -672,7 +672,7 @@
       </button>
       <button class="ow-shape-btn" data-shape="square">
         <svg viewBox="0 0 52 52" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="48" height="48" rx="6"/></svg>
-        <span>Square</span>
+        <span>Classic Square</span>
       </button>
       <button class="ow-shape-btn" data-shape="aviator">
         <svg viewBox="0 0 64 44" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 10c0-4 3-7 7-7h38c4 0 7 3 7 7v14c0 10-8 17-18 17H24C14 41 6 34 6 24V10z"/></svg>
@@ -682,13 +682,9 @@
         <svg viewBox="0 0 64 44" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 28c0-12 10-24 28-24s28 12 28 24c0 8-6 14-14 14H18C10 42 4 36 4 28z"/><path d="M4 28L2 8M60 28l2-20" stroke-width="1.5"/></svg>
         <span>Cat Eye</span>
       </button>
-      <button class="ow-shape-btn" data-shape="wayfarer">
-        <svg viewBox="0 0 64 44" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8c0-3 2-5 5-5h46c3 0 5 2 5 5v22c0 6-4 11-10 11H14C8 41 4 36 4 30V8z"/></svg>
-        <span>Wayfarer</span>
-      </button>
-      <button class="ow-shape-btn" data-shape="clubmaster">
+      <button class="ow-shape-btn" data-shape="browline">
         <svg viewBox="0 0 64 44" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h56v2H4z" stroke-width="3"/><rect x="4" y="8" width="56" height="28" rx="14"/></svg>
-        <span>Clubmaster</span>
+        <span>Browline</span>
       </button>
       <button class="ow-shape-btn" data-shape="panto">
         <svg viewBox="0 0 56 56" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18c0-8 10-14 22-14s22 6 22 14v12c0 10-8 18-22 18S6 40 6 30V18z"/></svg>
@@ -746,11 +742,11 @@
     <h2>{{ _('Categories') }}</h2>
     <div class="category-list">
       <a href="{{ url_for('main.categories', category='supra') }}" class="category-item"><span>{{ _('Half Frames Specs') }}</span></a>
-      <a href="{{ url_for('main.categories', category='clubmaster') }}" class="category-item"><span>{{ _('Club Master Specs') }}</span></a>
+      <a href="{{ url_for('main.categories', category='browline') }}" class="category-item"><span>{{ _('Browline Specs') }}</span></a>
       <a href="{{ url_for('main.categories', category='round') }}" class="category-item"><span>{{ _('Rounded-Glass Specs') }}</span></a>
       <a href="{{ url_for('main.categories', category='rectangle') }}" class="category-item"><span>{{ _('Rectangle Specs') }}</span></a>
       <a href="{{ url_for('main.categories', category='rimless') }}" class="category-item"><span>{{ _('Rimless Specs') }}</span></a>
-      <a href="{{ url_for('main.categories', category='square') }}" class="category-item"><span>{{ _('Square Specs') }}</span></a>
+      <a href="{{ url_for('main.categories', category='square') }}" class="category-item"><span>{{ _('Classic Square Specs') }}</span></a>
     </div>
   </div>
 </div>
@@ -851,11 +847,11 @@
 				<h3 class="ow-footer-heading">{{ _('Shop Categories') }}</h3>
 				<ul class="ow-footer-links">
 					<li><a href="{{ url_for('main.categories', category='supra') }}">Half Frame Specs</a></li>
-					<li><a href="{{ url_for('main.categories', category='clubmaster') }}">Club Master Specs</a></li>
+					<li><a href="{{ url_for('main.categories', category='browline') }}">Browline Specs</a></li>
 					<li><a href="{{ url_for('main.categories', category='round') }}">Rounded-Glass Specs</a></li>
 					<li><a href="{{ url_for('main.categories', category='rectangle') }}">Rectangle Specs</a></li>
 					<li><a href="{{ url_for('main.categories', category='rimless') }}">Rimless Specs</a></li>
-					<li><a href="{{ url_for('main.categories', category='square') }}">Square Specs</a></li>
+					<li><a href="{{ url_for('main.categories', category='square') }}">Classic Square Specs</a></li>
 				</ul>
 			</div>
 

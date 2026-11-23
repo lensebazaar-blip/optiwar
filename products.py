@@ -3,6 +3,7 @@ from flask import Flask, request, render_template, flash, Blueprint, session, ur
 from .db import get_db
 from datetime import datetime
 from .db import get_db
+from .catalogue import catalogue_site_filter
 
 
 bp = Blueprint('products', __name__)
@@ -14,7 +15,8 @@ logging.basicConfig(level=logging.DEBUG)
 def soflens_59():
     db = get_db()
     cursor = db.cursor()
-    cursor.execute('select * from products where product_id=1001')
+    cursor.execute('select * from products where product_id=1001'
+                   + catalogue_site_filter())
     product = cursor.fetchall()
     print(f"I found products {product}")
     response = make_response(render_template('soflens_59.html', product=product))

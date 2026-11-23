@@ -6,7 +6,7 @@ import json
 from flask import session, current_app
 from .db import get_db
 from . import lens_cart
-from .catalogue import current_site
+from .catalogue import current_site, sellable_here
 
 
 def save_cart_to_db():
@@ -42,6 +42,14 @@ def _revalidated(cursor, cart):
     device, and a lens line is not sold on .in at all; either way the stored
     cart is not trusted over the rule.
     """
+    allowed = [item for item in cart
+               if sellable_here(cursor, item.get('product_id'), current_site())]
+    removed = len(cart) - len(allowed)
+    if removed:
+        current_app.logger.info(
+            '[CART PERSIST] %d held or ineligible product line(s) dropped',
+            removed)
+    cart = allowed
     site = current_site()
     if site != lens_cart.SITE_COM:
         return [i for i in cart if not lens_cart.is_lens(i)]
@@ -101,9 +109,9 @@ def load_cart_from_db():
                 existing_keys.add(key)
                 added += 1
 
+        session['cart'] = _revalidated(cursor, current_cart)
+        session.modified = True
         if added > 0:
-            session['cart'] = _revalidated(cursor, current_cart)
-            session.modified = True
             current_app.logger.info(
                 f'[CART PERSIST] Merged {added} item(s) from DB for user {user_id}'
             )

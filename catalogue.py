@@ -23,6 +23,11 @@ import re
 
 from flask import request
 
+try:
+    from . import brand_compliance
+except ImportError:
+    import brand_compliance
+
 EYEWEAR = "EYEWEAR"
 CONTACT_LENS = "CONTACT_LENS"
 SMART_EYEWEAR = "SMART_EYEWEAR"   # AI Glasses (ai_glasses.py)
@@ -77,7 +82,12 @@ def catalogue_site_filter(site=None, alias=None):
     prefix = ("%s." % alias) if alias else ""
     # AI Glasses have their own page and lens set: frame listings, search, feeds
     # and APIs never return them (ai_glasses.py is their only read surface).
-    return " AND %s%s = 1 AND %sproduct_vertical <> '%s'" % (prefix, col, prefix, SMART_EYEWEAR)
+    clause = " AND %s%s = 1 AND %sproduct_vertical <> '%s'" % (
+        prefix, col, prefix, SMART_EYEWEAR)
+    held = ",".join(str(product_id) for product_id in brand_compliance.HELD)
+    if held:
+        clause += " AND %sproduct_id NOT IN (%s)" % (prefix, held)
+    return clause
 
 
 def vertical(product):
@@ -95,6 +105,8 @@ def is_product_allowed(product, site=None):
     the site does not sell rather than assuming a projection was complete.
     """
     if not product:
+        return False
+    if brand_compliance.is_held(product):
         return False
     site = site or current_site()
     if vertical(product) == SMART_EYEWEAR:

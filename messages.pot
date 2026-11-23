@@ -166,7 +166,7 @@ msgid "Half Frames Specs"
 msgstr ""
 
 #: templates/base.html:703
-msgid "Club Master Specs"
+msgid "Browline Specs"
 msgstr ""
 
 #: templates/base.html:704
@@ -400,4 +400,3 @@ msgstr ""
 #: templates/terms-and-conditions.html:17
 msgid "Terms and Conditions"
 msgstr ""
-

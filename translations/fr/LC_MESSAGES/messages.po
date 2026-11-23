@@ -167,8 +167,8 @@ msgid "Half Frames Specs"
 msgstr "Montures demi-cerclées"
 
 #: templates/base.html:703
-msgid "Club Master Specs"
-msgstr "Montures club master"
+msgid "Browline Specs"
+msgstr "Montures browline"
 
 #: templates/base.html:704
 msgid "Rounded-Glass Specs"
@@ -401,4 +401,3 @@ msgstr "Connectez-vous ici"
 #: templates/terms-and-conditions.html:17
 msgid "Terms and Conditions"
 msgstr "Conditions générales"
-

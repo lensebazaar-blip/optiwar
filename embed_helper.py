@@ -319,13 +319,13 @@ def build_media_primary(product_image_str):
 # rimless/semirimless/supra are rim TYPES, not shapes, so excluded here.
 _SHAPE_FLAGS = (
     ("product_category_rectangle", "Rectangle"),
-    ("product_category_wayfarer", "Wayfarer"),
+    ("product_category_wayfarer", "Classic Square"),
     ("product_category_aviator", "Aviator"),
     ("product_category_cateye", "Cat Eye"),
     ("product_category_round", "Round"),
     ("product_category_oval", "Oval"),
-    ("product_category_square", "Square"),
-    ("product_category_clubmaster", "Clubmaster"),
+    ("product_category_square", "Classic Square"),
+    ("product_category_clubmaster", "Browline"),
     ("product_category_browline", "Browline"),
     ("product_category_panto", "Panto"),
     ("product_category_quatra", "Quatra"),

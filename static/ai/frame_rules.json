@@ -112,8 +112,8 @@
       "description": "Balanced proportions, slightly wider at cheekbones",
       "recommended_styles": [
         "Rectangle",
-        "Square",
-        "Clubmaster",
+        "Classic Square",
+        "Browline",
         "Round"
       ],
       "notes": "Oval faces suit most frame shapes. Avoid frames that are too large or too small for your face width."
@@ -123,8 +123,8 @@
       "description": "Equal width and length, soft angles, full cheeks",
       "recommended_styles": [
         "Rectangle",
-        "Square",
-        "Clubmaster"
+        "Classic Square",
+        "Browline"
       ],
       "avoid_styles": [
         "Round"
@@ -139,7 +139,7 @@
         "Supra"
       ],
       "avoid_styles": [
-        "Square",
+        "Classic Square",
         "Rectangle"
       ],
       "notes": "Curved and round frames soften angular features. Avoid angular frames that emphasise squareness."
@@ -153,17 +153,17 @@
         "Supra"
       ],
       "avoid_styles": [
-        "Clubmaster"
+        "Browline"
       ],
-      "notes": "Light, thin frames or rimless balance the wider forehead. Avoid heavy top-bar styles (Clubmaster) that widen the upper face."
+      "notes": "Light, thin frames or rimless balance the wider forehead. Avoid heavy top-bar styles (Browline) that widen the upper face."
     },
     {
       "face_shape": "oblong",
       "description": "Longer than wide, straight cheek line",
       "recommended_styles": [
-        "Square",
+        "Classic Square",
         "Rectangle",
-        "Clubmaster"
+        "Browline"
       ],
       "avoid_styles": [
         "Rimless"

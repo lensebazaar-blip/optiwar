@@ -9,6 +9,12 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
 from . import face_scan_invites as fsi
+from . import brand_compliance
+
+
+_HELD_IDS_SQL = ",".join(str(product_id) for product_id in brand_compliance.HELD)
+_HELD_FILTER_SQL = (" AND p.product_id NOT IN (%s)" % _HELD_IDS_SQL
+                    if _HELD_IDS_SQL else "")
 
 
 SCHEMA = """
@@ -43,7 +49,7 @@ CREATE TABLE IF NOT EXISTS frame_swap_offers (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 """
 
-QUERY = """SELECT p.product_id, p.product_code, p.product_name, p.product_size, p.color_display,
+QUERY = f"""SELECT p.product_id, p.product_code, p.product_name, p.product_size, p.color_display,
        p.product_special_price, p.product_quantity,
        (p.product_category_clubmaster*f.product_category_clubmaster + p.product_category_browline*f.product_category_browline
       + p.product_category_rectangle*f.product_category_rectangle + p.product_category_square*f.product_category_square
@@ -55,6 +61,7 @@ WHERE p.product_category = f.product_category
   AND p.product_vertical = f.product_vertical
   AND p.product_status = 'ACTIVE' AND p.product_quantity > 0
   AND p.sell_on_in = 1
+  {_HELD_FILTER_SQL}
   AND COALESCE(p.discontinued, 0) = 0
   AND p.product_id <> f.product_id
   AND p.product_diameter BETWEEN f.product_diameter - 4 AND f.product_diameter + 4

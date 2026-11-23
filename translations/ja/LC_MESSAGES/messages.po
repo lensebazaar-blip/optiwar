@@ -167,8 +167,8 @@ msgid "Half Frames Specs"
 msgstr "ハーフフレーム仕様"
 
 #: templates/base.html:703
-msgid "Club Master Specs"
-msgstr "クラブマスター仕様"
+msgid "Browline Specs"
+msgstr "ブローライン仕様"
 
 #: templates/base.html:704
 msgid "Rounded-Glass Specs"
@@ -401,4 +401,3 @@ msgstr "こちらからログイン"
 #: templates/terms-and-conditions.html:17
 msgid "Terms and Conditions"
 msgstr "利用規約"
-
