@@ -92,8 +92,18 @@ class _ProductDB:
 
 
 class ProductRouteTest(unittest.TestCase):
+    @staticmethod
+    def _isolated_import(name):
+        return name in ("flask_mail", "optiwar", "flaskr") or name.startswith(
+            ("flask_mail.", "optiwar.", "flaskr."))
+
     @classmethod
     def setUpClass(cls):
+        cls._saved_modules = {}
+        for name in list(sys.modules):
+            if cls._isolated_import(name):
+                cls._saved_modules[name] = sys.modules.pop(name)
+        cls.addClassCleanup(cls._restore_imports)
         sys.path.insert(0, str(ROOT.parent))
         import pymysql
         pymysql.install_as_MySQLdb()
@@ -109,6 +119,21 @@ class ProductRouteTest(unittest.TestCase):
         cls.app = Flask(__name__)
         cls.app.secret_key = "test"
         cls.app.register_blueprint(models.bp)
+
+    @classmethod
+    def _restore_imports(cls):
+        saved_modules = getattr(cls, "_saved_modules", None)
+        if saved_modules is None:
+            return
+        for name in list(sys.modules):
+            if cls._isolated_import(name):
+                del sys.modules[name]
+        sys.modules.update(saved_modules)
+        cls._saved_modules = None
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._restore_imports()
 
     def test_category_aliases_redirect(self):
         client = self.app.test_client()
