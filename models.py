@@ -1178,11 +1178,8 @@ def lens_facet(facet_slug):
 
 
 @bp.route('/contact_lenses/<categories>')
-def list_category():
-      if category in categories:
-          return render_template(f"{category}/category.html", category=categories[categories])
-      else:
-          return "Category not found", 404
+def list_category(categories):
+    return redirect(lens_seo.ROOT_PATH, code=301)
 
 def _apply_display_names(products):
     for product in products or ():
@@ -1203,11 +1200,8 @@ def _apply_display_names(products):
 
 
 @bp.route('/contact_lenses/<categories>/<products>')
-def show_product(category, product):
-    if category in categories and product in categories[category]['products']:
-       return render_template(f"{category}/{product}.html", product=product, category=categories[category])
-    else:
-       return "Product not found", 404
+def show_product(categories, products):
+    return redirect(lens_seo.ROOT_PATH, code=301)
 
 
 @bp.route('/add_to_cart_wcl', methods=['GET', 'POST'])
