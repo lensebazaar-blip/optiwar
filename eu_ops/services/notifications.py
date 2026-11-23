@@ -724,7 +724,56 @@ def get_notification_logs(order_id) -> list:
                     WHERE ow_order_id = %s
                     ORDER BY created_at DESC LIMIT 50
                 """, (ow_id,))
-                return cur.fetchall()
+                rows = cur.fetchall()
+                references = list(dict.fromkeys(
+                    row.get("reference") for row in rows
+                    if row.get("channel") == "whatsapp" and row.get("reference")
+                ))
+                if not references:
+                    return rows
+
+                placeholders = ", ".join(["%s"] * len(references))
+                try:
+                    cur.execute(
+                        "SELECT msg91_request_id, status, failure_reason, received_at "
+                        "FROM msg91_delivery_events "
+                        f"WHERE msg91_request_id IN ({placeholders})",
+                        tuple(references),
+                    )
+                    delivery_events = cur.fetchall()
+                except Exception as e:
+                    log.warning("Failed to fetch Optiwar WhatsApp delivery reports: %s", e)
+                    return rows
+
+                priority = {"sent": 1, "delivered": 2, "read": 3}
+                outcomes = {}
+                for event in delivery_events:
+                    request_id = event.get("msg91_request_id")
+                    status = str(event.get("status") or "").lower()
+                    if request_id not in references or status not in (*priority, "failed"):
+                        continue
+                    current = outcomes.get(request_id)
+                    if status == "failed":
+                        if current is None or current.get("status") != "failed":
+                            outcomes[request_id] = event
+                    elif current is None or (
+                        current.get("status") != "failed"
+                        and priority[status] > priority.get(
+                            str(current.get("status") or "").lower(), 0
+                        )
+                    ):
+                        outcomes[request_id] = event
+
+                for row in rows:
+                    if row.get("channel") != "whatsapp":
+                        continue
+                    outcome = outcomes.get(row.get("reference"))
+                    if outcome is None:
+                        continue
+                    row["delivery_status"] = str(outcome.get("status") or "").lower()
+                    row["delivery_reason"] = outcome.get("failure_reason")
+                    row["delivery_at"] = outcome.get("received_at")
+                return rows
         _ensure_notif_ow_column()
         with db_cursor() as cur:
             cur.execute("""

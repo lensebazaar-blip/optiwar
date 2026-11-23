@@ -928,7 +928,21 @@ document.querySelectorAll('.face-scan-photo-button').forEach(function(button) {
                     <td style="padding:6px 8px;">{{ n.event }}</td>
                     <td style="padding:6px 8px;">{{ n.recipient }}</td>
                     <td style="padding:6px 8px;">
-                        {% if n.success %}<span style="color:#16a34a;font-weight:700;">Sent</span>
+                        {% if n.success and n.delivery_status == "failed" %}
+                        <span style="color:#b42318;font-weight:700;">Failed (msg91)</span>
+                        <div style="font-size:10px;color:#64748b;">{{ n.delivery_reason or "—" }}{% if n.delivery_at %} · {{ n.delivery_at }}{% endif %}</div>
+                        {% elif n.success and n.delivery_status == "read" %}
+                        <span style="color:#16a34a;font-weight:700;">Read</span>
+                        <div style="font-size:10px;color:#64748b;">{{ n.delivery_at }}</div>
+                        {% elif n.success and n.delivery_status == "delivered" %}
+                        <span style="color:#16a34a;font-weight:700;">Delivered</span>
+                        <div style="font-size:10px;color:#64748b;">{{ n.delivery_at }}</div>
+                        {% elif n.success and n.delivery_status == "sent" %}
+                        <span style="color:#16a34a;font-weight:700;">Sent</span>
+                        <div style="font-size:10px;color:#64748b;">{{ n.delivery_at }}</div>
+                        {% elif n.success and n.channel == "whatsapp" and n.reference and not n.delivery_status %}
+                        <span style="color:#b45309;font-weight:700;">Accepted - no delivery report yet</span>
+                        {% elif n.success %}<span style="color:#16a34a;font-weight:700;">Sent</span>
                         {% else %}<span style="color:#b42318;font-weight:700;">Failed</span>{% endif %}
                     </td>
                     <td style="padding:6px 8px;font-family:monospace;font-size:11px;color:#0f172a;">{{ n.reference or "—" }}</td>
