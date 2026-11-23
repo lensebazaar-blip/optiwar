@@ -245,6 +245,11 @@ def register(bp):
                 refund=refund)
         except offers.OfferError as exc:
             if exc.code == "sold_out":
+                cur = db.cursor()
+                cur.execute("SELECT order_quantity FROM orders WHERE order_line_id=%s",
+                            (row["order_line_id"],))
+                line = cur.fetchone() or {}
+                row["order_quantity"] = int(line.get("order_quantity") or 1)
                 for candidate in row["candidates"]:
                     candidate["price_label"] = offers.price_label(
                         candidate["price_minor"], row["failed_price_minor"],
