@@ -305,7 +305,7 @@ class OfferTransactionTests(unittest.TestCase):
         api = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = api
         spec.loader.exec_module(api)
-        app = Flask(__name__, template_folder=str(ROOT / "eu_ops" / "templates"))
+        app = Flask(__name__, template_folder=str(ROOT / "templates"))
         app.secret_key = "test"
         bp = Blueprint("main", __name__)
         api.register(bp)
