@@ -258,9 +258,11 @@ class OfferTransactionTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "candidate_changed")
 
     def test_swap_changes_line_stock_status_and_removes_qc_guard(self):
+        self.db.state["matches"][0]["product_special_price"] = "130.00"
         row, _token, _link = self._create()
         decision = offers.decide(self.db, row, product_id=20, now=self.now)
         self.assertEqual(decision["settlement"], "WAIVED")
+        self.assertEqual(offers.price_label(13000, 10000, 1), "No extra charge")
         self.assertEqual(self.db.state["line"]["product_id"], 20)
         self.assertEqual(self.db.state["product"]["product_quantity"], 0)
         self.assertEqual(self.db.state["product"]["product_status"], "OUT_OF_STOCK")
@@ -272,12 +274,13 @@ class OfferTransactionTests(unittest.TestCase):
         self.db.state["line"]["order_quantity"] = 2
         self.db.state["product"]["product_quantity"] = 2
         self.db.state["matches"][0]["product_quantity"] = 2
-        self.db.state["matches"][0]["product_special_price"] = "150.00"
+        self.db.state["matches"][0]["product_special_price"] = "130.00"
         row, _token, _link = self._create()
         result = offers.decide(self.db, row, product_id=20, now=self.now)
         self.assertEqual(self.db.state["product"]["product_quantity"], 0)
-        self.assertEqual(result["diff_minor"], 10000)
-        self.assertEqual(self.db.state["offer"]["price_diff_minor"], 10000)
+        self.assertEqual(result["diff_minor"], 6000)
+        self.assertEqual(offers.price_label(13000, 10000, 2), "Pay ₹60 more")
+        self.assertEqual(self.db.state["offer"]["price_diff_minor"], 6000)
         self.assertEqual(self.db.state["offer"]["settlement"], "PAYMENT_DUE")
 
     def test_quantity_two_stock_race_rolls_back_when_only_one_remains(self):

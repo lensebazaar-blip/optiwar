@@ -95,6 +95,13 @@ def settlement_for(price_diff_minor):
     return "PAYMENT_DUE"
 
 
+def price_label(candidate_price_minor, failed_price_minor, qty=1):
+    line_diff = (int(candidate_price_minor) - int(failed_price_minor)) * int(qty or 1)
+    if settlement_for(line_diff) in ("WAIVED", "REFUND_DUE"):
+        return "No extra charge"
+    return "Pay ₹%s more" % (line_diff // 100)
+
+
 def send_gate(reason, wa_template):
     if str(reason or "").upper() == "OUT_OF_STOCK":
         return False, "Needs its own approved wording/template"
@@ -266,6 +273,7 @@ def create_offer(db, order_id, order_line_id, reason, product_ids, created_by,
         raise
     row = get_by_uuid(db, offer_uuid)
     row["site_from"] = line.get("site_from")
+    row["order_quantity"] = qty
     return row, token, "https://%s/fq/%s" % (_site_host(line.get("site_from")), token)
 
 
@@ -438,7 +446,7 @@ def open_offers(db):
     cur.execute("SELECT f.offer_uuid, f.order_id, f.order_line_id, f.reason, f.status, "
                 "f.failed_product_id, f.failed_price_minor, f.candidates_json, "
                 "f.created_by, f.created_at, f.expires_at, f.opened_at, "
-                "f.reminder_sent_at, f.alerted_at, o.site_from "
+                "f.reminder_sent_at, f.alerted_at, o.site_from, o.order_quantity "
                 "FROM frame_swap_offers f JOIN orders o ON o.order_line_id=f.order_line_id "
                 "WHERE f.status='OFFERED' ORDER BY f.created_at")
     rows = cur.fetchall()

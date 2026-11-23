@@ -71,6 +71,8 @@ def run(apply=False, now=None, client=None, notify=None, orders=None):
                   "size": product.get("size") or "",
                   "colour": product.get("product_color") or "",
                   "price_minor": int(offer.get("failed_price_minor") or 0)}
+        order["order_quantity"] = int(
+            offer.get("order_quantity") or product.get("quantity") or 1)
         order["total_minor"] = int(round(float(order.get("total") or 0) * 100))
         email_html, email_text = frame_offers.customer_email(
             order, failed, offer.get("candidates") or [], link_result["link"])

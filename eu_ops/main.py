@@ -540,6 +540,9 @@ def _frame_offer_context(order, product, result=None, error=""):
     failed.setdefault("size", "")
     failed.setdefault("colour", "")
     order_copy = dict(order)
+    order_quantity = int((result or {}).get("order_quantity")
+                         or product.get("quantity") or 1)
+    order_copy["order_quantity"] = order_quantity
     order_copy["total_minor"] = int(round(float(order.get("total") or 0) * 100))
     candidates = [row for row in matches if int(row["product_id"]) in chosen]
     email_html, email_text = frame_offers_svc.customer_email(
@@ -548,6 +551,7 @@ def _frame_offer_context(order, product, result=None, error=""):
          else "optiwar.com"))
     return {"order": order, "product": product, "matches": matches,
             "selected_ids": chosen, "failed": failed, "reason": "QC_FAILED",
+            "order_quantity": order_quantity,
             "wa_template": frame_offers_svc.wa_template(),
             "email_html": email_html, "email_text": email_text,
             "wa_body": frame_offers_svc.WA_BODY, "error": error}
@@ -613,6 +617,9 @@ async def ow_frame_offer_send(request: Request, order_id: str,
     failed.setdefault("size", "")
     failed.setdefault("colour", "")
     order_copy = dict(order)
+    order_copy["order_quantity"] = int(
+        created.get("order_quantity") or match_result.get("order_quantity")
+        or product.get("quantity") or 1)
     order_copy["total_minor"] = int(round(float(order.get("total") or 0) * 100))
     email_html, email_text = frame_offers_svc.customer_email(
         order_copy, failed, created.get("candidates") or candidates,

@@ -122,13 +122,14 @@ def email_subject(order_id):
 
 
 def customer_email(order, failed, candidates, link):
+    qty = int(order.get("order_quantity") or 1)
     any_payment = any(
-        int(c["price_minor"]) - int(failed["price_minor"]) >= 5000
+        (int(c["price_minor"]) - int(failed["price_minor"])) * qty >= 5000
         for c in candidates)
     rows = []
     for candidate in candidates:
-        diff = int(candidate["price_minor"]) - int(failed["price_minor"])
-        price = ("Pay %s more" % money(diff) if diff >= 5000
+        line_diff = (int(candidate["price_minor"]) - int(failed["price_minor"])) * qty
+        price = ("Pay %s more" % money(line_diff) if line_diff >= 5000
                  else "No extra charge")
         image = ('<img src="%s" alt="" width="120" style="display:block;">'
                  % html.escape(candidate.get("image_url") or "", quote=True)

@@ -27,7 +27,7 @@
         {% if candidate.image_url %}<img src="{{ candidate.image_url }}" alt="" style="display:block;max-width:120px;max-height:90px;">{% endif %}
         <strong>{{ candidate.code }} · {{ candidate.name }}</strong>
         <div>{{ candidate.size }} · {{ candidate.colour }}</div>
-        <div>{% set diff = candidate.price_minor - failed.price_minor %}
+        <div>{% set diff = (candidate.price_minor - failed.price_minor) * order_quantity %}
           {% if diff >= 5000 %}Pay ₹{{ diff // 100 }} more{% else %}No extra charge{% endif %}
         </div>
       </label>

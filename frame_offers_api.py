@@ -112,6 +112,7 @@ def register(bp):
             cur, line["product_id"], line.get("site_from"),
             int(line.get("order_quantity") or 1))
         return jsonify({"ok": True, "order_line_id": line["order_line_id"],
+                        "order_quantity": int(line.get("order_quantity") or 1),
                         "failed_price_minor": offers._minor(
                             line.get("product_special_price")),
                         "failed_product": {"product_id": line["product_id"],
@@ -137,6 +138,7 @@ def register(bp):
         current_app.logger.info("FRAME_OFFER:CREATED offer=%s order=%s line=%s",
                                 row["offer_uuid"], order_id, row["order_line_id"])
         return jsonify({"ok": True, "offer_uuid": row["offer_uuid"], "link": link,
+                        "order_quantity": row["order_quantity"],
                         "expires_at": row["expires_at"],
                         "candidates": row["candidates"]}), 201
 
@@ -209,18 +211,18 @@ def register(bp):
             return _page("expired", 410)
         row = offers.mark_opened(db, row)
         cur = db.cursor()
-        cur.execute("SELECT order_total FROM orders WHERE order_line_id=%s",
+        cur.execute("SELECT order_quantity, order_total FROM orders WHERE order_line_id=%s",
                     (row["order_line_id"],))
-        total = cur.fetchone() or {}
-        row["order_total_minor"] = offers._minor(total.get("order_total"))
+        line = cur.fetchone() or {}
+        qty = int(line.get("order_quantity") or 1)
+        row["order_quantity"] = qty
+        row["order_total_minor"] = offers._minor(line.get("order_total"))
         session[SESSION_KEY] = {"uuid": row["offer_uuid"],
                                 "hash": row["token_hash"],
                                 "csrf": secrets.token_urlsafe(32)}
         for candidate in row["candidates"]:
-            diff = int(candidate["price_minor"]) - int(row["failed_price_minor"])
-            candidate["price_label"] = (
-                "No extra charge" if abs(diff) < 5000 or diff < 0 else
-                "Pay ₹%s more" % (diff // 100))
+            candidate["price_label"] = offers.price_label(
+                candidate["price_minor"], row["failed_price_minor"], qty)
         return _page("choose", offer=row, csrf=session[SESSION_KEY]["csrf"])
 
     @bp.route("/fq/choose", methods=["POST"])
@@ -244,10 +246,9 @@ def register(bp):
         except offers.OfferError as exc:
             if exc.code == "sold_out":
                 for candidate in row["candidates"]:
-                    diff = int(candidate["price_minor"]) - int(row["failed_price_minor"])
-                    candidate["price_label"] = (
-                        "No extra charge" if abs(diff) < 5000 or diff < 0 else
-                        "Pay ₹%s more" % (diff // 100))
+                    candidate["price_label"] = offers.price_label(
+                        candidate["price_minor"], row["failed_price_minor"],
+                        int(row.get("order_quantity") or 1))
                 return _page("choose", 409, offer=row, csrf=bound["csrf"],
                              error="That frame just sold out. Please choose another.")
             return _page("expired", exc.status)

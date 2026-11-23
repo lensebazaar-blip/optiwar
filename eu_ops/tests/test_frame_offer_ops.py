@@ -89,6 +89,19 @@ class FrameOfferOpsTests(unittest.TestCase):
         self.assertIn("Prices are shown on each frame:", html)
         self.assertIn("Pay ₹50 more", html)
 
+    def test_customer_email_quotes_line_total_for_order_quantity(self):
+        failed = {"name": "Old", "code": "A", "price_minor": 10000}
+        candidate = [{"code": "B", "name": "New", "size": "", "colour": "",
+                      "price_minor": 13000}]
+        html, _ = frame_offers.customer_email(
+            {"firstname": "A", "order_quantity": 2}, failed, candidate,
+            "https://optiwar.com/fq/x")
+        self.assertIn("Pay ₹60 more", html)
+        html, _ = frame_offers.customer_email(
+            {"firstname": "A", "order_quantity": 1}, failed, candidate,
+            "https://optiwar.com/fq/x")
+        self.assertIn("No extra charge", html)
+
     def test_day_three_reminder_and_day_seven_expiry(self):
         reminders = _load_reminders()
         now = datetime(2025, 1, 8)
