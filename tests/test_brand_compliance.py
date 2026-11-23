@@ -56,6 +56,27 @@ class ComplianceDataTest(unittest.TestCase):
                 if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
         self.assertEqual(sorted((used & public) - imported - {"re", "unicodedata"}), [])
 
+    def test_every_renamed_frame_has_its_former_name_and_text_is_cleaned(self):
+        self.assertEqual(set(brand_compliance.FORMER_NAMES), set(brand_compliance.RENAMED))
+        self.assertEqual(
+            brand_compliance.scrub_text(
+                "STAR WARS BO76 - Black frame with Red Black temple arms.", 417),
+            "OPTIWAR Round BO76 - Black frame with Red Black temple arms.")
+        # whatever the case, and only for that product
+        self.assertEqual(brand_compliance.scrub_text("Star Wars frame", 417),
+                         "OPTIWAR Round frame")
+        self.assertEqual(brand_compliance.scrub_text("STAR WARS BO76", 1), "STAR WARS BO76")
+        self.assertIsNone(brand_compliance.scrub_text(None, 417))
+        for product_id, former in brand_compliance.FORMER_NAMES.items():
+            cleaned = brand_compliance.scrub_text("%s X - frame." % former, product_id)
+            self.assertNotIn(former.lower(), cleaned.lower(), former)
+
+    def test_renamed_page_reports_its_new_address_and_description(self):
+        source = (ROOT / "models.py").read_text(encoding="utf-8")
+        self.assertIn('product["product_slug"] = expected_slug', source)
+        self.assertIn('product["product_details"] = scrub_text('
+                      'product.get("product_details"), product_id)', source)
+
     def test_held_helpers_and_storefront_predicates(self):
         import catalogue
         predicate = catalogue.catalogue_site_filter()
@@ -204,13 +225,32 @@ class ProductRouteTest(unittest.TestCase):
             finally:
                 self.app.root_path = old_root
 
-    def test_held_product_page_is_not_found(self):
-        product = _row(668, "AB27", product_category="Spectacles Frame",
-                       product_slug="ray-ban-ab27", product_status="ACTIVE",
-                       product_vertical="EYEWEAR")
-        with patch.object(self.models, "get_db", return_value=_ProductDB(product)):
+    def test_held_product_page_moves_to_its_nearest_category(self):
+        # no page for a held frame, but its old address keeps its visitors and
+        # its links: a permanent redirect to frames of the same shape
+        cases = (
+            ({"product_category_clubmaster": 1}, "/categories/browline"),
+            ({"product_category_wayfarer": 1}, "/categories/square"),
+            ({"product_category_round": 1}, "/categories/round"),
+            ({}, "/eyeglasses/all-spectacle-frames.html"),
+        )
+        for flags, target in cases:
+            with self.subTest(target=target):
+                product = _row(668, "AB27", product_category="Spectacles Frame",
+                               product_slug="ray-ban-ab27", product_status="ACTIVE",
+                               product_vertical="EYEWEAR", **flags)
+                # already switched off in the database: still a redirect, not a 404
+                product.update(sell_on_in=0, sell_on_com=0)
+                with patch.object(self.models, "get_db", return_value=_ProductDB(product)):
+                    response = self.app.test_client().get(
+                        "/categories/spectacles-frame/ray-ban-ab27?pid=668")
+                self.assertEqual(response.status_code, 301)
+                self.assertEqual(response.location, target)
+
+    def test_a_product_that_does_not_exist_is_still_not_found(self):
+        with patch.object(self.models, "get_db", return_value=_ProductDB(None)):
             response = self.app.test_client().get(
-                "/categories/spectacles-frame/ray-ban-ab27?pid=668")
+                "/categories/spectacles-frame/nothing?pid=999999")
         self.assertEqual(response.status_code, 404)
 
     def test_renamed_product_old_slug_redirects_per_id(self):
@@ -259,7 +299,7 @@ def _row(product_id, code, **updates):
         "sell_on_in": 1, "sell_on_com": 1, "show_in_listings": 1,
         "product_category_browline": 0, "product_category_clubmaster": 0,
         "product_category_square": 0, "product_category_wayfarer": 0,
-        "product_image": "",
+        "product_image": "", "product_details": "",
     }
     row.update(updates)
     return row
@@ -293,8 +333,12 @@ class ApplyScriptTest(unittest.TestCase):
             rows = [
                 _row(668, "AB27", product_image="./catalog/ab27.jpg"),
                 _row(332, "AL69", product_image="./catalog/al69.jpg"),
-                _row(671, "AD61"),
+                _row(671, "AD61", product_details="LOUIS STYLE AD61 - Black frame."),
             ]
+            self.assertEqual(apply_script._changes(rows[2])["product_details"],
+                             "OPTIWAR Browline AD61 - Black frame.")
+            self.assertNotIn("product_details", apply_script._changes(
+                _row(671, "AD61", product_details="OPTIWAR Browline AD61 - Black frame.")))
             dry_db = _DB()
             with patch.object(apply_script, "_load_rows", return_value=rows):
                 apply_script.run(dry_db, types.SimpleNamespace(

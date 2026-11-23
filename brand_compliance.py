@@ -161,6 +161,43 @@ STYLE_LABELS = {
     "product_category_clubmaster": "Browline",
     "product_category_wayfarer": "Classic Square",
 }
+# product_id: the name the frame was sold under before its neutral name. Kept
+# so stored descriptions that still open with the old name can be cleaned,
+# on the page and in the database, however many times the apply script runs.
+FORMER_NAMES = {
+    671: 'LOUIS STYLE',
+    676: 'LOUIS STYLE',
+    670: 'D & T',
+    50: 'D & T',
+    98: 'TOM HARDY T0037',
+    202: 'LOUIS STYLE N-5072',
+    862: 'LOUIS STYLE L-1032',
+    864: 'LOUIS STYLE L-1032',
+    863: 'LOUIS STYLE L-1032',
+    786: 'LOUIS STYLE K-8006A',
+    768: 'NORTH FACE NF 1004',
+    767: 'NORTH FACE NF 1002',
+    770: 'NORTH FACE NF 1003',
+    332: 'BRABUS 8023',
+    336: 'BRABUS 8023',
+    330: 'BRABUS 7803',
+    333: 'BRABUS 7803',
+    334: 'BRABUS 7803',
+    331: 'BRABUS 7807',
+    156: 'DASAULTS',
+    839: 'UNITED COLORS',
+    821: 'GAS',
+    818: 'SHANGRI-LA',
+    819: 'SHANGRI-LA',
+    435: 'TOMMY',
+    417: 'STAR WARS',
+    198: 'BANFF CENTRE',
+    196: 'BANFF CENTRE',
+    543: 'BANFF CENTRE',
+    542: 'BANFF CENTRE',
+    76: 'QUEEN ELIZABETH',
+    78: 'QUEEN ELIZABETH',
+}
 BANNED_STYLE_WORDS = ("clubmaster", "club master", "wayfarer")
 
 
@@ -198,6 +235,20 @@ def display_name(product):
     except (TypeError, ValueError):
         renamed = None
     return renamed[1] if renamed else None
+
+
+def scrub_text(text, product_id):
+    """``text`` with the frame's former name replaced by its neutral one."""
+    try:
+        product_id = int(product_id)
+    except (TypeError, ValueError):
+        return text
+    former = FORMER_NAMES.get(product_id)
+    renamed = RENAMED.get(product_id)
+    if not text or not former or not renamed:
+        return text
+    return re.sub(r"(?<![A-Za-z0-9])%s(?![A-Za-z0-9])" % re.escape(former),
+                  lambda _m: renamed[1], str(text), flags=re.I)
 
 
 def slugify(name):
