@@ -23,6 +23,8 @@
       {% for candidate in matches %}
       <label style="border:1px solid #e2e8f0;padding:10px;border-radius:8px;">
         <input type="checkbox" name="product_ids" value="{{ candidate.product_id }}"
+               data-payment-due="{{ 'true' if candidate.payment_due else 'false' }}"
+               data-payment-due-message="{{ candidate.payment_due_message }}"
                {% if candidate.product_id in selected_ids %}checked{% endif %}>
         {% if candidate.image_url %}<img src="{{ candidate.image_url }}" alt="" style="display:block;max-width:120px;max-height:90px;">{% endif %}
         <strong>{{ candidate.code }} · {{ candidate.name }}</strong>
@@ -51,9 +53,10 @@
   </div>
   <div style="margin-top:12px;">
     <button id="frameOfferSend" type="submit" class="btn btn-primary"
-            {% if not wa_template %}disabled{% endif %}>Send email + WhatsApp</button>
+            {% if not wa_template or selected_payment_due_message %}disabled{% endif %}>Send email + WhatsApp</button>
     <span id="frameOfferGate" style="font-size:12px;color:#92400e;">
-      {% if not wa_template %}Waiting for msg91 approval of ow_frame_qc_replace.{% endif %}
+      {% if selected_payment_due_message %}{{ selected_payment_due_message }}
+      {% elif not wa_template %}Waiting for msg91 approval of ow_frame_qc_replace.{% endif %}
     </span>
   </div>
 </form>
@@ -65,15 +68,21 @@
   var reason = document.getElementById('frameOfferReason');
   var button = document.getElementById('frameOfferSend');
   var gate = document.getElementById('frameOfferGate');
+  var form = button && button.form;
   var templateReady = {{ 'true' if wa_template else 'false' }};
-  if (!reason || !button || !gate) return;
+  if (!reason || !button || !gate || !form) return;
   function update(){
     var out = reason.value === 'OUT_OF_STOCK';
-    button.disabled = out || !templateReady;
+    var due = form.querySelector('input[name="product_ids"]:checked[data-payment-due="true"]');
+    button.disabled = out || !templateReady || !!due;
     gate.textContent = out ? 'Needs its own approved wording/template'
-      : (!templateReady ? 'Waiting for msg91 approval of ow_frame_qc_replace' : '');
+      : (!templateReady ? 'Waiting for msg91 approval of ow_frame_qc_replace'
+        : (due ? due.dataset.paymentDueMessage : ''));
   }
   reason.addEventListener('change', update);
+  form.querySelectorAll('input[name="product_ids"]').forEach(function(input){
+    input.addEventListener('change', update);
+  });
   update();
 })();
 </script>

@@ -544,7 +544,21 @@ def _frame_offer_context(order, product, result=None, error=""):
                          or product.get("quantity") or 1)
     order_copy["order_quantity"] = order_quantity
     order_copy["total_minor"] = int(round(float(order.get("total") or 0) * 100))
-    candidates = [row for row in matches if int(row["product_id"]) in chosen]
+    selected_candidates = [row for row in matches
+                           if int(row["product_id"]) in chosen]
+    for candidate in matches:
+        candidate["line_diff_minor"] = frame_offers_svc.line_diff_minor(
+            candidate, failed, order_quantity)
+        candidate["payment_due"] = (
+            frame_offers_svc.settlement_for(candidate["line_diff_minor"])
+            == "PAYMENT_DUE")
+        candidate["payment_due_message"] = (
+            frame_offers_svc.candidate_payment_due_message(
+                candidate, failed, order_quantity))
+    selected_payment_due_message = (
+        frame_offers_svc.selected_payment_due_message(
+            selected_candidates, failed, order_quantity))
+    candidates = selected_candidates
     email_html, email_text = frame_offers_svc.customer_email(
         order_copy, failed, candidates, "https://%s/fq/<one-time-link>" %
         ("in.optiwar.com" if order.get("site_from") == "in.optiwar.com"
@@ -552,6 +566,7 @@ def _frame_offer_context(order, product, result=None, error=""):
     return {"order": order, "product": product, "matches": matches,
             "selected_ids": chosen, "failed": failed, "reason": "QC_FAILED",
             "order_quantity": order_quantity,
+            "selected_payment_due_message": selected_payment_due_message,
             "wa_template": frame_offers_svc.wa_template(),
             "email_html": email_html, "email_text": email_text,
             "wa_body": frame_offers_svc.WA_BODY, "error": error}
@@ -607,19 +622,28 @@ async def ow_frame_offer_send(request: Request, order_id: str,
                   if int(c["product_id"]) in selected]
     if len(candidates) != len(selected) or not 1 <= len(selected) <= 6:
         raise HTTPException(status_code=400, detail="Choose one to six current matches")
+    failed = dict(match_result.get("failed_product") or {})
+    failed["price_minor"] = int(match_result.get("failed_price_minor") or 0)
+    failed.setdefault("size", "")
+    failed.setdefault("colour", "")
+    order_quantity = int(match_result.get("order_quantity")
+                         or product.get("quantity") or 1)
+    allowed, gate_message = frame_offers_svc.send_gate(
+        reason, wa_template, candidates, failed, order_quantity)
+    if not allowed:
+        return RedirectResponse(
+            "%s/orders/ow/%s/frame-offer?order_line_id=%s&error=%s" %
+            (ROOT_PATH, quote(order_id), order_line_id,
+             quote(gate_message)),
+            status_code=303)
     created_by = (user.get("full_name") or user.get("username") or "Ops")
     ok, created = frame_offers_svc.create(
         order_id, order_line_id, reason, list(selected), created_by)
     if not ok:
         raise HTTPException(status_code=502, detail=str(created))
-    failed = dict(match_result.get("failed_product") or {})
-    failed["price_minor"] = int(match_result.get("failed_price_minor") or 0)
-    failed.setdefault("size", "")
-    failed.setdefault("colour", "")
     order_copy = dict(order)
     order_copy["order_quantity"] = int(
-        created.get("order_quantity") or match_result.get("order_quantity")
-        or product.get("quantity") or 1)
+        created.get("order_quantity") or order_quantity)
     order_copy["total_minor"] = int(round(float(order.get("total") or 0) * 100))
     email_html, email_text = frame_offers_svc.customer_email(
         order_copy, failed, created.get("candidates") or candidates,

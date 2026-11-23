@@ -92,12 +92,15 @@ def wa_template():
     return value if value == WA_TEMPLATE_NAME else ""
 
 
-def send_gate(reason, template=None):
+def send_gate(reason, template=None, candidates=None, failed=None, qty=1):
     if str(reason or "").upper() == "OUT_OF_STOCK":
         return False, "Needs its own approved wording/template"
     selected = wa_template() if template is None else str(template or "").strip()
     if selected != WA_TEMPLATE_NAME:
         return False, "Waiting for msg91 approval of ow_frame_qc_replace"
+    message = selected_payment_due_message(candidates or [], failed or {}, qty)
+    if message:
+        return False, message
     return True, ""
 
 
@@ -124,12 +127,13 @@ def email_subject(order_id):
 def customer_email(order, failed, candidates, link):
     qty = int(order.get("order_quantity") or 1)
     any_payment = any(
-        (int(c["price_minor"]) - int(failed["price_minor"])) * qty >= 5000
+        settlement_for(line_diff_minor(c, failed, qty)) == "PAYMENT_DUE"
         for c in candidates)
     rows = []
     for candidate in candidates:
-        line_diff = (int(candidate["price_minor"]) - int(failed["price_minor"])) * qty
-        price = ("Pay %s more" % money(line_diff) if line_diff >= 5000
+        line_diff = line_diff_minor(candidate, failed, qty)
+        price = ("Pay %s more" % money(line_diff)
+                 if settlement_for(line_diff) == "PAYMENT_DUE"
                  else "No extra charge")
         image = ('<img src="%s" alt="" width="120" style="display:block;">'
                  % html.escape(candidate.get("image_url") or "", quote=True)
@@ -181,6 +185,36 @@ def wa_values(order, failed, link):
 
 def diff_minor(candidate, failed):
     return int(candidate.get("price_minor") or 0) - int(failed.get("price_minor") or 0)
+
+
+def line_diff_minor(candidate, failed, qty=1):
+    return diff_minor(candidate, failed) * int(qty or 1)
+
+
+def settlement_for(price_diff_minor):
+    diff = int(price_diff_minor)
+    if abs(diff) < 5000:
+        return "WAIVED"
+    if diff <= -5000:
+        return "REFUND_DUE"
+    return "PAYMENT_DUE"
+
+
+def candidate_payment_due_message(candidate, failed, qty=1):
+    line_diff = line_diff_minor(candidate, failed, qty)
+    if settlement_for(line_diff) != "PAYMENT_DUE":
+        return ""
+    code = candidate.get("code") or candidate.get("product_code") or "Frame"
+    return ("%s costs %s more: the approved WhatsApp says no extra charge. "
+            "Untick it, or get a new template approved.") % (code, money(line_diff))
+
+
+def selected_payment_due_message(candidates, failed, qty=1):
+    for candidate in candidates:
+        message = candidate_payment_due_message(candidate, failed, qty)
+        if message:
+            return message
+    return ""
 
 
 def is_inr_currency(currency):

@@ -1,11 +1,14 @@
 import importlib.util
 import os
+import re
 import sys
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
+
+from jinja2 import DictLoader, Environment
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "eu_ops"))
@@ -101,6 +104,56 @@ class FrameOfferOpsTests(unittest.TestCase):
             {"firstname": "A", "order_quantity": 1}, failed, candidate,
             "https://optiwar.com/fq/x")
         self.assertIn("No extra charge", html)
+
+    def test_payment_due_candidate_blocks_send_until_unticked(self):
+        failed = {"price_minor": 10000}
+        due = {"product_id": 1, "code": "AB27", "name": "Frame",
+               "size": "52-18", "colour": "Black", "price_minor": 20000,
+               "payment_due": True}
+        safe = {"product_id": 2, "code": "AB28", "name": "Frame",
+                "size": "52-18", "colour": "Black", "price_minor": 10200,
+                "payment_due": False}
+        message = (
+            "AB27 costs ₹100 more: the approved WhatsApp says no extra charge. "
+            "Untick it, or get a new template approved.")
+        with patch.dict(os.environ, {"OW_FRAME_QC_WA_TEMPLATE": "ow_frame_qc_replace"}):
+            due["payment_due_message"] = frame_offers.candidate_payment_due_message(
+                due, failed, 1)
+            safe["payment_due_message"] = frame_offers.candidate_payment_due_message(
+                safe, failed, 1)
+            self.assertEqual(
+                frame_offers.send_gate("QC_FAILED", candidates=[due, safe],
+                                       failed=failed, qty=1),
+                (False, message))
+            self.assertEqual(
+                frame_offers.send_gate("QC_FAILED", candidates=[safe],
+                                       failed=failed, qty=1),
+                (True, ""))
+
+        template_text = (ROOT / "eu_ops" / "templates" / "pages"
+                         / "ow_frame_offer.html").read_text()
+        template = Environment(loader=DictLoader({
+            "base.html": "{% block title %}{% endblock %}{% block content %}{% endblock %}",
+            "offer.html": template_text,
+        })).get_template("offer.html")
+        context = {
+            "base": "", "order": {"order_id": "1"},
+            "product": {"name": "Frame", "model": "AB28", "order_product_id": 11},
+            "matches": [due, safe], "selected_ids": {1},
+            "selected_payment_due_message": message, "failed": failed,
+            "order_quantity": 1, "error": "",
+            "wa_template": "ow_frame_qc_replace", "email_html": "",
+            "email_text": "", "wa_body": "",
+        }
+        html = template.render(**context)
+        button = re.search(r'<button id="frameOfferSend"[^>]*>', html).group(0)
+        self.assertIn("disabled", button)
+        self.assertIn(message, html)
+        context["selected_ids"] = {2}
+        context["selected_payment_due_message"] = ""
+        html = template.render(**context)
+        button = re.search(r'<button id="frameOfferSend"[^>]*>', html).group(0)
+        self.assertNotIn("disabled", button)
 
     def test_day_three_reminder_and_day_seven_expiry(self):
         reminders = _load_reminders()
