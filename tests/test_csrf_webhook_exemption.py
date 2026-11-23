@@ -33,8 +33,10 @@ _pricing_spec.loader.exec_module(pricing)
 from csrf_guard import (BEARER_EXEMPT_ENDPOINTS, CSRF_EXEMPT_ENDPOINTS, evaluate,
                         init_csrf_guard)
 
-RESHIP_API = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                          "reship_api.py")
+OPS_API_MODULE_OVERRIDES = {
+    "ai_glasses.py": ("ai_glasses", ""),
+    "ops.py": ("ops", "/ops"),
+}
 
 
 def _app(enforce=True):
@@ -229,15 +231,27 @@ class WebhookReachabilityTests(unittest.TestCase):
             self.assertEqual(app.config["ops_auth_calls"], [])
 
     def test_every_ops_api_post_route_accepts_a_bearer_call_with_no_origin(self):
-        # Ops calls every one of these from its own server, so a route missing
-        # from the list is refused with a 403 before its view authenticates.
-        with open(RESHIP_API) as f:
-            source = f.read()
-        routes = re.findall(r'@bp\.route\("(/ops/api/[^"]+)", methods=\["POST"\]\)\s*\n\s*def (\w+)',
-                            source)
-        self.assertGreaterEqual(len(routes), 11)
-        missing = sorted(path for path, view in routes
-                         if "main.%s" % view not in BEARER_EXEMPT_ENDPOINTS)
+        route_pattern = re.compile(
+            r'^[ \t]*@bp\.route\(\s*["\']([^"\']+)["\']'
+            r'\s*,\s*methods\s*=\s*\[([^\]]*)\]\s*\)\s*\n[ \t]*def\s+(\w+)',
+            re.MULTILINE)
+        routes = []
+        for filename in sorted(os.listdir(REPO)):
+            if not filename.endswith(".py"):
+                continue
+            with open(os.path.join(REPO, filename)) as f:
+                source = f.read()
+            blueprint, prefix = OPS_API_MODULE_OVERRIDES.get(
+                filename, ("main", ""))
+            for path, methods, view in route_pattern.findall(source):
+                if not re.search(r'["\']POST["\']', methods):
+                    continue
+                path = prefix.rstrip("/") + path
+                if path.startswith("/ops/api/"):
+                    routes.append((path, "%s.%s" % (blueprint, view)))
+        self.assertGreaterEqual(len(routes), 23)
+        missing = sorted(path for path, endpoint in routes
+                         if endpoint not in BEARER_EXEMPT_ENDPOINTS)
         self.assertEqual(missing, [])
 
     def test_rx_document_review_and_reparse_are_bearer_exempt(self):
