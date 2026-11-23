@@ -356,10 +356,7 @@ def decide(db, row, product_id=None, refund=False, now=None):
             raise OfferError("line_not_found", "Order line not found", 404)
         from . import refunds as refund_service
         refund_rows = refund_service.ledger_refunds(cur, str(live["order_id"]))
-        processed_refunds = [
-            refund for refund in refund_rows
-            if refund.get("status") == refund_service.PROCESSED]
-        refunded_minor = refund_service.committed_minor(processed_refunds)
+        refunded_minor = refund_service.committed_minor(refund_rows)
         cur.execute(
             "SELECT order_status_name FROM order_status WHERE order_id=%s "
             "ORDER BY order_status_id DESC LIMIT 1", (str(live["order_id"]),))

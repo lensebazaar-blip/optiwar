@@ -365,6 +365,17 @@ class OfferTransactionTests(unittest.TestCase):
         self.assertEqual(result["action"], "frame")
         self.assertEqual(self.db.state["offer"]["status"], "SWAPPED")
 
+    def test_pending_refund_for_paid_total_cancels_offer(self):
+        row, _token, _link = self._create()
+        self.db.state["refunds"] = [
+            {"amount_minor": 10000, "status": "PENDING"}]
+        with self.assertRaises(offers.OfferError) as caught:
+            offers.decide(self.db, row, product_id=20, now=self.now)
+        self.assertEqual(caught.exception.code, "closed")
+        self.assertEqual(self.db.state["offer"]["status"], "CANCELLED")
+        self.assertEqual(self.db.state["product"]["product_quantity"], 1)
+        self.assertEqual(self.db.state["line"]["product_id"], 10)
+
     def test_full_refund_cancels_offer_by_status_or_processed_total(self):
         for refund_choice, refunds, status in (
                 (False, [], "Refunded"),
