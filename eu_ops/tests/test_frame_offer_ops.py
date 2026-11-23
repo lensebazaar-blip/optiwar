@@ -22,6 +22,16 @@ def _load_reminders():
 
 
 class FrameOfferOpsTests(unittest.TestCase):
+    def test_latest_offer_preserves_settlement_fields(self):
+        row = {"offer_uuid": "offer-1", "settled_at": "2026-01-02 03:04:05",
+               "settled_ref": "REF-1"}
+        with patch.object(frame_offers, "api_call",
+                          return_value=(True, {"offers": [row]})):
+            ok, offer = frame_offers.latest("930170", 11)
+        self.assertTrue(ok)
+        self.assertEqual(offer["settled_at"], row["settled_at"])
+        self.assertEqual(offer["settled_ref"], row["settled_ref"])
+
     def test_send_gate_and_approved_copy(self):
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(frame_offers.wa_template(), "")

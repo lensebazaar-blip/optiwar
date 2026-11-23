@@ -185,6 +185,9 @@ function copyOrderText(){
       · Settlement: {{ offer.settlement }}
       {% endif %}
     </div>
+    {% if offer.settled_at %}
+    <div>Settled {{ offer.settled_at }} · ref {{ offer.settled_ref or '—' }}</div>
+    {% else %}
     {% if offer.status == 'OFFERED' %}
     <div>Next action: waiting for the customer to choose.</div>
     {% elif offer.settlement == 'REFUND_DUE' %}
@@ -209,6 +212,7 @@ function copyOrderText(){
       <input class="form-input" name="ref" placeholder="Refund / payment reference" required>
       <button class="btn btn-sm btn-outline" type="submit">Record settlement</button>
     </form>
+    {% endif %}
     {% endif %}
     {% endif %}
   </div>
