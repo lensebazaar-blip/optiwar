@@ -28,7 +28,8 @@ QUARANTINE_BASE = "/root/brand_quarantine"
 RESTORE_DIR = "/root"
 RESTORABLE_COLUMNS = {
     "sell_on_in", "sell_on_com", "show_in_listings", "product_name",
-    "product_slug", "product_category_browline", "product_category_square",
+    "product_slug", "product_details", "product_category_browline",
+    "product_category_square",
 }
 
 
@@ -50,7 +51,7 @@ def _load_rows(cursor):
     marks = ",".join(["%s"] * len(ids))
     cursor.execute(
         "SELECT product_id, product_code, product_name, product_slug, "
-        "sell_on_in, sell_on_com, show_in_listings, "
+        "product_details, sell_on_in, sell_on_com, show_in_listings, "
         "product_category_browline, product_category_clubmaster, "
         "product_category_square, product_category_wayfarer, product_image "
         "FROM products WHERE product_id IN (%s) "
@@ -75,6 +76,11 @@ def _changes(row):
             changes["product_name"] = name
         if row.get("product_slug") != slug:
             changes["product_slug"] = slug
+        # the stored description opens with the old name ("STAR WARS BO76 - ...")
+        details = row.get("product_details")
+        cleaned = brand_compliance.scrub_text(details, product_id)
+        if details and cleaned != details:
+            changes["product_details"] = cleaned
     if (int(row.get("product_category_clubmaster") or 0) == 1
             and int(row.get("product_category_browline") or 0) != 1):
         changes["product_category_browline"] = 1

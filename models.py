@@ -33,7 +33,7 @@ from .catalogue import (
     current_site, strip_ineligible_urls, age_group, ensure_gmc_columns,
     live_lenses, lens_matrix_summary, SITE_IN, SITE_COM,
 )
-from .brand_compliance import RENAMED, display_name, held_ids, slugify
+from .brand_compliance import RENAMED, display_name, held_ids, is_held, scrub_text, slugify
 from . import face_cart, face_fit, face_profiles, face_profiles_api, face_scan_groups_api, face_scan_invites_api, favorites_api, frame_offers_api, order_face_scan, order_rx_documents, progressive_scan
 from . import (acr, lens_cart, lens_config, lens_documents, lens_feed,
                lens_order, lens_preview, lens_rx, lens_seo, lens_upload,
@@ -1725,6 +1725,26 @@ def categories_redirect(catchall):
         return redirect(target, code=301)
     return "Page not found", 404
 
+# A held frame's shape -> the category its old address moves to.
+_HELD_FRAME_CATEGORY = (
+    ('product_category_clubmaster', 'browline'), ('product_category_browline', 'browline'),
+    ('product_category_round', 'round'), ('product_category_rectangle', 'rectangle'),
+    ('product_category_rimless', 'rimless'), ('product_category_supra', 'supra'),
+    ('product_category_square', 'square'), ('product_category_wayfarer', 'square'),
+)
+
+
+def _held_frame_target(product):
+    for column, category in _HELD_FRAME_CATEGORY:
+        try:
+            flagged = int(product.get(column) or 0) == 1
+        except (TypeError, ValueError):
+            flagged = False
+        if flagged and category in CATEGORY_QUERIES:
+            return url_for('main.categories', category=category)
+    return url_for('main.all_spectacle_frames')
+
+
 @bp.route('/categories/<category>/<product_slug>')
 def product_page(category, product_slug):
     product_id = request.args.get('pid', type=int)
@@ -1744,6 +1764,12 @@ def product_page(category, product_slug):
     # A product this storefront does not sell has no page here, and says so the
     # same way a nonexistent one does: a 403 or a redirect would confirm it
     # exists on the other site, and the .in invariant is that it does not exist.
+    # A frame held off sale has no page, but its old address still has links
+    # and a place in search results: it moves permanently to the nearest
+    # category, so a visitor lands on frames they can buy and the link's value
+    # carries over. (Only frames are held; nothing else is redirected.)
+    if is_held(product) and not is_contact_lens(product):
+        return redirect(_held_frame_target(product), code=301)
     if not is_product_allowed(product):
         return "Product not found", 404
 
@@ -1751,6 +1777,10 @@ def product_page(category, product_slug):
     if product_id in RENAMED:
         product["product_name"] = display_name(product)
         expected_slug = slugify(product["product_name"])
+        # the canonical link and the description are built from these two
+        # columns; until the database is renamed they still carry the old name
+        product["product_slug"] = expected_slug
+        product["product_details"] = scrub_text(product.get("product_details"), product_id)
     # D1 fix: guard for NULL/empty slug — return 404 instead of crashing
     if not expected_slug or expected_slug == 'none':
         return "Product not found", 404
