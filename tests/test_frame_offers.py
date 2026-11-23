@@ -9,6 +9,7 @@ import types
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 from flask import Blueprint, Flask
 
@@ -316,6 +317,50 @@ class OfferTransactionTests(unittest.TestCase):
         token_db.state["offer"]["status"] = "SWAPPED"
         token_db.state["offer"]["expires_at"] = self.now + timedelta(days=1)
         self.assertEqual(client.get("/fq/" + token).status_code, 410)
+
+    def test_ops_routes_require_auth_and_authorized_session_succeeds(self):
+        auth = {"authorized": False}
+        db = FakeDB()
+        db_module = types.ModuleType(PACKAGE + ".db")
+        db_module.get_db = lambda: db
+        sys.modules[db_module.__name__] = db_module
+        auth_module = types.ModuleType(PACKAGE + ".order_face_scan")
+        auth_module._ops_auth = lambda: auth["authorized"]
+        sys.modules[auth_module.__name__] = auth_module
+        spec = importlib.util.spec_from_file_location(
+            PACKAGE + ".frame_offers_api", ROOT / "frame_offers_api.py")
+        api = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = api
+        spec.loader.exec_module(api)
+        app = Flask(__name__, template_folder=str(ROOT / "templates"))
+        app.secret_key = "test"
+        bp = Blueprint("main", __name__)
+        api.register(bp)
+        app.register_blueprint(bp)
+        client = app.test_client()
+
+        routes = (
+            ("GET", "/ops/api/orders/O-1/frame-matches?order_line_id=11"),
+            ("POST", "/ops/api/orders/O-1/frame-offer"),
+            ("GET", "/ops/api/orders/O-1/frame-offer"),
+            ("POST", "/ops/api/orders/O-1/frame-offer/offer-uuid/settled"),
+            ("GET", "/ops/api/frame-offers/open"),
+            ("GET", "/ops/api/frame-offers/offer-uuid/link"),
+            ("POST", "/ops/api/frame-offers/offer-uuid/mark"),
+        )
+        for method, path in routes:
+            with self.subTest(method=method, path=path):
+                response = client.open(path, method=method, json={})
+                self.assertEqual(response.status_code, 401)
+                self.assertEqual(response.get_json(),
+                                 {"ok": False, "error": "unauthorized"})
+        self.assertEqual(db.cursor_obj.queries, [])
+
+        auth["authorized"] = True
+        with patch.object(api.offers, "open_offers", return_value=[]):
+            response = client.get("/ops/api/frame-offers/open")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json(), {"ok": True, "offers": []})
 
 
 class ReminderLinkTests(unittest.TestCase):

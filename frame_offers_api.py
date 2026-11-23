@@ -98,9 +98,8 @@ def _decision_notice(result):
 def register(bp):
     @bp.route("/ops/api/orders/<order_id>/frame-matches", methods=["GET"])
     def frame_offer_matches(order_id):
-        refused = _ops_auth()
-        if refused:
-            return refused
+        if not _ops_auth():
+            return jsonify({"ok": False, "error": "unauthorized"}), 401
         db = _db()
         cur = db.cursor()
         line_id = request.args.get("order_line_id")
@@ -122,9 +121,8 @@ def register(bp):
 
     @bp.route("/ops/api/orders/<order_id>/frame-offer", methods=["POST"])
     def frame_offer_create(order_id):
-        refused = _ops_auth()
-        if refused:
-            return refused
+        if not _ops_auth():
+            return jsonify({"ok": False, "error": "unauthorized"}), 401
         data = request.get_json(silent=True) or {}
         db = _db()
         try:
@@ -142,9 +140,8 @@ def register(bp):
 
     @bp.route("/ops/api/orders/<order_id>/frame-offer", methods=["GET"])
     def frame_offer_latest(order_id):
-        refused = _ops_auth()
-        if refused:
-            return refused
+        if not _ops_auth():
+            return jsonify({"ok": False, "error": "unauthorized"}), 401
         db = _db()
         line_id = request.args.get("order_line_id") or None
         rows = offers.latest_for_order(db, order_id, line_id)
@@ -153,9 +150,8 @@ def register(bp):
     @bp.route("/ops/api/orders/<order_id>/frame-offer/<offer_uuid>/settled",
                methods=["POST"])
     def frame_offer_settled(order_id, offer_uuid):
-        refused = _ops_auth()
-        if refused:
-            return refused
+        if not _ops_auth():
+            return jsonify({"ok": False, "error": "unauthorized"}), 401
         data = request.get_json(silent=True) or {}
         db = _db()
         row = offers.get_by_uuid(db, offer_uuid)
@@ -166,16 +162,14 @@ def register(bp):
 
     @bp.route("/ops/api/frame-offers/open", methods=["GET"])
     def frame_offers_open():
-        refused = _ops_auth()
-        if refused:
-            return refused
+        if not _ops_auth():
+            return jsonify({"ok": False, "error": "unauthorized"}), 401
         return jsonify({"ok": True, "offers": offers.open_offers(_db())})
 
     @bp.route("/ops/api/frame-offers/<offer_uuid>/link", methods=["GET"])
     def frame_offer_reminder_link(offer_uuid):
-        refused = _ops_auth()
-        if refused:
-            return refused
+        if not _ops_auth():
+            return jsonify({"ok": False, "error": "unauthorized"}), 401
         row = offers.get_by_uuid(_db(), offer_uuid)
         if not row or row.get("status") != "OFFERED":
             return jsonify({"ok": False, "error": "not_found"}), 404
@@ -192,9 +186,8 @@ def register(bp):
 
     @bp.route("/ops/api/frame-offers/<offer_uuid>/mark", methods=["POST"])
     def frame_offer_mark(offer_uuid):
-        refused = _ops_auth()
-        if refused:
-            return refused
+        if not _ops_auth():
+            return jsonify({"ok": False, "error": "unauthorized"}), 401
         data = request.get_json(silent=True) or {}
         try:
             changed = offers.mark(_db(), offer_uuid, data.get("action"))
