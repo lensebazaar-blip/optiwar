@@ -356,17 +356,20 @@ def decide(db, row, product_id=None, refund=False, now=None):
         if not line:
             raise OfferError("line_not_found", "Order line not found", 404)
         from . import refunds as refund_service
-        cur.execute(
-            "SELECT 1 FROM order_refunds WHERE order_id=%s AND status=%s LIMIT 1",
-            (str(live["order_id"]), refund_service.PROCESSED))
-        processed_refund = cur.fetchone()
+        refund_rows = refund_service.ledger_refunds(cur, str(live["order_id"]))
+        processed_refunds = [
+            refund for refund in refund_rows
+            if refund.get("status") == refund_service.PROCESSED]
+        refunded_minor = refund_service.committed_minor(processed_refunds)
         cur.execute(
             "SELECT order_status_name FROM order_status WHERE order_id=%s "
             "ORDER BY order_status_id DESC LIMIT 1", (str(live["order_id"]),))
         status_row = cur.fetchone() or {}
-        if (processed_refund
-                or status_row.get("order_status_name") in (
-                    refund_service.STATUS_FULL, refund_service.STATUS_PARTIAL)):
+        from . import paid_orders as paid_order_service
+        paid_total_minor = paid_order_service.order_amount_minor(
+            cur, str(live["order_id"]))
+        if (status_row.get("order_status_name") == refund_service.STATUS_FULL
+                or (paid_total_minor > 0 and refunded_minor >= paid_total_minor)):
             cur.execute("UPDATE frame_swap_offers SET status='CANCELLED' WHERE id=%s",
                         (int(live["id"]),))
             db.commit()

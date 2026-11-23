@@ -28,10 +28,26 @@ def _package():
     sys.modules[fsi.__name__] = fsi
     refunds = types.ModuleType(name + ".refunds")
     refunds.PROCESSED = "PROCESSED"
+    refunds.FAILED = "FAILED"
     refunds.STATUS_FULL = "Refunded"
     refunds.STATUS_PARTIAL = "Partially Refunded"
+
+    def ledger_refunds(cursor, order_id):
+        cursor.execute(
+            "SELECT refund_id, provider_refund_id, amount_minor, currency, status, "
+            "refund_type, reason_code, requested_by, service_identity, "
+            "idempotency_key, requested_at, completed_at, error_text "
+            "FROM order_refunds WHERE order_id=%s ORDER BY refund_id DESC",
+            (order_id,))
+        return list(cursor.fetchall())
+
+    refunds.ledger_refunds = ledger_refunds
+    refunds.committed_minor = lambda rows: sum(
+        int(row["amount_minor"]) for row in rows if row["status"] != refunds.FAILED)
     sys.modules[refunds.__name__] = refunds
     paid = types.ModuleType(name + ".paid_orders")
+    paid.order_amount_minor = lambda cursor, order_id: (
+        cursor.db.state["paid_total_minor"])
 
     def mark_out_of_stock(cursor, product_id):
         cursor.execute(
@@ -77,8 +93,8 @@ class FakeCursor:
             return
         if query.startswith("select o.order_line_id"):
             self.result = dict(state["line"])
-        elif query.startswith("select 1 from order_refunds"):
-            self.result = {"1": 1} if state.get("processed_refund") else None
+        elif query.startswith("select refund_id, provider_refund_id"):
+            self.rows = [dict(refund) for refund in state["refunds"]]
         elif query.startswith("select order_status_name from order_status"):
             if state.get("order_status_name"):
                 self.result = {"order_status_name": state["order_status_name"]}
@@ -187,7 +203,7 @@ class FakeDB:
                 "product_special_price": "100.00", "product_quantity": 2,
                 "product_image": "./catalog/ab27.jpg"}],
             "offer": None, "guard": None, "history": [], "status_history": [],
-            "processed_refund": False, "order_status_name": "",
+            "refunds": [], "paid_total_minor": 10000, "order_status_name": "",
         }
         self.cursor_obj = FakeCursor(self)
 
@@ -333,18 +349,27 @@ class OfferTransactionTests(unittest.TestCase):
                  "delete from order_refunds"))
             for sql, _params in self.db.cursor_obj.queries))
 
-    def test_processed_refund_cancels_offer_for_swap_and_refund_choices(self):
-        for refund_choice, processed, order_status in (
-                (False, True, ""),
-                (True, False, "Refunded"),
-                (False, False, "Partially Refunded")):
-            with self.subTest(refund=refund_choice, status=order_status):
+    def test_delivery_fee_refund_does_not_cancel_offer(self):
+        row, _token, _link = self._create()
+        self.db.state["refunds"] = [
+            {"amount_minor": 500, "status": "PROCESSED"}]
+        self.db.state["order_status_name"] = "Partially Refunded"
+        result = offers.decide(self.db, row, product_id=20, now=self.now)
+        self.assertEqual(result["action"], "frame")
+        self.assertEqual(self.db.state["offer"]["status"], "SWAPPED")
+
+    def test_full_refund_cancels_offer_by_status_or_processed_total(self):
+        for refund_choice, refunds, status in (
+                (False, [], "Refunded"),
+                (True, [{"amount_minor": 10000, "status": "PROCESSED"}],
+                 "Partially Refunded")):
+            with self.subTest(refund=refund_choice, status=status):
                 db = FakeDB()
                 row, _token, _link = offers.create_offer(
                     db, "O-1", 11, "QC_FAILED", [20], "operator",
                     datetime(2025, 1, 1), token_secret="test-secret")
-                db.state["processed_refund"] = processed
-                db.state["order_status_name"] = order_status
+                db.state["refunds"] = refunds
+                db.state["order_status_name"] = status
                 with self.assertRaises(offers.OfferError) as caught:
                     offers.decide(db, row, product_id=20, refund=refund_choice,
                                   now=datetime(2025, 1, 1))
