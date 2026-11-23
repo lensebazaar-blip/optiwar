@@ -347,6 +347,22 @@ def decide(db, row, product_id=None, refund=False, now=None):
         line = _line(cur, live["order_id"], live["order_line_id"], lock=True)
         if not line:
             raise OfferError("line_not_found", "Order line not found", 404)
+        from . import refunds as refund_service
+        cur.execute(
+            "SELECT 1 FROM order_refunds WHERE order_id=%s AND status=%s LIMIT 1",
+            (str(live["order_id"]), refund_service.PROCESSED))
+        processed_refund = cur.fetchone()
+        cur.execute(
+            "SELECT order_status_name FROM order_status WHERE order_id=%s "
+            "ORDER BY order_status_id DESC LIMIT 1", (str(live["order_id"]),))
+        status_row = cur.fetchone() or {}
+        if (processed_refund
+                or status_row.get("order_status_name") in (
+                    refund_service.STATUS_FULL, refund_service.STATUS_PARTIAL)):
+            cur.execute("UPDATE frame_swap_offers SET status='CANCELLED' WHERE id=%s",
+                        (int(live["id"]),))
+            db.commit()
+            raise OfferError("closed", "This order has already been refunded", 410)
         candidates = _json_candidates(live.get("candidates_json"))
         if refund:
             failed = line.get("product_code") or ""
@@ -398,8 +414,9 @@ def decide(db, row, product_id=None, refund=False, now=None):
                       "settlement": settlement, "diff_minor": diff}
         db.commit()
         return result
-    except OfferError:
-        db.rollback()
+    except OfferError as exc:
+        if exc.code not in ("expired", "closed"):
+            db.rollback()
         raise
     except Exception:
         db.rollback()

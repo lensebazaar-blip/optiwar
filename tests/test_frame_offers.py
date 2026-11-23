@@ -26,6 +26,11 @@ def _package():
     fsi = types.ModuleType(name + ".face_scan_invites")
     fsi.hash_token = lambda token: hashlib.sha256(token.encode()).hexdigest()
     sys.modules[fsi.__name__] = fsi
+    refunds = types.ModuleType(name + ".refunds")
+    refunds.PROCESSED = "PROCESSED"
+    refunds.STATUS_FULL = "Refunded"
+    refunds.STATUS_PARTIAL = "Partially Refunded"
+    sys.modules[refunds.__name__] = refunds
     paid = types.ModuleType(name + ".paid_orders")
 
     def mark_out_of_stock(cursor, product_id):
@@ -72,6 +77,11 @@ class FakeCursor:
             return
         if query.startswith("select o.order_line_id"):
             self.result = dict(state["line"])
+        elif query.startswith("select 1 from order_refunds"):
+            self.result = {"1": 1} if state.get("processed_refund") else None
+        elif query.startswith("select order_status_name from order_status"):
+            if state.get("order_status_name"):
+                self.result = {"order_status_name": state["order_status_name"]}
         elif "join products f on f.product_id" in query:
             self.rows = [dict(row) for row in state["matches"]]
         elif query.startswith("select product_id, product_image"):
@@ -177,6 +187,7 @@ class FakeDB:
                 "product_special_price": "100.00", "product_quantity": 2,
                 "product_image": "./catalog/ab27.jpg"}],
             "offer": None, "guard": None, "history": [], "status_history": [],
+            "processed_refund": False, "order_status_name": "",
         }
         self.cursor_obj = FakeCursor(self)
 
@@ -313,8 +324,33 @@ class OfferTransactionTests(unittest.TestCase):
         self.assertIn(
             "Customer asked for a full refund via EWS (frame AB28 failed QC)",
             self.db.state["history"])
-        self.assertFalse(any("order_refunds" in sql.lower()
-                             for sql, _params in self.db.cursor_obj.queries))
+        self.assertFalse(any(
+            sql.lstrip().lower().startswith(
+                ("insert into order_refunds", "update order_refunds",
+                 "delete from order_refunds"))
+            for sql, _params in self.db.cursor_obj.queries))
+
+    def test_processed_refund_cancels_offer_for_swap_and_refund_choices(self):
+        for refund_choice, processed, order_status in (
+                (False, True, ""),
+                (True, False, "Refunded"),
+                (False, False, "Partially Refunded")):
+            with self.subTest(refund=refund_choice, status=order_status):
+                db = FakeDB()
+                row, _token, _link = offers.create_offer(
+                    db, "O-1", 11, "QC_FAILED", [20], "operator",
+                    datetime(2025, 1, 1), token_secret="test-secret")
+                db.state["processed_refund"] = processed
+                db.state["order_status_name"] = order_status
+                with self.assertRaises(offers.OfferError) as caught:
+                    offers.decide(db, row, product_id=20, refund=refund_choice,
+                                  now=datetime(2025, 1, 1))
+                self.assertEqual(caught.exception.code, "closed")
+                self.assertEqual(caught.exception.status, 410)
+                self.assertEqual(db.state["offer"]["status"], "CANCELLED")
+                self.assertEqual(db.state["product"]["product_quantity"], 1)
+                self.assertEqual(db.state["line"]["product_id"], 10)
+                self.assertEqual(db.commits, 2)
 
     def test_expired_and_used_offer_decisions_return_410(self):
         row, _token, _link = self._create()
