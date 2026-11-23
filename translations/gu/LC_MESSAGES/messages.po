@@ -167,8 +167,8 @@ msgid "Half Frames Specs"
 msgstr "હાફ ફ્રેમ્સ સ્પેક્સ"
 
 #: templates/base.html:703
-msgid "Club Master Specs"
-msgstr "ક્લબ માસ્ટર સ્પેક્સ"
+msgid "Browline Specs"
+msgstr "બ્રાઉલાઇન સ્પેક્સ"
 
 #: templates/base.html:704
 msgid "Rounded-Glass Specs"
@@ -401,4 +401,3 @@ msgstr "અહીં લોગિન કરો"
 #: templates/terms-and-conditions.html:17
 msgid "Terms and Conditions"
 msgstr "નિયમો અને શરતો"
-

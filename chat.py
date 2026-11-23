@@ -19,6 +19,7 @@ from flask import (
 )
 from werkzeug.utils import secure_filename
 
+from . import brand_compliance
 from . import catalogue
 from . import lens_prompt
 from .catalogue import catalogue_site_filter
@@ -99,6 +100,20 @@ def _load_catalog():
             return _catalog_cache['data']
         with open(CATALOG_PATH, 'r') as f:
             data = json.load(f)
+        products = []
+        for product in data.get('products', []):
+            if brand_compliance.is_held(product.get('id')):
+                continue
+            renamed = brand_compliance.display_name(product.get('id'))
+            if renamed:
+                old_name = product.get('name') or ''
+                product['name'] = renamed
+                if old_name:
+                    product['description_seo'] = (
+                        product.get('description_seo', '').replace(old_name, renamed))
+            products.append(product)
+        data['products'] = products
+        data['total_products'] = len(products)
         _catalog_cache['data'] = data
         _catalog_cache['mtime'] = mtime
         return data
@@ -178,6 +193,9 @@ def _build_catalog_prompt():
         # a matrix, images or a price. Lenses come from the CONTACT LENSES block,
         # built from the database through the release gate; .in has none at all.
         if (p.get('category') or '') == 'Contact Lenses':
+            continue
+        # A frame held off sale for a trademark reason is never offered.
+        if brand_compliance.is_held(p.get('id')):
             continue
         shapes = ','.join(p.get('shapes', []))
         price = p.get('sale_inr') if is_india else p.get('sale_eur')
@@ -274,7 +292,7 @@ RULES:
 2. Keep your text reply SHORT — 2-3 sentences max. Summarize what you found in a natural, conversational way.
 3. Do NOT list individual products with their specs, codes, colors, sizes, or prices in your text. The product cards handle that display.
 4. For product searches, pick the top 3-6 best matches and put ONLY their numeric IDs at the END of your message: [PRODUCTS:id1,id2,id3]
-5. Good example: "I found some great blue clubmaster frames for you! Here are our top picks:" followed by [PRODUCTS:61,62,63]
+5. Good example: "I found some great blue browline frames for you! Here are our top picks:" followed by [PRODUCTS:61,62,63]
 6. BAD example (NEVER do this): listing products in a table or bullet points with codes, colors, sizes, prices — this creates an ugly, unreadable dump.
 7. For policy/shipping/lens questions, use the knowledge base. Be concise.
 8. If asked about prescriptions, explain SPH, CYL, AXIS, ADD, PD briefly and mention the upload button.

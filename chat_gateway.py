@@ -18,6 +18,7 @@ from itsdangerous import URLSafeSerializer, BadSignature
 from openai import OpenAI
 from . import acr
 from . import ai_language
+from . import brand_compliance
 from . import cart_lookup
 from . import catalogue
 from . import chat_attachments
@@ -246,6 +247,20 @@ def _load_catalog():
             return _catalog_cache['data']
         with open(path, 'r') as f:
             data = json.load(f)
+        products = []
+        for product in data.get('products', []):
+            if brand_compliance.is_held(product.get('id')):
+                continue
+            renamed = brand_compliance.display_name(product.get('id'))
+            if renamed:
+                old_name = product.get('name') or ''
+                product['name'] = renamed
+                if old_name:
+                    product['description_seo'] = (
+                        product.get('description_seo', '').replace(old_name, renamed))
+            products.append(product)
+        data['products'] = products
+        data['total_products'] = len(products)
         _catalog_cache['data'] = data
         _catalog_cache['mtime'] = mtime
         return data
@@ -356,8 +371,13 @@ def _search_catalog(color=None, shape=None, facefit=None, min_price=None, max_pr
 
         # Shape filter
         if shape:
-            p_shapes = [s.lower() for s in (p.get('shapes') or [])]
-            if shape.lower() not in p_shapes:
+            normalize_shape = lambda value: {
+                'wayfarer': 'classic square',
+                'square': 'classic square',
+                'clubmaster': 'browline',
+            }.get(str(value).lower(), str(value).lower())
+            p_shapes = [normalize_shape(s) for s in (p.get('shapes') or [])]
+            if normalize_shape(shape) not in p_shapes:
                 continue
 
         # Facefit filter
@@ -427,7 +447,7 @@ SEARCH_PRODUCTS_TOOL = [
                     },
                     "shape": {
                         "type": "string",
-                        "description": "Frame shape filter. Values: rectangle, oval, round, square, wayfarer, aviator, cateye, clubmaster, panto, kids, supra, rimless, horn, browline"
+                        "description": "Frame shape filter. Values: rectangle, oval, round, square (Classic Square), aviator, cateye, browline, panto, kids, supra, rimless, horn"
                     },
                     "facefit": {
                         "type": "string",
@@ -1166,7 +1186,7 @@ RULES:
     - For FRAMES with filters: [ACTION:NAVIGATE:/eyeglasses/all-spectacle-frames.html?PARAMS] — The ONLY valid URL params are: color, facefit, shape. NO other params (temple, pd, width, size, etc.) are supported.
       Valid color values: red/blue/black/green/brown/gold/silver/pink/purple/white/orange/yellow/transparent
       Valid facefit values: small/medium/large/extra+large (map from face_width: <128mm=small, 128-138mm=medium, 138-148mm=large, >148mm=extra+large)
-      Valid shape values: round/rectangle/square/aviator/cateye/oval/clubmaster/wayfarer/kids/panto/supra/quatra/rimless
+      Valid shape values: round/rectangle/square (Classic Square)/aviator/cateye/oval/browline/kids/panto/supra/quatra/rimless
       Example: customer has face_width 134mm and wants pink frames → [ACTION:NAVIGATE:/eyeglasses/all-spectacle-frames.html?facefit=medium&color=pink]
     - For LENSES page: [ACTION:NAVIGATE:/lenses]
     - When recommending frames, ALWAYS end with "Would you like me to take you there?" and include the navigate action with color + facefit filters based on the customer's request and measurements.

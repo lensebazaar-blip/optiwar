@@ -23,6 +23,7 @@ from datetime import datetime
 from . import face_fit
 from . import face_profiles as fp
 from . import lens_cart
+from .catalogue import catalogue_site_filter
 
 LINE_KEY = "face_profile_id"
 NOBODY = 0
@@ -183,7 +184,8 @@ def _sizes(cursor, cart):
     if not ids:
         return {}
     cursor.execute("SELECT product_id, product_size FROM products "
-                   "WHERE product_id IN (%s)" % ",".join(["%s"] * len(ids)),
+                   "WHERE product_id IN (%s)" % ",".join(["%s"] * len(ids))
+                   + catalogue_site_filter(),
                    tuple(ids))
     return {str(r["product_id"]): r["product_size"] for r in cursor.fetchall()}
 

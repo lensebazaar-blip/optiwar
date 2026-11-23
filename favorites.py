@@ -17,6 +17,7 @@ from datetime import datetime
 from . import face_cart
 from . import face_fit
 from . import face_profiles as fp
+from .catalogue import catalogue_site_filter
 
 NOBODY = face_cart.NOBODY
 NO_PERSON_LABEL = face_cart.NO_PERSON_LABEL
@@ -90,7 +91,8 @@ def catalogue(cursor, product_ids):
     if not product_ids:
         return {}
     cursor.execute("SELECT product_id, product_size, product_category FROM products "
-                   "WHERE product_id IN (%s)" % ",".join(["%s"] * len(product_ids)),
+                   "WHERE product_id IN (%s)" % ",".join(["%s"] * len(product_ids))
+                   + catalogue_site_filter(),
                    tuple(product_ids))
     return {int(r["product_id"]): r for r in cursor.fetchall()}
 

@@ -14,6 +14,7 @@ from openai import OpenAI
 from .ai_client import call_model, wrapper_enabled_for, http_error_for, ModelError
 from .embed_helper import build_media_primary, MEDIA_SCHEMA_VERSION
 from .catalogue import catalogue_site_filter
+from .brand_compliance import RENAMED, display_name, slugify
 
 bp = Blueprint('ai_api', __name__, url_prefix='/api/ai')
 
@@ -342,6 +343,7 @@ def recommend_frame():
                    p.product_price, p.product_special_price,
                    pwc.product_category_rectangle, pwc.product_category_round,
                    pwc.product_category_square, pwc.product_category_clubmaster,
+                   pwc.product_category_wayfarer, pwc.product_category_browline,
                    pwc.product_category_supra, pwc.product_category_oval,
                    pwc.product_perception_value AS face_fit
             FROM products p
@@ -357,14 +359,23 @@ def recommend_frame():
                 'rectangle': 'product_category_rectangle',
                 'round': 'product_category_round',
                 'square': 'product_category_square',
-                'clubmaster': 'product_category_clubmaster',
+                'browline': 'product_category_browline',
                 'supra': 'product_category_supra',
                 'rimless': None,  # no column for rimless
             }
             conditions = []
             for s in styles:
-                col = style_col_map.get(s.lower())
-                if col:
+                canonical = {'wayfarer': 'square', 'classic square': 'square',
+                             'clubmaster': 'browline'}.get(
+                    s.lower(), s.lower())
+                col = style_col_map.get(canonical)
+                if canonical == 'square':
+                    conditions.append(
+                        "(pwc.product_category_square = 1 OR pwc.product_category_wayfarer = 1)")
+                elif canonical == 'browline':
+                    conditions.append(
+                        "(pwc.product_category_browline = 1 OR pwc.product_category_clubmaster = 1)")
+                elif col:
                     conditions.append(f"pwc.{col} = 1")
             if conditions:
                 query += " AND (" + " OR ".join(conditions) + ")"
@@ -381,20 +392,26 @@ def recommend_frame():
         for row in rows:
             shapes = []
             for cat_name, col in [('Rectangle', 'product_category_rectangle'), ('Round', 'product_category_round'),
-                                   ('Square', 'product_category_square'), ('Clubmaster', 'product_category_clubmaster'),
                                    ('Supra', 'product_category_supra'), ('Oval', 'product_category_oval')]:
                 if row.get(col):
                     shapes.append(cat_name)
+            if row.get('product_category_square') or row.get('product_category_wayfarer'):
+                shapes.append('Classic Square')
+            if row.get('product_category_clubmaster') or row.get('product_category_browline'):
+                shapes.append('Browline')
 
             price = float(row.get('product_special_price') or row.get('product_price') or 0)
             lens_w = row.get('lens_width')
             bridge_w = row.get('bridge_width')
             temple_l = row.get('temple_length')
             size_str = row.get('product_size') or f"{lens_w or ''}-{bridge_w or ''}-{temple_l or ''}"
+            product_name = display_name(row) or row['product_name']
+            product_slug = (slugify(product_name) if row['product_id'] in RENAMED
+                            else product_name.lower().replace(' ', '-'))
 
             matching_products.append({
                 'id': row['product_id'],
-                'name': row['product_name'],
+                'name': product_name,
                 'code': row['product_code'],
                 'color': row['product_color'],
                 'size': size_str,
@@ -406,7 +423,7 @@ def recommend_frame():
                 'price': price,
                 'currency': currency,
                 'media': build_media_primary(row.get('product_image') or ''),
-                'url': f"https://{site_host}/categories/spectacles-frame/{(row.get('product_name') or '').lower().replace(' ', '-')}?pid={row['product_id']}"
+                'url': f"https://{site_host}/categories/spectacles-frame/{product_slug}?pid={row['product_id']}"
             })
     except Exception as e:
         current_app.logger.error(f"[AI API] Frame query error: {e}")

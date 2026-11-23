@@ -8,6 +8,7 @@ import uuid
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
+from . import brand_compliance
 from . import face_scan_invites as fsi
 
 
@@ -43,7 +44,7 @@ CREATE TABLE IF NOT EXISTS frame_swap_offers (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 """
 
-QUERY = """SELECT p.product_id, p.product_code, p.product_name, p.product_size, p.color_display,
+QUERY = f"""SELECT p.product_id, p.product_code, p.product_name, p.product_size, p.color_display,
        p.product_special_price, p.product_quantity,
        (p.product_category_clubmaster*f.product_category_clubmaster + p.product_category_browline*f.product_category_browline
       + p.product_category_rectangle*f.product_category_rectangle + p.product_category_square*f.product_category_square
@@ -57,6 +58,7 @@ WHERE p.product_category = f.product_category
   AND p.sell_on_in = 1
   AND COALESCE(p.discontinued, 0) = 0
   AND p.product_id <> f.product_id
+  {brand_compliance.sql_exclude("p")}
   AND p.product_diameter BETWEEN f.product_diameter - 4 AND f.product_diameter + 4
   AND p.product_bridge BETWEEN f.product_bridge - 3 AND f.product_bridge + 3
   AND p.product_special_price <= f.product_special_price + 300

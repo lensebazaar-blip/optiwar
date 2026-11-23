@@ -9,6 +9,7 @@ from .catalogue import catalogue_site_filter
 from . import face_profiles as fp
 from . import face_profiles_api
 from . import favorites as fav
+from .brand_compliance import RENAMED, display_name, slugify
 
 
 bp = Blueprint('orders', __name__)
@@ -166,6 +167,10 @@ def favorites():
           cursor = db.cursor()
           cursor.execute(query, (tuple(ids),))
           products = cursor.fetchall()
+          for product in products:
+             product['product_name'] = display_name(product) or product.get('product_name')
+             if int(product.get('product_id') or 0) in RENAMED:
+                product['product_slug'] = slugify(product['product_name'])
           cursor.close()
        except Exception as e:
           logging.error("favorites: %s", e)
@@ -173,6 +178,4 @@ def favorites():
        face_lines = fav.decorate(db, customer_id, products, face_profiles_api.gate_enabled())
     return render_template('favorites.html', products=products, face_lines=face_lines,
                            favorite_ids=ids)
-
-
 

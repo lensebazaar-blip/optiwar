@@ -36,6 +36,8 @@ from . import acr
 from . import face_cart
 from . import face_fit
 from . import face_profiles as fp
+from .catalogue import sellable_here
+from .brand_compliance import display_name
 
 ENABLED_ENV = "FACE_ASSISTANT_ENABLED"
 ALLOW_ENV = "FACE_ASSISTANT_ALLOW_EMAILS"
@@ -101,12 +103,19 @@ def page_frame(db, page_url):
     if not m:
         return None
     cur = db.cursor()
-    cur.execute("SELECT product_id, product_name, product_code, product_size, "
-                "product_category FROM products WHERE product_id=%s",
-                (int(m.group(1)),))
-    row = cur.fetchone()
+    try:
+        product_id = int(m.group(1))
+        if not sellable_here(cur, product_id):
+            return None
+        cur.execute("SELECT product_id, product_name, product_code, product_size, "
+                    "product_category FROM products WHERE product_id=%s",
+                    (product_id,))
+        row = cur.fetchone()
+    finally:
+        cur.close()
     if not row or (row.get("product_category") or "") != FRAME_CATEGORY:
         return None
+    row["product_name"] = display_name(row) or row.get("product_name")
     return row
 
 

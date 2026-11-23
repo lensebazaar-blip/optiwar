@@ -167,8 +167,8 @@ msgid "Half Frames Specs"
 msgstr "ഹാഫ് ഫ്രെയിം സ്പെക്സ്"
 
 #: templates/base.html:703
-msgid "Club Master Specs"
-msgstr "ക്ലബ് മാസ്റ്റർ സ്പെക്സ്"
+msgid "Browline Specs"
+msgstr "ബ്രൗലൈൻ സ്പെക്സ്"
 
 #: templates/base.html:704
 msgid "Rounded-Glass Specs"
@@ -401,4 +401,3 @@ msgstr "ഇവിടെ ലോഗിൻ ചെയ്യുക"
 #: templates/terms-and-conditions.html:17
 msgid "Terms and Conditions"
 msgstr "നിബന്ധനകളും വ്യവസ്ഥകളും"
-

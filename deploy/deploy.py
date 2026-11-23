@@ -74,8 +74,9 @@ RELEASES = os.environ.get("OPTIWAR_RELEASES", "/root/deploy_releases")
 # eligibility rule is only true if every read surface applies it, so shipping
 # models.py without chat.py, ai_api.py or orders.py would leave a lens visible
 # on .in through the chat, the fitting API or the favourites list.
-DEPLOY_SET = ("__init__.py", "log_hygiene.py", "pricing.py", "acr.py", "ai_api.py", "ai_client.py", "catalogue.py", "chat.py",
+DEPLOY_SET = ("__init__.py", "log_hygiene.py", "pricing.py", "acr.py", "ai_api.py", "ai_client.py", "brand_compliance.py", "scripts/brand_compliance_apply.py", "catalogue.py", "chat.py",
               "chat_gateway.py", "contact_lens.py", "dev_defects.py",
+              "products.py",
               "lens_minimums.py",
               "lens_rx.py", "lens_documents.py", "lens_upload.py",
               "lens_rules.py", "lens_config.py", "lens_identity.py",
@@ -100,6 +101,21 @@ DEPLOY_SET = ("__init__.py", "log_hygiene.py", "pricing.py", "acr.py", "ai_api.p
               "templates/frame_offer_guest.html",
               "order_rx_documents.py", "templates/ops_order_rx_documents.html",
               "static/ai/optiwar_ai_knowledge_base.json",
+              "static/ai/frame_rules.json", "static/ai/product_catalog.json",
+              "translations/ar/LC_MESSAGES/messages.mo",
+              "translations/bn/LC_MESSAGES/messages.mo",
+              "translations/de/LC_MESSAGES/messages.mo",
+              "translations/es/LC_MESSAGES/messages.mo",
+              "translations/fr/LC_MESSAGES/messages.mo",
+              "translations/gu/LC_MESSAGES/messages.mo",
+              "translations/hi/LC_MESSAGES/messages.mo",
+              "translations/ja/LC_MESSAGES/messages.mo",
+              "translations/kn/LC_MESSAGES/messages.mo",
+              "translations/ml/LC_MESSAGES/messages.mo",
+              "translations/mr/LC_MESSAGES/messages.mo",
+              "translations/pa/LC_MESSAGES/messages.mo",
+              "translations/ta/LC_MESSAGES/messages.mo",
+              "translations/te/LC_MESSAGES/messages.mo",
               "reship.py", "reship_api.py", "reship_assistant.py", "return_assistant.py", "return_fee.py", "return_refund.py", "return_request.py", "reverse_pickup.py", "templates/ops_reship.html",
               "ai_language.py", "rx_lookup.py", "order_lookup.py", "auth.py", "test_identity.py", "satisfaction.py", "cart_lookup.py",
               "templates/face_scan_guest.html", "templates/favorites.html",
@@ -134,7 +150,7 @@ DEPLOY_SET = ("__init__.py", "log_hygiene.py", "pricing.py", "acr.py", "ai_api.p
 # new module; listing one here says the absence is expected and the file is to
 # be created. A rollback restores only what it replaced, so these stay behind —
 # harmless, because the code that imports them is reverted with them.
-NEW_IN_RELEASE = ("log_hygiene.py", "test_identity.py", "ai_language.py", "rx_lookup.py", "order_lookup.py", "satisfaction.py", "cart_lookup.py", "paid_orders.py", "razorpay_events.py", "rx_powers.py",
+NEW_IN_RELEASE = ("log_hygiene.py", "test_identity.py", "ai_language.py", "rx_lookup.py", "order_lookup.py", "satisfaction.py", "cart_lookup.py", "brand_compliance.py", "scripts/brand_compliance_apply.py", "paid_orders.py", "razorpay_events.py", "rx_powers.py",
                   "razorpay_settlement.py", "razorpay_reconcile.py",
                   "refunds.py", "ops_refunds.py", "catalogue.py",
                   "contact_lens.py", "dev_defects.py", "lens_minimums.py",

@@ -140,14 +140,18 @@ class ProductAllowedTest(unittest.TestCase):
 
 class SiteFilterTest(unittest.TestCase):
     def test_the_predicate_names_the_column_for_the_site(self):
-        self.assertEqual(catalogue.catalogue_site_filter(COM),
-                         " AND sell_on_com = 1 AND product_vertical <> 'SMART_EYEWEAR'")
-        self.assertEqual(catalogue.catalogue_site_filter(IN),
-                         " AND sell_on_in = 1 AND product_vertical <> 'SMART_EYEWEAR'")
+        com = catalogue.catalogue_site_filter(COM)
+        india = catalogue.catalogue_site_filter(IN)
+        self.assertIn("sell_on_com = 1 AND product_vertical <> 'SMART_EYEWEAR'", com)
+        self.assertIn("sell_on_in = 1 AND product_vertical <> 'SMART_EYEWEAR'", india)
+        self.assertIn("product_id NOT IN (", com)
+        self.assertIn("product_id NOT IN (", india)
 
     def test_it_can_be_qualified_for_a_joined_query(self):
-        self.assertEqual(catalogue.catalogue_site_filter(IN, alias="p"),
-                         " AND p.sell_on_in = 1 AND p.product_vertical <> 'SMART_EYEWEAR'")
+        predicate = catalogue.catalogue_site_filter(IN, alias="p")
+        self.assertIn("p.sell_on_in = 1 AND p.product_vertical <> 'SMART_EYEWEAR'",
+                      predicate)
+        self.assertIn("p.product_id NOT IN (", predicate)
 
     def test_it_carries_no_parameters(self):
         # The read paths build WHERE clauses as f-strings and pass their own
