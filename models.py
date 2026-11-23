@@ -33,7 +33,7 @@ from .catalogue import (
     current_site, strip_ineligible_urls, age_group, ensure_gmc_columns,
     live_lenses, lens_matrix_summary, SITE_IN, SITE_COM,
 )
-from .brand_compliance import RENAMED, display_name, slugify
+from .brand_compliance import RENAMED, display_name, held_ids, slugify
 from . import face_cart, face_fit, face_profiles, face_profiles_api, face_scan_groups_api, face_scan_invites_api, favorites_api, frame_offers_api, order_face_scan, order_rx_documents, progressive_scan
 from . import (acr, lens_cart, lens_config, lens_documents, lens_feed,
                lens_order, lens_preview, lens_rx, lens_seo, lens_upload,
