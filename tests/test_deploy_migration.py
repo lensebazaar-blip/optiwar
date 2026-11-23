@@ -117,6 +117,10 @@ class DeployMigrationTest(unittest.TestCase):
     def test_brand_compliance_module_and_catalogues_are_deployable(self):
         self.assertIn("brand_compliance.py", self.deploy.DEPLOY_SET)
         self.assertIn("brand_compliance.py", self.deploy.NEW_IN_RELEASE)
+        self.assertIn("scripts/brand_compliance_apply.py",
+                      self.deploy.DEPLOY_SET)
+        self.assertIn("scripts/brand_compliance_apply.py",
+                      self.deploy.NEW_IN_RELEASE)
         for path in ("static/ai/frame_rules.json",
                      "static/ai/optiwar_ai_knowledge_base.json",
                      "static/ai/product_catalog.json",

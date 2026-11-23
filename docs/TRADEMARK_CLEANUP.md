@@ -16,11 +16,62 @@ script runs. Historical order descriptions are not rewritten.
 
 ## Run order
 
+0. If an immediate hold is required before deployment, optionally run the
+   literal SQL below.
 1. Deploy the reviewed code.
-2. Run `python3 scripts/brand_compliance_apply.py` and review the dry-run output.
-3. Run `python3 scripts/brand_compliance_apply.py --apply --quarantine`.
-4. Purge the storefront/cache layers.
-5. Submit the updated sitemap in Google Search Console (GSC).
+2. Run the dry run below and review its database and image paths.
+3. Run `--apply --quarantine` with the live static image root.
+4. On the server, delete only `static/seo/products/` and
+   `static/seo/products.jsonld`, then purge page and image caches.
+   **Keep `static/seo/sitemap.xml`**: the live file contains 688 URLs and is
+   served by the app. Without it, `/sitemap.xml` falls back to a single URL.
+5. In Google Search Console (GSC) for both `optiwar.com` and `optiwar.in`,
+   resubmit the sitemaps and request removal of held product and image URLs.
+
+## Server commands
+
+`deploy/deploy.py` installs the application into
+`/var/www/flask-optiwar-ow-release-090525/venv/lib/python3.11/site-packages/flaskr`.
+Both `brand_compliance.py` and `scripts/brand_compliance_apply.py` are in its
+deployment set; run the script from that application root so its imports and
+relative paths resolve to the deployed code.
+
+The script reads the same `MYSQL_HOST`, `MYSQL_USER`, `MYSQL_PASSWORD` and
+`MYSQL_DB` environment values as `scripts/restock_refunded.py`. Run these
+commands in the authorized server shell with those values supplied through the
+existing secure Ops environment; do not put credentials in command arguments
+or this repository. The interactive shell does not inherit systemd variables:
+use the established secure procedure to export the same values used by
+`gunicorn`'s `EnvironmentFile`. Its path can be identified with
+`systemctl show gunicorn -p EnvironmentFiles --value`.
+
+```bash
+set -e
+APP_ROOT=/var/www/flask-optiwar-ow-release-090525/venv/lib/python3.11/site-packages/flaskr
+PYTHON=/var/www/flask-optiwar-ow-release-090525/venv/bin/python
+cd "$APP_ROOT"
+
+"$PYTHON" scripts/brand_compliance_apply.py \
+  --image-root "$APP_ROOT/static"
+
+"$PYTHON" scripts/brand_compliance_apply.py \
+  --apply --quarantine --image-root "$APP_ROOT/static"
+
+rm -rf -- "$APP_ROOT/static/seo/products" \
+  "$APP_ROOT/static/seo/products.jsonld"
+```
+
+Run the deletion only after the apply succeeds. It removes only the obsolete
+per-product SEO files; do not remove `static/seo/sitemap.xml`.
+
+To restore a recorded run, use its restore file with the same image root:
+
+```bash
+RESTORE_FILE='/root/brand_compliance_restore_<timestamp>.json'
+"$PYTHON" scripts/brand_compliance_apply.py \
+  --restore "$RESTORE_FILE" \
+  --image-root "$APP_ROOT/static"
+```
 
 The immediate hold statement generated from `HELD` is:
 
@@ -62,12 +113,16 @@ brand. List it under that brand, never under Optiwar.
 
 ## Image quarantine
 
-The app's static directory is served directly by nginx. Keep quarantined files
-outside it; the script defaults to `/root/brand_quarantine/<timestamp>/` and
-preserves each `product_image` relative path. Missing source files are
-reported, not fatal. The restore record is written before the database
-transaction commits and includes previous column values, completed moves and
-missing files. The script never deletes files.
+The app's static directory is served directly by nginx. Quarantine every held
+product's photos, including `lens_sticker` products whose photos show
+third-party stickers. Keep quarantined files outside the public static root;
+the script defaults to `/root/brand_quarantine/<timestamp>/` and preserves
+each `product_image` relative path. `--image-root` defaults to the repository's
+`static/` directory and must be set to the live app's `flaskr/static/` directory
+when running on the server. Missing source files are reported, not fatal. The
+restore record is written before the database transaction commits and includes
+previous column values, completed moves and missing files. The script never
+deletes files.
 
 ## Customer-visible style labels
 

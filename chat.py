@@ -21,7 +21,6 @@ from werkzeug.utils import secure_filename
 
 from . import brand_compliance
 from . import catalogue
-from . import brand_compliance
 from . import lens_prompt
 from .catalogue import catalogue_site_filter
 from openai import OpenAI

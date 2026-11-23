@@ -87,7 +87,7 @@ def _changes(row):
 def _image_paths(row):
     product_id = int(row["product_id"])
     held = brand_compliance.HELD.get(product_id)
-    if not held or held[2] != "frame_mark":
+    if not held:
         return []
     paths = []
     for raw in (row.get("product_image") or "").split(","):
@@ -280,15 +280,18 @@ def main(argv=None):
     mode.add_argument("--restore", metavar="FILE",
                       help="restore database values and quarantined files")
     parser.add_argument("--quarantine", action="store_true",
-                        help="move held-frame images outside the public static root")
+                        help="move held-product images outside the public static root")
+    parser.add_argument("--image-root", metavar="PATH", default=IMAGE_ROOT,
+                        help="static root containing product images "
+                             "(default: %(default)s)")
     args = parser.parse_args(argv)
     if args.quarantine and not args.apply:
         parser.error("--quarantine is valid only with --apply")
     db = connect()
     try:
         if args.restore:
-            return restore(db, args.restore)
-        return run(db, args)
+            return restore(db, args.restore, image_root=args.image_root)
+        return run(db, args, image_root=args.image_root)
     finally:
         db.close()
 

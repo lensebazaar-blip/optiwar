@@ -10,12 +10,6 @@ from decimal import Decimal, InvalidOperation
 
 from . import brand_compliance
 from . import face_scan_invites as fsi
-from . import brand_compliance
-
-
-_HELD_IDS_SQL = ",".join(str(product_id) for product_id in brand_compliance.HELD)
-_HELD_FILTER_SQL = (" AND p.product_id NOT IN (%s)" % _HELD_IDS_SQL
-                    if _HELD_IDS_SQL else "")
 
 
 SCHEMA = """
@@ -62,9 +56,9 @@ WHERE p.product_category = f.product_category
   AND p.product_vertical = f.product_vertical
   AND p.product_status = 'ACTIVE' AND p.product_quantity > 0
   AND p.sell_on_in = 1
-  {_HELD_FILTER_SQL}
   AND COALESCE(p.discontinued, 0) = 0
   AND p.product_id <> f.product_id
+  {brand_compliance.sql_exclude("p")}
   AND p.product_diameter BETWEEN f.product_diameter - 4 AND f.product_diameter + 4
   AND p.product_bridge BETWEEN f.product_bridge - 3 AND f.product_bridge + 3
   AND p.product_special_price <= f.product_special_price + 300
@@ -131,10 +125,7 @@ def match_sql(site_from):
     return (QUERY
             .replace("f.product_id = 667", "f.product_id = %s")
             .replace("p.product_quantity > 0", "p.product_quantity >= %s")
-            .replace("p.sell_on_in = 1", "p.%s = 1" % column)
-            # never offer a frame held off sale for a trademark reason
-            .replace("AND p.product_id <> f.product_id",
-                     "AND p.product_id <> f.product_id" + brand_compliance.sql_exclude("p")))
+            .replace("p.sell_on_in = 1", "p.%s = 1" % column))
 
 
 def matches(cursor, product_id, site_from, qty=1):

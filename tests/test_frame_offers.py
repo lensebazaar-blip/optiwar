@@ -237,13 +237,12 @@ class FakeDB:
 
 class MatchQueryTests(unittest.TestCase):
     def test_site_switch_is_the_only_query_change_and_product_id_is_parameterized(self):
-        expected = (offers.QUERY
-                    .replace("f.product_id = 667", "f.product_id = %s")
-                    .replace("p.product_quantity > 0",
-                             "p.product_quantity >= %s")
-                    .replace("AND p.product_id <> f.product_id",
-                             "AND p.product_id <> f.product_id"
-                             + offers.brand_compliance.sql_exclude("p")))
+        expected = offers.QUERY.replace(
+            "f.product_id = 667", "f.product_id = %s").replace(
+                "p.product_quantity > 0", "p.product_quantity >= %s")
+        self.assertIn("p.product_id NOT IN", expected)
+        self.assertIn("668", expected)
+        self.assertIn("668", offers.match_sql("optiwar.com"))
         self.assertEqual(offers.match_sql("in.optiwar.com"), expected)
         self.assertEqual(offers.match_sql("optiwar.com"),
                          expected.replace("p.sell_on_in = 1", "p.sell_on_com = 1"))

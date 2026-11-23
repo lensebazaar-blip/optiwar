@@ -1202,7 +1202,7 @@ def _apply_display_names(products):
     return products
 
 
-@bp.route('/contact_lenses/<category>/<product>')
+@bp.route('/contact_lenses/<categories>/<products>')
 def show_product(category, product):
     if category in categories and product in categories[category]['products']:
        return render_template(f"{category}/{product}.html", product=product, category=categories[category])

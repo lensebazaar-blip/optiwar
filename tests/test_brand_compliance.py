@@ -98,6 +98,8 @@ class ProductRouteTest(unittest.TestCase):
         import pymysql
         pymysql.install_as_MySQLdb()
         try:
+            import optiwar
+            sys.modules.setdefault("flaskr", optiwar)
             from optiwar import models
         except ModuleNotFoundError as exc:
             raise unittest.SkipTest(
@@ -161,6 +163,9 @@ class _DB:
     def rollback(self):
         self.rollbacks += 1
 
+    def close(self):
+        pass
+
 
 def _row(product_id, code, **updates):
     row = {
@@ -176,16 +181,33 @@ def _row(product_id, code, **updates):
 
 
 class ApplyScriptTest(unittest.TestCase):
+    def test_main_passes_custom_image_root_to_dry_run_and_restore(self):
+        image_root = "/live/flaskr/static"
+        db = _DB()
+        with patch.object(apply_script, "connect", return_value=db), \
+                patch.object(apply_script, "run", return_value=0) as run:
+            self.assertEqual(apply_script.main(["--image-root", image_root]), 0)
+        self.assertEqual(run.call_args.kwargs["image_root"], image_root)
+
+        with patch.object(apply_script, "connect", return_value=db), \
+                patch.object(apply_script, "restore", return_value=0) as restore:
+            self.assertEqual(apply_script.main([
+                "--restore", "/root/record.json", "--image-root", image_root]), 0)
+        self.assertEqual(restore.call_args.kwargs["image_root"], image_root)
+
     def test_dry_run_apply_idempotency_restore_and_quarantine(self):
         with tempfile.TemporaryDirectory() as tmp:
             image_root = Path(tmp) / "static"
             source = image_root / "catalog" / "ab27.jpg"
+            sticker_source = image_root / "catalog" / "al69.jpg"
             source.parent.mkdir(parents=True)
             source.write_bytes(b"frame")
+            sticker_source.write_bytes(b"lens sticker")
             quarantine = Path(tmp) / "quarantine"
             restore_dir = Path(tmp) / "restore"
             rows = [
                 _row(668, "AB27", product_image="./catalog/ab27.jpg"),
+                _row(332, "AL69", product_image="./catalog/al69.jpg"),
                 _row(671, "AD61"),
             ]
             dry_db = _DB()
@@ -205,14 +227,25 @@ class ApplyScriptTest(unittest.TestCase):
             self.assertGreaterEqual(len(db.cursor_obj.queries), 2)
             self.assertTrue(any("sell_on_in" in sql for sql, _ in db.cursor_obj.queries))
             self.assertFalse(source.exists())
+            self.assertFalse(sticker_source.exists())
             restore_file = next(restore_dir.glob("brand_compliance_restore_*.json"))
             record = json.loads(restore_file.read_text())
             self.assertEqual(record["updates"]["668"]["sell_on_in"], 1)
-            quarantined = Path(record["image_moves"][0]["quarantined"])
-            self.assertTrue(quarantined.exists())
+            self.assertEqual(len(record["image_moves"]), 2)
+            self.assertEqual(
+                {Path(move["source"]) for move in record["image_moves"]},
+                {source, sticker_source})
+            quarantined = [Path(move["quarantined"])
+                           for move in record["image_moves"]]
+            self.assertTrue(all(path.exists() for path in quarantined))
 
             already_applied = [
                 _row(668, "AB27", product_image="./catalog/ab27.jpg",
+                     sell_on_in=0, sell_on_com=0, show_in_listings=0),
+                _row(332, "AL69", product_image="./catalog/al69.jpg",
+                     product_name=brand_compliance.RENAMED[332][1],
+                     product_slug=brand_compliance.slugify(
+                         brand_compliance.RENAMED[332][1]),
                      sell_on_in=0, sell_on_com=0, show_in_listings=0),
                 _row(671, "AD61",
                      product_name=brand_compliance.RENAMED[671][1],
@@ -235,7 +268,8 @@ class ApplyScriptTest(unittest.TestCase):
             self.assertTrue(any("UPDATE products SET" in sql
                                 for sql, _ in restore_db.cursor_obj.queries))
             self.assertTrue(source.exists())
-            self.assertFalse(quarantined.exists())
+            self.assertTrue(sticker_source.exists())
+            self.assertTrue(all(not path.exists() for path in quarantined))
 
 
 if __name__ == "__main__":
