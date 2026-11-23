@@ -240,7 +240,10 @@ class MatchQueryTests(unittest.TestCase):
         expected = (offers.QUERY
                     .replace("f.product_id = 667", "f.product_id = %s")
                     .replace("p.product_quantity > 0",
-                             "p.product_quantity >= %s"))
+                             "p.product_quantity >= %s")
+                    .replace("AND p.product_id <> f.product_id",
+                             "AND p.product_id <> f.product_id"
+                             + offers.brand_compliance.sql_exclude("p")))
         self.assertEqual(offers.match_sql("in.optiwar.com"), expected)
         self.assertEqual(offers.match_sql("optiwar.com"),
                          expected.replace("p.sell_on_in = 1", "p.sell_on_com = 1"))

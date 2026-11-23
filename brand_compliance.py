@@ -165,6 +165,14 @@ def held_ids():
     return frozenset(HELD)
 
 
+def sql_exclude(alias=None):
+    if not HELD:
+        return ""
+    prefix = "%s." % alias if alias else ""
+    ids = ",".join(str(product_id) for product_id in HELD)
+    return " AND %sproduct_id NOT IN (%s)" % (prefix, ids)
+
+
 def is_held(product):
     if isinstance(product, dict):
         product = product.get("product_id")

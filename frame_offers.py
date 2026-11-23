@@ -8,6 +8,7 @@ import uuid
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
+from . import brand_compliance
 from . import face_scan_invites as fsi
 from . import brand_compliance
 
@@ -130,7 +131,10 @@ def match_sql(site_from):
     return (QUERY
             .replace("f.product_id = 667", "f.product_id = %s")
             .replace("p.product_quantity > 0", "p.product_quantity >= %s")
-            .replace("p.sell_on_in = 1", "p.%s = 1" % column))
+            .replace("p.sell_on_in = 1", "p.%s = 1" % column)
+            # never offer a frame held off sale for a trademark reason
+            .replace("AND p.product_id <> f.product_id",
+                     "AND p.product_id <> f.product_id" + brand_compliance.sql_exclude("p")))
 
 
 def matches(cursor, product_id, site_from, qty=1):

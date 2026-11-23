@@ -19,6 +19,7 @@ from flask import (
 )
 from werkzeug.utils import secure_filename
 
+from . import brand_compliance
 from . import catalogue
 from . import brand_compliance
 from . import lens_prompt
@@ -193,6 +194,9 @@ def _build_catalog_prompt():
         # a matrix, images or a price. Lenses come from the CONTACT LENSES block,
         # built from the database through the release gate; .in has none at all.
         if (p.get('category') or '') == 'Contact Lenses':
+            continue
+        # A frame held off sale for a trademark reason is never offered.
+        if brand_compliance.is_held(p.get('id')):
             continue
         shapes = ','.join(p.get('shapes', []))
         price = p.get('sale_inr') if is_india else p.get('sale_eur')
