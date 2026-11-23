@@ -55,7 +55,8 @@ class DeployMigrationTest(unittest.TestCase):
 
     def test_covers_every_column_and_index_ensure_schema_adds(self):
         labels = [label for label, _sql in self.deploy.migration()]
-        expected = ["order_refunds (table)", "stock_restocks (table)"]
+        expected = ["order_refunds (table)", "stock_restocks (table)",
+                    "frame_swap_offers (table)"]
         expected += ["ai_events.%s (column)" % n
                     for n, _d in self.acr._AI_EVENTS_EXTRA_COLS]
         expected += ["ai_events.%s (index)" % n
@@ -112,6 +113,22 @@ class DeployMigrationTest(unittest.TestCase):
     def test_progressive_scan_module_is_in_release_sets(self):
         self.assertIn("progressive_scan.py", self.deploy.DEPLOY_SET)
         self.assertIn("progressive_scan.py", self.deploy.NEW_IN_RELEASE)
+
+    def test_frame_offer_schema_and_files_are_in_the_release(self):
+        self.assertIn("frame_swap_offers (table)",
+                      [label for label, _sql in self.deploy.migration()])
+        for path in ("frame_offers.py", "frame_offers_api.py",
+                     "templates/frame_offer_guest.html"):
+            self.assertIn(path, self.deploy.DEPLOY_SET)
+            self.assertIn(path, self.deploy.NEW_IN_RELEASE)
+        with open(os.path.join(REPO, "frame_offers.py"), encoding="utf-8") as fh:
+            source = fh.read()
+        declared = next(ast.literal_eval(node.value)
+                        for node in ast.parse(source).body
+                        if isinstance(node, ast.Assign) and any(
+                            getattr(target, "id", None) == "SCHEMA"
+                            for target in node.targets))
+        self.assertEqual(self.deploy.frame_offers_schema(), " ".join(declared.split()))
 
     def test_the_catalogue_columns_are_the_ones_catalogue_ensures(self):
         """Read out of the source rather than imported, because catalogue.py

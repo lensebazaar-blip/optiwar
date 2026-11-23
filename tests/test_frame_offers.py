@@ -1,0 +1,401 @@
+"""Frame-offer transactions and the QC restock guard, with DB-API fakes."""
+
+import hashlib
+import importlib.util
+import json
+import os
+import sys
+import types
+import unittest
+from datetime import datetime, timedelta
+from pathlib import Path
+
+from flask import Blueprint, Flask
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _package():
+    name = "frame_offer_test_pkg"
+    if name in sys.modules:
+        return name, sys.modules[name + ".frame_offers"]
+    package = types.ModuleType(name)
+    package.__path__ = [str(ROOT)]
+    sys.modules[name] = package
+    fsi = types.ModuleType(name + ".face_scan_invites")
+    fsi.hash_token = lambda token: hashlib.sha256(token.encode()).hexdigest()
+    sys.modules[fsi.__name__] = fsi
+    paid = types.ModuleType(name + ".paid_orders")
+
+    def mark_out_of_stock(cursor, product_id):
+        cursor.execute(
+            "UPDATE products SET product_status='OUT_OF_STOCK', status_changed_at=NOW(), "
+            "status_changed_by='system-stock', status_reason='auto: stock depleted' "
+            "WHERE product_id=%s AND product_quantity<=0 AND product_status='ACTIVE'",
+            (product_id,))
+        if cursor.rowcount == 1:
+            cursor.execute(
+                "INSERT INTO product_status_history "
+                "(product_id, old_status, new_status, reason, changed_by) "
+                "VALUES (%s,'ACTIVE','OUT_OF_STOCK','auto: stock depleted','system-stock')",
+                (product_id,))
+
+    paid.mark_out_of_stock = mark_out_of_stock
+    sys.modules[paid.__name__] = paid
+    spec = importlib.util.spec_from_file_location(
+        name + ".frame_offers", ROOT / "frame_offers.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return name, module
+
+
+PACKAGE, offers = _package()
+
+
+class FakeCursor:
+    def __init__(self, db):
+        self.db = db
+        self.result = None
+        self.rows = []
+        self.rowcount = 0
+        self.queries = []
+
+    def execute(self, sql, params=()):
+        params = tuple(params or ())
+        self.queries.append((sql, params))
+        query = " ".join(sql.lower().split())
+        state = self.db.state
+        self.result, self.rows, self.rowcount = None, [], 0
+        if query.startswith("create table"):
+            return
+        if query.startswith("select o.order_line_id"):
+            self.result = dict(state["line"])
+        elif "join products f on f.product_id" in query:
+            self.rows = [dict(row) for row in state["matches"]]
+        elif query.startswith("select product_id, product_image"):
+            self.rows = [{"product_id": row["product_id"],
+                          "product_image": row.get("product_image", "")}
+                         for row in state["matches"] if row["product_id"] in params]
+        elif query.startswith("update frame_swap_offers set status='cancelled'"):
+            if state.get("offer") and state["offer"]["status"] == "OFFERED":
+                state["offer"]["status"] = "CANCELLED"
+                self.rowcount = 1
+        elif query.startswith("insert into frame_swap_offers"):
+            self.db.next_id += 1
+            (offer_uuid, order_id, line_id, reason, failed_id, failed_price,
+             candidates_json, token_hash, created_by, created_at, expires_at) = params
+            state["offer"] = {
+                "id": self.db.next_id, "offer_uuid": offer_uuid, "order_id": order_id,
+                "order_line_id": line_id, "reason": reason,
+                "failed_product_id": failed_id, "failed_price_minor": failed_price,
+                "candidates_json": candidates_json, "token_hash": token_hash,
+                "status": "OFFERED", "created_by": created_by,
+                "created_at": created_at, "expires_at": expires_at,
+                "opened_at": None, "reminder_sent_at": None, "alerted_at": None,
+            }
+            self.rowcount = 1
+        elif query.startswith("insert ignore into stock_restocks"):
+            state["guard"] = params
+            self.rowcount = 1
+        elif query.startswith("insert into order_history"):
+            state["history"].append(params[0])
+            self.rowcount = 1
+        elif query.startswith("select * from frame_swap_offers where offer_uuid"):
+            if state.get("offer") and state["offer"]["offer_uuid"] == params[0]:
+                self.result = dict(state["offer"])
+        elif query.startswith("select * from frame_swap_offers where token_hash"):
+            if state.get("offer") and state["offer"]["token_hash"] == params[0]:
+                self.result = dict(state["offer"])
+        elif query.startswith("select * from frame_swap_offers where id"):
+            if state.get("offer") and state["offer"]["id"] == params[0]:
+                self.result = dict(state["offer"])
+        elif query.startswith("update frame_swap_offers set status='expired'"):
+            state["offer"]["status"] = "EXPIRED"
+            self.rowcount = 1
+        elif query.startswith("update frame_swap_offers set status='refund_requested'"):
+            state["offer"]["status"] = "REFUND_REQUESTED"
+            state["offer"]["decided_at"] = params[0]
+            self.rowcount = 1
+        elif query.startswith("update products set product_quantity=product_quantity-1"):
+            product = state["product"]
+            if (product["product_status"] == "ACTIVE"
+                    and product["product_quantity"] >= 1):
+                product["product_quantity"] -= 1
+                self.rowcount = 1
+        elif query.startswith("select product_quantity from products"):
+            self.result = {"product_quantity": state["product"]["product_quantity"]}
+        elif query.startswith("update products set product_status='out_of_stock'"):
+            product = state["product"]
+            if product["product_quantity"] <= 0 and product["product_status"] == "ACTIVE":
+                product["product_status"] = "OUT_OF_STOCK"
+                self.rowcount = 1
+        elif query.startswith("insert into product_status_history"):
+            state["status_history"].append(params)
+            self.rowcount = 1
+        elif query.startswith("update orders set product_id"):
+            state["line"]["product_id"] = params[0]
+            self.rowcount = 1
+        elif query.startswith("delete from stock_restocks"):
+            state["guard"] = None
+            self.rowcount = 1
+        elif query.startswith("update frame_swap_offers set status=%s, chosen_product_id"):
+            status, pid, diff, settlement, decided_at, _offer_id = params
+            state["offer"].update(
+                status=status, chosen_product_id=pid, price_diff_minor=diff,
+                settlement=settlement, decided_at=decided_at)
+            self.rowcount = 1
+        else:
+            raise AssertionError("unexpected SQL: %s" % sql)
+
+    def fetchone(self):
+        return self.result
+
+    def fetchall(self):
+        return self.rows
+
+
+class FakeDB:
+    def __init__(self):
+        self.next_id = 0
+        self.commits = 0
+        self.rollbacks = 0
+        self.begins = 0
+        self.state = {
+            "line": {"order_line_id": 11, "order_id": "O-1",
+                     "product_id": 10, "order_quantity": 1,
+                     "order_total": 100, "site_from": "in.optiwar.com",
+                     "product_code": "AB28", "product_name": "No Art",
+                     "product_special_price": "100.00"},
+            "product": {"product_id": 20, "product_quantity": 1,
+                        "product_status": "ACTIVE"},
+            "matches": [{
+                "product_id": 20, "product_code": "AB27", "product_name": "Replacement",
+                "product_size": "52-18-136", "color_display": "Black",
+                "product_special_price": "100.00", "product_quantity": 2,
+                "product_image": "./catalog/ab27.jpg"}],
+            "offer": None, "guard": None, "history": [], "status_history": [],
+        }
+        self.cursor_obj = FakeCursor(self)
+
+    def cursor(self):
+        return self.cursor_obj
+
+    def begin(self):
+        self.begins += 1
+
+    def commit(self):
+        self.commits += 1
+
+    def rollback(self):
+        self.rollbacks += 1
+
+
+class MatchQueryTests(unittest.TestCase):
+    def test_site_switch_is_the_only_query_change_and_product_id_is_parameterized(self):
+        expected = offers.QUERY.replace("f.product_id = 667", "f.product_id = %s")
+        self.assertEqual(offers.match_sql("in.optiwar.com"), expected)
+        self.assertEqual(offers.match_sql("optiwar.com"),
+                         expected.replace("p.sell_on_in = 1", "p.sell_on_com = 1"))
+        cursor = FakeDB().cursor()
+        offers.matches(cursor, 774, "in.optiwar.com")
+        self.assertEqual(cursor.queries[-1][1], (774,))
+        self.assertIn("f.product_id = %s", cursor.queries[-1][0])
+        self.assertIn("p.sell_on_in = 1", cursor.queries[-1][0])
+
+
+class OfferTransactionTests(unittest.TestCase):
+    def setUp(self):
+        self.db = FakeDB()
+        self.now = datetime(2025, 1, 1)
+
+    def _create(self, reason="QC_FAILED"):
+        return offers.create_offer(
+            self.db, "O-1", 11, reason, [20], "operator", self.now,
+            token_secret="test-secret")
+
+    def test_qc_offer_creates_guard_and_history_atomically(self):
+        row, token, link = self._create()
+        self.assertEqual(row["status"], "OFFERED")
+        self.assertTrue(token)
+        self.assertEqual(link, "https://in.optiwar.com/fq/" + token)
+        self.assertEqual(self.db.state["guard"],
+                         (11, "O-1", 10, "operator"))
+        self.assertIn("Frame AB28 failed quality check; replacement offered: AB27 (by operator)",
+                      self.db.state["history"])
+        self.assertEqual(self.db.commits, 1)
+        self.assertNotIn(token, str(self.db.state["history"]))
+
+    def test_out_of_stock_offer_does_not_create_qc_guard(self):
+        self._create("OUT_OF_STOCK")
+        self.assertIsNone(self.db.state["guard"])
+        self.assertIn("out of stock", self.db.state["history"][0])
+        self.assertNotIn("failed quality check", self.db.state["history"][0])
+
+    def test_swap_changes_line_stock_status_and_removes_qc_guard(self):
+        row, _token, _link = self._create()
+        decision = offers.decide(self.db, row, product_id=20, now=self.now)
+        self.assertEqual(decision["settlement"], "WAIVED")
+        self.assertEqual(self.db.state["line"]["product_id"], 20)
+        self.assertEqual(self.db.state["product"]["product_quantity"], 0)
+        self.assertEqual(self.db.state["product"]["product_status"], "OUT_OF_STOCK")
+        self.assertIsNone(self.db.state["guard"])
+        self.assertEqual(self.db.state["offer"]["status"], "SWAPPED")
+        self.assertEqual(len(self.db.state["status_history"]), 1)
+
+    def test_stock_race_rolls_back_without_changing_order_line(self):
+        row, _token, _link = self._create()
+        self.db.state["product"]["product_quantity"] = 0
+        with self.assertRaises(offers.OfferError) as caught:
+            offers.decide(self.db, row, product_id=20, now=self.now)
+        self.assertEqual(caught.exception.code, "sold_out")
+        self.assertEqual(self.db.state["line"]["product_id"], 10)
+        self.assertEqual(self.db.rollbacks, 1)
+
+    def test_price_difference_boundaries(self):
+        cases = {
+            200: "WAIVED",
+            -4900: "WAIVED",
+            -10000: "REFUND_DUE",
+            5000: "PAYMENT_DUE",
+        }
+        for diff, settlement in cases.items():
+            with self.subTest(diff=diff):
+                self.assertEqual(offers.settlement_for(diff), settlement)
+
+    def test_refund_choice_is_only_a_staff_request(self):
+        row, _token, _link = self._create()
+        decision = offers.decide(self.db, row, refund=True, now=self.now)
+        self.assertEqual(decision["action"], "refund")
+        self.assertEqual(self.db.state["offer"]["status"], "REFUND_REQUESTED")
+        self.assertIn(
+            "Customer asked for a full refund via EWS (frame AB28 failed QC)",
+            self.db.state["history"])
+        self.assertFalse(any("order_refunds" in sql.lower()
+                             for sql, _params in self.db.cursor_obj.queries))
+
+    def test_expired_and_used_offer_decisions_return_410(self):
+        row, _token, _link = self._create()
+        self.db.state["offer"]["expires_at"] = self.now - timedelta(seconds=1)
+        with self.assertRaises(offers.OfferError) as caught:
+            offers.decide(self.db, row, product_id=20, now=self.now)
+        self.assertEqual(caught.exception.status, 410)
+        self.db.state["offer"]["status"] = "SWAPPED"
+        self.db.state["offer"]["expires_at"] = self.now + timedelta(days=1)
+        with self.assertRaises(offers.OfferError) as caught:
+            offers.decide(self.db, row, product_id=20, now=self.now)
+        self.assertEqual(caught.exception.status, 410)
+
+    def test_customer_route_returns_410_for_expired_and_used_tokens(self):
+        token_db = FakeDB()
+        token = "test-token"
+        row = {"id": 1, "offer_uuid": "uuid", "token_hash": hashlib.sha256(token.encode()).hexdigest(),
+               "status": "OFFERED", "expires_at": self.now - timedelta(seconds=1),
+               "candidates_json": "[]"}
+        token_db.state["offer"] = row
+        db_module = types.ModuleType(PACKAGE + ".db")
+        db_module.get_db = lambda: token_db
+        sys.modules[db_module.__name__] = db_module
+        auth_module = types.ModuleType(PACKAGE + ".order_face_scan")
+        auth_module._ops_auth = lambda: None
+        sys.modules[auth_module.__name__] = auth_module
+        spec = importlib.util.spec_from_file_location(
+            PACKAGE + ".frame_offers_api", ROOT / "frame_offers_api.py")
+        api = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = api
+        spec.loader.exec_module(api)
+        app = Flask(__name__, template_folder=str(ROOT / "eu_ops" / "templates"))
+        app.secret_key = "test"
+        bp = Blueprint("main", __name__)
+        api.register(bp)
+        app.register_blueprint(bp)
+        client = app.test_client()
+        self.assertEqual(client.get("/fq/" + token).status_code, 410)
+        self.assertEqual(client.get("/fq/" + token).headers["Referrer-Policy"],
+                         "no-referrer")
+        token_db.state["offer"]["status"] = "SWAPPED"
+        token_db.state["offer"]["expires_at"] = self.now + timedelta(days=1)
+        self.assertEqual(client.get("/fq/" + token).status_code, 410)
+
+
+class ReminderLinkTests(unittest.TestCase):
+    def setUp(self):
+        self.now = datetime(2025, 1, 1)
+        self.offer_uuid = "offer-uuid"
+        self.secret = "test-secret"
+        token = offers.token_for(self.offer_uuid, self.secret)
+        self.row = {
+            "offer_uuid": self.offer_uuid,
+            "token_hash": hashlib.sha256(token.encode()).hexdigest(),
+            "status": "OFFERED",
+            "expires_at": self.now + timedelta(days=1),
+            "site_from": "in.optiwar.com",
+        }
+
+    def test_link_is_rederived_for_an_open_unexpired_offer(self):
+        token = offers.token_for(self.offer_uuid, self.secret)
+        self.assertEqual(offers.link_for(self.row, self.secret, self.now),
+                         "https://in.optiwar.com/fq/" + token)
+
+    def test_link_refuses_closed_offer(self):
+        self.row["status"] = "CANCELLED"
+        with self.assertRaises(offers.OfferError) as caught:
+            offers.link_for(self.row, self.secret, self.now)
+        self.assertEqual(caught.exception.status, 404)
+
+    def test_link_refuses_expired_offer(self):
+        self.row["expires_at"] = self.now
+        with self.assertRaises(offers.OfferError) as caught:
+            offers.link_for(self.row, self.secret, self.now)
+        self.assertEqual(caught.exception.status, 410)
+
+
+class RestockGuardTests(unittest.TestCase):
+    def test_existing_qc_guard_prevents_refund_restock(self):
+        sys.path.insert(0, str(ROOT))
+        import refunds
+        refunds._AWB_TABLE_EXISTS = None
+
+        class Cursor:
+            def __init__(self):
+                self.rowcount = 0
+                self.one = None
+                self.rows = []
+                self.updates = []
+
+            def execute(self, sql, params=()):
+                query = " ".join(sql.lower().split())
+                if query.startswith("select max(is_test)"):
+                    self.one = {"is_test": 0}
+                elif query.startswith("select 1 from order_status"):
+                    self.one = None
+                elif query.startswith("show tables like"):
+                    self.one = {"table": "ops_shipping_awb"}
+                elif query.startswith("select 1 from ops_shipping_awb"):
+                    self.one = None
+                elif query.startswith("select o.order_line_id"):
+                    self.rows = [{"order_line_id": 11, "product_id": 10,
+                                  "qty": 1, "product_code": "AB28"}]
+                elif query.startswith("insert ignore into stock_restocks"):
+                    self.rowcount = 0
+                elif query.startswith("update products"):
+                    self.updates.append(sql)
+                    self.rowcount = 1
+                else:
+                    raise AssertionError("unexpected SQL: %s" % sql)
+
+            def fetchone(self):
+                return self.one
+
+            def fetchall(self):
+                return self.rows
+
+        cursor = Cursor()
+        restored = refunds.restock_unshipped(
+            cursor, "O-1", 7, "operator", reason="refund")
+        self.assertEqual(restored, [])
+        self.assertEqual(cursor.updates, [])
+
+
+if __name__ == "__main__":
+    unittest.main()

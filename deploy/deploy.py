@@ -96,6 +96,8 @@ DEPLOY_SET = ("__init__.py", "log_hygiene.py", "pricing.py", "acr.py", "ai_api.p
               "face_scan_done.py", "face_scan_groups.py", "face_scan_groups_api.py",
               "face_fit.py", "face_cart.py", "face_assistant.py", "favorites.py", "favorites_api.py",
               "order_face_scan.py", "templates/ops_order_face_scan.html",
+              "frame_offers.py", "frame_offers_api.py",
+              "templates/frame_offer_guest.html",
               "order_rx_documents.py", "templates/ops_order_rx_documents.html",
               "static/ai/optiwar_ai_knowledge_base.json",
               "reship.py", "reship_api.py", "reship_assistant.py", "return_assistant.py", "return_fee.py", "return_refund.py", "return_request.py", "reverse_pickup.py", "templates/ops_reship.html",
@@ -150,6 +152,8 @@ NEW_IN_RELEASE = ("log_hygiene.py", "test_identity.py", "ai_language.py", "rx_lo
                   "face_scan_done.py", "face_scan_groups.py", "face_scan_groups_api.py",
                   "face_fit.py", "face_cart.py", "face_assistant.py", "favorites.py", "favorites_api.py",
                   "order_face_scan.py", "templates/ops_order_face_scan.html",
+                  "frame_offers.py", "frame_offers_api.py",
+                  "templates/frame_offer_guest.html",
                   "order_rx_documents.py", "templates/ops_order_rx_documents.html",
                   "reship.py", "reship_api.py", "reship_assistant.py", "return_assistant.py", "return_fee.py", "return_refund.py", "return_request.py", "reverse_pickup.py", "templates/ops_reship.html",
                   "templates/face_scan_guest.html",
@@ -415,6 +419,17 @@ def restocks_schema():
                 for t in node.targets):
             return " ".join(ast.literal_eval(node.value).split())
     raise SystemExit("refunds.py no longer defines RESTOCK_SCHEMA")
+
+
+def frame_offers_schema():
+    """The frame offer table declaration, read from its owning module."""
+    with open(os.path.join(REPO, "frame_offers.py"), encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+                getattr(t, "id", None) == "SCHEMA" for t in node.targets):
+            return " ".join(ast.literal_eval(node.value).split())
+    raise SystemExit("frame_offers.py no longer defines SCHEMA")
 
 
 def contact_lens_module():
@@ -714,7 +729,8 @@ def migration():
     every existing row reads back as the eyewear it already was.
     """
     items = [("order_refunds (table)", refunds_schema()),
-             ("stock_restocks (table)", restocks_schema())]
+             ("stock_restocks (table)", restocks_schema()),
+             ("frame_swap_offers (table)", frame_offers_schema())]
     acr = acr_module()
     items += [("ai_events.%s (column)" % name,
               "ALTER TABLE ai_events ADD COLUMN %s %s" % (name, decl))
