@@ -65,6 +65,7 @@ def _load_service():
     package.__path__ = [REPO]
     sys.modules[package_name] = package
 
+    progressive = _load_file(package_name, "progressive_scan")
     profiles = _load_file(package_name, "face_profiles")
     _load_file(package_name, "face_fit")
     _load_file(package_name, "lens_cart")
@@ -79,9 +80,31 @@ def _load_service():
     sys.modules[ops_module.__name__] = ops_module
     service = _load_file(package_name, "order_face_scan")
     service._test_state = state
+    service._test_progressive = progressive
     service._test_profiles = profiles
     service._test_fit = sys.modules[package_name + ".face_fit"]
     return service
+
+
+class _ChoiceMissingCursor:
+    def __init__(self, cursor):
+        self.cursor = cursor
+
+    def execute(self, sql, params=None):
+        if "order_face_scan_choice" in sql:
+            raise RuntimeError("table unavailable")
+        return self.cursor.execute(sql, params)
+
+    def __getattr__(self, name):
+        return getattr(self.cursor, name)
+
+
+class _ChoiceMissingDB:
+    def __init__(self, db):
+        self.db = db
+
+    def cursor(self):
+        return _ChoiceMissingCursor(self.db.cursor())
 
 
 def _ensure_columns(cursor, table, columns):
@@ -97,6 +120,7 @@ class OrderFaceScanTests(unittest.TestCase):
     def setUpClass(cls):
         cls.db = _connect()
         cls.service = _load_service()
+        cls.progressive = cls.service._test_progressive
         cls.fp = cls.service._test_profiles
         cls.fit = cls.service._test_fit
         cur = cls.db.cursor()
@@ -116,6 +140,7 @@ class OrderFaceScanTests(unittest.TestCase):
             ("screenshot_path", "VARCHAR(500) NULL"),
             ("measured_at", "DATETIME NULL"),
         ))
+        cls.progressive.ensure_schema(cur)
         cur.execute(PRODUCTS_DDL)
         _ensure_columns(cur, "products", (
             ("product_id", "INT NULL"),
@@ -256,6 +281,8 @@ class OrderFaceScanTests(unittest.TestCase):
         for order_id in self.order_ids:
             cur.execute("DELETE FROM order_face_snapshots WHERE order_id=%s",
                         (order_id,))
+            cur.execute("DELETE FROM order_face_scan_choice WHERE order_id=%s",
+                        (order_id,))
             cur.execute("DELETE FROM orders WHERE order_id=%s", (order_id,))
         placeholders = ",".join(["%s"] * len(self.customer_ids))
         cur.execute("DELETE FROM face_measurements WHERE customer_id IN (%s)" % placeholders,
@@ -386,7 +413,56 @@ class OrderFaceScanTests(unittest.TestCase):
         result = self.service.scan_for_order(self.db, order_id, self.app_root)
         self.assertEqual(result["status"], "NO_SCAN")
         self.assertEqual(len(result["lines"]), 1)
+        self.assertIsNone(result["customer_choice"])
         self.assertIn(self.service.NO_SCAN_WARNING, result["warnings"])
+        response = self.client.get(
+            "/ops/api/orders/%s/face-scan" % order_id)
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.get_json()["customer_choice"])
+
+    def test_customer_choice_is_returned_with_iso_dates(self):
+        order_id, _placed = self._order()
+        warned = datetime(2026, 1, 2, 3, 4, 5)
+        decided = datetime(2026, 1, 2, 3, 6, 7)
+        cur = self.db.cursor()
+        cur.execute(
+            "INSERT INTO order_face_scan_choice "
+            "(order_id, customer_id, choice, warning_version, warning_text, "
+            "warned_at, decided_at) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+            (order_id, self.customer_id, "DECLINED_AFTER_WARNING", "pf-warn-v1",
+             "warning copy", warned, decided))
+        self.db.commit()
+        cur.close()
+
+        result = self.service.scan_for_order(self.db, order_id, self.app_root)
+        self.assertEqual(result["customer_choice"], {
+            "choice": "DECLINED_AFTER_WARNING",
+            "warned_at": warned.isoformat(),
+            "decided_at": decided.isoformat(),
+            "scanned_at": None,
+            "previous_choice": None,
+            "warning_version": "pf-warn-v1",
+            "warning_text": "warning copy",
+        })
+        response = self.client.get(
+            "/ops/api/orders/%s/face-scan" % order_id)
+        self.assertEqual(response.get_json()["customer_choice"]["choice"],
+                         "DECLINED_AFTER_WARNING")
+
+    def test_missing_customer_choice_table_does_not_break_ops_result(self):
+        order_id, _placed = self._order()
+        result = self.service.scan_for_order(
+            _ChoiceMissingDB(self.db), order_id, self.app_root)
+        self.assertEqual(result["order_id"], order_id)
+        self.assertIsNone(result["customer_choice"])
+        self.service._test_state["db"] = _ChoiceMissingDB(self.db)
+        try:
+            response = self.client.get(
+                "/ops/api/orders/%s/face-scan" % order_id)
+        finally:
+            self.service._test_state["db"] = self.db
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.get_json()["customer_choice"])
 
     def test_sealed_snapshot_wins_over_a_different_live_scan(self):
         order_id, placed = self._order()

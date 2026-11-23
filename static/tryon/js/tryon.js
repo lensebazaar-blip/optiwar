@@ -631,6 +631,8 @@ async function captureAndSave() {
             btn.classList.add('saved');
             localStorage.setItem('ow_face_measured', '1');
             $('choiceBar').classList.add('show');
+            const backToCheckout = $('backToCheckout');
+            if (backToCheckout) backToCheckout.hidden = false;
         } else {
             console.error('Save failed:', d);
             btn.innerHTML = 'Retry Save';

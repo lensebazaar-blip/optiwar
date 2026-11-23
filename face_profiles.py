@@ -28,9 +28,15 @@ Stdlib only at import: deploy/deploy.py reads TABLES from here for the
 migration plan. Service functions take a DB-API connection with dict cursors.
 """
 
+import logging
 import os
 import uuid
 from datetime import datetime, timedelta
+
+try:
+    from . import progressive_scan
+except ImportError:
+    import progressive_scan
 
 REL_SELF = "self"
 RELATIONSHIPS = ("self", "spouse", "partner", "child", "parent", "sibling",
@@ -41,6 +47,7 @@ RELATIONSHIP_LABELS = {
     "other": "Other",
 }
 NAME_MAX = 60
+_LOG = logging.getLogger(__name__)
 
 ST_STARTED = "STARTED"
 ST_PROCESSING = "PROCESSING"
@@ -151,10 +158,19 @@ class NotFound(ProfileError):
 def ensure_schema(db):
     global _SCHEMA_READY
     if _SCHEMA_READY:
+        try:
+            progressive_scan.ensure_schema(db.cursor())
+        except Exception as exc:  # noqa: BLE001 - face scans must survive link-table issues
+            _LOG.warning("Progressive scan schema setup failed: %s", exc)
         return
+
     cur = db.cursor()
     for _name, ddl in TABLES:
         cur.execute(ddl)
+    try:
+        progressive_scan.ensure_schema(cur)
+    except Exception as exc:  # noqa: BLE001 - face scans must survive link-table issues
+        _LOG.warning("Progressive scan schema setup failed: %s", exc)
     db.commit()
     _SCHEMA_READY = True
 
@@ -523,8 +539,15 @@ def record_scan(db, customer_id, profile_id, measurements, source=SRC_TRYON,
         sid = cur.lastrowid
         cur.execute("UPDATE face_profiles SET latest_scan_id=%s WHERE id=%s",
                     (sid, int(row["id"])))
+        face_measurement_id = None
         if row["default_slot"]:
-            _mirror_default(cur, customer_id)
+            face_measurement_id = _mirror_default(cur, customer_id)
+        try:
+            progressive_scan.link_later_scan(
+                cur, customer_id, face_measurement_id)
+        except Exception as exc:  # noqa: BLE001 - scan persistence is more important than linkage
+            _LOG.warning("Later progressive scan linking failed for customer %s: %s",
+                         customer_id, exc)
         if commit:
             db.commit()
     except Exception:
@@ -550,7 +573,7 @@ def _mirror_default(cur, customer_id):
     cur.execute("DELETE FROM face_measurements WHERE customer_id=%s",
                 (int(customer_id),))
     if not s:
-        return
+        return None
     cur.execute(
         "INSERT INTO face_measurements (customer_id, pd_far, pd_near, face_width, "
         "eye_mouth, recommended_diameter, recommended_bridge, recommended_length, "
@@ -560,6 +583,7 @@ def _mirror_default(cur, customer_id):
          s["eye_mouth"], s["recommended_diameter"], s["recommended_bridge"],
          s["recommended_length"], s["decentration"], s["frame_candidates"],
          s["measured_at"]))
+    return cur.lastrowid
 
 
 # --------------------------------------------------------------------------

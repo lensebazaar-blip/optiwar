@@ -361,6 +361,27 @@ def scan_for_order(db, order_id, app_root):
         else:
             _warn(warnings, NO_SCAN_WARNING)
 
+        customer_choice = None
+        try:
+            cursor.execute(
+                "SELECT choice, warned_at, decided_at, scanned_at, "
+                "previous_choice, warning_version, warning_text "
+                "FROM order_face_scan_choice WHERE order_id=%s LIMIT 1",
+                (actual_order_id,))
+            choice_row = cursor.fetchone()
+            if choice_row:
+                customer_choice = {
+                    "choice": choice_row.get("choice"),
+                    "warned_at": _iso(choice_row.get("warned_at")),
+                    "decided_at": _iso(choice_row.get("decided_at")),
+                    "scanned_at": _iso(choice_row.get("scanned_at")),
+                    "previous_choice": choice_row.get("previous_choice"),
+                    "warning_version": choice_row.get("warning_version"),
+                    "warning_text": choice_row.get("warning_text"),
+                }
+        except Exception:
+            customer_choice = None
+
         return {
             "ok": True,
             "order_id": actual_order_id,
@@ -368,6 +389,7 @@ def scan_for_order(db, order_id, app_root):
             "date_created": _iso(order_date),
             "site_from": lines[0].get("site_from"),
             "status": "SCAN_FOUND" if any_scan else "NO_SCAN",
+            "customer_choice": customer_choice,
             "lines": output_lines,
             "people": people,
             "warnings": warnings,

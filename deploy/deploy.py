@@ -91,6 +91,7 @@ DEPLOY_SET = ("__init__.py", "log_hygiene.py", "pricing.py", "acr.py", "ai_api.p
               "ops_refunds.py", "cart_persist.py", "policy_terms.py",
               "return_assessment.py", "chat_attachments.py",
               "chat_vision.py", "chat_image.py", "face_profiles.py", "face_profiles_api.py",
+              "progressive_scan.py",
               "face_scan_invites.py", "face_scan_invites_api.py",
               "face_scan_done.py", "face_scan_groups.py", "face_scan_groups_api.py",
               "face_fit.py", "face_cart.py", "face_assistant.py", "favorites.py", "favorites_api.py",
@@ -144,6 +145,7 @@ NEW_IN_RELEASE = ("log_hygiene.py", "test_identity.py", "ai_language.py", "rx_lo
                   "lens_import.py", "customer_orders.py", "policy_terms.py",
                   "return_assessment.py", "chat_attachments.py",
                   "chat_vision.py", "chat_image.py", "face_profiles.py", "face_profiles_api.py",
+                  "progressive_scan.py",
                   "face_scan_invites.py", "face_scan_invites_api.py",
                   "face_scan_done.py", "face_scan_groups.py", "face_scan_groups_api.py",
                   "face_fit.py", "face_cart.py", "face_assistant.py", "favorites.py", "favorites_api.py",
@@ -689,6 +691,16 @@ def ai_glasses_tables():
             ("ai_glasses_order_dispatch_pref", consts["DISPATCH_PREF_SCHEMA"])]
 
 
+def progressive_scan_module():
+    """Load the stdlib-only progressive scan declarations for the plan."""
+    spec = importlib.util.spec_from_file_location(
+        "progressive_scan_for_deploy",
+        os.path.join(REPO, "progressive_scan.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def migration():
     """The additive schema as (label, DDL), in application order.
 
@@ -724,6 +736,8 @@ def migration():
               for name, ddl in ca.TABLES]
     items += [("%s (table)" % name, " ".join(ddl.split()))
               for name, ddl in face_profiles_module().TABLES]
+    items += [("%s (table)" % name, " ".join(ddl.split()))
+              for name, ddl in progressive_scan_module().TABLES]
     items += [("%s (table)" % name, " ".join(ddl.split()))
               for name, ddl in face_scan_invites_module().TABLES]
     items += [("%s (table)" % name, " ".join(ddl.split()))

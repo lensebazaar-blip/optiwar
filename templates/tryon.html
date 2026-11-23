@@ -96,6 +96,9 @@
         <div class="choice-bar" id="choiceBar">
             <button class="cb-btn btn-match" id="matchBtn">Show Frames matching my face</button>
             <button class="cb-btn btn-browse" id="browseBtn">Browse all</button>
+            {% if checkout_return %}
+            <a class="cb-btn btn-browse" id="backToCheckout" href="{{ checkout_return }}" hidden>Back to checkout</a>
+            {% endif %}
         </div>
         <div class="bottom-bar" id="bottomBar">
             <button class="bb-btn btn-rescan" id="rescanBtn">↻ Rescan</button>
@@ -141,6 +144,6 @@
 
 {% if guest_scan %}<script>window.OW_GUEST = {{ guest_scan|tojson }};</script>{% endif %}
 <script src="/static/ow_picture.js?v=2"></script>
-<script type="module" src="/static/tryon/js/tryon.js?v=7.7"></script>
+<script type="module" src="/static/tryon/js/tryon.js?v=7.8"></script>
 </body>
 </html>

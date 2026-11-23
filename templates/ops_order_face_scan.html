@@ -65,6 +65,19 @@
     <h2>Order <code>{{ result.order_id }}</code></h2>
     <p><a href="/ops/rx-documents?order={{ result.order_id|urlencode }}">Prescription photos for this order</a></p>
     <p class="muted">Customer {{ result.customer_id }} · {{ result.date_created or 'Order date unavailable' }} · {{ result.site_from or 'Site unavailable' }} · {{ result.status }}</p>
+    {% if result.customer_choice %}
+      <section class="box" aria-label="Progressive lens face-scan choice">
+        <h2>Progressive lens face-scan choice</h2>
+        {% if result.customer_choice.choice == 'DECLINED_AFTER_WARNING' %}
+          <p>Customer chose no face scan, warned {{ result.customer_choice.warned_at or 'unknown' }}, accepted {{ result.customer_choice.decided_at or 'unknown' }}</p>
+          <p>{{ result.customer_choice.warning_text }}</p>
+        {% elif result.customer_choice.choice == 'SCANNED' and result.customer_choice.previous_choice %}
+          <p>Face scan taken after ordering (earlier declined, warned {{ result.customer_choice.warned_at or 'unknown' }})</p>
+        {% elif result.customer_choice.choice == 'SCANNED' %}
+          <p>Face scan on file at checkout</p>
+        {% endif %}
+      </section>
+    {% endif %}
     {% if result.warnings %}
       <section class="box" role="alert" aria-label="Scan warnings">
         <h2>Fitting notes</h2>

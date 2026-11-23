@@ -12,9 +12,10 @@ import unittest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
-sys.path.insert(0, os.path.join(REPO, "tests"))
 
-import test_reship as base  # noqa: E402  (the name the reship harness binds its stubs under)
+base = sys.modules.get("test_reship")
+if base is None:
+    from tests import test_reship as base  # noqa: E402
 from tests.test_paid_order_pipeline import DDL, _connect  # noqa: E402
 from tests.test_razorpay_settlement import EXTRA_DDL  # noqa: E402
 
