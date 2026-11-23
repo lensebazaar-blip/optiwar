@@ -69,6 +69,7 @@ def _available():
 AVAILABLE = _available()
 
 catalogue = _load("catalogue_under_test", os.path.join(REPO, "catalogue.py"))
+brand_compliance = catalogue.brand_compliance
 contact_lens = _load("contact_lens_under_test",
                      os.path.join(REPO, "contact_lens.py"))
 
@@ -141,13 +142,16 @@ class ProductAllowedTest(unittest.TestCase):
 class SiteFilterTest(unittest.TestCase):
     def test_the_predicate_names_the_column_for_the_site(self):
         self.assertEqual(catalogue.catalogue_site_filter(COM),
-                         " AND sell_on_com = 1 AND product_vertical <> 'SMART_EYEWEAR'")
+                         " AND sell_on_com = 1 AND product_vertical <> 'SMART_EYEWEAR'"
+                         + brand_compliance.sql_exclude())
         self.assertEqual(catalogue.catalogue_site_filter(IN),
-                         " AND sell_on_in = 1 AND product_vertical <> 'SMART_EYEWEAR'")
+                         " AND sell_on_in = 1 AND product_vertical <> 'SMART_EYEWEAR'"
+                         + brand_compliance.sql_exclude())
 
     def test_it_can_be_qualified_for_a_joined_query(self):
         self.assertEqual(catalogue.catalogue_site_filter(IN, alias="p"),
-                         " AND p.sell_on_in = 1 AND p.product_vertical <> 'SMART_EYEWEAR'")
+                         " AND p.sell_on_in = 1 AND p.product_vertical <> 'SMART_EYEWEAR'"
+                         + brand_compliance.sql_exclude("p"))
 
     def test_it_carries_no_parameters(self):
         # The read paths build WHERE clauses as f-strings and pass their own
