@@ -42,7 +42,12 @@ def _app(enforce=True):
     app = Flask(__name__)
     app.secret_key = "test"
     app.config.update(CSRF_ENFORCE=enforce, TRUSTED_HOSTS=["optiwar.com"])
+    app.config["ops_auth_calls"] = []
     bp = Blueprint("main", __name__)
+
+    def _ops_auth():
+        app.config["ops_auth_calls"].append(request.endpoint)
+        return False
 
     @bp.route("/razorpay/webhook", methods=["POST"])
     def razorpay_webhook():
@@ -53,6 +58,22 @@ def _app(enforce=True):
     @bp.route("/ops/api/shipments/<order_id>/reverse-pickup", methods=["POST"])
     def ops_reverse_pickup(order_id):
         return jsonify(reached=True), 401
+
+    @bp.route("/ops/api/orders/<order_id>/frame-offer", methods=["POST"])
+    def frame_offer_create(order_id):
+        if not _ops_auth():
+            return jsonify(reached=True), 401
+
+    @bp.route("/ops/api/orders/<order_id>/frame-offer/<offer_uuid>/settled",
+              methods=["POST"])
+    def frame_offer_settled(order_id, offer_uuid):
+        if not _ops_auth():
+            return jsonify(reached=True), 401
+
+    @bp.route("/ops/api/frame-offers/<offer_uuid>/mark", methods=["POST"])
+    def frame_offer_mark(offer_uuid):
+        if not _ops_auth():
+            return jsonify(reached=True), 401
 
     @bp.route("/razorpay/verify", methods=["POST"])
     def razorpay_verify():
@@ -174,6 +195,38 @@ class WebhookReachabilityTests(unittest.TestCase):
                        headers={"Origin": "https://evil.example"})
         self.assertEqual(r.status_code, 403)
         self.assertNotIn("main.ops_reverse_pickup", CSRF_EXEMPT_ENDPOINTS)
+
+    def test_frame_offer_ops_posts_bypass_origin_guard_only_with_bearer(self):
+        routes = (
+            ("/ops/api/orders/X/frame-offer", "main.frame_offer_create"),
+            ("/ops/api/orders/X/frame-offer/offer/settled",
+             "main.frame_offer_settled"),
+            ("/ops/api/frame-offers/offer/mark", "main.frame_offer_mark"),
+        )
+        for _path, endpoint in routes:
+            self.assertIn(endpoint, BEARER_EXEMPT_ENDPOINTS)
+
+        app = _app()
+        with app.test_client() as c:
+            for path, endpoint in routes:
+                with self.subTest(path=path, authorization="Bearer"):
+                    response = c.post(
+                        path, data="{}", content_type="application/json",
+                        base_url=BASE,
+                        headers={"Authorization": "Bearer x",
+                                 "Origin": "https://evil.example"})
+                    self.assertEqual(response.status_code, 401)
+                    self.assertEqual(app.config["ops_auth_calls"][-1], endpoint)
+
+            app.config["ops_auth_calls"].clear()
+            for path, _endpoint in routes:
+                with self.subTest(path=path, authorization="missing"):
+                    response = c.post(
+                        path, data="{}", content_type="application/json",
+                        base_url=BASE,
+                        headers={"Origin": "https://evil.example"})
+                    self.assertEqual(response.status_code, 403)
+            self.assertEqual(app.config["ops_auth_calls"], [])
 
     def test_every_ops_api_post_route_accepts_a_bearer_call_with_no_origin(self):
         # Ops calls every one of these from its own server, so a route missing
