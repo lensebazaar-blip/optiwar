@@ -47,6 +47,8 @@ module does — `templates/success.html` is in the set because it, not just
 `models.py`, decides what the confirmation page tells a customer about their
 money. Only the `*.py` members are byte-compiled.
 
+The server cron `/root/catalog/generate_catalog.py` regenerates `static/ai/product_catalog.json` from the database every 12 hours; this generated file is never shipped.
+
 **Build from git.** A dirty working tree or a `HEAD` behind `origin/main` is a
 hard block. `py_compile` plus the full unit suite run before anything is
 copied, and `py_compile` runs again on the box after the copy.

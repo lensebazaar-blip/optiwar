@@ -101,7 +101,7 @@ DEPLOY_SET = ("__init__.py", "log_hygiene.py", "pricing.py", "acr.py", "ai_api.p
               "templates/frame_offer_guest.html",
               "order_rx_documents.py", "templates/ops_order_rx_documents.html",
               "static/ai/optiwar_ai_knowledge_base.json",
-              "static/ai/frame_rules.json", "static/ai/product_catalog.json",
+              "static/ai/frame_rules.json",
               "translations/ar/LC_MESSAGES/messages.mo",
               "translations/bn/LC_MESSAGES/messages.mo",
               "translations/de/LC_MESSAGES/messages.mo",
