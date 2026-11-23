@@ -500,6 +500,16 @@ async def ow_order_detail(request: Request, order_id: str, user: dict = Depends(
         if line_id is not None:
             ok, offer = frame_offers_svc.latest(order_id, line_id)
             frame_offer_by_line[str(line_id)] = offer if ok else None
+    frame_offer_currency = ""
+    if any(offer and not offer.get("settled_at")
+           and offer.get("settlement") in ("REFUND_DUE", "PAYMENT_DUE")
+           for offer in frame_offer_by_line.values()):
+        try:
+            frame_offer_currency = str(
+                _refund_facts(order_id).get("currency") or "").upper()
+        except Exception as exc:
+            logging.warning("Frame-offer currency unavailable for %s: %s",
+                            order_id, exc)
     return render("pages/ow_order_detail.html", request, user, order=order,
                   notif_logs=notif_logs, ow_statuses=ow_orders.get_status_list(),
                   accounts_email_default=config.OPTIWAR_ACCOUNTS_EMAIL,
@@ -513,6 +523,9 @@ async def ow_order_detail(request: Request, order_id: str, user: dict = Depends(
                   rp_conditions=rpl.CONDITIONS, rp_reasons=rp_svc.REASONS,
                   face_scan=face,
                   frame_offer_by_line=frame_offer_by_line,
+                  frame_offer_currency=frame_offer_currency,
+                  frame_offer_inr=frame_offers_svc.is_inr_currency(
+                      frame_offer_currency),
                   rx_docs_live=rx_documents.is_live(),
                   rx_last_change=rx_last_change,
                   rx_editable=_ow_rx_editable(order),
@@ -650,6 +663,12 @@ async def ow_frame_offer_payment_link(order_id: str, offer_uuid: str,
     offer = latest or {}
     if offer.get("offer_uuid") != offer_uuid:
         raise HTTPException(status_code=404, detail="Frame offer not found")
+    currency = str(_refund_facts(order_id).get("currency") or "").upper()
+    if not frame_offers_svc.is_inr_currency(currency):
+        raise HTTPException(
+            status_code=400,
+            detail="Frame price settlement requires INR; order currency is %s" %
+            (currency or "unknown"))
     amount = int(offer.get("price_diff_minor") or 0)
     if amount <= 0 or amount % 100:
         raise HTTPException(status_code=400,

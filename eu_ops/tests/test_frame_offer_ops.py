@@ -22,6 +22,12 @@ def _load_reminders():
 
 
 class FrameOfferOpsTests(unittest.TestCase):
+    def test_frame_settlement_currency_gate(self):
+        self.assertTrue(frame_offers.is_inr_currency("INR"))
+        self.assertTrue(frame_offers.is_inr_currency(" inr "))
+        self.assertFalse(frame_offers.is_inr_currency("USD"))
+        self.assertFalse(frame_offers.is_inr_currency(""))
+
     def test_latest_offer_preserves_settlement_fields(self):
         row = {"offer_uuid": "offer-1", "settled_at": "2026-01-02 03:04:05",
                "settled_ref": "REF-1"}

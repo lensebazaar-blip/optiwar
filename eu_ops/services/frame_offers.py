@@ -182,6 +182,10 @@ def diff_minor(candidate, failed):
     return int(candidate.get("price_minor") or 0) - int(failed.get("price_minor") or 0)
 
 
+def is_inr_currency(currency):
+    return str(currency or "").strip().upper() == "INR"
+
+
 def upi_fallback_state(error_text, payment_ref, call):
     if ("not enough balance" not in str(error_text or "").lower()
             or not payment_ref):

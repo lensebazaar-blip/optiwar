@@ -191,15 +191,23 @@ function copyOrderText(){
     {% if offer.status == 'OFFERED' %}
     <div>Next action: waiting for the customer to choose.</div>
     {% elif offer.settlement == 'REFUND_DUE' %}
+    {% if frame_offer_inr %}
     <div>Next action: refund ₹{{ "%.2f"|format((offer.price_diff_minor|int)|abs / 100) }}.</div>
     <a class="btn btn-sm btn-outline"
        href="{{ base }}/orders/ow/{{ order.order_id }}/refund/prepare?amount={{ '%.2f'|format((offer.price_diff_minor|int)|abs / 100) }}&amp;reason_code=CUSTOMER_REFUND&amp;comment=Frame%20replacement%20price%20difference">Prepare partial refund</a>
+    {% else %}
+    <div>Difference ₹{{ "%.2f"|format((offer.price_diff_minor|int)|abs / 100) }}: order is in {{ frame_offer_currency or 'unknown' }}, settle manually.</div>
+    {% endif %}
     {% elif offer.settlement == 'PAYMENT_DUE' %}
+    {% if frame_offer_inr %}
     <div>Next action: collect the price difference.</div>
     <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/frame-offer/{{ offer.offer_uuid }}/payment-link">
       <input type="hidden" name="order_line_id" value="{{ p.order_product_id }}">
       <button type="submit" class="btn btn-sm btn-primary">Create payment link</button>
     </form>
+    {% else %}
+    <div>Difference ₹{{ "%.2f"|format((offer.price_diff_minor|int)|abs / 100) }}: order is in {{ frame_offer_currency or 'unknown' }}, settle manually.</div>
+    {% endif %}
     {% elif offer.status == 'REFUND_REQUESTED' %}
     <div>Next action: review the customer's full-refund request.</div>
     <a class="btn btn-sm btn-outline" href="{{ base }}/orders/ow/{{ order.order_id }}/refund/prepare">Prepare full refund</a>
