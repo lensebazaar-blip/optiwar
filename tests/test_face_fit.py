@@ -43,6 +43,9 @@ CREATE TABLE IF NOT EXISTS products (
     product_slug     VARCHAR(200) NULL,
     product_status   VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
     product_quantity INT NOT NULL DEFAULT 0,
+    product_vertical VARCHAR(32) NOT NULL DEFAULT 'EYEWEAR',
+    sell_on_com      TINYINT(1) NOT NULL DEFAULT 1,
+    sell_on_in       TINYINT(1) NOT NULL DEFAULT 1,
     show_in_listings TINYINT(1) NOT NULL DEFAULT 1
 ) ENGINE=InnoDB
 """
