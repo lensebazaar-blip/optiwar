@@ -332,6 +332,9 @@ SMOKE = (
     ("ops bearer call not origin-blocked",
      "https://optiwar.in/ops/api/shipments/SMOKE-0/reverse-pickup", 401, "POST",
      "Authorization: Bearer smoke-not-a-token"),
+    ("frame-offer ops create not origin-blocked",
+     "https://optiwar.in/ops/api/orders/SMOKE-0/frame-offer", 401, "POST",
+     "Authorization: Bearer smoke-not-a-token"),
     ("ops shipment api without bearer still origin-guarded",
      "https://optiwar.in/ops/api/shipments/SMOKE-0/reverse-pickup", 403, "POST"),
     # Past the origin guard; no key -> 401.

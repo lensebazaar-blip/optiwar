@@ -87,6 +87,9 @@ BEARER_EXEMPT_ENDPOINTS = {
     "main.ops_reverse_pickup_complete",
     "main.order_rx_review",
     "main.order_rx_reparse",
+    "main.frame_offer_create",
+    "main.frame_offer_settled",
+    "main.frame_offer_mark",
 }
 
 
