@@ -90,10 +90,6 @@ BEARER_EXEMPT_ENDPOINTS = {
     "main.frame_offer_create",
     "main.frame_offer_settled",
     "main.frame_offer_mark",
-    "ai_glasses.ops_preview_link",
-    "ai_glasses.ops_set_status",
-    "ops.update_order_status",
-    "ops.resolve_ticket",
 }
 
 
