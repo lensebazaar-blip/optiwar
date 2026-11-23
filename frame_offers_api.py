@@ -211,12 +211,13 @@ def register(bp):
             return _page("expired", 410)
         row = offers.mark_opened(db, row)
         cur = db.cursor()
-        cur.execute("SELECT order_quantity, order_total FROM orders WHERE order_line_id=%s",
+        cur.execute("SELECT order_quantity FROM orders WHERE order_line_id=%s",
                     (row["order_line_id"],))
         line = cur.fetchone() or {}
         qty = int(line.get("order_quantity") or 1)
         row["order_quantity"] = qty
-        row["order_total_minor"] = offers._minor(line.get("order_total"))
+        row["remaining_refundable_minor"] = offers.remaining_refundable_minor(
+            cur, row["order_id"])
         session[SESSION_KEY] = {"uuid": row["offer_uuid"],
                                 "hash": row["token_hash"],
                                 "csrf": secrets.token_urlsafe(32)}

@@ -93,6 +93,12 @@ class FakeCursor:
             return
         if query.startswith("select o.order_line_id"):
             self.result = dict(state["line"])
+        elif query.startswith("select order_quantity from orders"):
+            self.result = {"order_quantity": state["line"]["order_quantity"]}
+        elif query.startswith("update frame_swap_offers set opened_at=coalesce"):
+            if state.get("offer"):
+                state["offer"]["opened_at"] = params[0]
+                self.rowcount = 1
         elif query.startswith("select refund_id, provider_refund_id"):
             self.rows = [dict(refund) for refund in state["refunds"]]
         elif query.startswith("select order_status_name from order_status"):
@@ -356,6 +362,14 @@ class OfferTransactionTests(unittest.TestCase):
                  "delete from order_refunds"))
             for sql, _params in self.db.cursor_obj.queries))
 
+    def test_refund_choice_amount_is_remaining_paid_balance(self):
+        self.db.state["paid_total_minor"] = 254900
+        self.db.state["refunds"] = [
+            {"amount_minor": 20000, "status": "PROCESSED"}]
+        row, _token, _link = self._create()
+        decision = offers.decide(self.db, row, refund=True, now=self.now)
+        self.assertEqual(decision["amount_minor"], 234900)
+
     def test_delivery_fee_refund_does_not_cancel_offer(self):
         row, _token, _link = self._create()
         self.db.state["refunds"] = [
@@ -440,6 +454,47 @@ class OfferTransactionTests(unittest.TestCase):
         token_db.state["offer"]["status"] = "SWAPPED"
         token_db.state["offer"]["expires_at"] = self.now + timedelta(days=1)
         self.assertEqual(client.get("/fq/" + token).status_code, 410)
+
+    def test_guest_refund_button_shows_remaining_refundable_amount(self):
+        token_db = FakeDB()
+        token = "refund-token"
+        token_db.state["paid_total_minor"] = 254900
+        token_db.state["refunds"] = [
+            {"amount_minor": 20000, "status": "PROCESSED"}]
+        token_db.state["offer"] = {
+            "id": 1, "offer_uuid": "refund-offer", "order_id": "O-1",
+            "order_line_id": 11,
+            "token_hash": hashlib.sha256(token.encode()).hexdigest(),
+            "status": "OFFERED",
+            "expires_at": datetime.now() + timedelta(days=1),
+            "failed_price_minor": 10000,
+            "candidates_json": json.dumps([{
+                "product_id": 20, "code": "AB27", "name": "Replacement",
+                "price_minor": 10000, "size": "52-18", "colour": "Black",
+            }]),
+        }
+        db_module = types.ModuleType(PACKAGE + ".db")
+        db_module.get_db = lambda: token_db
+        sys.modules[db_module.__name__] = db_module
+        auth_module = types.ModuleType(PACKAGE + ".order_face_scan")
+        auth_module._ops_auth = lambda: None
+        sys.modules[auth_module.__name__] = auth_module
+        spec = importlib.util.spec_from_file_location(
+            PACKAGE + ".frame_offers_api", ROOT / "frame_offers_api.py")
+        api = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = api
+        spec.loader.exec_module(api)
+        api._hits.clear()
+        app = Flask(__name__, template_folder=str(ROOT / "templates"))
+        app.secret_key = "test"
+        bp = Blueprint("main", __name__)
+        api.register(bp)
+        app.register_blueprint(bp)
+        response = app.test_client().get("/fq/" + token)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            "Cancel and refund me in full (₹2,349)",
+            response.get_data(as_text=True))
 
     def test_ops_routes_require_auth_and_authorized_session_succeeds(self):
         auth = {"authorized": False}

@@ -38,7 +38,7 @@
   <form method="post" action="/fq/choose">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input type="hidden" name="refund" value="1">
-    <button type="submit">Cancel and refund me in full (₹{{ "{:,}".format(offer.order_total_minor|int // 100) }}{% if offer.order_total_minor|int % 100 %}.{{ "%02d"|format(offer.order_total_minor|int % 100) }}{% endif %})</button>
+    <button type="submit">Cancel and refund me in full (₹{{ "{:,}".format(offer.remaining_refundable_minor|int // 100) }}{% if offer.remaining_refundable_minor|int % 100 %}.{{ "%02d"|format(offer.remaining_refundable_minor|int % 100) }}{% endif %})</button>
   </form>
   <p>The link works for 7 days.</p>
 {% elif state == 'done' %}

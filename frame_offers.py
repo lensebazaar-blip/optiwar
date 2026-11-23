@@ -204,6 +204,19 @@ def _history(cursor, order_id, site_from, text):
         "VALUES (%s, %s, %s)", (text, str(order_id), site_from))
 
 
+def refund_balance(cursor, order_id):
+    from . import paid_orders as paid_order_service
+    from . import refunds as refund_service
+    refund_rows = refund_service.ledger_refunds(cursor, str(order_id))
+    paid_total = paid_order_service.order_amount_minor(cursor, str(order_id))
+    return paid_total, refund_service.committed_minor(refund_rows)
+
+
+def remaining_refundable_minor(cursor, order_id):
+    paid_total, committed = refund_balance(cursor, order_id)
+    return max(0, paid_total - committed)
+
+
 def create_offer(db, order_id, order_line_id, reason, product_ids, created_by,
                  now=None, token_secret=None):
     reason = str(reason or "").upper()
@@ -355,15 +368,12 @@ def decide(db, row, product_id=None, refund=False, now=None):
         if not line:
             raise OfferError("line_not_found", "Order line not found", 404)
         from . import refunds as refund_service
-        refund_rows = refund_service.ledger_refunds(cur, str(live["order_id"]))
-        refunded_minor = refund_service.committed_minor(refund_rows)
+        paid_total_minor, refunded_minor = refund_balance(
+            cur, str(live["order_id"]))
         cur.execute(
             "SELECT order_status_name FROM order_status WHERE order_id=%s "
             "ORDER BY order_status_id DESC LIMIT 1", (str(live["order_id"]),))
         status_row = cur.fetchone() or {}
-        from . import paid_orders as paid_order_service
-        paid_total_minor = paid_order_service.order_amount_minor(
-            cur, str(live["order_id"]))
         if (status_row.get("order_status_name") == refund_service.STATUS_FULL
                 or (paid_total_minor > 0 and refunded_minor >= paid_total_minor)):
             cur.execute("UPDATE frame_swap_offers SET status='CANCELLED' WHERE id=%s",
@@ -378,7 +388,8 @@ def decide(db, row, product_id=None, refund=False, now=None):
             _history(cur, live["order_id"], line.get("site_from"),
                      "Customer asked for a full refund via EWS (frame %s failed QC)" % failed)
             result = {"action": "refund", "order_id": live["order_id"],
-                      "product_code": failed, "amount_minor": int(line.get("order_total") or 0) * 100}
+                      "product_code": failed,
+                      "amount_minor": max(0, paid_total_minor - refunded_minor)}
         else:
             qty = int(line.get("order_quantity") or 1)
             try:
