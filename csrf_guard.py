@@ -63,6 +63,7 @@ CSRF_EXEMPT_ENDPOINTS = {
     "pricing.api_pricing_bulk_update", # EU Ops lens-price bulk API (X-API-Key shared secret, no cookie auth)
     "main.face_scan_guest_consent_post",  # remote face-scan guest (no-referrer page; request binding + guest CSRF secret)
     "main.face_scan_guest_save",          # remote face-scan guest (same binding + secret, X-Face-Scan-Csrf header)
+    "main.frame_offer_choose",            # frame-offer guest (no-referrer page; session-bound guest CSRF secret)
 }
 
 # Ops server-to-server endpoints that also accept an admin session cookie. A

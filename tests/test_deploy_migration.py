@@ -130,6 +130,13 @@ class DeployMigrationTest(unittest.TestCase):
                             for target in node.targets))
         self.assertEqual(self.deploy.frame_offers_schema(), " ".join(declared.split()))
 
+    def test_frame_offer_guest_post_smoke_checks_guest_csrf_view(self):
+        smoke = next(row for row in self.deploy.SMOKE
+                     if row[0] == "frame-offer guest choose reaches guest CSRF check")
+        self.assertEqual(smoke[1:], (
+            "https://optiwar.in/fq/choose", 403, "POST", "Origin: null",
+            "We couldn't open this link"))
+
     def test_the_catalogue_columns_are_the_ones_catalogue_ensures(self):
         """Read out of the source rather than imported, because catalogue.py
         imports flask and the deploy tool must not."""

@@ -300,6 +300,12 @@ SMOKE = (
      "https://optiwar.com/face-scan/guest/consent", 410, "POST"),
     ("face-scan guest save not origin-blocked (.in)",
      "https://optiwar.in/face-scan/guest/api/save", 410, "POST"),
+    # A no-session frame-offer POST should reach the guest view's own CSRF
+    # rejection, not be stopped by the Origin guard. The page heading
+    # distinguishes that response from the guard's generic 403 page.
+    ("frame-offer guest choose reaches guest CSRF check",
+     "https://optiwar.in/fq/choose", 403, "POST", "Origin: null",
+     "We couldn't open this link"),
     # And the guard still stands where it must: the owner's own mutation,
     # cookie-less and origin-less, is stopped at 403 before any view.
     ("face-scan owner api still origin-guarded",
@@ -1082,10 +1088,18 @@ def smoke():
         method = "-X %s -H Content-Type:application/json" % rest[0] if rest else ""
         if len(rest) > 1:
             method += " -H %s" % shlex.quote(rest[1])
-        code = remote("curl -s -o /dev/null -w '%%{http_code}' -m 20 %s %s"
-                      % (method, shlex.quote(url)), check=False)
-        ok = (str(code) == str(want) if isinstance(want, int)
-              else int(code or 0) in want)
+        expected_body = rest[2] if len(rest) > 2 else None
+        if expected_body:
+            response = remote(
+                "curl -s -m 20 %s %s -w '\\n%%{http_code}'"
+                % (method, shlex.quote(url)), check=False)
+            body, _separator, code = str(response or "").rpartition("\n")
+            ok = (str(code) == str(want) and expected_body in body)
+        else:
+            code = remote("curl -s -o /dev/null -w '%%{http_code}' -m 20 %s %s"
+                          % (method, shlex.quote(url)), check=False)
+            ok = (str(code) == str(want) if isinstance(want, int)
+                  else int(code or 0) in want)
         results.append((label, url, code, ok))
     return results
 
