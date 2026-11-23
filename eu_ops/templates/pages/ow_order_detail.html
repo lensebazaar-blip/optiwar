@@ -158,6 +158,63 @@ function copyOrderText(){
     </div>
 </div>
 
+<div class="section">
+  <h2>Frame replacement</h2>
+  {% for p in order.products %}
+  {% set offer = frame_offer_by_line.get(p.order_product_id|string) %}
+  <div class="card" style="margin-bottom:10px;">
+    <strong>{{ p.name }} · {{ p.model }}</strong>
+    {% if not offer %}
+    <div style="margin-top:8px;">
+      <a class="btn btn-sm btn-outline"
+         href="{{ base }}/orders/ow/{{ order.order_id }}/frame-offer?order_line_id={{ p.order_product_id }}">
+        Offer a replacement
+      </a>
+    </div>
+    {% else %}
+    <div style="margin-top:8px;">Status: <strong>{{ offer.status }}</strong>
+      {% if offer.chosen_product_id %}
+        {% for c in offer.candidates %}
+          {% if c.product_id|string == offer.chosen_product_id|string %}
+          · Chosen: {{ c.code }} {{ c.name }}
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+      {% if offer.price_diff_minor is not none %}
+      · Difference: ₹{{ "%.2f"|format((offer.price_diff_minor|int)|abs / 100) }}
+      · Settlement: {{ offer.settlement }}
+      {% endif %}
+    </div>
+    {% if offer.status == 'OFFERED' %}
+    <div>Next action: waiting for the customer to choose.</div>
+    {% elif offer.settlement == 'REFUND_DUE' %}
+    <div>Next action: refund ₹{{ "%.2f"|format((offer.price_diff_minor|int)|abs / 100) }}.</div>
+    <a class="btn btn-sm btn-outline"
+       href="{{ base }}/orders/ow/{{ order.order_id }}/refund/prepare?amount={{ '%.2f'|format((offer.price_diff_minor|int)|abs / 100) }}&amp;reason_code=CUSTOMER_REFUND&amp;comment=Frame%20replacement%20price%20difference">Prepare partial refund</a>
+    {% elif offer.settlement == 'PAYMENT_DUE' %}
+    <div>Next action: collect the price difference.</div>
+    <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/frame-offer/{{ offer.offer_uuid }}/payment-link">
+      <input type="hidden" name="order_line_id" value="{{ p.order_product_id }}">
+      <button type="submit" class="btn btn-sm btn-primary">Create payment link</button>
+    </form>
+    {% elif offer.status == 'REFUND_REQUESTED' %}
+    <div>Next action: review the customer's full-refund request.</div>
+    <a class="btn btn-sm btn-outline" href="{{ base }}/orders/ow/{{ order.order_id }}/refund/prepare">Prepare full refund</a>
+    {% elif offer.settlement == 'WAIVED' %}
+    <div>Next action: no payment adjustment; fit and dispatch the selected frame.</div>
+    {% endif %}
+    {% if offer.settlement in ['REFUND_DUE', 'PAYMENT_DUE'] or offer.status == 'REFUND_REQUESTED' %}
+    <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/frame-offer/{{ offer.offer_uuid }}/settled"
+          style="margin-top:8px;display:flex;gap:6px;">
+      <input class="form-input" name="ref" placeholder="Refund / payment reference" required>
+      <button class="btn btn-sm btn-outline" type="submit">Record settlement</button>
+    </form>
+    {% endif %}
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
 {% if face_scan is not none %}
 <div class="card" id="faceScanCard" style="margin-bottom:16px;border-left:4px solid #2563eb;">
     <h3>Face scan (Optiwar)</h3>

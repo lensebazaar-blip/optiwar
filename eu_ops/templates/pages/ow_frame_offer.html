@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Frame replacement — OW-{{ order.order_id }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <a href="{{ base }}/orders/ow/{{ order.order_id }}" class="btn btn-sm btn-outline">&laquo; Back to Order</a>
+    <h1>Frame replacement offer — OW-{{ order.order_id }}</h1>
+    <p class="text-muted">{{ product.name }} · {{ product.model }}</p>
+  </div>
+</div>
+{% if error %}<div class="alert" style="background:#fffbeb;color:#92400e;padding:10px;">{{ error }}</div>{% endif %}
+{% if matches %}
+<form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/frame-offer">
+  <input type="hidden" name="order_line_id" value="{{ product.order_product_id }}">
+  <div class="card">
+    <h3>Reason</h3>
+    <select name="reason" id="frameOfferReason" class="form-select">
+      <option value="QC_FAILED">QC failed</option>
+      <option value="OUT_OF_STOCK">Out of stock</option>
+    </select>
+    <p style="font-size:12px;color:#64748b;">Choose up to six matching frames. The first four are selected by default.</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;">
+      {% for candidate in matches %}
+      <label style="border:1px solid #e2e8f0;padding:10px;border-radius:8px;">
+        <input type="checkbox" name="product_ids" value="{{ candidate.product_id }}"
+               {% if candidate.product_id in selected_ids %}checked{% endif %}>
+        {% if candidate.image_url %}<img src="{{ candidate.image_url }}" alt="" style="display:block;max-width:120px;max-height:90px;">{% endif %}
+        <strong>{{ candidate.code }} · {{ candidate.name }}</strong>
+        <div>{{ candidate.size }} · {{ candidate.colour }}</div>
+        <div>{% set diff = candidate.price_minor - failed.price_minor %}
+          {% if diff >= 5000 %}Pay ₹{{ diff // 100 }} more{% else %}No extra charge{% endif %}
+        </div>
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="detail-grid" style="margin-top:12px;">
+    <div class="card">
+      <h3>Approved email preview</h3>
+      <div style="border:1px solid #e5e7eb;padding:12px;">{{ email_html|safe }}</div>
+    </div>
+    <div class="card">
+      <h3>WhatsApp template preview</h3>
+      {% if wa_template %}
+      <div style="font-size:12px;"><strong>Template:</strong> {{ wa_template }}</div>
+      <pre style="white-space:pre-wrap;font:inherit;">{{ wa_body }}</pre>
+      {% else %}
+      <div style="color:#92400e;">Waiting for msg91 approval of ow_frame_qc_replace.</div>
+      {% endif %}
+    </div>
+  </div>
+  <div style="margin-top:12px;">
+    <button id="frameOfferSend" type="submit" class="btn btn-primary"
+            {% if not wa_template %}disabled{% endif %}>Send email + WhatsApp</button>
+    <span id="frameOfferGate" style="font-size:12px;color:#92400e;">
+      {% if not wa_template %}Waiting for msg91 approval of ow_frame_qc_replace.{% endif %}
+    </span>
+  </div>
+</form>
+{% else %}
+<div class="card">No matching frames are currently available.</div>
+{% endif %}
+<script>
+(function(){
+  var reason = document.getElementById('frameOfferReason');
+  var button = document.getElementById('frameOfferSend');
+  var gate = document.getElementById('frameOfferGate');
+  var templateReady = {{ 'true' if wa_template else 'false' }};
+  if (!reason || !button || !gate) return;
+  function update(){
+    var out = reason.value === 'OUT_OF_STOCK';
+    button.disabled = out || !templateReady;
+    gate.textContent = out ? 'Needs its own approved wording/template'
+      : (!templateReady ? 'Waiting for msg91 approval of ow_frame_qc_replace' : '');
+  }
+  reason.addEventListener('change', update);
+  update();
+})();
+</script>
+{% endblock %}

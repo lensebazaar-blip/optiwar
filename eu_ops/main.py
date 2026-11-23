@@ -50,6 +50,7 @@ from services import payments_razorpay as rzp
 from services import optiwar_refunds as ow_refunds
 from services import invoice_dates
 from services import invoice_series
+from services import frame_offers as frame_offers_svc
 
 ROOT_PATH = os.getenv("OPP_ROOT_PATH", "")
 app = FastAPI(title=config.APP_TITLE, docs_url="/api/docs", redoc_url=None)
@@ -493,6 +494,12 @@ async def ow_order_detail(request: Request, order_id: str, user: dict = Depends(
             if isinstance(scan, dict) and isinstance(scan.get("capture"), dict):
                 scan["capture"]["scan_id"] = face_scan.scan_id_from_url(
                     scan["capture"].get("url"))
+    frame_offer_by_line = {}
+    for product in order.get("products") or []:
+        line_id = product.get("order_product_id")
+        if line_id is not None:
+            ok, offer = frame_offers_svc.latest(order_id, line_id)
+            frame_offer_by_line[str(line_id)] = offer if ok else None
     return render("pages/ow_order_detail.html", request, user, order=order,
                   notif_logs=notif_logs, ow_statuses=ow_orders.get_status_list(),
                   accounts_email_default=config.OPTIWAR_ACCOUNTS_EMAIL,
@@ -505,10 +512,178 @@ async def ow_order_detail(request: Request, order_id: str, user: dict = Depends(
                   rp_waivers=rpl.waivers_for(order_id), rp_waiver_codes=rpl.WAIVER_CODES,
                   rp_conditions=rpl.CONDITIONS, rp_reasons=rp_svc.REASONS,
                   face_scan=face,
+                  frame_offer_by_line=frame_offer_by_line,
                   rx_docs_live=rx_documents.is_live(),
                   rx_last_change=rx_last_change,
                   rx_editable=_ow_rx_editable(order),
                   rp_ship_types=rpl.SHIPMENT_TYPES)
+
+
+def _frame_offer_context(order, product, result=None, error=""):
+    matches = (result or {}).get("matches") or []
+    chosen = {int(row["product_id"]) for row in matches[:4]}
+    failed = dict((result or {}).get("failed_product") or {})
+    failed["price_minor"] = int((result or {}).get("failed_price_minor") or 0)
+    failed.setdefault("size", "")
+    failed.setdefault("colour", "")
+    order_copy = dict(order)
+    order_copy["total_minor"] = int(round(float(order.get("total") or 0) * 100))
+    candidates = [row for row in matches if int(row["product_id"]) in chosen]
+    email_html, email_text = frame_offers_svc.customer_email(
+        order_copy, failed, candidates, "https://%s/fq/<one-time-link>" %
+        ("in.optiwar.com" if order.get("site_from") == "in.optiwar.com"
+         else "optiwar.com"))
+    return {"order": order, "product": product, "matches": matches,
+            "selected_ids": chosen, "failed": failed, "reason": "QC_FAILED",
+            "wa_template": frame_offers_svc.wa_template(),
+            "email_html": email_html, "email_text": email_text,
+            "wa_body": frame_offers_svc.WA_BODY, "error": error}
+
+
+@app.get("/orders/ow/{order_id}/frame-offer", response_class=HTMLResponse)
+async def ow_frame_offer_form(request: Request, order_id: str,
+                              order_line_id: int = Query(...),
+                              error: str = Query(default=""),
+                              user: dict = Depends(get_current_user)):
+    order = ow_orders.get_order(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    product = next((p for p in order.get("products", [])
+                    if int(p.get("order_product_id") or 0) == order_line_id), None)
+    if not product:
+        raise HTTPException(status_code=404, detail="Order line not found")
+    ok, result = frame_offers_svc.matches(order_id, order_line_id)
+    if not ok:
+        error = error or str(result)
+        result = {}
+    context = _frame_offer_context(order, product, result, error)
+    return render("pages/ow_frame_offer.html", request, user, **context)
+
+
+@app.post("/orders/ow/{order_id}/frame-offer")
+async def ow_frame_offer_send(request: Request, order_id: str,
+                              order_line_id: int = Form(...),
+                              reason: str = Form("QC_FAILED"),
+                              product_ids: List[str] = Form([]),
+                              user: dict = Depends(get_current_user)):
+    order = ow_orders.get_order(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    product = next((p for p in order.get("products", [])
+                    if int(p.get("order_product_id") or 0) == order_line_id), None)
+    if not product:
+        raise HTTPException(status_code=404, detail="Order line not found")
+    reason = (reason or "").upper()
+    wa_template = frame_offers_svc.wa_template()
+    allowed, gate_message = frame_offers_svc.send_gate(reason, wa_template)
+    if not allowed:
+        return RedirectResponse(
+            "%s/orders/ow/%s/frame-offer?order_line_id=%s&error=%s" %
+            (ROOT_PATH, quote(order_id), order_line_id,
+             quote(gate_message)),
+            status_code=303)
+    ok, match_result = frame_offers_svc.matches(order_id, order_line_id)
+    if not ok:
+        raise HTTPException(status_code=502, detail=str(match_result))
+    selected = set(int(pid) for pid in product_ids)
+    candidates = [c for c in match_result.get("matches", [])
+                  if int(c["product_id"]) in selected]
+    if len(candidates) != len(selected) or not 1 <= len(selected) <= 6:
+        raise HTTPException(status_code=400, detail="Choose one to six current matches")
+    created_by = (user.get("full_name") or user.get("username") or "Ops")
+    ok, created = frame_offers_svc.create(
+        order_id, order_line_id, reason, list(selected), created_by)
+    if not ok:
+        raise HTTPException(status_code=502, detail=str(created))
+    failed = dict(match_result.get("failed_product") or {})
+    failed["price_minor"] = int(match_result.get("failed_price_minor") or 0)
+    failed.setdefault("size", "")
+    failed.setdefault("colour", "")
+    order_copy = dict(order)
+    order_copy["total_minor"] = int(round(float(order.get("total") or 0) * 100))
+    email_html, email_text = frame_offers_svc.customer_email(
+        order_copy, failed, created.get("candidates") or candidates,
+        created["link"])
+    subject = frame_offers_svc.email_subject(order_id)
+    email_ok, email_detail = notifications.send_email(
+        order.get("email") or "", subject, email_html, email_text,
+        from_addr=config.OPTIWAR_FROM_EMAIL,
+        admin_cc=config.OPTIWAR_ADMIN_CC or None)
+    wa_ok, wa_detail = notifications.send_msg91_wa_template(
+        order.get("telephone") or "", wa_template,
+        body_values=frame_offers_svc.wa_values(order, failed, created["link"]),
+        lang="en", country_code="IN")
+    for channel, recipient, sent, detail in (
+            ("email", order.get("email") or "", email_ok, email_detail),
+            ("whatsapp", order.get("telephone") or "", wa_ok, wa_detail)):
+        notifications._save_notification_log(
+            order_id, channel, frame_offers_svc.EVENT, recipient, sent,
+            str(detail or ""), created_by,
+            details=json.dumps({"offer_uuid": created["offer_uuid"]}))
+    summary = ("Frame replacement offer created; email %s; WhatsApp %s" %
+               ("sent" if email_ok else "failed",
+                "sent" if wa_ok else "failed"))
+    return RedirectResponse(
+        "%s/orders/ow/%s?success=%s" %
+        (ROOT_PATH, quote(order_id), quote(summary)), status_code=303)
+
+
+@app.post("/orders/ow/{order_id}/frame-offer/{offer_uuid}/settled")
+async def ow_frame_offer_settled(order_id: str, offer_uuid: str,
+                                 ref: str = Form(...),
+                                 user: dict = Depends(get_current_user)):
+    ok, result = frame_offers_svc.settled(
+        order_id, offer_uuid, ref, user.get("full_name") or user.get("username") or "Ops")
+    if not ok:
+        raise HTTPException(status_code=502, detail=str(result))
+    return RedirectResponse("%s/orders/ow/%s?success=Settlement recorded" %
+                            (ROOT_PATH, quote(order_id)), status_code=303)
+
+
+@app.post("/orders/ow/{order_id}/frame-offer/{offer_uuid}/payment-link")
+async def ow_frame_offer_payment_link(order_id: str, offer_uuid: str,
+                                      order_line_id: int = Form(...),
+                                      user: dict = Depends(get_current_user)):
+    ok, latest = frame_offers_svc.latest(order_id, order_line_id)
+    if not ok:
+        raise HTTPException(status_code=502, detail=str(latest))
+    offer = latest or {}
+    if offer.get("offer_uuid") != offer_uuid:
+        raise HTTPException(status_code=404, detail="Frame offer not found")
+    amount = int(offer.get("price_diff_minor") or 0)
+    if amount <= 0 or amount % 100:
+        raise HTTPException(status_code=400,
+                            detail="Frame replacement payment links require a whole-rupee amount")
+    order = ow_orders.get_order(order_id) or {}
+    site = ("optiwar.in" if order.get("site_from") == "in.optiwar.com"
+            else "optiwar.com")
+    created, result = rzp.create_link(
+        order_id, amount / 100, "INR",
+        "in.optiwar.com" if order.get("site_from") == "in.optiwar.com" else "optiwar.com",
+        name=order.get("firstname") or "", email=order.get("email") or "",
+        phone=order.get("telephone") or "",
+        description="Frame replacement price difference",
+        created_by=user.get("username") or "ops")
+    if not created:
+        raise HTTPException(status_code=502, detail=str(result))
+    if rzp.claim_link_notify(result.get("link_id", "")):
+        display = frame_offers_svc.money(amount)
+        order.update({
+            "items": [{"name": "Frame replacement price difference", "qty": 1,
+                       "total": display}],
+            "total_display": display,
+            "pay_link": result.get("short_url", ""),
+            "site": site,
+        })
+        sent = notifications.notify_ow_new_order(
+            order, channels=["email", "whatsapp"], use_ai=False)
+        if not _notify_ok(sent):
+            rzp.release_link_notify(result.get("link_id", ""))
+            raise HTTPException(status_code=502, detail="Payment link notification failed")
+    return RedirectResponse(
+        "%s/orders/ow/%s?success=%s" %
+        (ROOT_PATH, quote(order_id), quote("Payment link created and sent to customer")),
+        status_code=303)
 
 
 @app.post("/orders/ow/{order_id}/rx-change")
@@ -2072,6 +2247,10 @@ def _refund_facts(order_id: str):
 @app.get("/orders/ow/{order_id}/refund/prepare", response_class=HTMLResponse)
 async def ow_refund_prepare(request: Request, order_id: str,
                             error: str = Query(default=""),
+                            amount: str = Query(default=""),
+                            reason_code: str = Query(default=""),
+                            refund_method: str = Query(default="gateway"),
+                            comment: str = Query(default=""),
                             user: dict = Depends(get_current_user)):
     """Stage 1. Opens a draft. Nothing here can move money."""
     order = ow_orders.get_order(order_id)
@@ -2093,7 +2272,9 @@ async def ow_refund_prepare(request: Request, order_id: str,
                   reasons=ow_refunds.REASONS, draft_html=draft, seeded_draft=draft,
                   idempotency_key=ow_refunds.new_idempotency_key(order_id),
                   upi_today=datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat(),
-                  api_configured=ow_refunds.configured())
+                  api_configured=ow_refunds.configured(),
+                  prefill_amount=amount, prefill_reason=reason_code,
+                  prefill_method=refund_method, prefill_comment=comment)
 
 
 @app.get("/orders/ow/{order_id}/refund/ai-draft")
@@ -2484,6 +2665,10 @@ async def ow_refund_track(request: Request, order_id: str, key: str = "",
         refund["amount_text"] = ow_refunds.money(refund.get("amount_minor"),
                                                  refund.get("currency"))
         refund["reason_label"] = ow_refunds.reason_label(refund.get("reason_code"))
+        refund["upi_fallback"] = (
+            frame_offers_svc.upi_fallback_state(
+                refund.get("error_text"), refund.get("payment_ref"), rzp._call)
+            if refund.get("status") == "FAILED" else None)
     except ow_refunds.RefundApiError as e:
         api_error = e.message
     notif_logs = [n for n in notifications.get_notification_logs(order_id)
