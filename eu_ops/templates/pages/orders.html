@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}Orders — LensBazaar OPP{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Orders</h1>
+    <span class="text-muted">{{ total }} total</span>
+</div>
+
+<!-- Source Tabs -->
+<div class="source-tabs" style="margin-bottom:15px; display:flex; gap:5px; align-items:center;">
+    <a href="{{ base }}/orders?source=eu" class="btn {% if current_source == 'eu' %}btn-primary{% else %}btn-outline{% endif %}">
+        EU LensBazaar
+    </a>
+    <a href="{{ base }}/orders?source=optiwar" class="btn {% if current_source == 'optiwar' and not show_archived %}btn-primary{% else %}btn-outline{% endif %}" style="{% if current_source == 'optiwar' and not show_archived %}background:#e67e22;border-color:#e67e22{% endif %}">
+        Optiwar
+    </a>
+    {% if current_source == 'optiwar' %}
+    <a href="{{ base }}/orders?source=optiwar&archived=1" class="btn {% if show_archived %}btn-primary{% else %}btn-outline{% endif %}" style="{% if show_archived %}background:#95a5a6;border-color:#95a5a6{% endif %}; font-size:0.85em;">
+        📦 Archived
+    </a>
+    {% endif %}
+</div>
+
+<div class="filters">
+    <form method="get" class="filter-form">
+        <input type="hidden" name="source" value="{{ current_source }}">
+        {% if show_archived %}<input type="hidden" name="archived" value="1">{% endif %}
+        <input type="text" name="search" placeholder="Search order ID, name, email..."
+               value="{{ current_search or '' }}" class="form-input">
+        <select name="status" class="form-select">
+            <option value="">All Statuses</option>
+            {% for s in all_statuses %}
+            {% if current_source == 'optiwar' %}
+            <option value="{{ s.id }}" {% if current_status == s.id %}selected{% endif %}>
+                {{ s.name }}
+            </option>
+            {% else %}
+            <option value="{{ s.order_status_id }}" {% if current_status == s.order_status_id %}selected{% endif %}>
+                {{ s.name }}
+            </option>
+            {% endif %}
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary">Filter</button>
+        {% if current_status or current_search %}
+        <a href="{{ base }}/orders?source={{ current_source }}{% if show_archived %}&archived=1{% endif %}" class="btn btn-outline">Clear</a>
+        {% endif %}
+    </form>
+</div>
+
+{% if current_source == 'optiwar' %}
+<form id="archiveForm" method="post" action="{{ base }}/orders/ow/{% if show_archived %}unarchive{% else %}archive{% endif %}">
+{% endif %}
+
+<div class="table-responsive">
+    <table>
+        <thead>
+            <tr>
+                {% if current_source == 'optiwar' %}
+                <th style="width:30px;"><input type="checkbox" id="selectAll" title="Select all"></th>
+                {% endif %}
+                <th>Order ID</th>
+                <th>Customer</th>
+                <th>Email</th>
+                {% if current_source == 'optiwar' %}
+                <th>Total (INR)</th>
+                {% else %}
+                <th>Total (EUR)</th>
+                {% endif %}
+                <th>Status</th>
+                <th>Date</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for o in orders %}
+            <tr{% if show_archived %} style="opacity:0.7"{% endif %}>
+                {% if current_source == 'optiwar' %}
+                <td><input type="checkbox" name="order_ids" value="{{ o.order_id }}" class="order-check"></td>
+                <td><a href="{{ base }}/orders/ow/{{ o.order_id }}">OW-{{ o.order_id }}</a></td>
+                <td>{{ o.firstname }} {{ o.lastname }}</td>
+                <td class="text-small">{{ o.email }}</td>
+                <td>&#8377;{{ "%.0f"|format(o.total_inr) }}</td>
+                <td><span class="status-badge status-{{ o.order_status_id }}">{{ o.status_name }}</span></td>
+                <td class="text-small">{{ o.date_added }}</td>
+                <td>
+                    <a href="{{ base }}/orders/ow/{{ o.order_id }}" class="btn btn-sm">View</a>
+                </td>
+                {% else %}
+                <td><a href="{{ base }}/orders/{{ o.order_id }}">#E-{{ o.order_id }}</a></td>
+                <td>{{ o.firstname }} {{ o.lastname }}</td>
+                <td class="text-small">{{ o.email }}</td>
+                <td>&euro;{{ "%.2f"|format(o.total_eur) }}</td>
+                <td><span class="status-badge status-{{ o.order_status_id }}">{{ o.status_name }}</span></td>
+                <td class="text-small">{{ o.date_added }}</td>
+                <td>
+                    <a href="{{ base }}/orders/{{ o.order_id }}" class="btn btn-sm">View</a>
+                    <a href="{{ base }}/orders/{{ o.order_id }}/ship" class="btn btn-sm btn-success">Ship</a>
+                </td>
+                {% endif %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if current_source == 'optiwar' and orders|length > 0 %}
+<div style="margin:10px 0; display:flex; gap:8px; align-items:center;">
+    <span id="selectedCount" style="font-size:0.9em; color:#666;">0 selected</span>
+    {% if show_archived %}
+    <button type="submit" class="btn btn-sm btn-success" id="archiveBtn" disabled>📤 Unarchive Selected</button>
+    {% else %}
+    <button type="submit" class="btn btn-sm" id="archiveBtn" style="background:#95a5a6;color:#fff;border-color:#95a5a6;" disabled>📦 Archive Selected</button>
+    {% endif %}
+</div>
+</form>
+{% endif %}
+
+{% if total_pages > 1 %}
+<div class="pagination">
+    {% if page > 1 %}
+    <a href="{{ base }}/orders?page={{ page - 1 }}&source={{ current_source }}{% if current_status %}&status={{ current_status }}{% endif %}{% if current_search %}&search={{ current_search }}{% endif %}{% if show_archived %}&archived=1{% endif %}" class="btn btn-sm">&laquo; Prev</a>
+    {% endif %}
+    <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
+    {% if page < total_pages %}
+    <a href="{{ base }}/orders?page={{ page + 1 }}&source={{ current_source }}{% if current_status %}&status={{ current_status }}{% endif %}{% if current_search %}&search={{ current_search }}{% endif %}{% if show_archived %}&archived=1{% endif %}" class="btn btn-sm">Next &raquo;</a>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if current_source == 'optiwar' %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var selectAll = document.getElementById('selectAll');
+    var checks = document.querySelectorAll('.order-check');
+    var countEl = document.getElementById('selectedCount');
+    var btn = document.getElementById('archiveBtn');
+    function updateCount() {
+        var c = document.querySelectorAll('.order-check:checked').length;
+        countEl.textContent = c + ' selected';
+        btn.disabled = c === 0;
+    }
+    if (selectAll) {
+        selectAll.addEventListener('change', function() {
+            checks.forEach(function(cb) { cb.checked = selectAll.checked; });
+            updateCount();
+        });
+    }
+    checks.forEach(function(cb) { cb.addEventListener('change', updateCount); });
+});
+</script>
+{% endif %}
+{% endblock %}

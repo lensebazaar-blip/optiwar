@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}New Optiwar Order{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>Create Optiwar Order</h1>
+        <span class="text-muted" style="font-size:12px;">
+            Reads optiwar2 only — the order is produced as SQL for you to run there.
+        </span>
+    </div>
+    <form method="post" action="{{ base }}/ow-new-order/create" style="display:flex; gap:8px; align-items:center;">
+        <select name="site" class="form-input">
+            <option value="in.optiwar.com">in.optiwar.com (India, INR)</option>
+            <option value="optiwar.com">optiwar.com (global, EUR)</option>
+        </select>
+        <button type="submit" class="btn btn-primary">+ New order</button>
+    </form>
+</div>
+
+<div class="alert" style="background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;padding:10px 14px;border-radius:6px;margin-bottom:16px;">
+    Orders are created as <strong>Pending</strong> with no payment row. The customer pays the
+    link; <code>payment_collector</code> is written by the gateway, not from here.
+</div>
+
+<div class="card">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Draft</th><th>Order ID</th><th>Site</th><th>Customer</th>
+                <th>Lines</th><th>Total</th><th>State</th><th>Created</th><th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for d in drafts %}
+            <tr>
+                <td>#{{ d.id }}</td>
+                <td>{{ d.order_id or '—' }}</td>
+                <td class="text-small">{{ d.site }}</td>
+                <td>{{ d.customer_name or '—' }}</td>
+                <td>{{ d.lines_count }}</td>
+                <td>{{ d.total }}</td>
+                <td>
+                    {% if d.state == 'notified' %}<span class="badge badge-success">notified</span>
+                    {% elif d.state == 'verified' %}<span class="badge badge-success">verified</span>
+                    {% elif d.state == 'generated' %}<span class="badge badge-warning">sql generated</span>
+                    {% else %}<span class="badge">draft</span>{% endif %}
+                </td>
+                <td class="text-small text-muted">{{ d.created_at }}</td>
+                <td><a href="{{ base }}/ow-new-order/{{ d.id }}" class="btn btn-sm btn-outline">Open</a></td>
+            </tr>
+        {% else %}
+            <tr><td colspan="9" class="text-muted">No drafts yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

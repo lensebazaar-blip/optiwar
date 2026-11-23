@@ -1,0 +1,254 @@
+{% extends "base.html" %}
+{% block title %}Free Lens Upgrade — OW-{{ order.order_id }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <a href="{{ base }}/orders/ow/{{ order.order_id }}" class="btn btn-sm btn-outline">&laquo; Back to Order</a>
+        <h1>🎁 Free Lens Upgrade — OW-{{ order.order_id }}</h1>
+        <span class="text-muted" style="font-size:12px;">Record / lock / withdraw a complimentary lens upgrade — fully audited</span>
+    </div>
+</div>
+
+{% if mode == 'status' %}
+<!-- ===== Status card (upgrade recorded) ===== -->
+{% set st = (upgrade.status or 'applied') %}
+{% set is_locked = upgrade.locked %}
+<div class="card" style="margin-bottom:16px;border-left:4px solid {{ '#16a34a' if st == 'applied' else '#9ca3af' }};">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
+        <div>
+            <h3 style="margin:0;">Recorded Upgrade</h3>
+            <div style="font-size:14px;margin-top:6px;">
+                <span style="text-decoration:line-through;color:#94a3b8;">{{ upgrade.from_lens }}</span>
+                &rarr; <strong>{{ upgrade.to_lens }}</strong>
+                <span style="background:#16a34a;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:3px;margin-left:6px;">FREE — NO CHARGE</span>
+            </div>
+            {% if upgrade.note %}<div style="color:#64748b;font-size:12px;margin-top:4px;">Note: {{ upgrade.note }}</div>{% endif %}
+        </div>
+        <div style="text-align:right;">
+            {% if st == 'applied' and is_locked %}
+                <span style="background:#dcfce7;color:#166534;font-weight:700;font-size:12px;padding:4px 10px;border-radius:20px;">🔒 Applied · Locked</span>
+            {% elif st == 'applied' %}
+                <span style="background:#fef9c3;color:#854d0e;font-weight:700;font-size:12px;padding:4px 10px;border-radius:20px;">🔓 Applied · Unlocked</span>
+            {% else %}
+                <span style="background:#f1f5f9;color:#475569;font-weight:700;font-size:12px;padding:4px 10px;border-radius:20px;">↩ Withdrawn</span>
+            {% endif %}
+        </div>
+    </div>
+
+    <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;">
+        <a href="{{ base }}/orders/ow/{{ order.order_id }}/gst-invoice" target="_blank" class="btn btn-sm" style="background:#0f766e;color:#fff;border-color:#0f766e;">🧾 View GST Invoice</a>
+        {% if st == 'applied' and is_locked %}
+            <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/upgrade/unlock" style="display:inline;">
+                <button type="submit" class="btn btn-sm btn-outline">🔓 Unlock to edit</button>
+            </form>
+        {% elif st == 'applied' %}
+            <a href="{{ base }}/orders/ow/{{ order.order_id }}/upgrade?edit=1" class="btn btn-sm btn-outline">✏ Edit upgrade</a>
+            <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/upgrade/lock" style="display:inline;">
+                <button type="submit" class="btn btn-sm" style="background:#16a34a;color:#fff;border-color:#16a34a;">🔒 Lock (finalize)</button>
+            </form>
+        {% endif %}
+        {% if st == 'applied' %}
+            <button type="button" class="btn btn-sm" style="background:#dc2626;color:#fff;border-color:#dc2626;" onclick="document.getElementById('withdrawBox').style.display='block';this.style.display='none';">↩ Downgrade / Withdraw</button>
+        {% endif %}
+    </div>
+
+    {% if st == 'applied' %}
+    <div id="withdrawBox" style="display:none;margin-top:14px;border-top:1px solid #eee;padding-top:14px;">
+        <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/upgrade/withdraw" onsubmit="return confirm('Withdraw the free upgrade and revert the invoice to the original complimentary lens?');">
+            <label style="font-weight:600;font-size:13px;">Reason for withdrawal / downgrade *</label>
+            <input type="text" name="reason" class="form-input" style="width:100%;margin:6px 0 10px;" required placeholder="e.g. Customer declined the upgrade">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:10px;cursor:pointer;">
+                <input type="checkbox" name="notify_customer" value="1"> Notify customer of withdrawal (email)
+            </label>
+            <button type="submit" class="btn btn-sm" style="background:#dc2626;color:#fff;border-color:#dc2626;">Confirm withdrawal &amp; revert invoice</button>
+        </form>
+    </div>
+    {% endif %}
+</div>
+
+{% elif mode == 'preview' %}
+<!-- ===== Dry-run preview + confirm ===== -->
+<div class="alert" style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:10px 14px;border-radius:6px;margin-bottom:16px;">
+    <strong>DRY RUN — nothing has been sent.</strong> This screen only previews. When you click
+    <strong>“Confirm, Record Upgrade &amp; Notify”</strong> below, it will (1) record the free upgrade so it shows on the GST invoice,
+    (2) **lock** it (invoice finalized), and (3) send REAL messages on the ticked channels. The customer's purchase / RX is NOT changed. Leave this page to cancel.
+</div>
+
+<div class="detail-grid">
+    <div class="card">
+        <h3>Email Envelope</h3>
+        <div class="info-row"><label>From:</label> <span><strong>{{ draft.from }}</strong></span></div>
+        <div class="info-row"><label>To:</label> <span>{{ draft.to }}</span></div>
+        <div class="info-row"><label>Cc:</label> <span>{{ draft.cc }}</span></div>
+    </div>
+    <div class="card">
+        <h3>WhatsApp (msg91) &amp; SMS</h3>
+        <div class="info-row"><label>To:</label> <span>{{ draft.whatsapp_to }}</span></div>
+        <div class="info-row"><label>WA Template:</label> <span>{{ draft.wa_template }}</span></div>
+        {% if draft.wa_body %}
+        <div style="font-size:12px;color:#333;margin-top:6px;">
+            {% for v in draft.wa_body %}<div>body_{{ loop.index }}: <strong>{{ v }}</strong></div>{% endfor %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card" style="margin-top:16px;margin-bottom:16px;">
+    <h3>SMS / plain-text</h3>
+    <pre style="white-space:pre-wrap;font-size:12px;color:#333;">{{ draft.text }}</pre>
+    <div style="font-size:11px;color:#b45309;">⚠ SMS delivers only if the msg91 SMS route is set up; otherwise it logs as failed while Email/WhatsApp still deliver.</div>
+</div>
+
+<div class="card" style="margin-bottom:20px;">
+    <h3>Email (composed by DeepSeek — click to edit)</h3>
+    <div style="margin-bottom:10px;">
+        <label style="font-weight:600;font-size:13px;display:block;margin-bottom:6px;">Subject (editable):</label>
+        <input type="text" id="emailSubject" value="{{ draft.subject }}" class="form-input" style="width:100%;">
+    </div>
+    <div id="emailBody" contenteditable="true" style="background:white;padding:16px;border-radius:6px;border:1px solid #fbbf7a;min-height:200px;outline:none;">
+        {{ draft.html | safe }}
+    </div>
+    <span style="font-size:11px;color:#64748b;">Edit the copy above if needed. It will be sent as shown.</span>
+
+    <form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/upgrade/send" id="sendForm" onsubmit="return syncDraft()" style="margin-top:16px;">
+        <input type="hidden" name="subject" id="subjectHidden" value="{{ draft.subject }}">
+        <input type="hidden" name="body_html" id="bodyHtmlHidden" value="{{ draft.body_html_escaped }}">
+        <input type="hidden" name="from_lens" value="{{ suggested_from }}">
+        <input type="hidden" name="to_lens" value="{{ to_lens }}">
+        <input type="hidden" name="note" value="{{ note }}">
+        <div style="margin-bottom:12px;">
+            <label style="font-weight:600;font-size:13px;display:block;margin-bottom:6px;">Send via</label>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;">
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" name="notify_email" value="1" checked> ✉ Email</label>
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" name="notify_whatsapp" value="1" checked> 💬 WhatsApp</label>
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:#94a3b8;"><input type="checkbox" name="notify_sms" value="1"> 📱 SMS <span style="font-size:10px;">(wired; enable once msg91 SMS is set up)</span></label>
+            </div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;">
+            <button type="submit" class="btn btn-primary" style="background:#16a34a;border-color:#16a34a;"
+                    onclick="return confirm('Record the free upgrade, lock it and notify the customer now?')">
+                ✓ Confirm, Record Upgrade &amp; Notify
+            </button>
+            <a href="{{ base }}/orders/ow/{{ order.order_id }}/upgrade?from_lens={{ suggested_from|urlencode }}&to_lens={{ to_lens|urlencode }}&note={{ note|urlencode }}&edit=1" class="btn btn-outline">↻ Regenerate</a>
+            <a href="{{ base }}/orders/ow/{{ order.order_id }}" class="btn btn-outline" style="color:#dc2626;border-color:#dc2626;">✕ Cancel</a>
+        </div>
+    </form>
+</div>
+
+{% else %}
+<!-- ===== Input form ===== -->
+<div class="detail-grid">
+    <div class="card">
+        <h3>Customer</h3>
+        <div class="info-row"><label>Name:</label> <span>{{ order.firstname }} {{ order.lastname }}</span></div>
+        <div class="info-row"><label>Email:</label> <span>{{ order.email or '—' }}</span></div>
+        <div class="info-row"><label>Phone:</label> <span>{{ order.telephone or '—' }}</span></div>
+    </div>
+    <div class="card">
+        <h3>Products</h3>
+        {% for p in order.products %}
+        <div style="margin-bottom:8px; font-size:13px;">
+            <strong>{{ p.name }}</strong> ({{ p.model }}) · Qty {{ p.quantity }}
+            {% if p.rx and p.rx.recommendations %}<div style="color:#64748b;font-size:12px;">Lens: {{ p.rx.recommendations }}</div>{% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+{% if upgrade and (upgrade.status or 'applied') == 'withdrawn' %}
+<div class="alert" style="background:#f1f5f9;border:1px solid #cbd5e1;color:#475569;padding:8px 12px;border-radius:6px;margin-top:14px;font-size:13px;">
+    A previous upgrade was <strong>withdrawn</strong>{% if upgrade.withdraw_reason %} ({{ upgrade.withdraw_reason }}){% endif %}. You can record a new one below.
+</div>
+{% endif %}
+
+<div class="card" style="margin-top:16px;">
+    <h3>Upgrade Details</h3>
+    <form method="get" action="{{ base }}/orders/ow/{{ order.order_id }}/upgrade">
+        <input type="hidden" name="edit" value="1">
+        <div class="form-group" style="margin-bottom:12px;">
+            <label style="font-weight:600;font-size:13px;">Original (ordered) lens</label>
+            <input type="text" name="from_lens" class="form-input" style="width:100%;"
+                   value="{{ suggested_from }}" placeholder="e.g. Complimentary Regular Lens">
+        </div>
+        <div class="form-group" style="margin-bottom:12px;">
+            <label style="font-weight:600;font-size:13px;">Upgraded to (given free) *</label>
+            <input type="text" name="to_lens" class="form-input" style="width:100%;" required
+                   value="{{ to_lens }}" placeholder="e.g. Anti-Glare Thin Lens">
+        </div>
+        <div class="form-group" style="margin-bottom:12px;">
+            <label style="font-weight:600;font-size:13px;">Internal note (optional)</label>
+            <input type="text" name="note" class="form-input" style="width:100%;"
+                   value="{{ note }}" placeholder="e.g. Regular lens out of stock, upgraded as goodwill">
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+            <label style="font-weight:600;font-size:13px;display:block;margin-bottom:6px;">Notify via</label>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;">
+                <label style="display:flex;align-items:center;gap:4px;"><input type="checkbox" checked disabled> ✉ Email</label>
+                <label style="display:flex;align-items:center;gap:4px;"><input type="checkbox" checked disabled> 💬 WhatsApp</label>
+                <label style="display:flex;align-items:center;gap:4px;color:#94a3b8;"><input type="checkbox" disabled> 📱 SMS</label>
+            </div>
+            <span style="font-size:11px;color:#64748b;">You'll confirm channels on the next (dry-run) screen before anything is sent.</span>
+        </div>
+        <button type="submit" class="btn btn-primary">Preview (Dry Run) →</button>
+    </form>
+</div>
+{% endif %}
+
+{% if notif_log %}
+<!-- ===== EWS delivery receipts (assurance the customer was notified) ===== -->
+<div class="card" style="margin-top:16px;">
+    <h3>Customer Notifications Sent (EWS delivery log)</h3>
+    <div style="font-size:12px;">
+        <div style="display:flex;gap:10px;padding:4px 0;border-bottom:2px solid #e5e7eb;font-weight:700;color:#334155;">
+            <span style="width:150px;">When</span><span style="width:80px;">Channel</span>
+            <span style="width:70px;">Result</span><span style="width:170px;">Recipient</span><span>Provider reference / message</span>
+        </div>
+        {% for r in notif_log %}
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid #f1f5f9;align-items:flex-start;">
+            <span style="width:150px;color:#94a3b8;white-space:nowrap;">{{ r.created_at }}</span>
+            <span style="width:80px;text-transform:uppercase;font-weight:600;">{{ r.channel }}</span>
+            <span style="width:70px;">
+                {% if r.success %}<span style="color:#166534;font-weight:700;">✓ SENT</span>
+                {% else %}<span style="color:#b91c1c;font-weight:700;">✕ FAIL</span>{% endif %}
+            </span>
+            <span style="width:170px;color:#475569;">{{ r.recipient }}</span>
+            <span style="color:#64748b;word-break:break-all;">{{ r.reference or r.message }}</span>
+        </div>
+        {% endfor %}
+    </div>
+    <div style="font-size:11px;color:#64748b;margin-top:8px;">
+        These are real provider receipts logged at send time (SMTP message-id / msg91 request-id / Twilio SID). WhatsApp "sent" = accepted by msg91; final Meta delivery depends on the approved template.
+    </div>
+</div>
+{% endif %}
+
+{% if upgrade_log %}
+<!-- ===== Audit trail / trace ===== -->
+<div class="card" style="margin-top:16px;">
+    <h3>Upgrade Trace</h3>
+    <div style="font-size:12px;">
+        {% for e in upgrade_log %}
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid #f1f5f9;">
+            <span style="color:#94a3b8;white-space:nowrap;">{{ e.created_at }}</span>
+            <span style="font-weight:700;text-transform:uppercase;color:#334155;white-space:nowrap;">{{ e.action }}</span>
+            <span style="color:#475569;">{{ e.detail }}{% if e.actor_id %} <span style="color:#94a3b8;">· user #{{ e.actor_id }}</span>{% endif %}</span>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<script>
+function escapeHtmlEntities(s){
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function syncDraft(){
+    var body = document.getElementById('emailBody');
+    var subj = document.getElementById('emailSubject');
+    if (body) { document.getElementById('bodyHtmlHidden').value = escapeHtmlEntities(body.innerHTML); }
+    if (subj) { document.getElementById('subjectHidden').value = subj.value; }
+    return true;
+}
+</script>
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Sent Email — Order {{ order_label }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <a href="{{ back_url }}" class="btn btn-sm btn-outline">&laquo; Back to Order</a>
+        <h1>Sent Email — Order {{ order_label }}</h1>
+    </div>
+    <div>
+        <a href="{{ followup_url }}" class="btn btn-sm" style="background:#7c3aed; color:white; border-color:#7c3aed;">Send Follow-up &rarr;</a>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:16px;">
+    <div class="info-row"><label>Sent:</label> <span>{{ row.created_at }} by {{ row.created_by or '—' }}</span></div>
+    <div class="info-row"><label>To:</label> <span>{{ row.recipient }}</span></div>
+    <div class="info-row"><label>Subject:</label> <span>{{ email.subject }}</span></div>
+    <div class="info-row"><label>Result:</label> <span>{{ 'Sent' if row.success else 'Failed' }} — {{ row.message }}</span></div>
+    {% if email.followup_of %}
+    <div class="info-row"><label>Follow-up of:</label> <span><a href="{{ view_base }}/{{ email.followup_of }}">notification #{{ email.followup_of }}</a></span></div>
+    {% endif %}
+</div>
+
+{% if email and not email.no_body %}
+<div class="card" style="margin-bottom:16px;">
+    <h3>Rich (as the customer saw it)</h3>
+    <div style="background:white; border:1px solid #e2e8f0; border-radius:6px; padding:16px;">{{ email.html | safe }}</div>
+</div>
+<div class="card">
+    <h3>Plain text</h3>
+    <pre style="white-space:pre-wrap; font-family:inherit; font-size:13px; background:#f8fafc; padding:12px; border-radius:6px;">{{ email.text }}</pre>
+</div>
+{% else %}
+<div class="card" style="border-left:4px solid #f59e0b;">
+    <strong>No text on record.</strong> This email was sent before message bodies were stored; only the admin CC copy in the mailbox has it.
+</div>
+{% endif %}
+{% endblock %}

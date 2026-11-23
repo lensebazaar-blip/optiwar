@@ -1,0 +1,653 @@
+{% extends "base.html" %}
+{% block title %}Optiwar Order Draft #{{ draft.id }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <a href="{{ base }}/ow-new-order" class="btn btn-sm btn-outline">&laquo; All drafts</a>
+        <h1>Optiwar order draft #{{ draft.id }}</h1>
+        <span class="text-muted" style="font-size:12px;">
+            {{ site }} · {{ site_info.currency }}
+            {% if draft.order_id %}· order id <strong>{{ draft.order_id }}</strong>{% endif %}
+            · state {{ draft.state }}
+        </span>
+    </div>
+    <form method="post" action="{{ base }}/ow-new-order/{{ draft.id }}/site">
+        <select name="site" class="form-input" onchange="this.form.submit()">
+            <option value="in.optiwar.com" {% if site == 'in.optiwar.com' %}selected{% endif %}>in.optiwar.com — India, INR</option>
+            <option value="optiwar.com" {% if site == 'optiwar.com' %}selected{% endif %}>optiwar.com — global, EUR</option>
+        </select>
+    </form>
+</div>
+
+{% if request.query_params.get('err') == 'incomplete' %}
+<div style="margin-bottom:12px;padding:10px 14px;border-radius:6px;background:#fdedec;border:1px solid #f5b7b1;color:#922b21;">
+    Fix the items listed below before generating the SQL.
+</div>
+{% endif %}
+
+{% if errors %}
+<div style="margin-bottom:16px;padding:10px 14px;border-radius:6px;background:#fffbeb;border:1px solid #fde68a;color:#92400e;">
+    <strong>Not ready yet:</strong>
+    <ul style="margin:6px 0 0 18px;">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<!-- ── 1. Customer ─────────────────────────────────────────────── -->
+<div class="card" style="margin-bottom:16px;">
+    <h3>1 · Customer</h3>
+    {% if data.customer.mode == 'existing' %}
+    <div class="info-row"><label>Selected:</label>
+        <span><strong>#{{ data.customer.customer_id }} {{ data.customer.name }}</strong>
+        · {{ data.customer.email }} · {{ data.customer.phone or 'no phone' }}</span></div>
+    <form method="post" action="{{ base }}/ow-new-order/{{ draft.id }}/customer" style="margin-top:8px;">
+        <input type="hidden" name="mode" value="new">
+        <button type="submit" class="btn btn-sm btn-outline">Change / enter a new customer</button>
+    </form>
+    {% else %}
+    <div style="display:flex; gap:8px; margin-bottom:10px;">
+        <input type="text" id="custQ" class="form-input" style="flex:1;"
+               placeholder="Search existing customer by id, name, email or phone">
+        <button type="button" class="btn btn-outline" onclick="custSearch()">Search</button>
+    </div>
+    <div id="custResults" style="margin-bottom:12px;"></div>
+    <form method="post" action="{{ base }}/ow-new-order/{{ draft.id }}/customer">
+        <input type="hidden" name="mode" value="new">
+        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px;">
+            <div><label class="text-small text-muted">Name</label>
+                <input type="text" name="name" class="form-input" value="{{ data.customer.name or '' }}" required></div>
+            <div><label class="text-small text-muted">Email</label>
+                <input type="email" name="email" class="form-input" value="{{ data.customer.email or '' }}" required></div>
+            <div><label class="text-small text-muted">Phone</label>
+                <input type="text" name="phone" class="form-input" value="{{ data.customer.phone or '' }}" required></div>
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm" style="margin-top:10px;">Save new customer details</button>
+    </form>
+    {% endif %}
+</div>
+
+<!-- ── 2. Delivery address ─────────────────────────────────────── -->
+<div class="card" style="margin-bottom:16px;">
+    <h3>2 · Delivery address</h3>
+    {% if addresses %}
+    <form method="post" action="{{ base }}/ow-new-order/{{ draft.id }}/address" style="margin-bottom:14px;">
+        <input type="hidden" name="mode" value="existing">
+        {% for a in addresses %}
+        <label style="display:block;border:1px solid #ddd;border-radius:6px;padding:8px 12px;margin-bottom:6px;cursor:pointer;">
+            <input type="radio" name="address_id" value="{{ a.address_id }}"
+                   {% if data.address.address_id == a.address_id %}checked{% endif %}>
+            <strong>#{{ a.address_id }}</strong> {{ a.address }}{% if a.address2 %}, {{ a.address2 }}{% endif %},
+            {{ a.state }} {{ a.zipcode }}, {{ a.country }}
+            <span class="text-small text-muted">
+                {% if a.delivery_phone %}· ph {{ a.delivery_phone }}{% endif %}
+                {% if a.delivery_email %}· {{ a.delivery_email }}{% endif %}</span>
+        </label>
+        {% endfor %}
+        <button type="submit" class="btn btn-primary btn-sm">Use selected address</button>
+    </form>
+    {% endif %}
+    <form method="post" action="{{ base }}/ow-new-order/{{ draft.id }}/address">
+        <input type="hidden" name="mode" value="new">
+        <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:10px;">
+            <div><label class="text-small text-muted">Address line 1</label>
+                <input type="text" name="address" class="form-input" value="{{ data.address.address or '' }}"></div>
+            <div><label class="text-small text-muted">Address line 2 / city</label>
+                <input type="text" name="address2" class="form-input" value="{{ data.address.address2 or '' }}"></div>
+            <div><label class="text-small text-muted">State</label>
+                <input type="text" name="state" class="form-input" value="{{ data.address.state or '' }}"></div>
+            <div><label class="text-small text-muted">Zipcode</label>
+                <input type="text" name="zipcode" class="form-input" value="{{ data.address.zipcode or '' }}"></div>
+            <div><label class="text-small text-muted">Country</label>
+                <input type="text" name="country" class="form-input"
+                       value="{{ data.address.country or ('India' if site == 'in.optiwar.com' else '') }}"></div>
+            <div><label class="text-small text-muted">Delivery phone</label>
+                <input type="text" name="delivery_phone" class="form-input" value="{{ data.address.delivery_phone or '' }}"></div>
+            <div><label class="text-small text-muted">Delivery email</label>
+                <input type="email" name="delivery_email" class="form-input" value="{{ data.address.delivery_email or '' }}"></div>
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm" style="margin-top:10px;">Save new address</button>
+        {% if site == 'in.optiwar.com' %}
+        <span class="text-small text-muted" style="margin-left:10px;">in.optiwar.com ships to Indian addresses only.</span>
+        {% endif %}
+    </form>
+</div>
+
+<!-- ── 3. Lines ────────────────────────────────────────────────── -->
+<div class="card" style="margin-bottom:16px;">
+    <h3>3 · Items</h3>
+    <table class="data-table">
+        <thead><tr><th>Product</th><th>Qty</th><th>Frame price</th><th>Lens / add-ons</th>
+                   <th>Prescription</th><th>Line total</th><th></th></tr></thead>
+        <tbody>
+        {% for l in lines %}
+            <tr>
+                <td>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        {% if l.thumb %}
+                        <img src="{{ l.thumb }}" alt="{{ l.product_code }}" loading="lazy"
+                             style="width:44px;height:44px;object-fit:contain;background:#f6f7f9;
+                                    border:1px solid #e5e7eb;border-radius:4px;cursor:pointer;"
+                             onclick="window.open(this.src, '_blank')">
+                        {% endif %}
+                        <div><strong>{{ l.product_code }}</strong><br>
+                            <span class="text-small">{{ l.product_name }}</span>
+                            {% if l.size_label %}<br><span class="text-small text-muted">{{ l.size_label }}</span>{% endif %}
+                        </div>
+                    </div>
+                </td>
+                <td>{{ l.qty }}</td>
+                <td>{{ site_info.symbol }}{{ l.unit_price }}<br>
+                    <span class="text-small text-muted">{{ l.price_basis }}</span></td>
+                <td class="text-small">{{ l.recommendations or '—' }}
+                    {% if l.recommendation_price %}<br>lens {{ site_info.symbol }}{{ l.recommendation_price }}{% endif %}
+                    {% for a in l.addons %}<br>{{ a.name }} {{ site_info.symbol }}{{ a.price }}{% endfor %}</td>
+                <td class="text-small">
+                    {% if l.rx_mode == 'existing' %}rx #{{ l.rx_id }} (reused){% else %}new{% endif %}<br>
+                    R {{ l.right_eye or '—' }}<br>L {{ l.left_eye or '—' }}</td>
+                <td><strong>{{ site_info.symbol }}{{ l.total }}</strong></td>
+                <td>
+                    <form method="post" action="{{ base }}/ow-new-order/{{ draft.id }}/line/{{ l.idx }}/remove">
+                        <button type="submit" class="btn btn-sm btn-outline">Remove</button>
+                    </form>
+                </td>
+            </tr>
+        {% else %}
+            <tr><td colspan="7" class="text-muted">No items yet.</td></tr>
+        {% endfor %}
+        </tbody>
+        {% if lines %}
+        <tfoot><tr><th colspan="5" style="text-align:right;">Order total</th>
+                   <th>{{ site_info.symbol }}{{ total }}</th><th></th></tr></tfoot>
+        {% endif %}
+    </table>
+
+    <hr style="border:none;border-top:1px solid #eee;margin:18px 0;">
+    <h4 style="margin:0 0 10px;">Add an item</h4>
+    <div style="display:flex; gap:8px; margin-bottom:10px;">
+        <input type="text" id="prodQ" class="form-input" style="flex:1;"
+               placeholder="Search by product_id, product_code or product name">
+        <button type="button" class="btn btn-outline" onclick="prodSearch()">Search</button>
+    </div>
+    <div id="prodResults" style="margin-bottom:12px;"></div>
+
+    <form method="post" action="{{ base }}/ow-new-order/{{ draft.id }}/line/add" id="lineForm">
+        <input type="hidden" name="product_id" id="lineProductId">
+        <div id="linePicked" class="text-small text-muted" style="margin-bottom:10px;">No product selected.</div>
+
+        <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px;">
+            <div><label class="text-small text-muted">Quantity</label>
+                <input type="number" name="qty" class="form-input" value="1" min="1"></div>
+            <div><label class="text-small text-muted">Frame price basis</label>
+                <select name="price_basis" class="form-input" id="priceBasis">
+                    <option value="special">Special price</option>
+                    <option value="list">List price</option>
+                    <option value="manual">Manual override</option>
+                </select></div>
+            <div><label class="text-small text-muted">Manual frame price</label>
+                <input type="text" name="manual_price" class="form-input" id="manualPrice" placeholder="only for manual"></div>
+            <div><label class="text-small text-muted">Line total override</label>
+                <input type="text" name="total_override" class="form-input" placeholder="optional"></div>
+        </div>
+
+        <div style="margin-top:14px;">
+            <label style="margin-right:14px;"><input type="radio" name="rx_mode" value="new" checked
+                   onclick="rxToggle()"> New prescription</label>
+            <label><input type="radio" name="rx_mode" value="existing" onclick="rxToggle()"
+                   {% if not rx_history %}disabled{% endif %}> Reuse an existing prescription
+                {% if not rx_history %}<span class="text-small text-muted">(none on file for this customer)</span>{% endif %}</label>
+        </div>
+
+        <div id="rxExisting" style="display:none; margin-top:10px;">
+            <select name="rx_id" class="form-input" style="width:100%;" onchange="rxLabel(this)">
+                <option value="">— select a prescription —</option>
+                {% for r in rx_history %}
+                <option value="{{ r.rx_id }}"
+                        data-right="{{ r.right_eye or '' }}" data-left="{{ r.left_eye or '' }}"
+                        data-reco="{{ r.recommendations or '' }}">
+                    rx #{{ r.rx_id }} · {{ r.product_code or r.product_id }} ·
+                    R {{ r.right_eye or '—' }} / L {{ r.left_eye or '—' }} ·
+                    {{ r.recommendations or 'no lens' }} · {{ r.date_created }}
+                </option>
+                {% endfor %}
+            </select>
+            <input type="hidden" name="rx_right_label" id="rxRightLabel">
+            <input type="hidden" name="rx_left_label" id="rxLeftLabel">
+            <input type="hidden" name="rx_reco_label" id="rxRecoLabel">
+            <div class="text-small text-muted" style="margin-top:6px;">
+                The existing prescription is referenced only — the generated SQL never updates it.
+            </div>
+        </div>
+
+        <div id="rxNew" style="margin-top:10px;">
+            <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:10px;">
+                <div><label class="text-small text-muted">Right eye (sph/cyl/axis/add)</label>
+                    <input type="text" name="right_eye" class="form-input" placeholder="-2.00/-0.50/180/0"></div>
+                <div><label class="text-small text-muted">Left eye (sph/cyl/axis/add)</label>
+                    <input type="text" name="left_eye" class="form-input" placeholder="-2.25/-0.75/175/0"></div>
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:10px;">
+                <div><label class="text-small text-muted">Lens design</label>
+                    <select name="lens_design" class="form-input">
+                        <option value="">Single vision (no design charge)</option>
+                        {% for o in lens_options.bifocal or [] %}
+                        <option value="{{ o.code }}">{{ o.name }} — {{ site_info.symbol }}{{ o.price }}</option>
+                        {% endfor %}
+                    </select></div>
+                <div><label class="text-small text-muted">Coating</label>
+                    <select name="lens_coating" class="form-input">
+                        <option value="">None</option>
+                        {% for o in lens_options.coatings or [] %}
+                        <option value="{{ o.code }}">{{ o.name }} — {{ site_info.symbol }}{{ o.price }}</option>
+                        {% endfor %}
+                    </select></div>
+                <div><label class="text-small text-muted">Thickness / photochromic</label>
+                    <select name="lens_thickness" class="form-input">
+                        <option value="">Standard</option>
+                        {% for o in lens_options.thickness or [] %}
+                        <option value="{{ o.code }}">{{ o.name }} — {{ site_info.symbol }}{{ o.price }}</option>
+                        {% endfor %}
+                    </select></div>
+            </div>
+            <div class="text-small text-muted" style="margin-top:6px;">
+                Prices come live from optiwar.com's lens-pricing API in {{ site_info.currency }}.
+                Picking a bifocal/progressive design switches add-ons to the bifocal price list.
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="margin-top:14px;">Add item</button>
+    </form>
+</div>
+
+<!-- ── 4. Order meta ───────────────────────────────────────────── -->
+<div class="card" style="margin-bottom:16px;">
+    <h3>4 · Order details</h3>
+    <form method="post" action="{{ base }}/ow-new-order/{{ draft.id }}/meta">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+            <div><label class="text-small text-muted">Internal note (goes into order_status / order_history)</label>
+                <input type="text" name="note" class="form-input" maxlength="180" value="{{ data.note or '' }}"></div>
+            <div><label class="text-small text-muted">Payment link sent to the customer</label>
+                <input type="text" name="pay_link" class="form-input" value="{{ data.pay_link or '' }}"
+                       placeholder="generated below, or paste one"></div>
+        </div>
+        <label style="display:block;margin-top:10px;">
+            <input type="checkbox" name="is_test" value="1" {% if data.is_test %}checked{% endif %}>
+            Mark as a test order (<code>is_test = 1</code>)
+        </label>
+        <button type="submit" class="btn btn-primary btn-sm" style="margin-top:10px;">Save</button>
+    </form>
+</div>
+
+<!-- ── 5. Create in optiwar2 ───────────────────────────────────── -->
+<div class="card" style="margin-bottom:16px;">
+    <h3>5 · Create the order in optiwar2</h3>
+    {% if created_now %}
+    <div style="padding:10px 14px;border-radius:6px;background:#eafaf1;border:1px solid #a9dfbf;
+                color:#1e6b42;margin-bottom:10px;">
+        Order <strong>{{ created_now }}</strong> created in optiwar2 and read back. Status is
+        Pending with no payment row — inventory moves when the customer pays.
+    </div>
+    {% endif %}
+    {% if create_error %}
+    <div style="padding:10px 14px;border-radius:6px;background:#fdecea;border:1px solid #f5c6cb;
+                color:#8a1f2b;margin-bottom:10px;">
+        Not created — nothing was written. {{ create_error }}
+    </div>
+    {% endif %}
+    {% if ow_write %}
+    <p class="text-small text-muted">
+        One transaction, INSERT only, on <code>customers</code>, <code>customers_address</code>,
+        <code>rx_collector</code>, <code>orders</code>, <code>order_status</code> and
+        <code>order_history</code> — it never writes to <code>products</code>, so inventory still
+        moves only when the customer pays. If a checkout is deducting stock for this product at
+        that instant, ops waits two seconds, retries twice, then gives up having written nothing.
+        The order is read back before this page reports success.
+    </p>
+    {% if draft.state in ('verified', 'notified') %}
+    <button class="btn btn-primary" disabled>Create in optiwar2</button>
+    <span class="text-small text-muted">— already created</span>
+    {% else %}
+    <form method="post" action="{{ base }}/ow-new-order/{{ draft.id }}/create-in-optiwar"
+          onsubmit="this.querySelector('button').disabled = true; return confirm('Create order in optiwar2 for {{ site_info.symbol }}{{ total }}? This writes a real Pending order.');"
+          style="display:inline;">
+        <button type="submit" class="btn btn-primary" {% if errors %}disabled{% endif %}>
+            Create in optiwar2
+        </button>
+    </form>
+    {% endif %}
+    <p class="text-small text-muted" style="margin-top:14px;">
+        Or do it by hand: generate the script below and run it on the Optiwar database yourself,
+        then use Verify to read the order back.
+    </p>
+    {% else %}
+    <p class="text-small text-muted">
+        The optiwar2 write account is not configured on this box, so the platform cannot create
+        the order itself. Generate the script below, run it on the Optiwar database, then use
+        Verify to read the order back.
+    </p>
+    {% endif %}
+    <form method="post" action="{{ base }}/ow-new-order/{{ draft.id }}/generate" style="display:inline;">
+        <button type="submit" class="btn {% if ow_write %}btn-outline{% else %}btn-primary{% endif %}"
+                {% if errors %}disabled{% endif %}>
+            {% if draft.sql_text %}Regenerate SQL{% else %}Generate SQL{% endif %}
+        </button>
+    </form>
+    {% if draft.sql_text %}
+    <a href="{{ base }}/ow-new-order/{{ draft.id }}/sql" class="btn btn-outline">Download .sql</a>
+    <button type="button" class="btn btn-outline" onclick="copySql()">Copy</button>
+    <form method="post" action="{{ base }}/ow-new-order/{{ draft.id }}/verify" style="display:inline;">
+        <button type="submit" class="btn btn-outline">Verify in optiwar2</button>
+    </form>
+    <pre id="sqlBox" style="margin-top:12px;background:#0f172a;color:#e2e8f0;padding:14px;border-radius:6px;
+         font-size:12px;overflow:auto;max-height:460px;white-space:pre;">{{ draft.sql_text }}</pre>
+    {% endif %}
+</div>
+
+<!-- ── 6. Payment link ─────────────────────────────────────────── -->
+<div class="card" style="margin-bottom:16px;">
+    <h3>6 · Razorpay payment link</h3>
+    <p class="text-small text-muted">
+        {{ site_info.currency }} link for <code>{{ data.site }}</code>, amount
+        {{ site_info.symbol }}{{ total }}. Available once the order has been verified in
+        optiwar2 — a link must never reference an order that does not exist.
+        Creating it also sends the link to the customer by email and WhatsApp, once.
+        When the customer pays, Razorpay calls the storefront: that is what records the payment,
+        appends Processed and deducts inventory.
+    </p>
+    {% if draft.state in ('verified', 'notified') %}
+    <form method="post" action="{{ base }}/ow-new-order/{{ draft.id }}/payment-link"
+          onsubmit="return confirm('Create a live Razorpay payment link for {{ site_info.symbol }}{{ total }}?');"
+          style="display:inline;">
+        <button type="submit" class="btn btn-primary">Create payment link</button>
+    </form>
+    {% else %}
+    <button class="btn btn-primary" disabled>Create payment link</button>
+    <span class="text-small text-muted">— verify the order first</span>
+    {% endif %}
+    {% if pay_error %}
+    <div style="margin-top:10px;padding:10px 14px;border-radius:6px;background:#fdecea;
+                border:1px solid #f5c6cb;color:#8a1f2b;">{{ pay_error }}</div>
+    {% endif %}
+    {% if pay_notice %}
+    <div style="margin-top:10px;padding:10px 14px;border-radius:6px;background:#fef9e7;
+                border:1px solid #f7dc6f;color:#7d6608;">{{ pay_notice }}</div>
+    {% endif %}
+    {% if pay_notified %}
+    <div style="margin-top:10px;padding:10px 14px;border-radius:6px;
+                background:{{ '#eafaf1' if pay_notified_ok else '#fdecea' }};
+                border:1px solid #d5dbdb;">
+        Payment link —
+        {% for channel, res in pay_notified.items() %}
+        <strong>{{ channel }}</strong>: {{ 'delivered' if res[0] else 'failed (' ~ res[1] ~ ')' }}{% if not loop.last %}, {% endif %}
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% if pay_links %}
+    <table class="data-table" style="margin-top:12px;">
+        <thead><tr><th>link</th><th>amount</th><th>status</th><th>payment id</th>
+                   <th>created</th><th>sent</th><th></th></tr></thead>
+        <tbody>
+        {% for l in pay_links %}
+        <tr>
+            <td><a href="{{ l.short_url }}" target="_blank" rel="noopener">{{ l.short_url }}</a></td>
+            <td>{{ l.currency }} {{ '%.2f'|format(l.amount_minor / 100) }}</td>
+            <td>{{ l.status }}{% if l.paid_at %} · {{ l.paid_at }}{% endif %}</td>
+            <td>{{ l.payment_id or '—' }}</td>
+            <td>{{ l.created_at }}</td>
+            <td>{{ l.notified_at or 'not sent' }}</td>
+            <td>
+                {% if l.status in ('created', 'partially_paid') %}
+                <form method="post" action="{{ base }}/ow-new-order/{{ draft.id }}/payment-link/{{ l.link_id }}/resend"
+                      style="display:inline;" onsubmit="return confirm('Send this payment link to the customer again?');">
+                    <button type="submit" class="btn btn-outline btn-sm">Resend</button>
+                </form>
+                {% endif %}
+                <form method="post" action="{{ base }}/ow-new-order/{{ draft.id }}/payment-link/{{ l.link_id }}/refresh"
+                      style="display:inline;">
+                    <button type="submit" class="btn btn-outline btn-sm">Refresh</button>
+                </form>
+                {% if l.status in ('created', 'partially_paid') %}
+                <form method="post" action="{{ base }}/ow-new-order/{{ draft.id }}/payment-link/{{ l.link_id }}/cancel"
+                      style="display:inline;" onsubmit="return confirm('Cancel this payment link?');">
+                    <button type="submit" class="btn btn-outline btn-sm">Cancel</button>
+                </form>
+                {% endif %}
+                {% if l.payment_id %}
+                <a href="{{ base }}/ow-new-order/{{ draft.id }}/payment-sql/{{ l.payment_id }}"
+                   class="btn btn-outline btn-sm">Payment SQL</a>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</div>
+
+{% if verify_ran %}
+<div class="card" style="margin-bottom:16px;">
+    <h3>Verification — {{ draft.order_id }}</h3>
+    {% if verified %}
+    <div style="padding:10px 14px;border-radius:6px;background:#eafaf1;border:1px solid #a9dfbf;color:#1e6b42;margin-bottom:10px;">
+        Order exists in optiwar2 with {{ verified.lines|length }} line(s), total
+        {{ site_info.symbol }}{{ verified.total }}.
+        {% if verified.payments %}Payment rows: {{ verified.payments|length }}.
+        {% else %}No payment row yet — as expected until the customer pays.{% endif %}
+    </div>
+    <table class="data-table">
+        <thead><tr><th>line</th><th>product</th><th>qty</th><th>total</th><th>rx</th>
+                   <th>site</th><th>is_test</th><th>fulfillment</th></tr></thead>
+        <tbody>
+        {% for l in verified.lines %}
+            <tr><td>{{ l.order_line_id }}</td>
+                <td>{{ l.product_code }} — {{ l.product_name }}</td>
+                <td>{{ l.order_quantity }}</td><td>{{ l.order_total }}</td>
+                <td>{{ l.rx_id }}</td><td>{{ l.site_from }}</td>
+                <td>{{ l.is_test }}</td><td>{{ l.fulfillment_status }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    <div style="margin-top:10px;">
+        {% for s in verified.statuses %}
+        <div class="text-small">#{{ s.order_status_id }} {{ s.order_status_name }}
+            · {{ s.created_at or 'no date' }} · {{ s.source or '—' }}
+            {% if s.manual_flag %}· manual{% endif %}
+            {% if s.note %}· {{ s.note }}{% endif %}</div>
+        {% endfor %}
+    </div>
+    <a href="{{ base }}/ow-new-order/{{ draft.id }}/notify-preview" class="btn btn-primary" style="margin-top:12px;">
+        Notification preview
+    </a>
+    <a href="{{ base }}/orders/ow/{{ draft.order_id }}" class="btn btn-outline" style="margin-top:12px;">Open in Orders</a>
+    {% else %}
+    <div style="padding:10px 14px;border-radius:6px;background:#fdedec;border:1px solid #f5b7b1;color:#922b21;">
+        Not found in optiwar2 — the script has not been run yet (or it rolled back).
+        Nothing has been sent to the customer.
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+<div id="prodModal" onclick="if (event.target === this) closeProduct();"
+     style="display:none;position:fixed;inset:0;z-index:900;background:rgba(0,0,0,.55);
+            align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:8px;max-width:760px;width:92%;max-height:88vh;
+                overflow:auto;padding:18px 20px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+            <h4 id="prodModalTitle" style="margin:0;"></h4>
+            <button type="button" class="btn btn-sm btn-outline" onclick="closeProduct()">Close</button>
+        </div>
+        <div id="prodModalBody" style="margin-top:12px;"></div>
+        <div class="text-small text-muted" style="margin-top:10px;">
+            Click any image to open it full size in a new tab.
+        </div>
+    </div>
+</div>
+
+<script>
+function esc(s) { return (s === null || s === undefined) ? '' : String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function prodSearch() {
+    const q = document.getElementById('prodQ').value.trim();
+    if (!q) return;
+    const box = document.getElementById('prodResults');
+    box.innerHTML = '<span class="text-small text-muted">Searching…</span>';
+    fetch('{{ base }}/ow-new-order/api/products?q=' + encodeURIComponent(q))
+        .then(r => r.json()).then(function (d) {
+        if (!d.results.length) { box.innerHTML = '<span class="text-small text-muted">No products found.</span>'; return; }
+        let h = '<table class="data-table"><thead><tr><th></th><th>image</th><th>id</th><th>code</th>' +
+                '<th>name</th><th>size</th><th>list</th><th>special</th><th>stock</th><th>status</th>' +
+                '</tr></thead><tbody>';
+        d.results.forEach(function (p) {
+            prodCache[p.product_id] = p;
+            const isEur = {{ 'true' if site_info.currency == 'EUR' else 'false' }};
+            const list = isEur ? p.product_price_eur : p.product_price;
+            const spec = isEur ? p.product_special_price_eur : p.product_special_price;
+            const warn = (p.discontinued || p.product_status !== 'ACTIVE' || (p.product_quantity || 0) <= 0);
+            h += '<tr' + (warn ? ' style="background:#fffbeb;"' : '') + '>' +
+                 '<td><button type="button" class="btn btn-sm btn-outline" onclick="pickProduct(' +
+                 p.product_id + ',\'' + esc(p.product_code).replace(/'/g, "\\'") + '\',\'' +
+                 esc(p.product_name).replace(/'/g, "\\'") + '\',' + (list || 0) + ',' + (spec || 0) + ')">Pick</button></td>' +
+                 '<td>' + thumbCell(p) + '</td>' +
+                 '<td>' + p.product_id + '</td><td><strong>' + esc(p.product_code) + '</strong></td>' +
+                 '<td>' + esc(p.product_name) + '</td>' +
+                 '<td class="text-small">' + (p.size_label
+                     ? '<a href="#" onclick="showProduct(' + p.product_id + ');return false;">'
+                       + esc(p.size_label) + '</a>'
+                     : '<a href="#" onclick="showProduct(' + p.product_id + ');return false;">details</a>') +
+                 '</td>' +
+                 '<td>' + (list || 0) + '</td><td>' + (spec || 0) + '</td>' +
+                 '<td>' + (p.product_quantity === null ? '?' : p.product_quantity) + '</td>' +
+                 '<td class="text-small">' + esc(p.product_status) +
+                 (p.discontinued ? ' <strong>discontinued</strong>' : '') + '</td></tr>';
+        });
+        box.innerHTML = h + '</tbody></table>';
+    });
+}
+
+const prodCache = {};
+
+function thumbCell(p) {
+    const imgs = p.images || [];
+    if (!imgs.length) return '<span class="text-small text-muted">no image</span>';
+    return '<img src="' + esc(imgs[0]) + '" alt="' + esc(p.product_code) + '" loading="lazy"' +
+           ' style="width:52px;height:52px;object-fit:contain;background:#f6f7f9;' +
+           'border:1px solid #e5e7eb;border-radius:4px;cursor:pointer;"' +
+           ' onclick="showProduct(' + p.product_id + ')">';
+}
+
+function specRow(label, value) {
+    return value ? '<tr><td class="text-small text-muted">' + esc(label) + '</td>' +
+                   '<td class="text-small">' + esc(value) + '</td></tr>' : '';
+}
+
+function showProduct(id) {
+    const p = prodCache[id];
+    if (!p) { alert('Search for the product again to see its images and size.'); return; }
+    const imgs = p.images || [];
+    const gal = imgs.length
+        ? imgs.map(function (u) {
+              return '<a href="' + esc(u) + '" target="_blank" rel="noopener">' +
+                     '<img src="' + esc(u) + '" loading="lazy" style="width:160px;height:160px;' +
+                     'object-fit:contain;background:#f6f7f9;border:1px solid #e5e7eb;' +
+                     'border-radius:6px;margin:0 6px 6px 0;"></a>';
+          }).join('')
+        : '<span class="text-small text-muted">No images on file.</span>';
+    const specs = '<table class="data-table" style="margin-top:12px;">' +
+        specRow('Size (eye-bridge-temple)', p.size_label) +
+        specRow('Eye / lens width', p.product_diameter ? p.product_diameter + ' mm' : '') +
+        specRow('Bridge', p.product_bridge ? p.product_bridge + ' mm' : '') +
+        specRow('Temple length', p.product_lenght ? p.product_lenght + ' mm' : '') +
+        specRow('Colour', p.color_display || p.product_color) +
+        specRow('Material', p.product_material) +
+        specRow('Shape / style', [p.product_shape, p.product_style].filter(Boolean).join(' · ')) +
+        specRow('Gender', p.product_gender) +
+        specRow('Fitting range', p.fitting_range) +
+        specRow('Warranty', p.warranty) +
+        specRow('Category', p.product_category) +
+        specRow('HSN', p.hsn) +
+        specRow('Stock', p.product_quantity === null ? '?' : String(p.product_quantity)) +
+        specRow('Status', (p.product_status || '') + (p.discontinued ? ' · discontinued' : '')) +
+        '</table>';
+    const link = (p.product_slug && p.product_category)
+        ? ' <a href="https://{{ site }}/categories/' + encodeURIComponent(p.product_category) +
+          '/' + encodeURIComponent(p.product_slug) + '?pid=' + p.product_id +
+          '" target="_blank" rel="noopener" class="text-small">open on {{ site }}</a>'
+        : '';
+    document.getElementById('prodModalTitle').innerHTML =
+        esc(p.product_code) + ' — ' + esc(p.product_name) + link;
+    document.getElementById('prodModalBody').innerHTML = gal + specs;
+    document.getElementById('prodModal').style.display = 'flex';
+}
+
+function closeProduct() { document.getElementById('prodModal').style.display = 'none'; }
+
+document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeProduct();
+});
+
+function pickProduct(id, code, name, list, spec) {
+    document.getElementById('lineProductId').value = id;
+    const p = prodCache[id] || {};
+    const imgs = p.images || [];
+    document.getElementById('linePicked').innerHTML =
+        (imgs.length ? '<img src="' + esc(imgs[0]) + '" style="width:52px;height:52px;' +
+            'object-fit:contain;background:#f6f7f9;border:1px solid #e5e7eb;border-radius:4px;' +
+            'vertical-align:middle;margin-right:8px;cursor:pointer;" onclick="showProduct(' +
+            id + ')">' : '') +
+        'Selected <strong>' + esc(code) + '</strong> — ' + esc(name) +
+        (p.size_label ? ' · size ' + esc(p.size_label) : '') +
+        ' · list {{ site_info.symbol }}' + list + ' · special {{ site_info.symbol }}' + spec +
+        (p.images && p.images.length
+            ? ' · <a href="#" onclick="showProduct(' + id + ');return false;">view images &amp; size</a>'
+            : '');
+    document.getElementById('lineForm').scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+
+function custSearch() {
+    const q = document.getElementById('custQ').value.trim();
+    if (!q) return;
+    const box = document.getElementById('custResults');
+    box.innerHTML = '<span class="text-small text-muted">Searching…</span>';
+    fetch('{{ base }}/ow-new-order/api/customers?q=' + encodeURIComponent(q))
+        .then(r => r.json()).then(function (d) {
+        if (!d.results.length) { box.innerHTML = '<span class="text-small text-muted">No customer found — enter the details below.</span>'; return; }
+        let h = '<table class="data-table"><thead><tr><th></th><th>id</th><th>name</th><th>email</th>' +
+                '<th>phone</th><th>orders</th></tr></thead><tbody>';
+        d.results.forEach(function (c) {
+            h += '<tr><td><form method="post" action="{{ base }}/ow-new-order/{{ draft.id }}/customer">' +
+                 '<input type="hidden" name="mode" value="existing">' +
+                 '<input type="hidden" name="customer_id" value="' + c.customer_id + '">' +
+                 '<button type="submit" class="btn btn-sm btn-primary">Use</button></form></td>' +
+                 '<td>' + c.customer_id + '</td><td>' + esc(c.customer_name) + '</td>' +
+                 '<td>' + esc(c.customer_email) + '</td><td>' + esc(c.customer_phone) + '</td>' +
+                 '<td>' + c.orders_count + '</td></tr>';
+        });
+        box.innerHTML = h + '</tbody></table>';
+    });
+}
+
+function rxToggle() {
+    const existing = document.querySelector('input[name=rx_mode][value=existing]').checked;
+    document.getElementById('rxExisting').style.display = existing ? 'block' : 'none';
+    document.getElementById('rxNew').style.display = existing ? 'none' : 'block';
+}
+
+function rxLabel(sel) {
+    const o = sel.options[sel.selectedIndex];
+    document.getElementById('rxRightLabel').value = o.dataset.right || '';
+    document.getElementById('rxLeftLabel').value = o.dataset.left || '';
+    document.getElementById('rxRecoLabel').value = o.dataset.reco || '';
+}
+
+function copySql() {
+    navigator.clipboard.writeText(document.getElementById('sqlBox').textContent);
+}
+
+document.getElementById('prodQ').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); prodSearch(); }
+});
+document.getElementById('custQ') && document.getElementById('custQ').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); custSearch(); }
+});
+</script>
+{% endblock %}

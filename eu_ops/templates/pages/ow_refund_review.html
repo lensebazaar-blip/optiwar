@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}Confirm Refund — OW-{{ order.order_id }}{% endblock %}
+{% block content %}
+{% set upi = upi|default({}) %}
+<div class="page-header">
+    <div>
+        <a href="{{ base }}/orders/ow/{{ order.order_id }}/refund/prepare" class="btn btn-sm btn-outline">&laquo; Edit draft</a>
+        <h1>Refund preview — OW-{{ order.order_id }}</h1>
+        <span class="text-muted" style="font-size:12px;">
+            {% if refund_method == 'upi' %}
+            Staff have already paid the customer by UPI. Confirming records it in Optiwar's ledger and notifies the customer; nothing is paid from here.
+            {% else %}
+            Nothing has been refunded yet. The button at the bottom is the only action that moves money.
+            {% endif %}
+        </span>
+    </div>
+</div>
+
+<div class="detail-grid">
+    <div class="card">
+        <h3>{% if refund_method == 'upi' %}UPI refund to record{% else %}Refund about to be issued{% endif %}</h3>
+        <div class="info-row"><label>Order:</label> <span><strong>OW-{{ order.order_id }}</strong></span></div>
+        <div class="info-row"><label>Refund method:</label>
+            <span>{% if refund_method == 'upi' %}UPI — already paid by staff{% else %}Gateway — Razorpay{% endif %}</span></div>
+        {% if refund_method == 'upi' %}
+        <div class="info-row"><label>Customer UPI ID:</label> <span>{{ upi.upi_vpa }}</span></div>
+        <div class="info-row"><label>Payee name:</label> <span>{{ upi.payee_name }}</span></div>
+        <div class="info-row"><label>UTR:</label> <span>{{ upi.utr }}</span></div>
+        <div class="info-row"><label>Date paid:</label> <span>{{ upi.paid_on }}</span></div>
+        {% endif %}
+        <div class="info-row"><label>Storefront:</label> <span>{{ facts.storefront or "—" }}</span></div>
+        <div class="info-row"><label>Payment reference:</label>
+            <span style="font-family:monospace;font-size:11px;">{{ facts.payment_ref }}</span></div>
+        <div class="info-row"><label>Paid:</label> <span>{{ facts.captured_text }} {{ facts.currency }}</span></div>
+        <div class="info-row"><label>Previously refunded:</label> <span>{{ facts.already_refunded_text }}</span></div>
+        <div class="info-row"><label>Refund now:</label>
+            <span style="font-size:20px;font-weight:800;color:#b45309;">{{ amount_text }}</span></div>
+        <div class="info-row"><label>Remaining after this:</label>
+            <span>{{ (facts.max_refundable_minor - amount_minor) // 100 }}.{{ '%02d' % ((facts.max_refundable_minor - amount_minor) % 100) }} {{ facts.currency }}</span></div>
+        <div class="info-row"><label>Reason:</label> <span>{{ reason_label }}</span></div>
+        <div class="info-row"><label>Order status will become:</label>
+            <span><strong>{{ requested_status }}</strong> (from {{ facts.current_status or "—" }})</span></div>
+        <div class="info-row"><label>Notify:</label>
+            <span>{% if channels %}{{ channels|join(', ') }}{% else %}nobody{% endif %}</span></div>
+        <div class="info-row"><label>Idempotency key:</label>
+            <span style="font-family:monospace;font-size:10px;">{{ idempotency_key }}</span></div>
+        <p style="font-size:11px;color:#94a3b8;margin-top:8px;">
+            {% if refund_method == 'upi' %}
+            Optiwar verifies this against its own payment record and records the UPI refund without calling Razorpay.
+            {% else %}
+            Optiwar verifies every one of these against its own payment record before calling the provider, and the key above means a
+            double-click or a retry produces one refund, not two.
+            {% endif %}
+        </p>
+    </div>
+
+    <div class="card">
+        <h3>Customer message as it will be sent</h3>
+        <div id="rfMsgBox" contenteditable="true"
+             style="border:1px solid #e5e7eb;border-radius:6px;padding:14px;background:#fff;line-height:1.6;min-height:120px;">{{ message_html|safe }}</div>
+        <p style="font-size:11px;color:#94a3b8;margin-top:8px;">
+            Editable here — type into the box and the edited text is what gets stored and sent.
+            This exact text is saved with the refund.
+        </p>
+        {% if message_mismatch %}
+        <div style="background:#fef2f2;border:1px solid #fecaca;color:#b42318;padding:10px 12px;border-radius:6px;font-size:12px;margin-top:8px;">
+            <strong>This message names an amount that is not {{ amount_text }}.</strong>
+            The refund is {{ amount_text }} — the customer would be told something
+            else. Go back and fix the wording, or tick the box below if the other
+            amount is deliberate.
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<form method="post" action="{{ base }}/orders/ow/{{ order.order_id }}/refund/confirm" id="rfConfirmForm"
+      style="margin-top:16px;">
+    <input type="hidden" name="amount_minor" value="{{ amount_minor }}">
+    <input type="hidden" name="currency" value="{{ facts.currency }}">
+    <input type="hidden" name="reason_code" value="{{ reason_code }}">
+    <input type="hidden" name="refund_method" value="{{ refund_method or 'gateway' }}">
+    <input type="hidden" name="upi_vpa" value="{{ upi.upi_vpa or '' }}">
+    <input type="hidden" name="utr" value="{{ upi.utr or '' }}">
+    <input type="hidden" name="paid_on" value="{{ upi.paid_on or '' }}">
+    <input type="hidden" name="payee_name" value="{{ upi.payee_name or '' }}">
+    <input type="hidden" name="comment" value="{{ comment }}">
+    <input type="hidden" name="message_html" id="rfMsgField" value="{{ message_html }}">
+    <input type="hidden" name="requested_status" value="{{ requested_status }}">
+    <input type="hidden" name="idempotency_key" value="{{ idempotency_key }}">
+    <input type="hidden" name="channels" value="{{ channels|join(',') }}">
+    {% if message_mismatch %}
+    <label style="display:block;font-size:12px;color:#b42318;margin-bottom:10px;">
+        <input type="checkbox" name="message_ack" value="1" id="rfAck"
+               onchange="document.getElementById('rfConfirmBtn').disabled = !this.checked;">
+        I have read the customer message and the amount it names is deliberate.
+    </label>
+    {% endif %}
+    <div style="display:flex;gap:12px;align-items:center;">
+        <button type="submit" id="rfConfirmBtn" class="btn"
+                {% if message_mismatch %}disabled{% endif %}
+                style="background:#b42318;color:#fff;border-color:#b42318;font-size:16px;font-weight:800;padding:12px 20px;"
+                onclick="return rfConfirm();">
+            {% if refund_method == 'upi' %}Record UPI refund & notify customer{% else %}CONFIRM {{ amount_text }} REFUND{% endif %}
+        </button>
+        <button type="submit" class="btn btn-outline"
+                formaction="{{ base }}/orders/ow/{{ order.order_id }}/refund/dry-run"
+                onclick="rfSyncMessage();"
+                style="font-weight:700;">Dry run</button>
+        <a href="{{ base }}/orders/ow/{{ order.order_id }}" class="btn btn-outline">Cancel</a>
+        <span id="rfConfirmNote" style="font-size:12px;color:#94a3b8;"></span>
+    </div>
+</form>
+
+<script>
+function rfSyncMessage(){
+    var box = document.getElementById('rfMsgBox');
+    if (box) document.getElementById('rfMsgField').value = box.innerHTML.trim();
+}
+
+function rfConfirm(){
+    rfSyncMessage();
+    if (!confirm("{% if refund_method == 'upi' %}Record the UPI refund of {{ amount_text }} for order OW-{{ order.order_id }} and notify the customer?\n\nThe UPI payment has already been made; this step records it only.{% else %}Refund {{ amount_text }} on order OW-{{ order.order_id }} through Optiwar now?\n\nThis sends money back to the customer's payment method.{% endif %}")) {
+        return false;
+    }
+    var btn = document.getElementById('rfConfirmBtn');
+    btn.disabled = true;
+    {% if refund_method == 'upi' %}
+    btn.textContent = 'Recording UPI refund …';
+    document.getElementById('rfConfirmNote').textContent =
+        'Waiting for Optiwar to record the UPI refund. Do not reload — the key makes retries safe.';
+    {% else %}
+    btn.textContent = 'Refunding {{ amount_text }} …';
+    document.getElementById('rfConfirmNote').textContent =
+        'Waiting for the payment provider. Do not reload — the refund is keyed, so a reload cannot double it.';
+    {% endif %}
+    document.getElementById('rfConfirmForm').submit();
+    return false;
+}
+</script>
+{% endblock %}

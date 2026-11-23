@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Reverse Pickups — LensBazaar OPP{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>🔄 Reverse Pickups — return lifecycle</h1>
+    <span class="text-muted">Fee, refund and consent state come from Optiwar only (API + signed webhook). Ops decides customer requests and records receipt, inspection and dispatch.</span>
+</div>
+
+{% if board.queue_error %}
+<div class="alert alert-error">Optiwar return-request queue unreachable ({{ board.queue_error }}) — AWAITING ₹250 / READY TO BOOK cannot list requests that have no pickup yet.</div>
+{% endif %}
+
+{% set colors = {'review':'#0e7490','awaiting_fee':'#b45309','ready_to_book':'#16a34a','booked':'#7c3aed','in_transit':'#6d28d9','inspect':'#d97706','refund':'#b91c1c','consent':'#92400e','forward':'#15803d','shipped':'#2563eb','complete':'#475569','abandoned':'#6b7280','exception':'#dc2626'} %}
+{% set help = {
+ 'review':'Customer opened a return in My Orders. Open it, look at the reason/photos and decide: approve (subject to inspection), ask for more information, or not approved.',
+ 'awaiting_fee':'Customer must pay ₹250 on Optiwar. Do not book. A waiver (audited) is the only override.',
+ 'ready_to_book':'Optiwar shows the fee PAID or WAIVED. Book the Delhivery reverse pickup from the order.',
+ 'booked':'Delhivery pickup scheduled; customer was notified by Optiwar.',
+ 'in_transit':'Delhivery has the parcel. Press Record Received only with the parcel physically in hand.',
+ 'inspect':'Parcel at Ops. Inspect and record MANUFACTURING DEFECT YES/NO — a human decision.',
+ 'refund':'Defect confirmed and fee PAID. Optiwar refunds the ₹250 automatically and emails the customer; no Ops action. A failed refund shows under EXCEPTION.',
+ 'consent':'No defect: Optiwar emailed the customer and holds the parcel up to 60 days. Optiwar records the reply; this moves on by itself.',
+ 'forward':'Book a new forward shipment, then Confirm Dispatch at handover.',
+ 'shipped':'New forward AWB with the courier. Complete when delivered.',
+ 'complete':'Closed.',
+ 'abandoned':'No reply within 60 days; Optiwar closed the case. Shown for 30 days.',
+ 'exception':'Optiwar sync pending/failed or an unexpected state. Use Retry Sync on the order — never repeat the action.'} %}
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+    {% for key, label in bucket_labels %}
+    <a href="#b-{{ key }}" style="text-decoration:none;flex:1;min-width:140px;padding:8px 10px;border-radius:8px;background:#fff;border:2px solid {{ colors[key] }};color:#111;">
+        <div style="font-size:10px;font-weight:700;color:{{ colors[key] }};">{{ label }}</div>
+        <div style="font-size:24px;font-weight:700;">{{ board.buckets[key]|length }}</div>
+    </a>
+    {% endfor %}
+</div>
+
+{% for key, label in bucket_labels %}
+{% set rows = board.buckets[key] %}
+<div class="card" id="b-{{ key }}" style="border-left:5px solid {{ colors[key] }};">
+    <h3 style="color:{{ colors[key] }};">{{ label }} <span class="text-muted" style="font-weight:400;font-size:13px;">({{ rows|length }})</span></h3>
+    <p class="text-muted" style="font-size:12px;">{{ help[key] }}</p>
+    {% if not rows %}<p class="text-muted" style="font-size:13px;">None.</p>
+    {% else %}
+    <table class="table" style="font-size:13px;">
+        <thead><tr><th>Order</th><th>Customer</th><th>Reverse AWB</th><th>Fee (Optiwar)</th><th>Detail</th><th>Since</th><th></th></tr></thead>
+        <tbody>
+        {% for v in rows %}
+        {% if v.pickup %}{% set p = v.pickup %}{% set l = v.life %}
+        <tr>
+            <td><a href="{{ base }}/orders/ow/{{ p.ow_order_id }}#rpCard">OW-{{ p.ow_order_id }}</a></td>
+            <td>{{ p.pickup_name }}<br><span class="text-small text-muted">{{ p.reason }}</span></td>
+            <td><a href="https://www.delhivery.com/track/package/{{ p.waybill }}" target="_blank">{{ p.waybill }}</a>
+                {% if v.tracking and v.tracking.status %}<br><span class="text-small text-muted">{{ v.tracking.status }}{% if v.tracking.instructions %} · {{ v.tracking.instructions }}{% endif %}</span>{% endif %}</td>
+            <td><strong>{{ v.fee.state or 'unknown' }}</strong>{% if v.fee.refund_state %}<br><span class="text-small">refund {{ v.fee.refund_state }}</span>{% endif %}</td>
+            <td>{% if v.note %}<span style="color:#b42318;">{{ v.note }}</span><br>{% endif %}
+                {% if l.received_at %}<span class="text-small">received {{ l.received_at }} ({{ l.parcel_condition }})</span><br>{% endif %}
+                {% if l.defect is not none %}<span class="text-small">defect: <strong>{{ 'YES' if l.defect == 1 else 'NO' }}</strong></span><br>{% endif %}
+                {% if l.fwd_awb %}<span class="text-small">forward {{ l.fwd_courier }} {{ l.fwd_awb }}</span>{% endif %}</td>
+            <td class="text-small">{{ l.fwd_dispatch_at or l.inspected_at or l.received_at or p.created_at }}</td>
+            <td><a class="btn btn-sm btn-primary" href="{{ base }}/orders/ow/{{ p.ow_order_id }}#rpCard">Open</a></td>
+        </tr>
+        {% else %}{% set r = v.request %}
+        <tr>
+            <td><a href="{{ base }}/orders/ow/{{ r.order_id }}">OW-{{ r.order_id }}</a></td>
+            <td><span class="text-small text-muted">{{ r.declared_reason or '' }}</span></td>
+            <td>—</td>
+            <td><strong>{{ v.fee.state or 'unknown' }}</strong></td>
+            <td>{% if v.note %}<span style="color:#b42318;">{{ v.note }}</span>{% endif %}</td>
+            <td class="text-small">{{ r.requested_at or '' }}</td>
+            <td>{% if key == 'ready_to_book' %}<a class="btn btn-sm btn-success" href="{{ base }}/orders/ow/{{ r.order_id }}/reverse-pickup">Book pickup</a>{% elif key == 'review' %}<a class="btn btn-sm btn-primary" href="{{ base }}/orders/ow/{{ r.order_id }}/reverse-pickup">Review request</a>{% else %}<a class="btn btn-sm btn-outline" href="{{ base }}/orders/ow/{{ r.order_id }}/reverse-pickup">Open</a>{% endif %}</td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</div>
+{% endfor %}
+{% endblock %}

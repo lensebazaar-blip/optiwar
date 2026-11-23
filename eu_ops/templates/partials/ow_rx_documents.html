@@ -1,0 +1,134 @@
+{% macro rx_values_table(title, rows) -%}
+<div>
+    <strong style="font-size:12px;">{{ title }}</strong>
+    <table style="border-collapse:collapse;width:100%;font-size:11px;margin-top:3px;">
+        <thead><tr>
+            <th style="text-align:left;border-bottom:1px solid #e5e7eb;padding:3px;">Eye</th>
+            <th style="text-align:left;border-bottom:1px solid #e5e7eb;padding:3px;">SPH</th>
+            <th style="text-align:left;border-bottom:1px solid #e5e7eb;padding:3px;">CYL</th>
+            <th style="text-align:left;border-bottom:1px solid #e5e7eb;padding:3px;">AXIS</th>
+            <th style="text-align:left;border-bottom:1px solid #e5e7eb;padding:3px;">ADD</th>
+        </tr></thead>
+        <tbody>
+        {% for eye, sph, cyl, axis, add in rows %}
+        <tr>
+            <td style="padding:3px;border-bottom:1px solid #f3f4f6;">{{ eye }}</td>
+            <td style="padding:3px;border-bottom:1px solid #f3f4f6;">{{ sph }}</td>
+            <td style="padding:3px;border-bottom:1px solid #f3f4f6;">{{ cyl }}</td>
+            <td style="padding:3px;border-bottom:1px solid #f3f4f6;">{{ axis }}</td>
+            <td style="padding:3px;border-bottom:1px solid #f3f4f6;">{{ add }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{%- endmacro %}
+
+{% if not rx_docs.get('ok') %}
+<div class="text-small" style="color:#92400e;margin:8px 0;">
+    Optiwar prescription documents API: {{ rx_docs.get('error') or 'unavailable' }}
+</div>
+{% else %}
+    {% for raw_line in rx_docs.get('lines') or [] %}
+        {% set line = raw_line if raw_line is mapping else {} %}
+        {% set documents = line.get('documents') if line.get('documents') is sequence and line.get('documents') is not string else [] %}
+    <div class="rx-document-line" style="border-top:1px solid #e5e7eb;padding:10px 0;">
+        <strong>{{ line.get('product_name') or 'Order line' }}</strong>
+        {% if not documents %}
+        <div class="text-small text-muted" style="margin-top:5px;">No prescription photo uploaded</div>
+        {% else %}
+            {% for raw_document in documents %}
+                {% set document = raw_document if raw_document is mapping else {} %}
+                {% set badge = rx_doc_comparison(document) %}
+                {% set parsed_values = rx_doc_parsed(document) %}
+                {% set document_id = rx_doc_id(document) %}
+                {% set review_label = rx_doc_review_label(document) %}
+                {% set source = document.get('source') %}
+                {% set purged = rx_doc_is_purged(document) %}
+            <div style="border-top:1px solid #f3f4f6;padding:8px 0;">
+                <div class="text-small text-muted" style="margin-bottom:5px;">
+                    {{ rx_doc_source_label(document) }}
+                    {% if source == 'chat' %}
+                        · added to order{% if document.get('attached_at') %} {{ fmt_measured_at(document.get('attached_at')) }}{% endif %}
+                    {% endif %}
+                </div>
+
+                {% if badge == 'MATCH' %}
+                <span style="display:inline-block;border-radius:10px;padding:2px 8px;font-size:11px;font-weight:600;background:#dcfce7;color:#166534;">MATCH</span>
+                {% elif badge == 'MATCH_TRANSPOSED' %}
+                <span style="display:inline-block;border-radius:10px;padding:2px 8px;font-size:11px;font-weight:600;background:#dbeafe;color:#1d4ed8;">MATCH_TRANSPOSED</span>
+                <span class="text-small">same Rx, other cylinder form — glaze in the lab's form</span>
+                {% elif badge == 'DIFFERENT' %}
+                <span style="display:inline-block;border-radius:10px;padding:2px 8px;font-size:11px;font-weight:600;background:#fee2e2;color:#b42318;">DIFFERENT</span>
+                <strong style="font-size:12px;color:#b42318;">Contact the customer before glazing</strong>
+                {% if document.get('differences') is sequence and document.get('differences') is not string and document.get('differences') %}
+                <ul style="font-size:12px;color:#b42318;margin:5px 0 4px 18px;">
+                    {% for difference in document.get('differences') %}
+                    <li>{{ difference }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+                <div class="text-small text-muted">DIFFERENT also appears when the photo has values but the order has none for that eye</div>
+                {% elif badge == 'NO_READING' %}
+                <span style="display:inline-block;border-radius:10px;padding:2px 8px;font-size:11px;font-weight:600;background:#f3f4f6;color:#4b5563;">NO_READING</span>
+                <span class="text-small">AI could not read — read the photo yourself</span>
+                {% else %}
+                <span style="display:inline-block;border-radius:10px;padding:2px 8px;font-size:11px;font-weight:600;background:#f3f4f6;color:#4b5563;">{{ badge or '—' }}</span>
+                {% endif %}
+
+                {% if document.get('status') == 'UNREADABLE' %}
+                <div class="text-small" style="color:#92400e;margin-top:5px;">This prescription was marked unreadable. Read the photo yourself.</div>
+                {% endif %}
+                {% if purged %}
+                <div class="text-small text-muted" style="margin-top:5px;">Photo deleted after the keep period (PURGED) — measurements/record remain</div>
+                {% endif %}
+
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px;margin-top:8px;">
+                    {{ rx_values_table('Typed (order uses this)', rx_doc_typed_rows(document)) }}
+                    {% if parsed_values is none %}
+                    <div>
+                        <strong style="font-size:12px;">AI suggestion</strong>
+                        <div class="text-small text-muted">AI could not read</div>
+                    </div>
+                    {% else %}
+                    {{ rx_values_table('AI suggestion', rx_doc_parsed_rows(parsed_values)) }}
+                    {% endif %}
+                </div>
+                {% if document.get('confidence') %}
+                <div class="text-small text-muted" style="margin-top:5px;">AI confidence: {{ document.get('confidence') }}</div>
+                {% endif %}
+
+                {% if document.get('created_at') %}<div class="text-small text-muted" style="margin-top:6px;">Uploaded: {{ fmt_measured_at(document.get('created_at')) }}</div>{% endif %}
+                <div class="text-small" style="margin-top:6px;">
+                    {% if review_label %}
+                    Review: {{ review_label }}
+                    {% if document.get('reviewed_by') %} · Reviewed by {{ document.get('reviewed_by') }}{% endif %}
+                    {% if document.get('reviewed_at') %} · {{ fmt_measured_at(document.get('reviewed_at')) }}{% endif %}
+                    {% if document.get('review_note') %}<div>{{ document.get('review_note') }}</div>{% endif %}
+                    {% else %}
+                    Not reviewed — review on
+                    <a href="https://optiwar.in/ops/rx-documents?order={{ order_reference|urlencode }}" target="_blank" rel="noopener">optiwar.in</a>
+                    {% endif %}
+                </div>
+
+                {% if document_id is not none and not purged %}
+                    {% for page in rx_doc_photo_pages(document) %}
+                        {% set frame_id = 'rxDocumentFrame_' ~ document_id ~ '_' ~ page %}
+                <button type="button" class="btn btn-sm btn-outline rx-document-photo-button"
+                        data-target="{{ frame_id }}"
+                        data-src="{{ base }}/orders/ow/{{ order_id }}/rx-documents/{{ document_id }}/photo?page={{ page }}">
+                    View photo (page {{ page + 1 }})
+                </button>
+                <iframe id="{{ frame_id }}" title="Prescription photo, page {{ page + 1 }}"
+                        style="display:none;width:100%;height:520px;border:1px solid #e5e7eb;margin-top:8px;"></iframe>
+                    {% endfor %}
+                {% endif %}
+            </div>
+            {% endfor %}
+        {% endif %}
+    </div>
+    {% endfor %}
+    {% if not rx_docs.get('lines') %}
+    <div class="text-small text-muted" style="padding:8px 0;">No prescription photo uploaded</div>
+    {% endif %}
+{% endif %}

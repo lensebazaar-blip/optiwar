@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}Processing — LensBazaar OPP{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>📋 Processing</h1>
+    <span class="text-muted">{{ total }} orders across all sites (EU: {{ eu_count }}, Optiwar: {{ ow_count }})</span>
+</div>
+
+{% if request.query_params.get('msg') %}
+<div style="margin-bottom:12px; padding:10px 14px; border-radius:6px; background:#eafaf1; border:1px solid #a9dfbf; color:#1e6b42;">
+    {{ request.query_params.get('msg').replace('+', ' ') }}
+</div>
+{% endif %}
+{% if request.query_params.get('err') %}
+<div style="margin-bottom:12px; padding:10px 14px; border-radius:6px; background:#fdedec; border:1px solid #f5b7b1; color:#922b21;">
+    Failed: {{ request.query_params.get('err') }}
+</div>
+{% endif %}
+
+<!-- Source Tabs -->
+<div style="margin-bottom:15px; display:flex; gap:5px; align-items:center; flex-wrap:wrap;">
+    <a href="{{ base }}/processing?{% if current_search %}search={{ current_search }}&{% endif %}{% if current_status %}status={{ current_status }}{% endif %}"
+       class="btn {% if current_source == 'all' %}btn-primary{% else %}btn-outline{% endif %}">
+        All Sites
+    </a>
+    <a href="{{ base }}/processing?source=eu{% if current_search %}&search={{ current_search }}{% endif %}{% if current_status %}&status={{ current_status }}{% endif %}"
+       class="btn {% if current_source == 'eu' %}btn-primary{% else %}btn-outline{% endif %}">
+        EU LensBazaar
+    </a>
+    <a href="{{ base }}/processing?source=optiwar{% if current_search %}&search={{ current_search }}{% endif %}{% if current_status %}&status={{ current_status }}{% endif %}"
+       class="btn {% if current_source == 'optiwar' %}btn-primary{% else %}btn-outline{% endif %}" style="{% if current_source == 'optiwar' %}background:#e67e22;border-color:#e67e22{% endif %}">
+        Optiwar
+    </a>
+</div>
+
+<!-- Filters -->
+<div class="filters">
+    <form method="get" class="filter-form">
+        {% if current_source != 'all' %}<input type="hidden" name="source" value="{{ current_source }}">{% endif %}
+        <input type="text" name="search" placeholder="Search order ID, name, email..."
+               value="{{ current_search or '' }}" class="form-input">
+        <select name="status" class="form-select">
+            <option value="">All Statuses</option>
+            <option value="Processing" {% if current_status == 'Processing' %}selected{% endif %}>Processing</option>
+            <option value="Processed" {% if current_status == 'Processed' %}selected{% endif %}>Processed</option>
+            <option value="Shipped" {% if current_status == 'Shipped' %}selected{% endif %}>Shipped</option>
+            <option value="Complete" {% if current_status == 'Complete' %}selected{% endif %}>Complete</option>
+            <option value="Refunded" {% if current_status == 'Refunded' %}selected{% endif %}>Refunded</option>
+            <option value="Canceled" {% if current_status == 'Canceled' %}selected{% endif %}>Canceled</option>
+            <option value="Pending" {% if current_status == 'Pending' %}selected{% endif %}>Pending</option>
+            <option value="Missing" {% if current_status == 'Missing' %}selected{% endif %}>Missing (unconfirmed)</option>
+        </select>
+        <button type="submit" class="btn btn-primary">Filter</button>
+        {% if current_status or current_search %}
+        <a href="{{ base }}/processing{% if current_source != 'all' %}?source={{ current_source }}{% endif %}" class="btn btn-outline">Clear</a>
+        {% endif %}
+    </form>
+</div>
+
+<!-- Orders Table -->
+<div class="table-responsive">
+    <table>
+        <thead>
+            <tr>
+                <th>Source</th>
+                <th>Order ID</th>
+                <th>Customer</th>
+                <th>Email</th>
+                <th>Total</th>
+                <th>Status</th>
+                <th>Date</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for o in orders %}
+            <tr{% if o.reship %} style="background:#fff4e5;"{% endif %}>
+                <td>
+                    {% if o.reship %}
+                    <span style="display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:700; background:#c0392b; color:#fff;">RESHIP</span>
+                    {% elif o.source == 'eu' %}
+                    <span style="display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; background:#3498db; color:#fff;">EU</span>
+                    {% else %}
+                    <span style="display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; background:#e67e22; color:#fff;">OW</span>
+                    {% endif %}
+                </td>
+                <td><a href="{{ base }}/{{ o.link }}"><strong>{{ o.display_id }}</strong></a>
+                    {% if o.reship %}<div class="text-small" style="color:#777;">returned {{ o.original_courier }} {{ o.original_awb }} · paid on Optiwar</div>{% endif %}</td>
+                <td>{{ o.customer }}</td>
+                <td class="text-small">{{ o.email }}</td>
+                <td>{{ o.total_display }}</td>
+                <td>{% if o.reship %}<span class="status-badge" style="background:#27ae60;color:#fff;font-weight:700;">{{ o.status_name }}</span>
+                    {% elif o.ow_return %}<span class="status-badge" style="background:{{ o.ow_return.color }};color:#fff;font-weight:700;white-space:nowrap;">{{ o.ow_return.label }}</span>
+                        {% set dl = o.ow_return.deadline %}
+                        {% if dl and dl.supplied and o.ow_return.status in ('RETURNED','PAYMENT_PENDING') %}<div class="text-small" style="color:#777;">{{ dl.days_remaining }} days left · abandon {{ dl.abandon_at.strftime('%d %b %Y') if dl.abandon_at else '' }}</div>{% endif %}
+                    {% else %}<span class="status-badge status-{{ o.order_status_id }}">{{ o.status_name }}</span>{% endif %}</td>
+                <td class="text-small">{{ o.date_added }}</td>
+                <td style="display:flex; gap:4px;">
+                    <a href="{{ base }}/{{ o.link }}" class="btn btn-sm">View</a>
+                    {% if o.ship_link %}
+                    <a href="{{ base }}/{{ o.ship_link }}" class="btn btn-sm btn-success">{% if o.reship or (o.ow_return and o.ow_return.paid) %}Reship{% else %}Ship{% endif %}</a>
+                    {% elif o.receive_link %}
+                    <a href="{{ base }}/{{ o.receive_link }}" class="btn btn-sm" style="background:#d97706;color:#fff;">Confirm Receipt</a>
+                    {% elif o.ow_return and o.ow_return.status in ('RETURNED','PAYMENT_PENDING') %}
+                    <span class="text-small text-muted" style="align-self:center;">wait for payment</span>
+                    {% endif %}
+                    {% if o.source == 'optiwar' and user.role == 'admin' and not o.reship %}
+                    <button type="button" class="btn btn-sm btn-outline ow-remove-btn"
+                            data-order-id="{{ o.order_id }}"
+                            data-summary="{{ o.display_id }} · {{ o.customer }} · {{ o.total_display }}">Remove</button>
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="8" style="text-align:center; padding:40px; color:#999;">No orders found.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if user.role == 'admin' %}
+<!-- Archive / Delete modal (Optiwar orders) -->
+<div id="owRemoveModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:900;">
+    <div style="background:#fff; max-width:520px; margin:8vh auto; border-radius:8px; padding:22px;">
+        <h3 style="margin:0 0 4px;">Remove Optiwar order</h3>
+        <p class="text-muted" style="margin:0 0 16px;" id="owRemoveSummary"></p>
+        <form method="post" id="owRemoveForm" onsubmit="return owRemoveConfirm();">
+            <label style="display:block; border:1px solid #ddd; border-radius:6px; padding:10px 12px; margin-bottom:8px; cursor:pointer;">
+                <input type="radio" name="action" value="archive" checked>
+                <strong>Archive</strong>
+                <div class="text-small text-muted" style="margin-left:22px;">Hides the order from Processing and Orders. Reversible, keeps all status and history rows.</div>
+            </label>
+            <label style="display:block; border:1px solid #f5b7b1; border-radius:6px; padding:10px 12px; margin-bottom:14px; cursor:pointer;">
+                <input type="radio" name="action" value="delete">
+                <strong style="color:#c0392b;">Delete permanently</strong>
+                <div class="text-small text-muted" style="margin-left:22px;">Removes the order, its payment record, status and history rows from optiwar2. A full JSON snapshot is stored in <code>ow_deleted_orders</code> first, but the live rows are gone.</div>
+            </label>
+            <input type="text" name="reason" class="form-input" style="width:100%; margin-bottom:14px;"
+                   placeholder="Reason (recorded in the activity log)" maxlength="200">
+            <div style="display:flex; gap:8px; justify-content:flex-end;">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('owRemoveModal').style.display='none'">Cancel</button>
+                <button type="submit" class="btn btn-primary">Apply</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+let owRemoveId = '';
+document.querySelectorAll('.ow-remove-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+        owRemoveId = btn.dataset.orderId;
+        const form = document.getElementById('owRemoveForm');
+        form.reset();
+        form.action = '{{ base }}/orders/ow/' + owRemoveId + '/remove';
+        document.getElementById('owRemoveSummary').textContent = btn.dataset.summary;
+        document.getElementById('owRemoveModal').style.display = 'block';
+    });
+});
+function owRemoveConfirm() {
+    const action = document.querySelector('#owRemoveForm input[name=action]:checked').value;
+    if (action === 'delete') {
+        return confirm('Permanently delete ' + owRemoveId + ' from the Optiwar database?\n\nThis cannot be undone from the UI - only the JSON snapshot remains.');
+    }
+    return true;
+}
+</script>
+{% endif %}
+
+<!-- Pagination -->
+{% if total_pages > 1 %}
+<div class="pagination">
+    {% if page > 1 %}
+    <a href="{{ base }}/processing?page={{ page - 1 }}{% if current_source != 'all' %}&source={{ current_source }}{% endif %}{% if current_status %}&status={{ current_status }}{% endif %}{% if current_search %}&search={{ current_search }}{% endif %}" class="btn btn-sm">&laquo; Prev</a>
+    {% endif %}
+    <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
+    {% if page < total_pages %}
+    <a href="{{ base }}/processing?page={{ page + 1 }}{% if current_source != 'all' %}&source={{ current_source }}{% endif %}{% if current_status %}&status={{ current_status }}{% endif %}{% if current_search %}&search={{ current_search }}{% endif %}" class="btn btn-sm">Next &raquo;</a>
+    {% endif %}
+</div>
+{% endif %}
+
+{% endblock %}

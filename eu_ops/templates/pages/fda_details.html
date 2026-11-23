@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}FDA Details — LensBazaar OPP{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>🇺🇸 FDA / US Customs Details</h1>
+    <p>Manufacturer, registration, 510(k)/PMA and Classification Product Code per product — used on the US shipment invoice. A product may have more than one record (different manufacturing countries).</p>
+</div>
+
+<style>
+.fda-card{background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;padding:18px 20px;margin-bottom:1.2rem}
+.fda-card h3{font-size:.95rem;margin-bottom:12px;color:#1e293b}
+.fda-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 18px}
+.fda-field{display:flex;flex-direction:column;gap:4px}
+.fda-field.full{grid-column:1 / -1}
+.fda-field label{font-size:.72rem;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.02em}
+.fda-field input,.fda-field textarea{padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:.85rem;font-family:inherit}
+.fda-field input:focus,.fda-field textarea:focus{outline:none;border-color:#2563eb}
+.fda-field textarea{min-height:64px;resize:vertical}
+.fda-btn{margin-top:12px;padding:9px 18px;border:none;border-radius:8px;font-size:.82rem;font-weight:700;cursor:pointer;background:#2563eb;color:#fff}
+.fda-btn:hover{background:#1d4ed8}
+.fda-btn.sm{padding:6px 12px;font-size:.75rem}
+.fda-table{width:100%;border-collapse:collapse;background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;overflow:hidden}
+.fda-table th{background:#f1f5f9;text-align:left;padding:10px 12px;font-size:.7rem;text-transform:uppercase;letter-spacing:.02em;color:#475569}
+.fda-table td{padding:10px 12px;border-top:1px solid #eef2f7;font-size:.82rem;vertical-align:top}
+.pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:.68rem;font-weight:800}
+.pill.on{background:#dcfce7;color:#166534}
+.pill.off{background:#fee2e2;color:#991b1b}
+.msg{background:#dcfce7;color:#166534;border:1px solid #86efac;padding:10px 14px;border-radius:8px;margin-bottom:1rem;font-size:.85rem}
+details.editrow summary{cursor:pointer;color:#2563eb;font-weight:700;font-size:.78rem;list-style:none}
+details.editrow summary::-webkit-details-marker{display:none}
+</style>
+
+{% if msg %}<div class="msg">{{ msg }}</div>{% endif %}
+
+<div class="fda-card">
+    <h3>➕ Add FDA Record</h3>
+    <form method="POST" action="{{ base }}/fda/add">
+        <div class="fda-grid">
+            <div class="fda-field"><label>Product ID</label><input type="number" name="product_id" required placeholder="e.g. 309"></div>
+            <div class="fda-field"><label>Product Name</label><input type="text" name="product_name" placeholder="e.g. Air Optix Colors"></div>
+            <div class="fda-field"><label>Manufacturer Name</label><input type="text" name="manufacturer_name" required></div>
+            <div class="fda-field"><label>Country of Manufacture</label><input type="text" name="manufacturer_country" placeholder="e.g. Malaysia"></div>
+            <div class="fda-field full"><label>Manufacturer Address</label><textarea name="manufacturer_address" placeholder="Street, city, state, postcode, country"></textarea></div>
+            <div class="fda-field"><label>Registration Number</label><input type="text" name="registration_number"></div>
+            <div class="fda-field"><label>Classification Product Code</label><input type="text" name="classification_product_code" placeholder="e.g. LPL"></div>
+            <div class="fda-field"><label>510(k) Number</label><input type="text" name="fda_510k_number" placeholder="e.g. K222500"></div>
+            <div class="fda-field"><label>PMA Number (if no 510(k))</label><input type="text" name="pma_number"></div>
+        </div>
+        <button type="submit" class="fda-btn">Add Record</button>
+    </form>
+</div>
+
+<table class="fda-table">
+    <thead>
+        <tr>
+            <th>Product</th>
+            <th>Manufacturer</th>
+            <th>510(k) / PMA</th>
+            <th>Code</th>
+            <th>Reg. No.</th>
+            <th>Status</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for r in records %}
+        <tr>
+            <td><strong>{{ r.product_name or ('#' ~ r.product_id) }}</strong><br><span style="color:#94a3b8;font-size:.72rem;">ID {{ r.product_id }}</span></td>
+            <td>{{ r.manufacturer_name }}<br><span style="color:#64748b;font-size:.72rem;">{{ r.manufacturer_country }}</span></td>
+            <td>{% if r.fda_510k_number %}510(k): {{ r.fda_510k_number }}{% elif r.pma_number %}PMA: {{ r.pma_number }}{% else %}<span style="color:#dc2626;">—</span>{% endif %}</td>
+            <td>{{ r.classification_product_code or '—' }}</td>
+            <td>{{ r.registration_number or '—' }}</td>
+            <td>{% if r.is_active %}<span class="pill on">Active</span>{% else %}<span class="pill off">Inactive</span>{% endif %}</td>
+            <td>
+                <details class="editrow">
+                    <summary>✎ Edit</summary>
+                    <form method="POST" action="{{ base }}/fda/{{ r.id }}/edit" style="margin-top:10px;">
+                        <div class="fda-grid">
+                            <div class="fda-field"><label>Manufacturer Name</label><input type="text" name="manufacturer_name" value="{{ r.manufacturer_name }}" required></div>
+                            <div class="fda-field"><label>Country of Manufacture</label><input type="text" name="manufacturer_country" value="{{ r.manufacturer_country }}"></div>
+                            <div class="fda-field full"><label>Manufacturer Address</label><textarea name="manufacturer_address">{{ r.manufacturer_address or '' }}</textarea></div>
+                            <div class="fda-field"><label>Registration Number</label><input type="text" name="registration_number" value="{{ r.registration_number or '' }}"></div>
+                            <div class="fda-field"><label>Classification Product Code</label><input type="text" name="classification_product_code" value="{{ r.classification_product_code or '' }}"></div>
+                            <div class="fda-field"><label>510(k) Number</label><input type="text" name="fda_510k_number" value="{{ r.fda_510k_number or '' }}"></div>
+                            <div class="fda-field"><label>PMA Number</label><input type="text" name="pma_number" value="{{ r.pma_number or '' }}"></div>
+                            <div class="fda-field"><label>Active</label><label style="font-weight:400;"><input type="checkbox" name="is_active" {% if r.is_active %}checked{% endif %}> Record is active</label></div>
+                        </div>
+                        <button type="submit" class="fda-btn sm">Save Changes</button>
+                    </form>
+                </details>
+            </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:24px;">No FDA records yet. Add one above.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

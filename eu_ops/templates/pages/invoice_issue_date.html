@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Issue invoice — {{ order_label }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <a href="{{ back_url }}" class="btn btn-sm btn-outline">&laquo; Back to Order</a>
+        <h1>Issue invoice — {{ order_label }}</h1>
+        <span class="text-muted" style="font-size:12px;">Order date {{ order_date }}</span>
+    </div>
+</div>
+
+<div class="alert" style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:10px 14px;border-radius:6px;margin-bottom:16px;">
+    <strong>This invoice has not been issued yet.</strong> The issue date will be today, <strong>{{ today }}</strong>, unless you enter the print date below.
+    The date is printed on this invoice and on every reprint. <strong>Once issued it cannot be changed.</strong>
+    <br>Issuing allots the next invoice number in this site's series. It can't be changed later.
+</div>
+
+{% if error %}
+<div class="alert alert-error" style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;padding:10px 14px;border-radius:6px;margin-bottom:16px;">{{ error }}</div>
+{% endif %}
+
+<div class="card" style="max-width:560px;">
+    <form method="post" action="{{ action_url }}" style="margin-bottom:18px;"
+          onsubmit="return confirm('Issue this invoice dated {{ today }}? This cannot be changed later.');">
+        <input type="hidden" name="choice" value="today">
+        <button type="submit" class="btn btn-primary">Issue with today's date ({{ today }})</button>
+    </form>
+    <form method="post" action="{{ action_url }}"
+          onsubmit="var v=this.print_date.value; if(!v){return false;} var p=v.split('-'); return confirm('Issue this invoice dated '+p[2]+'-'+p[1]+'-'+p[0]+'? This cannot be changed later.');">
+        <input type="hidden" name="choice" value="entered">
+        <label for="print_date" style="display:block;margin-bottom:6px;">Or enter the print date:</label>
+        <input type="date" id="print_date" name="print_date" min="{{ min_iso }}" max="{{ max_iso }}" value="{{ entered or '' }}" required>
+        <button type="submit" class="btn btn-outline">Issue with this date</button>
+    </form>
+</div>
+{% endblock %}

@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Optiwar Returns — LensBazaar OPP{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>↩ Optiwar Returns / ₹250 Reship</h1>
+    <span class="text-muted">{{ board.rows|length }} in Optiwar's return lifecycle · state is read live from Optiwar (authoritative for payment and the 60-day deadline)</span>
+</div>
+
+{% if board.error %}
+<div class="alert alert-error">Optiwar reship queue unreachable: {{ board.error }}</div>
+{% endif %}
+
+{% set colors = {'confirm':'#d97706','awaiting_payment':'#b45309','paid':'#16a34a','expiring':'#b91c1c','reshipped':'#2563eb','abandoned':'#7f1d1d','exception':'#dc2626'} %}
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
+    {% for key, label in bucket_labels %}
+    <a href="#b-{{ key }}" style="text-decoration:none;flex:1;min-width:150px;padding:10px 12px;border-radius:8px;background:#fff;border:2px solid {{ colors[key] }};color:#111;">
+        <div style="font-size:11px;font-weight:700;color:{{ colors[key] }};">{{ label }}</div>
+        <div style="font-size:26px;font-weight:700;">{{ board.buckets[key]|length }}</div>
+    </a>
+    {% endfor %}
+</div>
+
+{% for key, label in bucket_labels %}
+{% set rows = board.buckets[key] %}
+<div class="card" id="b-{{ key }}" style="border-left:5px solid {{ colors[key] }};">
+    <h3 style="color:{{ colors[key] }};">{{ label }} <span class="text-muted" style="font-weight:400;font-size:13px;">({{ rows|length }})</span></h3>
+    {% if key == 'confirm' %}<p class="text-muted" style="font-size:12px;">Courier says returning. Press <em>Confirm Return Received</em> on the order only with the parcel physically in hand — that notifies Optiwar and the customer.</p>
+    {% elif key == 'awaiting_payment' %}<p class="text-muted" style="font-size:12px;">Customer must pay ₹250 on Optiwar. No reship action. Optiwar sends reminders (day 0/30/45/55/60) — do not message the customer from here.</p>
+    {% elif key == 'paid' %}<p class="text-muted" style="font-size:12px;">Verified by Optiwar/Razorpay. Book the new shipment; the AWB syncs to Optiwar automatically. Never abandon a paid reship.</p>
+    {% elif key == 'expiring' %}<p class="text-muted" style="font-size:12px;">Supervisors: within {{ 7 }} days of Optiwar's abandonment date and still unpaid.</p>
+    {% elif key == 'abandoned' %}<p class="text-muted" style="font-size:12px;">Holding period expired per Optiwar. Move goods to <em>ABANDONED — AWAITING DISPOSITION</em>; disposal only via the approved process.</p>
+    {% elif key == 'exception' %}<p class="text-muted" style="font-size:12px;">Optiwar sync pending/failed or an unexpected state. Use Retry Sync on the order — never re-receive or re-book.</p>
+    {% endif %}
+    {% if not rows %}<p class="text-muted" style="font-size:13px;">None.</p>
+    {% else %}
+    <table class="table" style="font-size:13px;">
+        <thead><tr><th>Order</th><th>Customer</th><th>Returned AWB</th><th>Status</th><th>Payment</th><th>Notified</th><th>Holding / deadline</th><th></th></tr></thead>
+        <tbody>
+        {% for r in rows %}
+        {% set dl = r.deadline %}
+        <tr{% if dl.warning %} style="background:#fef2f2;"{% endif %}>
+            <td><a href="{{ base }}/orders/ow/{{ r.order_id }}"><strong>OW-{{ r.order_id }}</strong></a>
+                {% if r.new_awb %}<div class="text-small text-muted">reshipped {{ r.new_courier }} {{ r.new_awb }}</div>{% endif %}</td>
+            <td>{{ r.customer }}<div class="text-small text-muted">{{ r.email }}{% if r.total %} · ₹{{ '%.0f'|format(r.total) }}{% endif %}</div></td>
+            <td>{{ r.courier }} <a href="{{ track_url(r.courier, r.awb) }}" target="_blank">{{ r.awb }}</a></td>
+            <td><span class="status-badge" style="background:{{ colors[r.bucket] }};color:#fff;font-weight:700;">{{ r.status_shown }}</span>
+                {% if r.pending_syncs %}<div style="color:#b91c1c;font-size:11px;font-weight:700;">⚠ OPTIWAR SYNC PENDING ({{ r.pending_syncs[0].kind }})</div>{% endif %}</td>
+            <td>{% if r.status in ('RETURNED','PAYMENT_PENDING') %}<span style="color:#b45309;font-weight:700;">AWAITING ₹250</span>
+                {% elif r.status in ('PAID','RESHIPPED') %}<span style="color:#15803d;font-weight:700;">PAID</span><div class="text-small text-muted">{{ r.paid_at }}</div>
+                {% elif r.status == 'ABANDONED' %}<span style="color:#7f1d1d;">not received</span>
+                {% else %}<span class="text-muted">—</span>{% endif %}</td>
+            <td>{% if r.notifications %}{% for ch, v in r.notifications.items() %}<div style="font-size:11px;"><strong>{{ ch|capitalize }}:</strong> <span style="color:{{ '#15803d' if v == 'SENT' else '#b91c1c' if 'FAILED' in v else '#6b7280' }};">{{ v }}</span></div>{% endfor %}
+                {% elif r.status == 'RETURNING' %}<span class="text-muted">—</span>
+                {% else %}<span class="text-muted" title="Optiwar sends on receipt; delivery status not yet exposed by its API">by Optiwar</span>{% endif %}</td>
+            <td>{% if r.status in ('RETURNED','PAYMENT_PENDING') %}
+                    {% if dl.supplied %}<strong>{{ dl.days_remaining }} days</strong> left<div class="text-small text-muted">abandon {{ dl.abandon_at.strftime('%d %b %Y') if dl.abandon_at else '—' }}</div>
+                        {% if dl.on_hold %}<div style="color:#1d4ed8;font-weight:700;font-size:11px;">ON HOLD</div>{% endif %}
+                        {% if dl.warning %}<div style="color:#b91c1c;font-weight:700;font-size:11px;">⚠ ABANDONMENT APPROACHING</div>{% endif %}
+                    {% else %}<span class="text-muted">returned {{ dl.returned_at.strftime('%d %b %Y %H:%M') if dl.returned_at else '' }}<br>deadline awaited from Optiwar</span>{% endif %}
+                {% elif r.status == 'ABANDONED' %}<span style="color:#7f1d1d;">expired {{ r.entry.abandoned_at or (dl.abandon_at.strftime('%d %b %Y') if dl.abandon_at else '') }}</span>
+                {% else %}<span class="text-muted">—</span>{% endif %}</td>
+            <td style="white-space:nowrap;">
+                {% if r.status == 'RETURNING' and not r.pending_syncs %}<a href="{{ base }}/orders/ow/{{ r.order_id }}#reshipCard" class="btn btn-sm btn-primary">Confirm Return Received</a>
+                {% elif r.status == 'PAID' %}<a href="{{ base }}/orders/ow/{{ r.order_id }}/ship?courier=DTDC&reship=1" class="btn btn-sm btn-success">Reship Now</a>
+                {% elif r.pending_syncs %}<form method="post" action="{{ base }}/orders/ow/{{ r.order_id }}/reship-sync/{{ r.pending_syncs[0].id }}/retry" style="display:inline;"><button class="btn btn-sm btn-primary">Retry Sync</button></form>
+                {% else %}<a href="{{ base }}/orders/ow/{{ r.order_id }}" class="btn btn-sm btn-outline">Open</a>{% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</div>
+{% endfor %}
+
+<div class="card" style="margin-top:18px;">
+    <h3 style="margin:0 0 6px;font-size:14px;">Optiwar push events (webhook)
+        {% if webhook_configured %}<span style="font-size:11px;font-weight:700;color:#15803d;">· receiving at {{ base }}/api/optiwar/reship-webhook</span>
+        {% else %}<span style="font-size:11px;font-weight:700;color:#b45309;">· not configured — queue polling only</span>{% endif %}</h3>
+    {% if webhooks %}
+    <table style="font-size:12px;">
+        <thead><tr><th>Received</th><th>Event</th><th>Order</th><th>Reship</th><th>Event id</th></tr></thead>
+        <tbody>
+        {% for w in webhooks %}
+        <tr><td>{{ w.received_at }}</td><td><strong>{{ w.event }}</strong></td>
+            <td>{% if w.ow_order_id %}<a href="{{ base }}/orders/ow/{{ w.ow_order_id }}">OW-{{ w.ow_order_id }}</a>{% endif %}</td>
+            <td class="text-muted">{{ w.reship_uuid[:8] }}</td><td class="text-muted">{{ w.event_id }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}<p class="text-muted" style="font-size:12px;margin:0;">No pushes received yet. Until Optiwar sends them, state comes from the queue API on each page load.</p>{% endif %}
+</div>
+{% endblock %}

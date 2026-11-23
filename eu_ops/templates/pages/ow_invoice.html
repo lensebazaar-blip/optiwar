@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invoice OW-{{ order.order_id }} — Optiwar</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; color: #222; background: #fff; padding: 20px; }
+        .invoice-container { max-width: 800px; margin: 0 auto; border: 1px solid #ccc; padding: 30px; }
+        .invoice-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 2px solid #e67e22; }
+        .invoice-header .logo img { width: 160px; height: auto; border-radius: 12px; }
+        .invoice-header .company-info { text-align: right; font-size: 12px; line-height: 1.6; }
+        .company-name { font-size: 20px; font-weight: bold; color: #e67e22; margin-bottom: 3px; }
+        .invoice-meta { display: flex; justify-content: space-between; margin-bottom: 20px; }
+        .invoice-meta .col { width: 48%; }
+        .meta-table { width: 100%; }
+        .meta-table td { padding: 3px 8px; vertical-align: top; font-size: 12px; }
+        .meta-table td:first-child { font-weight: 600; white-space: nowrap; width: 130px; }
+        .address-row { display: flex; justify-content: space-between; margin-bottom: 20px; }
+        .address-block { width: 48%; border: 1px solid #ddd; padding: 12px; border-radius: 4px; }
+        .address-block h4 { font-size: 12px; text-transform: uppercase; color: #666; margin-bottom: 6px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
+        .address-block p { font-size: 12px; line-height: 1.5; }
+        .products-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+        .products-table th { background: #e67e22; color: #fff; padding: 8px 10px; text-align: left; font-size: 11px; text-transform: uppercase; }
+        .products-table td { padding: 8px 10px; border-bottom: 1px solid #eee; font-size: 12px; vertical-align: top; }
+        .products-table tr:nth-child(even) td { background: #f8f9fa; }
+        .products-table .text-right { text-align: right; }
+        .products-table .text-center { text-align: center; }
+        .rx-info { font-size: 11px; color: #555; margin-top: 3px; }
+        .totals-section { display: flex; justify-content: flex-end; margin-bottom: 20px; }
+        .totals-table { width: 300px; border-collapse: collapse; }
+        .totals-table td { padding: 5px 10px; font-size: 12px; }
+        .totals-table td:last-child { text-align: right; font-weight: 500; }
+        .totals-table .grand-total td { border-top: 2px solid #e67e22; font-size: 14px; font-weight: 700; padding-top: 8px; }
+        .invoice-footer { border-top: 1px solid #ddd; padding-top: 15px; font-size: 11px; color: #666; text-align: center; line-height: 1.8; }
+        .invoice-footer strong { color: #333; }
+        .print-controls { text-align: center; margin-bottom: 20px; }
+        .print-controls button { background: #e67e22; color: white; border: none; padding: 10px 30px; border-radius: 6px; font-size: 14px; cursor: pointer; margin: 0 5px; }
+        .print-controls button:hover { background: #d35400; }
+        .print-controls .btn-back { background: #6c757d; }
+        .print-controls .btn-back:hover { background: #555; }
+        @media print { .print-controls { display: none !important; } body { padding: 0; } .invoice-container { border: none; padding: 10px; } }
+    </style>
+</head>
+<body>
+
+<div class="print-controls">
+    <button onclick="window.print()">🖨 Print Invoice</button>
+    <button class="btn-back" onclick="history.back()">← Back to Order</button>
+</div>
+
+<div class="invoice-container">
+    <div class="invoice-header">
+        <div class="logo">
+            <img src="{{ base }}/static/img/optiwar-logo.png" alt="Optiwar">
+        </div>
+        <div class="company-info">
+            <div class="company-name">Optiwar</div>
+            Krishna Ecommerce Technologies Private Limited<br>
+            Unit 418, Tower 4, DLF Corporate Greens<br>
+            Sec 74A, SPR, Gurugram 122004 (India)<br>
+            Tel: +91-80100 77770<br>
+            service@optiwar.com | https://optiwar.com
+        </div>
+    </div>
+
+    <div class="invoice-meta">
+        <div class="col">
+            <table class="meta-table">
+                <tr><td>Invoice No.:</td><td>{{ invoice_no }}</td></tr>
+                <tr><td>Order ref:</td><td>OW-{{ order.order_id }}</td></tr>
+                <tr><td>Date:</td><td>{{ invoice_date }}</td></tr>
+            </table>
+        </div>
+        <div class="col">
+            <table class="meta-table">
+                <tr><td>Payment:</td><td>{{ order.payment_method }}</td></tr>
+                <tr><td>Shipping:</td><td>{{ order.shipping_method or 'Standard' }}</td></tr>
+                <tr><td>Status:</td><td>{{ order.status_name }}</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <div class="address-row">
+        <div class="address-block">
+            <h4>Bill To / Ship To</h4>
+            <p>
+                <strong>{{ order.firstname }} {{ order.lastname }}</strong><br>
+                {% if order.shipping_address_1 %}{{ order.shipping_address_1 }}<br>{% endif %}
+                {% if order.shipping_zone %}{{ order.shipping_zone }}{% endif %}
+                {% if order.shipping_postcode %} - {{ order.shipping_postcode }}{% endif %}<br>
+                {{ order.shipping_country }}<br>
+                {{ order.email }}<br>
+                {{ order.telephone }}
+            </p>
+        </div>
+    </div>
+
+    <table class="products-table">
+        <thead>
+            <tr>
+                <th style="width:35%">Product</th>
+                <th>Code</th>
+                <th class="text-center">Qty</th>
+                <th class="text-right">Unit Price</th>
+                <th class="text-right">Total</th>
+                <th>Rx Info</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in order.products %}
+            <tr>
+                <td>{{ p.name }}</td>
+                <td>{{ p.model }}</td>
+                <td class="text-center">{{ p.quantity }}</td>
+                <td class="text-right">&#8377;{{ "%.0f"|format(p.price) }}</td>
+                <td class="text-right">&#8377;{{ "%.0f"|format(p.total) }}</td>
+                <td style="font-size:11px;">
+                    {% if p.rx %}
+                    {{ p.rx.recommendations or '' }}<br>
+                    {% if p.rx.right_eye %}R: {{ p.rx.right_eye }}<br>{% endif %}
+                    {% if p.rx.left_eye %}L: {{ p.rx.left_eye }}{% endif %}
+                    {% else %}—{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="totals-section">
+        <table class="totals-table">
+            {% for t in order.totals %}
+            {% if loop.last %}
+            <tr class="grand-total"><td>{{ t.title }}:</td><td>{{ t.text }}</td></tr>
+            {% else %}
+            <tr><td>{{ t.title }}:</td><td>{{ t.text }}</td></tr>
+            {% endif %}
+            {% endfor %}
+        </table>
+    </div>
+
+    <div class="invoice-footer">
+        <strong>Optiwar</strong> — Premium Eyewear<br>
+        For support: service@optiwar.com | https://optiwar.com<br>
+        This is a computer-generated invoice. Does not require a signature.
+    </div>
+</div>
+
+</body>
+</html>
