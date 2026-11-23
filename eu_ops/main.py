@@ -87,9 +87,10 @@ def startup():
     rpl.init_tables()
     # Create default admin if no users exist
     user = auth.get_user_by_username("admin")
-    if not user:
-        auth.create_user("admin", "LB@dmin2026!", "lensebazaar@gmail.com", "admin", "Admin User")
-        print("[INIT] Default admin user created: admin / LB@dmin2026!")
+    bootstrap_password = os.getenv("OPS_ADMIN_BOOTSTRAP_PASSWORD", "")
+    if not user and bootstrap_password:
+        auth.create_user("admin", bootstrap_password, "lensebazaar@gmail.com", "admin", "Admin User")
+        print("[INIT] Default admin user created from OPS_ADMIN_BOOTSTRAP_PASSWORD")
 
 
 # ─── Auth dependency ───
