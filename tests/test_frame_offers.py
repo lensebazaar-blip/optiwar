@@ -99,7 +99,9 @@ class FakeCursor:
             if state.get("order_status_name"):
                 self.result = {"order_status_name": state["order_status_name"]}
         elif "join products f on f.product_id" in query:
-            self.rows = [dict(row) for row in state["matches"]]
+            required = int(params[1]) if len(params) > 1 else 1
+            self.rows = [dict(row) for row in state["matches"]
+                         if int(row.get("product_quantity") or 0) >= required]
         elif query.startswith("select product_id, product_image"):
             self.rows = [{"product_id": row["product_id"],
                           "product_image": row.get("product_image", "")}
@@ -222,20 +224,25 @@ class FakeDB:
 
 class MatchQueryTests(unittest.TestCase):
     def test_site_switch_is_the_only_query_change_and_product_id_is_parameterized(self):
-        expected = offers.QUERY.replace("f.product_id = 667", "f.product_id = %s")
+        expected = (offers.QUERY
+                    .replace("f.product_id = 667", "f.product_id = %s")
+                    .replace("p.product_quantity > 0",
+                             "p.product_quantity >= %s"))
         self.assertEqual(offers.match_sql("in.optiwar.com"), expected)
         self.assertEqual(offers.match_sql("optiwar.com"),
                          expected.replace("p.sell_on_in = 1", "p.sell_on_com = 1"))
         cursor = FakeDB().cursor()
         offers.matches(cursor, 774, "in.optiwar.com")
-        self.assertEqual(cursor.queries[-1][1], (774,))
+        self.assertEqual(cursor.queries[-1][1], (774, 1))
         self.assertIn("f.product_id = %s", cursor.queries[-1][0])
+        self.assertIn("p.product_quantity >= %s", cursor.queries[-1][0])
         self.assertIn("p.sell_on_in = 1", cursor.queries[-1][0])
 
     def test_matches_filters_for_order_quantity(self):
         db = FakeDB()
         db.state["matches"][0]["product_quantity"] = 1
         self.assertEqual(offers.matches(db.cursor(), 774, "in.optiwar.com", 2), [])
+        self.assertEqual(db.cursor_obj.queries[-1][1], (774, 2))
 
 
 class OfferTransactionTests(unittest.TestCase):

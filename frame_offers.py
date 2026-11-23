@@ -122,14 +122,13 @@ def match_sql(site_from):
     column = "sell_on_in" if (site_from or "").lower() == "in.optiwar.com" else "sell_on_com"
     return (QUERY
             .replace("f.product_id = 667", "f.product_id = %s")
+            .replace("p.product_quantity > 0", "p.product_quantity >= %s")
             .replace("p.sell_on_in = 1", "p.%s = 1" % column))
 
 
 def matches(cursor, product_id, site_from, qty=1):
-    cursor.execute(match_sql(site_from), (int(product_id),))
-    required = int(qty or 1)
-    return [row for row in cursor.fetchall()
-            if int(row.get("product_quantity") or 0) >= required]
+    cursor.execute(match_sql(site_from), (int(product_id), int(qty or 1)))
+    return cursor.fetchall()
 
 
 def _site_host(site_from):
