@@ -293,14 +293,14 @@ Our schema includes:
 - `product_category_oval`: a numeric flag (1 if oval frame)
 - `product_category_round`: a numeric flag (1 if round frame)
 - `product_category_square`: a numeric flag (1 if square frame)
-- `product_category_wayfarer`: a numeric flag (1 if wayfarer frame)
+- `product_category_wayfarer`: a numeric flag (1 if classic square frame; shown as Classic Square)
 - `product_category_horn`: a numeric flag (1 if horn frame)
 - `product_category_browline`: a numeric flag (1 if browline frame)
 - `product_category_aviator`: a numeric flag (1 if aviator frame)
 - `product_category_cateye`: a numeric flag (1 if cateye frame)
 - `product_category_semirimless`: a numeric flag (1 if semirimless frame or has less rims)
 - `product_category_supra`: a numeric flag (1 if supra/half-frame)
-- `product_category_clubmaster`: a numeric flag (1 if clubmaster style)
+- `product_category_clubmaster`: a numeric flag (1 if browline style; shown as Browline)
 - `product_category_quatra`: a numeric flag (1 if quatra style)
 - `product_category_panto`: a numeric flag (1 if panto style)
 - `product_size`: values like "small", "medium", "large"
@@ -1393,13 +1393,17 @@ CATEGORY_QUERIES = {
     'rectangle': 'SELECT * FROM products WHERE product_category_rectangle = 1 AND product_image IS NOT NULL AND product_image != "" AND product_image != "NULL" AND product_quantity > 0',
     'round': 'SELECT * FROM products WHERE product_category_round = 1 AND product_image IS NOT NULL AND product_image != "" AND product_image != "NULL" AND product_quantity > 0',
     'rounded': 'SELECT * FROM products WHERE product_category_round = 1 AND product_image IS NOT NULL AND product_image != "" AND product_image != "NULL" AND product_quantity > 0',
-    'clubmaster': 'SELECT * FROM products WHERE product_category_clubmaster = 1 AND product_image IS NOT NULL AND product_image != "" AND product_image != "NULL" AND product_quantity > 0',
+    'browline': 'SELECT * FROM products WHERE (product_category_clubmaster = 1 OR product_category_browline = 1) AND product_image IS NOT NULL AND product_image != "" AND product_image != "NULL" AND product_quantity > 0',
     'rimless': 'SELECT * FROM products WHERE product_category_rimless = 1 AND product_image IS NOT NULL AND product_image != "" AND product_image != "NULL" AND product_quantity > 0',
     'square': 'SELECT * FROM products WHERE product_category_square = 1 AND product_image IS NOT NULL AND product_image != "" AND product_image != "NULL" AND product_quantity > 0',
     'Spectacles Frame': 'SELECT * FROM products WHERE product_category = "Spectacles Frame" AND product_image IS NOT NULL AND product_image != "" AND product_image != "NULL" AND product_quantity > 0',
     'panto-frames': 'SELECT * FROM products WHERE product_category_panto = 1 AND product_image IS NOT NULL AND product_image != "" AND product_image != "NULL" AND product_quantity > 0',
 }
 
+
+# Old category slug -> its generic replacement (301). "Clubmaster" and
+# "Wayfarer" are Ray-Ban trademarks; the shapes are sold as Browline and Square.
+RETIRED_CATEGORIES = {'clubmaster': 'browline', 'wayfarer': 'square'}
 
 
 @bp.route("/eyeglasses/all-spectacle-frames.html")
@@ -1481,7 +1485,7 @@ def all_spectacle_frames():
                         AND product_quantity > 0
                         AND product_size IS NOT NULL AND product_size != ''
                         AND product_size REGEXP '^[0-9]+-[0-9]+-[0-9]+$'
-                    """)
+                    """ + catalogue_site_filter())
                     matching_ids = face_fit.matching_product_ids(
                         cursor2.fetchall(),
                         {"pd_far": pd_far, "face_width": face_w,
@@ -1567,9 +1571,11 @@ def api_frames():
             'round': 'product_category_round',
             'square': 'product_category_square',
             'wayfarer': 'product_category_wayfarer',
+            'classicsquare': 'product_category_wayfarer',
             'aviator': 'product_category_aviator',
             'cateye': 'product_category_cateye',
             'clubmaster': 'product_category_clubmaster',
+            'browline': 'product_category_clubmaster',
             'panto': 'product_category_panto',
             'kids': 'product_category_kids',
             'supra': 'product_category_supra'
@@ -1799,10 +1805,10 @@ def product_page(category, product_slug):
         ('product_category_oval', 'Oval'),
         ('product_category_round', 'Round'),
         ('product_category_square', 'Square'),
-        ('product_category_wayfarer', 'Wayfarer'),
+        ('product_category_wayfarer', 'Classic Square'),
         ('product_category_aviator', 'Aviator'),
         ('product_category_cateye', 'Cat Eye'),
-        ('product_category_clubmaster', 'Clubmaster'),
+        ('product_category_clubmaster', 'Browline'),
         ('product_category_panto', 'Panto'),
         ('product_category_kids', 'Kids'),
         ('product_category_supra', 'Supra'),
@@ -2075,6 +2081,11 @@ def get_reviews(product_id):
 
 @bp.route('/categories/<category>', methods=['GET'])
 def categories(category=None):
+    # Retired category names (third-party trademarks) move permanently to the
+    # nearest generic category, so links and rankings carry over.
+    moved = RETIRED_CATEGORIES.get(category)
+    if moved:
+        return redirect(url_for('main.categories', category=moved), code=301)
     db = get_db()
     cursor = db.cursor()
     query = CATEGORY_QUERIES.get(category)
@@ -5269,7 +5280,11 @@ def api_products():
         # Validate shape column exists
         valid_shapes = ['rectangle', 'oval', 'round', 'square', 'wayfarer', 'horn',
                        'browline', 'aviator', 'cateye', 'clubmaster', 'panto', 'quatra', 'supra']
-        if shape.lower() in valid_shapes:
+        if shape.lower() in ('browline', 'clubmaster'):
+            conditions.append("(`product_category_clubmaster` = 1 OR `product_category_browline` = 1)")
+        elif shape.lower() == 'classicsquare':
+            conditions.append("`product_category_wayfarer` = 1")
+        elif shape.lower() in valid_shapes:
             conditions.append(f"`{shape_col}` = 1")
     
     where_clause = " AND ".join(conditions) if conditions else "1=1"
@@ -5326,21 +5341,23 @@ def api_products():
         
         # Determine shapes
         shapes = []
-        shape_fields = {
-            'rectangle': 'product_category_rectangle',
-            'oval': 'product_category_oval',
-            'round': 'product_category_round',
-            'square': 'product_category_square',
-            'wayfarer': 'product_category_wayfarer',
-            'aviator': 'product_category_aviator',
-            'cateye': 'product_category_cateye',
-            'clubmaster': 'product_category_clubmaster',
-            'panto': 'product_category_panto',
-            'horn': 'product_category_horn',
-            'browline': 'product_category_browline',
-        }
-        for shape_name, field in shape_fields.items():
-            if prod.get(field) and int(prod[field]) == 1:
+        # Public shape names; the Clubmaster and Wayfarer columns are shown as
+        # Browline and Classic Square (both originals are Ray-Ban trademarks).
+        shape_fields = [
+            ('rectangle', 'product_category_rectangle'),
+            ('oval', 'product_category_oval'),
+            ('round', 'product_category_round'),
+            ('square', 'product_category_square'),
+            ('classicsquare', 'product_category_wayfarer'),
+            ('aviator', 'product_category_aviator'),
+            ('cateye', 'product_category_cateye'),
+            ('browline', 'product_category_clubmaster'),
+            ('panto', 'product_category_panto'),
+            ('horn', 'product_category_horn'),
+            ('browline', 'product_category_browline'),
+        ]
+        for shape_name, field in shape_fields:
+            if prod.get(field) and int(prod[field]) == 1 and shape_name not in shapes:
                 shapes.append(shape_name)
         
         # Auto-generate description
@@ -5412,7 +5429,7 @@ def api_products():
         },
         "filters_available": {
             "category": ["Spectacles Frame", "Hearing Aids", "Contact Lenses"],
-            "shape": ["rectangle", "oval", "round", "square", "wayfarer", "aviator", "cateye", "clubmaster", "panto", "horn", "browline"],
+            "shape": ["rectangle", "oval", "round", "square", "classicsquare", "aviator", "cateye", "browline", "panto", "horn"],
             "size": ["Small", "Medium", "Large", "Extra Large"],
             "price_range": {"min": 0, "max": 10000, "currency": "INR"},
             "in_stock": ["true", "false"]
@@ -5455,9 +5472,14 @@ def api_product_detail(product_id):
     shapes = []
     shape_fields = ['rectangle', 'oval', 'round', 'square', 'wayfarer', 'aviator',
                    'cateye', 'clubmaster', 'panto', 'horn', 'browline']
+    # Public names: the Clubmaster and Wayfarer columns are sold as Browline
+    # and Classic Square (both originals are Ray-Ban trademarks).
+    public_shape = {'clubmaster': 'browline', 'wayfarer': 'classicsquare'}
     for s in shape_fields:
         if prod.get(f'product_category_{s}') and int(prod[f'product_category_{s}']) == 1:
-            shapes.append(s)
+            name = public_shape.get(s, s)
+            if name not in shapes:
+                shapes.append(name)
     
     # Auto-generate description
     desc_parts = [prod.get('product_name', ''), prod.get('product_code', '')]
@@ -5569,7 +5591,7 @@ def openapi_spec():
                     "parameters": [
                         {"name": "category", "in": "query", "schema": {"type": "string", "enum": ["Spectacles Frame", "Hearing Aids", "Contact Lenses"]}},
                         {"name": "color", "in": "query", "schema": {"type": "string"}, "description": "Filter by color name (partial match)"},
-                        {"name": "shape", "in": "query", "schema": {"type": "string", "enum": ["rectangle", "oval", "round", "square", "wayfarer", "aviator", "cateye", "clubmaster", "panto", "horn", "browline"]}},
+                        {"name": "shape", "in": "query", "schema": {"type": "string", "enum": ["rectangle", "oval", "round", "square", "classicsquare", "aviator", "cateye", "browline", "panto", "horn"]}},
                         {"name": "size", "in": "query", "schema": {"type": "string", "enum": ["Small", "Medium", "Large", "Extra Large"]}, "description": "Face fit / perception value"},
                         {"name": "min_price", "in": "query", "schema": {"type": "number"}, "description": "Minimum price in INR"},
                         {"name": "max_price", "in": "query", "schema": {"type": "number"}, "description": "Maximum price in INR"},
@@ -5593,7 +5615,7 @@ def openapi_spec():
                     "summary": "Search and list products (v1 — recommended)",
                     "description": "Currency-aware product catalog with full filtering. Returns structured JSON with pricing, availability, images, and sizing.",
                     "parameters": [
-                        {"name": "category", "in": "query", "schema": {"type": "string", "enum": ["supra","clubmaster","round","rectangle","rimless","square","cateye","aviator"]}},
+                        {"name": "category", "in": "query", "schema": {"type": "string", "enum": ["supra","browline","round","rectangle","rimless","square","cateye","aviator"]}},
                         {"name": "color", "in": "query", "schema": {"type": "string"}, "description": "Filter by color (partial match)"},
                         {"name": "shape", "in": "query", "schema": {"type": "string"}},
                         {"name": "size", "in": "query", "schema": {"type": "string", "enum": ["Small","Medium","Large","Extra Large"]}, "description": "Face fit"},
@@ -5675,6 +5697,7 @@ def api_v1_products():
         shape_col_map = {
             'supra': 'product_category_supra',
             'clubmaster': 'product_category_clubmaster',
+            'browline': 'product_category_clubmaster',
             'round': 'product_category_round',
             'rectangle': 'product_category_rectangle',
             'rimless': 'product_category_rimless',
@@ -5683,6 +5706,7 @@ def api_v1_products():
             'aviator': 'product_category_aviator',
             'oval': 'product_category_oval',
             'wayfarer': 'product_category_wayfarer',
+            'classicsquare': 'product_category_wayfarer',
         }
         col = shape_col_map.get(category.lower())
         if col:
@@ -6004,7 +6028,7 @@ def api_v1_categories():
     
     cats = [
         ('supra', 'Half Frame (Supra)', 'product_category_supra'),
-        ('clubmaster', 'Clubmaster', 'product_category_clubmaster'),
+        ('browline', 'Browline', 'product_category_clubmaster'),
         ('round', 'Round', 'product_category_round'),
         ('rectangle', 'Rectangle', 'product_category_rectangle'),
         ('rimless', 'Rimless / 3-Piece', 'product_category_rimless'),
@@ -6020,7 +6044,7 @@ def api_v1_categories():
         cursor.execute(f"""
             SELECT COUNT(*), MIN({price_col}), MAX({price_col})
             FROM products WHERE {col} = 'yes' AND product_quantity > 0
-        """)
+        """ + catalogue_site_filter())
         row = cursor.fetchone()
         count = row[0] if isinstance(row, tuple) else list(row.values())[0]
         min_p = row[1] if isinstance(row, tuple) else list(row.values())[1]
@@ -6058,7 +6082,7 @@ def guide_frame_shapes():
     
     style_configs = [
         ('supra', 'Half Frame (Supra)', 'product_category_supra', 'Everyday wear, lightweight, minimalist'),
-        ('clubmaster', 'Clubmaster', 'product_category_clubmaster', 'Retro-classic, professional, unisex'),
+        ('browline', 'Browline', 'product_category_clubmaster', 'Retro-classic, professional, unisex'),
         ('round', 'Round', 'product_category_round', 'Vintage look, oval/square faces'),
         ('rectangle', 'Rectangle', 'product_category_rectangle', 'Professional, round faces'),
         ('rimless', 'Rimless / 3-Piece', 'product_category_rimless', 'Ultra-lightweight, nearly invisible'),
@@ -6142,7 +6166,7 @@ def llms_txt():
 - Factory outlet pricing — save up to 70% vs retail optical stores
 - Free complimentary single-vision lenses with every frame
 - Lens upgrades: Anti-Glare (₹50/€5), Blue Cut (₹100/€7), Multi Anti-Glare (₹200/€7), Polarized (₹800/€10), Thin (₹100/€10), Extra-Thin (₹350/€7), Photo-Grey (₹350/€10), Photo-Brown (₹650/€10), Bifocal KT (₹250/€8), Bifocal D (₹500/€8), Progressive (₹1000/€10)
-- Categories: Supra (Half Frame), Clubmaster, Round, Rectangle, Rimless, Square
+- Categories: Supra (Half Frame), Browline, Round, Rectangle, Rimless, Square
 - Ships globally via FedEx / DHL — free shipping, no minimums
 - Support via ticketing only — 24hr response time
 
@@ -6151,7 +6175,7 @@ def llms_txt():
 - Search: GET /api/v1/products?q={query}&category={cat}&color={color}&shape={shape}&min_price={min}&max_price={max}&in_stock=true
 - Product detail: GET /api/v1/products/{id}?currency=INR or EUR
 - Categories API: GET /api/v1/categories?currency=INR or EUR
-- Categories: supra, clubmaster, round, rectangle, rimless, square
+- Categories: supra, browline, round, rectangle, rimless, square
 - OpenAPI spec: /api/openapi.json
 - AI plugin: /.well-known/ai-plugin.json
 - UCP discovery: /.well-known/ucp
@@ -6212,7 +6236,7 @@ def llms_txt():
 - Homepage: https://optiwar.com/
 - All Frames: https://optiwar.com/eyeglasses/all-spectacle-frames.html
 - Supra: https://optiwar.com/categories/supra
-- Clubmaster: https://optiwar.com/categories/clubmaster
+- Browline: https://optiwar.com/categories/browline
 - Round: https://optiwar.com/categories/round
 - Rectangle: https://optiwar.com/categories/rectangle
 - Rimless: https://optiwar.com/categories/rimless
@@ -6264,8 +6288,8 @@ def ai_faq():
         {
             'id': 'products', 'label': 'Products', 'title': 'Product Categories',
             'questions': [
-                {'q': 'What product categories does Optiwar offer?', 'a': f'Optiwar offers: (1) <strong>Spectacle Frames</strong> \u2014 998+ frames in Supra, Clubmaster, Round, Rectangle, Rimless, and Square styles ({c}499\u2013{c}999 INR / \u20ac5\u2013\u20ac11 EUR). (2) <strong>Contact Lenses</strong>. (3) <strong>Hearing Aids</strong>.'},
-                {'q': 'What spectacle frame styles are available?', 'a': 'Supra (Half Frame), Clubmaster, Round, Rectangle, Rimless, and Square. Browse all at <a href="' + site_url + '/eyeglasses/all-spectacle-frames.html">All Frames</a>.'},
+                {'q': 'What product categories does Optiwar offer?', 'a': f'Optiwar offers: (1) <strong>Spectacle Frames</strong> \u2014 998+ frames in Supra, Browline, Round, Rectangle, Rimless, and Square styles ({c}499\u2013{c}999 INR / \u20ac5\u2013\u20ac11 EUR). (2) <strong>Contact Lenses</strong>. (3) <strong>Hearing Aids</strong>.'},
+                {'q': 'What spectacle frame styles are available?', 'a': 'Supra (Half Frame), Browline, Round, Rectangle, Rimless, and Square. Browse all at <a href="' + site_url + '/eyeglasses/all-spectacle-frames.html">All Frames</a>.'},
                 {'q': 'Are frames suitable for all ages?', 'a': 'Yes \u2014 frames come in lens widths from 42mm to 58mm+, suitable for teens through adults. Use the size guide to find the right fit.'},
                 {'q': 'Can I order prescription sunglasses?', 'a': f'Yes. Select any frame and add Polarized lenses ({c}800/\u20ac10) or Photochromic lenses (from {c}350/\u20ac10) to create prescription sunglasses.'},
             ]
@@ -6531,6 +6555,7 @@ def api_tryon_frames():
         WHERE product_category = 'Spectacles Frame'
         AND product_image IS NOT NULL AND product_image != ''
         AND product_quantity > 0
+    """ + catalogue_site_filter() + """
         ORDER BY RAND()
         LIMIT 12
     """)
@@ -6731,7 +6756,7 @@ def api_tryon_matching_frames():
         AND product_quantity > 0
         AND product_size IS NOT NULL AND product_size != ''
         AND product_size REGEXP '^[0-9]+-[0-9]+-[0-9]+$'
-    """)
+    """ + catalogue_site_filter())
     rows = cursor.fetchall()
     
     matching = []

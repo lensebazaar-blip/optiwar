@@ -113,7 +113,7 @@
       "recommended_styles": [
         "Rectangle",
         "Square",
-        "Clubmaster",
+        "Browline",
         "Round"
       ],
       "notes": "Oval faces suit most frame shapes. Avoid frames that are too large or too small for your face width."
@@ -124,7 +124,7 @@
       "recommended_styles": [
         "Rectangle",
         "Square",
-        "Clubmaster"
+        "Browline"
       ],
       "avoid_styles": [
         "Round"
@@ -153,9 +153,9 @@
         "Supra"
       ],
       "avoid_styles": [
-        "Clubmaster"
+        "Browline"
       ],
-      "notes": "Light, thin frames or rimless balance the wider forehead. Avoid heavy top-bar styles (Clubmaster) that widen the upper face."
+      "notes": "Light, thin frames or rimless balance the wider forehead. Avoid heavy top-bar styles (Browline) that widen the upper face."
     },
     {
       "face_shape": "oblong",
@@ -163,7 +163,7 @@
       "recommended_styles": [
         "Square",
         "Rectangle",
-        "Clubmaster"
+        "Browline"
       ],
       "avoid_styles": [
         "Rimless"

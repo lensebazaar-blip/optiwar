@@ -358,6 +358,7 @@ def recommend_frame():
                 'round': 'product_category_round',
                 'square': 'product_category_square',
                 'clubmaster': 'product_category_clubmaster',
+                'browline': 'product_category_clubmaster',
                 'supra': 'product_category_supra',
                 'rimless': None,  # no column for rimless
             }
@@ -381,7 +382,7 @@ def recommend_frame():
         for row in rows:
             shapes = []
             for cat_name, col in [('Rectangle', 'product_category_rectangle'), ('Round', 'product_category_round'),
-                                   ('Square', 'product_category_square'), ('Clubmaster', 'product_category_clubmaster'),
+                                   ('Square', 'product_category_square'), ('Browline', 'product_category_clubmaster'),
                                    ('Supra', 'product_category_supra'), ('Oval', 'product_category_oval')]:
                 if row.get(col):
                     shapes.append(cat_name)

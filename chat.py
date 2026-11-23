@@ -19,6 +19,7 @@ from flask import (
 )
 from werkzeug.utils import secure_filename
 
+from . import brand_compliance
 from . import catalogue
 from . import lens_prompt
 from .catalogue import catalogue_site_filter
@@ -179,6 +180,9 @@ def _build_catalog_prompt():
         # built from the database through the release gate; .in has none at all.
         if (p.get('category') or '') == 'Contact Lenses':
             continue
+        # A frame held off sale for a trademark reason is never offered.
+        if brand_compliance.is_held(p.get('id')):
+            continue
         shapes = ','.join(p.get('shapes', []))
         price = p.get('sale_inr') if is_india else p.get('sale_eur')
         currency = 'INR' if is_india else 'EUR'
@@ -274,7 +278,7 @@ RULES:
 2. Keep your text reply SHORT — 2-3 sentences max. Summarize what you found in a natural, conversational way.
 3. Do NOT list individual products with their specs, codes, colors, sizes, or prices in your text. The product cards handle that display.
 4. For product searches, pick the top 3-6 best matches and put ONLY their numeric IDs at the END of your message: [PRODUCTS:id1,id2,id3]
-5. Good example: "I found some great blue clubmaster frames for you! Here are our top picks:" followed by [PRODUCTS:61,62,63]
+5. Good example: "I found some great blue browline frames for you! Here are our top picks:" followed by [PRODUCTS:61,62,63]
 6. BAD example (NEVER do this): listing products in a table or bullet points with codes, colors, sizes, prices — this creates an ugly, unreadable dump.
 7. For policy/shipping/lens questions, use the knowledge base. Be concise.
 8. If asked about prescriptions, explain SPH, CYL, AXIS, ADD, PD briefly and mention the upload button.

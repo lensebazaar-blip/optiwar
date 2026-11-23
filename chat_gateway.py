@@ -19,6 +19,7 @@ from openai import OpenAI
 from . import acr
 from . import ai_language
 from . import cart_lookup
+from . import brand_compliance
 from . import catalogue
 from . import chat_attachments
 from . import chat_image
@@ -291,7 +292,8 @@ def _build_catalog_summary(is_india=False):
     so it can formulate search_products() tool calls."""
     catalog = _load_catalog()
     products = catalog.get('products', [])
-    in_stock = [p for p in products if p.get('qty', 0) > 0]
+    in_stock = [p for p in products if p.get('qty', 0) > 0
+                and not brand_compliance.is_held(p.get('id'))]
 
     if not in_stock:
         return ''
@@ -339,7 +341,8 @@ def _search_catalog(color=None, shape=None, facefit=None, min_price=None, max_pr
     """Search the in-memory catalog with filters. Returns list of matching products."""
     catalog = _load_catalog()
     products = catalog.get('products', [])
-    in_stock = [p for p in products if p.get('qty', 0) > 0]
+    in_stock = [p for p in products if p.get('qty', 0) > 0
+                and not brand_compliance.is_held(p.get('id'))]
 
     price_key = 'sale_inr' if is_india else 'sale_eur'
     results = []
@@ -356,8 +359,10 @@ def _search_catalog(color=None, shape=None, facefit=None, min_price=None, max_pr
 
         # Shape filter
         if shape:
-            p_shapes = [s.lower() for s in (p.get('shapes') or [])]
-            if shape.lower() not in p_shapes:
+            # Old style names still find the renamed shapes.
+            alias = {'clubmaster': 'browline', 'wayfarer': 'classicsquare'}
+            p_shapes = [alias.get(s.lower(), s.lower()) for s in (p.get('shapes') or [])]
+            if alias.get(shape.lower(), shape.lower()) not in p_shapes:
                 continue
 
         # Facefit filter
@@ -427,7 +432,7 @@ SEARCH_PRODUCTS_TOOL = [
                     },
                     "shape": {
                         "type": "string",
-                        "description": "Frame shape filter. Values: rectangle, oval, round, square, wayfarer, aviator, cateye, clubmaster, panto, kids, supra, rimless, horn, browline"
+                        "description": "Frame shape filter. Values: rectangle, oval, round, square, classicsquare, aviator, cateye, browline, panto, kids, supra, rimless, horn"
                     },
                     "facefit": {
                         "type": "string",
@@ -1166,7 +1171,7 @@ RULES:
     - For FRAMES with filters: [ACTION:NAVIGATE:/eyeglasses/all-spectacle-frames.html?PARAMS] — The ONLY valid URL params are: color, facefit, shape. NO other params (temple, pd, width, size, etc.) are supported.
       Valid color values: red/blue/black/green/brown/gold/silver/pink/purple/white/orange/yellow/transparent
       Valid facefit values: small/medium/large/extra+large (map from face_width: <128mm=small, 128-138mm=medium, 138-148mm=large, >148mm=extra+large)
-      Valid shape values: round/rectangle/square/aviator/cateye/oval/clubmaster/wayfarer/kids/panto/supra/quatra/rimless
+      Valid shape values: round/rectangle/square/aviator/cateye/oval/browline/classicsquare/kids/panto/supra/quatra/rimless. Never call a frame Clubmaster, Wayfarer or any other brand's model name; say browline or classic square
       Example: customer has face_width 134mm and wants pink frames → [ACTION:NAVIGATE:/eyeglasses/all-spectacle-frames.html?facefit=medium&color=pink]
     - For LENSES page: [ACTION:NAVIGATE:/lenses]
     - When recommending frames, ALWAYS end with "Would you like me to take you there?" and include the navigate action with color + facefit filters based on the customer's request and measurements.
