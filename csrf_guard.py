@@ -90,6 +90,8 @@ BEARER_EXEMPT_ENDPOINTS = {
     "main.frame_offer_create",
     "main.frame_offer_settled",
     "main.frame_offer_mark",
+    "main.ops_customers_create",
+    "main.ops_customers_face_scan_request",
 }
 
 

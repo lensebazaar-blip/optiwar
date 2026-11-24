@@ -85,6 +85,17 @@ def _app(enforce=True):
         if not _ops_auth():
             return jsonify(reached=True), 401
 
+    @bp.route("/ops/api/customers", methods=["POST"])
+    def ops_customers_create():
+        if not _ops_auth():
+            return jsonify(reached=True), 401
+
+    @bp.route("/ops/api/customers/<customer_id>/face-scan-request",
+              methods=["POST"])
+    def ops_customers_face_scan_request(customer_id):
+        if not _ops_auth():
+            return jsonify(reached=True), 401
+
     @bp.route("/razorpay/verify", methods=["POST"])
     def razorpay_verify():
         return jsonify(reached=True), 200
@@ -238,6 +249,37 @@ class WebhookReachabilityTests(unittest.TestCase):
                     self.assertEqual(response.status_code, 403)
             self.assertEqual(app.config["ops_auth_calls"], [])
 
+    def test_ops_customer_posts_bypass_origin_guard_only_with_bearer(self):
+        routes = (
+            ("/ops/api/customers", "main.ops_customers_create"),
+            ("/ops/api/customers/12/face-scan-request",
+             "main.ops_customers_face_scan_request"),
+        )
+        for _path, endpoint in routes:
+            self.assertIn(endpoint, BEARER_EXEMPT_ENDPOINTS)
+
+        app = _app()
+        with app.test_client() as c:
+            for path, endpoint in routes:
+                with self.subTest(path=path, authorization="Bearer"):
+                    response = c.post(
+                        path, data="{}", content_type="application/json",
+                        base_url=BASE,
+                        headers={"Authorization": "Bearer x",
+                                 "Origin": "https://evil.example"})
+                    self.assertEqual(response.status_code, 401)
+                    self.assertEqual(app.config["ops_auth_calls"][-1], endpoint)
+
+            app.config["ops_auth_calls"].clear()
+            for path, _endpoint in routes:
+                with self.subTest(path=path, authorization="missing"):
+                    response = c.post(
+                        path, data="{}", content_type="application/json",
+                        base_url=BASE,
+                        headers={"Origin": "https://evil.example"})
+                    self.assertEqual(response.status_code, 403)
+            self.assertEqual(app.config["ops_auth_calls"], [])
+
     def test_every_ops_api_post_route_accepts_a_bearer_call_with_no_origin(self):
         route_pattern = re.compile(
             r'^[ \t]*@bp\.route\(\s*["\']([^"\']+)["\']'
@@ -257,7 +299,7 @@ class WebhookReachabilityTests(unittest.TestCase):
                 path = prefix.rstrip("/") + path
                 if path.startswith("/ops/api/"):
                     routes.append((path, "%s.%s" % (blueprint, view)))
-        self.assertGreaterEqual(len(routes), 23)
+        self.assertGreaterEqual(len(routes), 25)
         missing = {endpoint for _, endpoint in routes
                    if endpoint not in BEARER_EXEMPT_ENDPOINTS}
         self.assertEqual(missing - KNOWN_UNEXEMPTED, set())

@@ -44,6 +44,7 @@ class DeployMigrationTest(unittest.TestCase):
         self.fsg = self.deploy.face_scan_groups_module()
         self.fc = self.deploy.face_cart_module()
         self.fav = self.deploy.favorites_module()
+        self.opc = self.deploy.ops_customers_module()
         self.rs = self.deploy.reship_module()
         self.rx_docs = self.deploy.order_rx_documents_module()
         self.ipn = self.deploy.ip_notice_module()
@@ -70,6 +71,7 @@ class DeployMigrationTest(unittest.TestCase):
         expected += ["%s (table)" % n for n, _d in self.fp.TABLES]
         expected += ["order_face_scan_choice (table)"]
         expected += ["%s (table)" % n for n, _d in self.fsi.TABLES]
+        expected += ["%s (table)" % n for n, _d in self.opc.TABLES]
         expected += ["%s (table)" % n for n, _d in self.fsg.TABLES]
         expected += ["%s (table)" % n for n, _d in self.fc.TABLES]
         expected += ["%s (table)" % n for n, _d in self.fav.TABLES]
@@ -165,6 +167,18 @@ class DeployMigrationTest(unittest.TestCase):
         self.assertEqual(smoke[1:], (
             "https://optiwar.in/ops/api/orders/SMOKE-0/frame-offer", 401,
             "POST", "Authorization: Bearer smoke-not-a-token"))
+
+    def test_ops_customer_files_and_smoke_are_deployable(self):
+        for path in ("ops_customers.py", "ops_customers_api.py",
+                     "templates/set_password.html"):
+            self.assertIn(path, self.deploy.DEPLOY_SET)
+            self.assertIn(path, self.deploy.NEW_IN_RELEASE)
+        self.assertIn("templates/login.html", self.deploy.DEPLOY_SET)
+        smoke = next(row for row in self.deploy.SMOKE
+                     if row[0] == "ops customer create rejects anonymous")
+        self.assertEqual(smoke[1:], (
+            "https://optiwar.in/ops/api/customers", 401, "POST",
+            "Authorization: Bearer smoke-not-a-token"))
 
     def test_the_catalogue_columns_are_the_ones_catalogue_ensures(self):
         """Read out of the source rather than imported, because catalogue.py

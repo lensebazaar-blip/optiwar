@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block title %}New OW Customer{% endblock %}
+{% block content %}
+<section class="ow-customer-page">
+    <header class="oc-header">
+        <div>
+            <span class="oc-eyebrow">OPTIWAR CUSTOMER CARE</span>
+            <h1>New OW Customer</h1>
+            <p>Create a customer account with a seven-day temporary password.</p>
+        </div>
+    </header>
+
+    {% if error %}
+    <div class="oc-alert oc-alert-error" role="alert">{{ error }}</div>
+    {% endif %}
+
+    {% if matches %}
+    <section class="oc-card oc-duplicates">
+        <div class="oc-card-heading">
+            <div><span class="oc-eyebrow">POSSIBLE DUPLICATE</span>
+                <h2>Use an existing customer</h2></div>
+            <span class="oc-count">{{ matches|length }} match{% if matches|length != 1 %}es{% endif %}</span>
+        </div>
+        <p>Nothing has been created. Open the correct account to send a face-scan request.</p>
+        <div class="oc-match-list">
+            {% for item in matches %}
+            <article class="oc-match">
+                <div>
+                    <strong>{{ item.name }}</strong>
+                    <span>OW-{{ item.customer_id }}</span>
+                    <small>{{ item.email or 'No email' }} · {{ item.phone or 'No phone' }}</small>
+                </div>
+                <a class="oc-button oc-button-secondary"
+                   href="{{ base }}/ow-customers/{{ item.customer_id }}">Use this customer</a>
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+    {% else %}
+    <div class="oc-layout">
+        <section class="oc-card">
+            <span class="oc-eyebrow">STEP 1 · CUSTOMER DETAILS</span>
+            <h2>Create an account</h2>
+            <form method="post" action="{{ base }}/ow-customers/preview"
+                  data-submit-lock>
+                <label for="customer-name">Customer name</label>
+                <input id="customer-name" name="name" value="{{ form_data.name or '' }}"
+                       minlength="2" maxlength="120" autocomplete="name" required>
+                <label for="customer-email">Email address</label>
+                <input id="customer-email" name="email" type="email"
+                       value="{{ form_data.email or '' }}" autocomplete="email" required>
+                <label for="customer-phone">WhatsApp number</label>
+                <input id="customer-phone" name="phone" type="tel"
+                       value="{{ form_data.phone or '+91 ' }}" placeholder="+91 98765 43210"
+                       autocomplete="tel" required>
+                <fieldset class="oc-channels">
+                    <legend>Face-scan request channels</legend>
+                    <label><input type="checkbox" name="channels" value="email" checked>
+                        Email</label>
+                    <label><input type="checkbox" name="channels" value="whatsapp" checked>
+                        WhatsApp</label>
+                    <small>Choose channels for “Create + send face scan”. Only the saved customer contacts are used.</small>
+                </fieldset>
+                <div class="oc-actions">
+                    <button class="oc-button oc-button-secondary" name="intent" value="create"
+                            type="submit">Create customer</button>
+                    <button class="oc-button oc-button-primary" name="intent"
+                            value="create_and_scan" type="submit">Create + send face scan</button>
+                </div>
+            </form>
+        </section>
+
+        <section class="oc-card oc-search">
+            <span class="oc-eyebrow">EXISTING ACCOUNTS</span>
+            <h2>Find a customer</h2>
+            <p>Search by customer ID, name, email or phone. Nothing is sent until you confirm.</p>
+            <label for="customer-search">Search Optiwar customers</label>
+            <input id="customer-search" type="search" placeholder="Name, email, phone or ID"
+                   autocomplete="off">
+            <div id="customer-search-results" class="oc-search-results" aria-live="polite"></div>
+        </section>
+    </div>
+    {% endif %}
+</section>
+
+<style>
+.ow-customer-page { max-width: 1120px; margin: 0 auto; padding: 12px 0 36px; color: #242335; }
+.oc-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:22px; }
+.oc-header h1 { margin:6px 0; font-size:30px; }
+.oc-header p,.oc-card p { color:#6b6a78; margin:4px 0 16px; line-height:1.5; }
+.oc-eyebrow { color:#7059d6; font-size:10px; font-weight:800; letter-spacing:1.3px; }
+.oc-layout { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(290px,.85fr); gap:18px; align-items:start; }
+.oc-card { background:#fff; border:1px solid #e8e6f0; border-radius:16px; padding:22px;
+    box-shadow:0 8px 28px rgba(37,28,76,.05); }
+.oc-card h2 { margin:7px 0 16px; font-size:20px; }
+.oc-card label { display:block; margin:14px 0 6px; font-size:13px; font-weight:700; }
+.oc-card input[type=text],.oc-card input[type=email],.oc-card input[type=tel],
+.oc-card input[type=search] { width:100%; box-sizing:border-box; border:1px solid #d9d7e2;
+    border-radius:9px; padding:12px 13px; font-size:15px; background:#fff; }
+.oc-channels { border:0; padding:0; margin:20px 0 0; display:flex; flex-wrap:wrap; gap:12px 22px; }
+.oc-channels legend { margin-bottom:8px; font-size:13px; font-weight:700; }
+.oc-channels label { display:flex; align-items:center; gap:7px; margin:0; font-weight:500; }
+.oc-channels small { flex-basis:100%; color:#777584; line-height:1.4; }
+.oc-actions { display:flex; flex-wrap:wrap; gap:9px; margin-top:22px; }
+.oc-button { display:inline-flex; justify-content:center; align-items:center; border:0; border-radius:9px;
+    padding:11px 15px; font-size:13px; font-weight:700; text-decoration:none; cursor:pointer; }
+.oc-button-primary { color:#fff; background:#6047dc; }
+.oc-button-secondary { color:#4536a6; background:#efedff; }
+.oc-button[disabled] { opacity:.6; cursor:wait; }
+.oc-search-results { display:grid; gap:9px; margin-top:12px; }
+.oc-result { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px;
+    border:1px solid #eceaf2; border-radius:10px; background:#fcfbff; }
+.oc-result strong,.oc-result small { display:block; }
+.oc-result small { margin-top:4px; color:#777584; }
+.oc-alert { padding:12px 15px; border-radius:10px; margin:0 0 16px; }
+.oc-alert-error { color:#8d2929; border:1px solid #f2c6c6; background:#fff3f3; }
+.oc-duplicates > p { margin-bottom:12px; }
+.oc-card-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.oc-card-heading h2 { margin-bottom:4px; }
+.oc-count { padding:5px 9px; border-radius:20px; background:#fff3db; color:#8c5710; font-size:12px; }
+.oc-match-list { display:grid; gap:9px; }
+.oc-match { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:13px;
+    border:1px solid #eae8f0; border-radius:11px; }
+.oc-match strong,.oc-match small { display:block; }
+.oc-match span { display:inline-block; margin-left:8px; color:#706d7b; font-size:12px; }
+.oc-match small { margin-top:5px; color:#777584; }
+@media(max-width:760px) { .oc-layout { grid-template-columns:1fr; } .oc-header h1 {font-size:25px;}
+    .oc-card {padding:17px;} .oc-match {align-items:flex-start; flex-direction:column;}
+    .oc-actions .oc-button {flex:1 1 100%;} }
+</style>
+<script>
+(function() {
+    var input = document.getElementById("customer-search");
+    var results = document.getElementById("customer-search-results");
+    if (!input || !results) return;
+    var timer;
+    input.addEventListener("input", function() {
+        clearTimeout(timer);
+        timer = setTimeout(searchCustomers, 180);
+    });
+    async function searchCustomers() {
+        var query = input.value.trim();
+        results.replaceChildren();
+        if (query.length < 2) return;
+        var loading = document.createElement("p");
+        loading.textContent = "Searching…";
+        results.appendChild(loading);
+        try {
+            var response = await fetch("{{ base }}/ow-new-order/api/customers?q=" +
+                encodeURIComponent(query), {headers: {"Accept": "application/json"}});
+            var rows = await response.json();
+            results.replaceChildren();
+            if (!Array.isArray(rows) || !rows.length) {
+                var empty = document.createElement("p");
+                empty.textContent = "No matching customers.";
+                results.appendChild(empty);
+                return;
+            }
+            rows.forEach(function(row) {
+                var card = document.createElement("article");
+                card.className = "oc-result";
+                var details = document.createElement("div");
+                var name = document.createElement("strong");
+                name.textContent = row.customer_name || "Optiwar customer";
+                var contact = document.createElement("small");
+                contact.textContent = "OW-" + row.customer_id + " · " +
+                    (row.customer_email || "No email") + " · " +
+                    (row.customer_phone || "No phone");
+                details.append(name, contact);
+                var link = document.createElement("a");
+                link.className = "oc-button oc-button-secondary";
+                link.href = "{{ base }}/ow-customers/" + encodeURIComponent(row.customer_id);
+                link.textContent = "Send face scan";
+                card.append(details, link);
+                results.appendChild(card);
+            });
+        } catch (error) {
+            results.replaceChildren();
+            var failed = document.createElement("p");
+            failed.textContent = "Customer search is unavailable. Try again.";
+            results.appendChild(failed);
+        }
+    }
+})();
+document.querySelectorAll("[data-submit-lock]").forEach(function(form) {
+    form.addEventListener("submit", function() {
+        form.querySelectorAll("button[type=submit]").forEach(function(button) {
+            button.disabled = true;
+            button.textContent = "Preparing preview…";
+        });
+    });
+});
+</script>
+{% endblock %}

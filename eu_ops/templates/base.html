@@ -22,6 +22,7 @@
             <li><a href="{{ base }}/returns" class="{% if request.url.path.endswith('/returns') %}active{% endif %}">↩ OW Returns{% if reship_ready %} <span style="background:#c0392b;color:#fff;border-radius:10px;padding:0 7px;font-size:11px;font-weight:700;" title="reship PAID — ready to ship">{{ reship_ready }}</span>{% endif %}</a></li>
             <li><a href="{{ base }}/reverse-pickups" class="{% if request.url.path.endswith('/reverse-pickups') %}active{% endif %}">🔄 Reverse Pickups{% if rp_open %} <span style="background:#7c3aed;color:#fff;border-radius:10px;padding:0 7px;font-size:11px;font-weight:700;" title="waiting on an Ops action (inspect / refund / forward dispatch / exception)">{{ rp_open }}</span>{% endif %}</a></li>
             <li><a href="{{ base }}/ow-new-order" class="{% if '/ow-new-order' in request.url.path %}active{% endif %}">🛒 New OW Order</a></li>
+            <li><a href="{{ base }}/ow-customers/new" class="{% if '/ow-customers' in request.url.path %}active{% endif %}">👤 New OW Customer</a></li>
             <li><a href="{{ base }}/manual-ship" class="{% if '/manual-ship' in request.url.path %}active{% endif %}">📦 Manual DTDC Ship</a></li>
             {% if user.role == 'admin' %}
             <li><a href="{{ base }}/approvals" class="{% if '/approvals' in request.url.path %}active{% endif %}">Approvals</a></li>
