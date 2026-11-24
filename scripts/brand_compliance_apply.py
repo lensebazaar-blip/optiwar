@@ -69,11 +69,31 @@ def _load_rows(cursor):
     return list(cursor.fetchall() or ())
 
 
-def _changes(row, relist_ready=True):
+def _previous_stock_updates(restore_dir):
+    try:
+        names = os.listdir(restore_dir)
+    except FileNotFoundError:
+        return set()
+    product_ids = set()
+    for name in names:
+        if (not name.startswith("brand_compliance_restore_")
+                or not name.endswith(".json")):
+            continue
+        path = os.path.join(restore_dir, name)
+        with open(path, encoding="utf-8") as stream:
+            record = json.load(stream)
+        for product_id, changes in record.get("updates", {}).items():
+            if "product_quantity" in changes:
+                product_ids.add(int(product_id))
+    return product_ids
+
+
+def _changes(row, relist_ready=True, stock_already_applied=False):
     product_id = int(row["product_id"])
     changes = {}
     stock = brand_compliance.STOCK_SET.get(product_id)
-    if stock and row.get("product_quantity") is not None:
+    if (stock and not stock_already_applied
+            and row.get("product_quantity") is not None):
         if int(row["product_quantity"]) == stock["from"]:
             changes["product_quantity"] = stock["to"]
     if product_id in brand_compliance.blocked_ids():
@@ -390,6 +410,7 @@ def run(db, args, image_root=None, quarantine_base=None, restore_dir=None,
     quarantine_base = quarantine_base or QUARANTINE_BASE
     restore_dir = restore_dir or RESTORE_DIR
     round1_restore = round1_restore or ROUND1_RESTORE
+    previous_stock_updates = _previous_stock_updates(restore_dir)
     cursor = db.cursor()
     moved = []
     copied = []
@@ -484,7 +505,13 @@ def run(db, args, image_root=None, quarantine_base=None, restore_dir=None,
         for row in rows:
             product_id = int(row["product_id"])
             plan = republish[product_id]
-            changes = _changes(row, relist_ready=plan["ready"])
+            stock = brand_compliance.STOCK_SET.get(product_id)
+            stock_already_applied = product_id in previous_stock_updates
+            if stock and stock_already_applied:
+                print("STOCK ALREADY APPLIED %s" % stock["sku"])
+            changes = _changes(
+                row, relist_ready=plan["ready"],
+                stock_already_applied=stock_already_applied)
             if (plan["ready"] and plan["image_value"] is not None
                     and plan["image_value"] != (row.get("product_image") or "")):
                 changes["product_image"] = plan["image_value"]
@@ -502,8 +529,8 @@ def run(db, args, image_root=None, quarantine_base=None, restore_dir=None,
                 summary["seo_scrubbed"] += 1
             if "product_quantity" in changes:
                 summary["stock_updates"] += 1
-            stock = brand_compliance.STOCK_SET.get(product_id)
-            if stock and row.get("product_quantity") is not None:
+            if (stock and not stock_already_applied
+                    and row.get("product_quantity") is not None):
                 quantity = int(row["product_quantity"])
                 if quantity not in (stock["from"], stock["to"]):
                     print("STOCK GUARD SKIP %s product_quantity=%s expected=%s" % (

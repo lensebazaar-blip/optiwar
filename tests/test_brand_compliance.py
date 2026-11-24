@@ -617,6 +617,45 @@ class ApplyScriptTest(unittest.TestCase):
                 "product_quantity" in sql and "order_status" not in sql
                 for sql, _ in restore_db.cursor_obj.queries))
 
+    def test_stock_set_skips_a_quantity_recorded_in_a_prior_restore(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image_root = Path(tmp) / "static"
+            quarantine = Path(tmp) / "quarantine"
+            restore_dir = Path(tmp) / "restore"
+            restore_dir.mkdir()
+            prior_restore = restore_dir / "brand_compliance_restore_prior.json"
+            prior_restore.write_text(
+                json.dumps({"updates": {"225": {"product_quantity": 1}}}))
+            row = _row(225, "BQ49", product_quantity=1)
+
+            dry_output = io.StringIO()
+            with patch.object(
+                    apply_script, "_load_rows",
+                    return_value=[row, _already_named_photo_remove_row()]), \
+                    redirect_stdout(dry_output):
+                apply_script.run(
+                    _DB(), types.SimpleNamespace(apply=False, quarantine=False),
+                    str(image_root), str(quarantine), str(restore_dir))
+            self.assertIn("STOCK ALREADY APPLIED BQ49", dry_output.getvalue())
+            self.assertIn("stock updates=0", dry_output.getvalue())
+
+            db = _DB()
+            with patch.object(
+                    apply_script, "_load_rows",
+                    return_value=[row, _already_named_photo_remove_row()]):
+                apply_script.run(
+                    db, types.SimpleNamespace(apply=True, quarantine=True),
+                    str(image_root), str(quarantine), str(restore_dir))
+            self.assertFalse(any(
+                "product_quantity" in sql
+                for sql, _ in db.cursor_obj.queries))
+            new_restore = next(
+                path for path in restore_dir.glob("brand_compliance_restore_*.json")
+                if path != prior_restore)
+            record = json.loads(new_restore.read_text())
+            self.assertNotIn(
+                "product_quantity", record["updates"].get("225", {}))
+
     def test_released_frame_republishes_relists_scrubs_seo_and_restores(self):
         with tempfile.TemporaryDirectory() as tmp:
             image_root = Path(tmp) / "static"
