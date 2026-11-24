@@ -422,6 +422,23 @@ class LoginOtpTest(unittest.TestCase):
                          base_url="https://optiwar.com")
         self.assertEqual(self.db.otps[otp_id]["attempts"], 0)
 
+    def test_otp_expires_if_customer_phone_changes_before_verification(self):
+        self.add_customer()
+        self.request_code()
+        otp_id = next(iter(self.db.otps))
+        code = self.current_code()
+        self.db.customers[1]["customer_phone"] = "+919999999999"
+        response = self.client.post(
+            "/login/whatsapp/verify", data={"code": code},
+            base_url="https://optiwar.com")
+        self.assertEqual(response.status_code, 302)
+        self.assertIsNotNone(self.db.otps[otp_id]["used_at"])
+        with self.client.session_transaction(base_url="https://optiwar.com") as session:
+            self.assertNotIn("user_id", session)
+            self.assertNotIn("_wa_login_otp_id", session)
+            self.assertIn("This code has expired. Request a new one.",
+                          [message for _category, message in session.get("_flashes", [])])
+
     def test_expired_temp_password_is_refused(self):
         self.add_customer()
         self.db.temp_passwords[1] = {

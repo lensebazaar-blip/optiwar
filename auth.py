@@ -446,6 +446,12 @@ def verify_whatsapp_otp():
     user = cursor.fetchone()
     if not user:
         return _otp_redirect("This code has expired. Request a new one.", "danger")
+    try:
+        current_phone = ops_customers.normalize_phone(user.get("customer_phone"))
+    except ops_customers.CustomerError:
+        current_phone = None
+    if current_phone != otp.get("phone"):
+        return _otp_redirect("This code has expired. Request a new one.", "danger")
     _complete_login(cursor, user)
     current_app.logger.info(
         "[%s] ACTIVITY:LOGIN_WA_OTP user:%s", request.host, user["customer_id"])
