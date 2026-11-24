@@ -51,6 +51,10 @@ class FakeCursor:
             row = self.db.temp_passwords.get(int(params[0]))
             self.rows = [{"expires_at": row["expires_at"]}] if row else []
             return
+        if sql.startswith("SELECT customer_id FROM customer_temp_passwords"):
+            row = self.db.temp_passwords.get(int(params[0]))
+            self.rows = [{"customer_id": params[0]}] if row else []
+            return
         if sql.startswith("SELECT COUNT(*) AS n FROM customer_login_otps"):
             value = params[0]
             if "WHERE phone=%s" in sql:
@@ -453,6 +457,29 @@ class LoginOtpTest(unittest.TestCase):
             self.db.customers[1]["customer_password"], "new-password-123"))
         with self.client.session_transaction(base_url="https://optiwar.com") as session:
             self.assertNotIn("must_set_password", session)
+
+    def test_stale_temp_password_session_clears_flag_without_changing_password(self):
+        self.add_customer()
+        old_hash = self.db.customers[1]["customer_password"]
+        for method in ("GET", "POST"):
+            with self.client.session_transaction(
+                    base_url="https://optiwar.com") as session:
+                session["user_id"] = 1
+                session["must_set_password"] = True
+            if method == "GET":
+                response = self.client.get(
+                    "/set-password", base_url="https://optiwar.com")
+            else:
+                response = self.client.post(
+                    "/set-password",
+                    data={"password": "changed-password", "confirm_password": "changed-password"},
+                    base_url="https://optiwar.com")
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.location, "/")
+            self.assertEqual(self.db.customers[1]["customer_password"], old_hash)
+            with self.client.session_transaction(
+                    base_url="https://optiwar.com") as session:
+                self.assertNotIn("must_set_password", session)
 
     def test_forgot_password_reset_deletes_temp_password_record(self):
         self.add_customer()

@@ -267,6 +267,15 @@ def set_password():
         return redirect(url_for('auth.login'))
     if not session.get('must_set_password'):
         return redirect(url_for('main.index'))
+    from . import ops_customers
+    db = get_db()
+    ops_customers.ensure_schema(db)
+    cursor = db.cursor()
+    cursor.execute("SELECT customer_id FROM customer_temp_passwords "
+                   "WHERE customer_id=%s", (session['user_id'],))
+    if not cursor.fetchone():
+        session.pop('must_set_password', None)
+        return redirect(url_for('main.index'))
     if request.method == 'POST':
         password = request.form.get('password', '')
         confirmation = request.form.get('confirm_password', '')
@@ -277,10 +286,6 @@ def set_password():
             flash('Passwords do not match.', 'danger')
             return render_template('set_password.html')
 
-        from . import ops_customers
-        db = get_db()
-        ops_customers.ensure_schema(db)
-        cursor = db.cursor()
         cursor.execute("UPDATE customers SET customer_password=%s "
                        "WHERE customer_id=%s",
                        (generate_password_hash(password), session['user_id']))
