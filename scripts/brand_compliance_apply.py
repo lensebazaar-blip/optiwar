@@ -255,9 +255,9 @@ def _republish_plan(row, image_root, quarantine_base, record):
             targets.append(target_relative)
             continue
 
-        source = _find_quarantined(relative, quarantine_base, record)
-        if not source and os.path.isfile(public_source):
-            source = public_source
+        source = public_source if os.path.isfile(public_source) else None
+        if not source:
+            source = _find_quarantined(relative, quarantine_base, record)
         if not source:
             missing.append({
                 "relative_path": relative,

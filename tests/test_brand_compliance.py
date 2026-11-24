@@ -682,7 +682,7 @@ class ApplyScriptTest(unittest.TestCase):
                     str(image_root), str(quarantine), str(restore_dir),
                     str(round1_restore))
             published = image_root / "catalog" / "r2" / "AB85" / "AB85_r2_01.jpg"
-            self.assertEqual(published.read_bytes(), b"AB85 frame")
+            self.assertEqual(published.read_bytes(), b"stale public copy")
             self.assertFalse(public_source.exists())
             self.assertFalse(public_derivative.exists())
             updates = next(
@@ -694,6 +694,8 @@ class ApplyScriptTest(unittest.TestCase):
             restore_file = next(restore_dir.glob("brand_compliance_restore_*.json"))
             record = json.loads(restore_file.read_text())
             saved = record["updates"]["696"]
+            self.assertEqual(
+                record["image_copies"][0]["source"], str(public_source))
             self.assertEqual(saved["description_seo"],
                              "%s square eyeglasses." % former)
             self.assertEqual(saved["product_image"], "./" + relative.as_posix())
