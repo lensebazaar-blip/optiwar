@@ -84,7 +84,8 @@ def catalogue_site_filter(site=None, alias=None):
     # and APIs never return them (ai_glasses.py is their only read surface).
     clause = " AND %s%s = 1 AND %sproduct_vertical <> '%s'" % (
         prefix, col, prefix, SMART_EYEWEAR)
-    held = ",".join(str(product_id) for product_id in brand_compliance.HELD)
+    held = ",".join(
+        str(product_id) for product_id in sorted(brand_compliance.blocked_ids()))
     if held:
         clause += " AND %sproduct_id NOT IN (%s)" % (prefix, held)
     return clause

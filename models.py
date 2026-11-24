@@ -1785,9 +1785,8 @@ def product_page(category, product_slug):
     product = cursor.fetchone()
     if not product:
         return "Product not found", 404
-    # A product this storefront does not sell has no page here, and says so the
-    # same way a nonexistent one does: a 403 or a redirect would confirm it
-    # exists on the other site, and the .in invariant is that it does not exist.
+    # Product access stays scoped to this storefront, except for a sold-out
+    # renamed frame's legacy slug redirect below.
     # A frame held off sale has no page, but its old address still has links
     # and a place in search results: it moves permanently to the nearest
     # category, so a visitor lands on frames they can buy and the link's value
@@ -1795,6 +1794,25 @@ def product_page(category, product_slug):
     if is_held(product) and not is_contact_lens(product):
         return redirect(_held_frame_target(product), code=301)
     if not is_product_allowed(product):
+        try:
+            sold_out = int(product.get("product_quantity")) == 0
+        except (TypeError, ValueError):
+            sold_out = False
+        if product_id in RENAMED and sold_out:
+            expected_slug = slugify(display_name(product))
+            expected_category = (
+                product["product_category"] or "spectacles-frame"
+            ).lower().replace(" ", "-")
+            if product_slug != expected_slug or category != expected_category:
+                return redirect(
+                    url_for(
+                        "main.product_page",
+                        category=expected_category,
+                        product_slug=expected_slug,
+                        pid=product_id,
+                    ),
+                    code=301,
+                )
         return "Product not found", 404
 
     expected_slug = product["product_slug"]
