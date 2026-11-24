@@ -253,6 +253,10 @@ RENAMED = {
     493: ('AA32', 'OPTIWAR Square'),
     674: ('AD87', 'OPTIWAR Square'),
     577: ('BQ79', 'OPTIWAR Half-Rim'),
+    158: ('AG23', 'OPTIWAR Rimless'),
+    571: ('BQ80', 'OPTIWAR Half-Rim'),
+    574: ('BQ78', 'OPTIWAR Half-Rim'),
+    575: ('BQ81', 'OPTIWAR Half-Rim'),
 }
 
 KEEP_ON_SALE = {1: "BB44", 362: "AK98"}
@@ -473,6 +477,10 @@ FORMER_NAMES = {
     493: 'WONDER NEW',
     674: 'WONDER NEW',
     577: 'FIRST CLASS',
+    158: 'ODYSEY',
+    571: 'FIRST CLASS',
+    574: 'FIRST CLASS',
+    575: 'FIRST CLASS',
 }
 BANNED_STYLE_WORDS = ("clubmaster", "club master", "wayfarer")
 
