@@ -15,6 +15,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 ROOT = Path(__file__).resolve().parents[1]
 _db_for_auth = None
 _sent_codes = []
+GENERIC_OTP_REPLY = (
+    "If this number matches an account, we've sent a code. Enter it below.")
 
 
 class FakeCursor:
@@ -211,8 +213,7 @@ def _test_auth():
     ops_customers.normalize_phone = normalize_phone
     ops_customers.find_customers = find_customers
     ops_customers.CustomerError = CustomerError
-    ops_customers.OTP_GENERIC_MESSAGE = (
-        "We couldn't send a code to this number. Please log in with your email.")
+    ops_customers.OTP_GENERIC_MESSAGE = GENERIC_OTP_REPLY
     sys.modules[ops_customers.__name__] = ops_customers
 
     notifications = types.ModuleType(package_name + ".notifications")
@@ -373,9 +374,54 @@ class LoginOtpTest(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(_sent_codes, [])
         with self.client.session_transaction(base_url="https://optiwar.com") as session:
-            self.assertNotIn("_wa_login_otp_id", session)
+            self.assertEqual(session["_wa_login_otp_id"], 0)
             self.assertIn(
-                "We couldn't send a code to this number. Please log in with your email.",
+                GENERIC_OTP_REPLY,
+                [message for _category, message in session.get("_flashes", [])])
+
+    def test_unmatched_phone_gets_generic_reply_and_sentinel(self):
+        response = self.request_code()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(_sent_codes, [])
+        with self.client.session_transaction(base_url="https://optiwar.com") as session:
+            self.assertEqual(session["_wa_login_otp_id"], 0)
+            self.assertIn(
+                GENERIC_OTP_REPLY,
+                [message for _category, message in session.get("_flashes", [])])
+
+    def test_invalid_phone_gets_generic_reply_and_sentinel(self):
+        response = self.request_code(phone="12")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(_sent_codes, [])
+        with self.client.session_transaction(base_url="https://optiwar.com") as session:
+            self.assertEqual(session["_wa_login_otp_id"], 0)
+            self.assertIn(
+                GENERIC_OTP_REPLY,
+                [message for _category, message in session.get("_flashes", [])])
+
+    def test_real_send_uses_same_generic_reply(self):
+        self.add_customer()
+        response = self.request_code()
+        self.assertEqual(response.status_code, 302)
+        with self.client.session_transaction(base_url="https://optiwar.com") as session:
+            self.assertIsInstance(session["_wa_login_otp_id"], int)
+            self.assertIn(
+                GENERIC_OTP_REPLY,
+                [message for _category, message in session.get("_flashes", [])])
+
+    def test_failed_send_uses_generic_reply_and_sentinel(self):
+        self.add_customer()
+        notifications = sys.modules["login_otp_test_pkg.notifications"]
+        with patch.object(notifications, "send_whatsapp_tracked",
+                          return_value={"ok": False}):
+            response = self.request_code()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(len(self.db.otps), 1)
+        self.assertIsNotNone(self.db.otps[1]["used_at"])
+        with self.client.session_transaction(base_url="https://optiwar.com") as session:
+            self.assertEqual(session["_wa_login_otp_id"], 0)
+            self.assertIn(
+                GENERIC_OTP_REPLY,
                 [message for _category, message in session.get("_flashes", [])])
 
     def test_request_is_limited_to_three_codes_per_phone_and_ip(self):
@@ -386,6 +432,43 @@ class LoginOtpTest(unittest.TestCase):
         self.request_code()
         self.assertEqual(len(_sent_codes), 3)
         self.assertEqual(len(self.db.otps), 3)
+        with self.client.session_transaction(base_url="https://optiwar.com") as session:
+            self.assertEqual(session["_wa_login_otp_id"], 0)
+            self.assertIn(
+                GENERIC_OTP_REPLY,
+                [message for _category, message in session.get("_flashes", [])])
+
+    def test_sentinel_verification_returns_generic_error_and_clears_after_five_tries(self):
+        with self.client.session_transaction(base_url="https://optiwar.com") as session:
+            session["_wa_login_otp_id"] = 0
+        for attempt in range(1, 6):
+            response = self.client.post(
+                "/login/whatsapp/verify", data={"code": "123456"},
+                base_url="https://optiwar.com")
+            self.assertEqual(response.status_code, 302)
+            with self.client.session_transaction(base_url="https://optiwar.com") as session:
+                self.assertIn(
+                    "That code is incorrect or expired.",
+                    [message for _category, message in session.get("_flashes", [])])
+                if attempt < 5:
+                    self.assertEqual(session["_wa_login_otp_id"], 0)
+                    self.assertEqual(session["_wa_login_otp_sentinel_attempts"],
+                                     attempt)
+                else:
+                    self.assertNotIn("_wa_login_otp_id", session)
+                    self.assertNotIn("_wa_login_otp_sentinel_attempts", session)
+
+    def test_missing_otp_row_uses_generic_verify_error(self):
+        with self.client.session_transaction(base_url="https://optiwar.com") as session:
+            session["_wa_login_otp_id"] = 999
+        self.client.post(
+            "/login/whatsapp/verify", data={"code": "123456"},
+            base_url="https://optiwar.com")
+        with self.client.session_transaction(base_url="https://optiwar.com") as session:
+            self.assertNotIn("_wa_login_otp_id", session)
+            self.assertIn(
+                "That code is incorrect or expired.",
+                [message for _category, message in session.get("_flashes", [])])
 
     def test_five_wrong_attempts_kill_the_code(self):
         self.add_customer()
