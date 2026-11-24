@@ -333,8 +333,8 @@ def request_whatsapp_otp():
     data = request.get_json(silent=True) or request.form
     captcha = str(data.get("captcha") or "").strip()
     expected_captcha = session.pop("captcha", None)
-    if (not expected_captcha
-            or captcha.upper() != str(expected_captcha).upper()):
+    expected_captcha = str(expected_captcha or "").strip()
+    if not expected_captcha or captcha.upper() != expected_captcha.upper():
         return _otp_redirect('Invalid CAPTCHA. Please try again.', 'danger')
     try:
         requested_phone = ops_customers.normalize_phone(data.get("phone"))

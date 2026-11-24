@@ -292,9 +292,9 @@ class LoginOtpTest(unittest.TestCase):
             "customer_password": generate_password_hash(password),
         }
 
-    def set_captcha(self):
+    def set_captcha(self, value="ABCD"):
         with self.client.session_transaction(base_url="https://optiwar.com") as session:
-            session["captcha"] = "ABCD"
+            session["captcha"] = value
 
     def request_code(self, phone="9876543210"):
         self.set_captcha()
@@ -404,9 +404,42 @@ class LoginOtpTest(unittest.TestCase):
         response = self.request_code()
         self.assertEqual(response.status_code, 302)
         with self.client.session_transaction(base_url="https://optiwar.com") as session:
+            self.assertNotIn("captcha", session)
             self.assertIsInstance(session["_wa_login_otp_id"], int)
             self.assertIn(
                 GENERIC_OTP_REPLY,
+                [message for _category, message in session.get("_flashes", [])])
+
+    def test_missing_or_empty_session_captcha_is_rejected_and_consumed(self):
+        for expected in (None, "", "   "):
+            with self.client.session_transaction(
+                    base_url="https://optiwar.com") as session:
+                if expected is not None:
+                    session["captcha"] = expected
+            response = self.client.post(
+                "/login/whatsapp/request",
+                data={"phone": "9876543210", "captcha": "ABCD"},
+                base_url="https://optiwar.com")
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(_sent_codes, [])
+            with self.client.session_transaction(
+                    base_url="https://optiwar.com") as session:
+                self.assertNotIn("captcha", session)
+                self.assertIn(
+                    "Invalid CAPTCHA. Please try again.",
+                    [message for _category, message in session.get("_flashes", [])])
+
+    def test_failed_captcha_is_consumed(self):
+        self.set_captcha()
+        response = self.client.post(
+            "/login/whatsapp/request",
+            data={"phone": "9876543210", "captcha": "wrong"},
+            base_url="https://optiwar.com")
+        self.assertEqual(response.status_code, 302)
+        with self.client.session_transaction(base_url="https://optiwar.com") as session:
+            self.assertNotIn("captcha", session)
+            self.assertIn(
+                "Invalid CAPTCHA. Please try again.",
                 [message for _category, message in session.get("_flashes", [])])
 
     def test_failed_send_uses_generic_reply_and_sentinel(self):
