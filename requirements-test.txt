@@ -3,6 +3,7 @@
 # seconds and a missing production dependency cannot be mistaken for a test
 # failure.
 Flask
+Authlib==1.5.2
 Jinja2
 requests
 # Only the MariaDB-backed tests in tests/integration need a driver; the rest of
