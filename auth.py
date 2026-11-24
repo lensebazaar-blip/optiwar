@@ -235,7 +235,11 @@ def login():
 
         current_app.logger.info(f'[{request.host}] ACTIVITY:LOGIN IP:{request.headers.get("X-Forwarded-For", request.remote_addr)} user:{session.get("user_id")} email:{email}')
         if temporary_password:
-            return redirect('/set-password')
+            next_url = (request.args.get('next') or request.form.get('next')
+                        or session.get('_login_next'))
+            if next_url and _is_safe_redirect(next_url):
+                session['_login_next'] = next_url
+            return redirect(url_for('main.set_password'))
         flash(f'Welcome back, {user["customer_name"]}!', 'success')
 
         # Redirect to intended page (cart, tryon, etc.) or homepage
@@ -294,6 +298,9 @@ def set_password():
         db.commit()
         session.pop('must_set_password', None)
         flash('Your password has been updated.', 'success')
+        next_url = session.pop('_login_next', None)
+        if next_url and _is_safe_redirect(next_url):
+            return redirect(next_url)
         return redirect(url_for('main.index'))
     return render_template('set_password.html')
 

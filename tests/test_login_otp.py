@@ -449,12 +449,13 @@ class LoginOtpTest(unittest.TestCase):
         response = self.client.post(
             "/auth/login",
             data={"email": "customer@example.com", "password": "password123",
-                  "captcha": "ABCD"},
+                  "captcha": "ABCD", "next": "/wishlist"},
             base_url="https://optiwar.com")
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.location, "/set-password")
         with self.client.session_transaction(base_url="https://optiwar.com") as session:
             self.assertTrue(session["must_set_password"])
+            self.assertEqual(session["_login_next"], "/wishlist")
         blocked = self.client.get("/json", base_url="https://optiwar.com",
                                   headers={"Accept": "application/json"})
         self.assertEqual(blocked.status_code, 403)
@@ -464,11 +465,29 @@ class LoginOtpTest(unittest.TestCase):
             data={"password": "new-password-123", "confirm_password": "new-password-123"},
             base_url="https://optiwar.com")
         self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.location, "/wishlist")
         self.assertNotIn(1, self.db.temp_passwords)
         self.assertTrue(check_password_hash(
             self.db.customers[1]["customer_password"], "new-password-123"))
         with self.client.session_transaction(base_url="https://optiwar.com") as session:
             self.assertNotIn("must_set_password", session)
+            self.assertNotIn("_login_next", session)
+
+    def test_set_password_ignores_unsafe_next_target(self):
+        self.add_customer()
+        self.db.temp_passwords[1] = {
+            "customer_id": 1, "expires_at": datetime.now() + timedelta(days=1),
+        }
+        with self.client.session_transaction(base_url="https://optiwar.com") as session:
+            session["user_id"] = 1
+            session["must_set_password"] = True
+            session["_login_next"] = "https://attacker.example/steal"
+        response = self.client.post(
+            "/set-password",
+            data={"password": "new-password-123", "confirm_password": "new-password-123"},
+            base_url="https://optiwar.com")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.location, "/")
 
     def test_stale_temp_password_session_clears_flag_without_changing_password(self):
         self.add_customer()
