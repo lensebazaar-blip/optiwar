@@ -11,6 +11,11 @@ from unittest.mock import patch
 from flask import Blueprint, Flask, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 
+try:
+    from authlib.integrations.flask_client import OAuth
+except ImportError:
+    OAuth = None
+
 
 ROOT = Path(__file__).resolve().parents[1]
 _db_for_auth = None
@@ -228,6 +233,7 @@ def _test_auth():
     return module
 
 
+@unittest.skipIf(OAuth is None, "authlib not installed")
 class LoginOtpTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
