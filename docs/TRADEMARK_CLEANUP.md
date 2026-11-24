@@ -2,9 +2,9 @@
 
 ## Scope
 
-`brand_compliance.py` is the source of truth for the 107 trademark-held products,
+`brand_compliance.py` is the source of truth for the 110 trademark-held products,
 the 20 released products, the 19 released products still pending photo approval,
-and all 129 approved replacement names. It keeps the product ID, SKU, brand
+and all 131 approved replacement names. It keeps the product ID, SKU, brand
 and hold kind together so the list can be reviewed or released one row at a
 time. IDs 1 (`BB44`) and 362 (`AK98`) are explicitly kept on sale;
 `KEEP_ON_SALE` is documentation only.
@@ -13,11 +13,21 @@ Blocked products are removed from both storefronts and customer-facing
 catalogues independently of database flags. `HELD` remains the trademark-only
 list; the effective blocked set also includes `PHOTO_PENDING`. The apply script
 sets blocked products' storefront/listing flags to zero, without changing
-`product_status`. The 129 renames use the replacement name and its slug before
+`product_status`. The 131 renames use the replacement name and its slug before
 and after the database script runs. Historical order descriptions are not
 rewritten.
 
 ## Round 2
+
+| Action | PID | SKU | Details |
+| --- | ---: | --- | --- |
+| Hold | 93 | AH69 | Tommy Hilfiger (lookalike flag) |
+| Hold | 961 | AB87 | Royal Navy; quarantine both `opticalbazaar/AB14/AB87/` and `opticalbazaar/AB87/` image families |
+| Hold | 482 | AA05 | Oppo/Vivo (oppvivo) |
+| Rename | 150 | AM85 | OPTIWAR Frame; formerly DASAULTS |
+| Rename | 154 | AM84 | OPTIWAR Frame; formerly DASAULTS |
+| Remove photos | 150 | AM85 | `AM85_2.jpg`, `AM85_4.jpg` |
+| Remove photos | 154 | AM84 | `AM84_1.jpg`, `AM84_2.jpg`, `AM84_4.jpg` |
 
 1. Review the dry run and all summary counts before applying:
    off-sale, relisted, renamed, SEO-scrubbed, photos to quarantine and photos

@@ -25,12 +25,16 @@ spec.loader.exec_module(apply_script)
 
 class ComplianceDataTest(unittest.TestCase):
     def test_settled_counts_keep_ids_and_spot_checks(self):
-        self.assertEqual(len(brand_compliance.HELD), 107)
-        self.assertEqual(len(brand_compliance.RENAMED), 129)
-        self.assertEqual(len(brand_compliance.FORMER_NAMES), 129)
+        self.assertEqual(len(brand_compliance.HELD), 110)
+        self.assertEqual(len(brand_compliance.RENAMED), 131)
+        self.assertEqual(len(brand_compliance.FORMER_NAMES), 131)
         self.assertEqual(len(brand_compliance.PHOTO_PENDING), 19)
         self.assertEqual(len(brand_compliance.RELEASED), 20)
-        self.assertEqual(brand_compliance.PHOTO_REMOVE, {335: ["AL74_4.jpg"]})
+        self.assertEqual(brand_compliance.PHOTO_REMOVE, {
+            335: ["AL74_4.jpg"],
+            150: ["AM85_2.jpg", "AM85_4.jpg"],
+            154: ["AM84_1.jpg", "AM84_2.jpg", "AM84_4.jpg"],
+        })
         self.assertEqual(brand_compliance.STOCK_SET[225]["from"], 1)
         self.assertEqual(brand_compliance.STOCK_SET[225]["to"], 0)
         self.assertEqual(brand_compliance.KEEP_ON_SALE, {1: "BB44", 362: "AK98"})
@@ -45,6 +49,18 @@ class ComplianceDataTest(unittest.TestCase):
                          "OPTIWAR Round Metal")
         self.assertEqual(brand_compliance.RENAMED[671][1],
                          "OPTIWAR Browline")
+        self.assertEqual(brand_compliance.HELD[93],
+                         ("AH69", "Tommy Hilfiger (lookalike flag)", "frame_mark"))
+        self.assertEqual(brand_compliance.HELD[961],
+                         ("AB87", "Royal Navy", "frame_mark"))
+        self.assertEqual(brand_compliance.HELD[482],
+                         ("AA05", "Oppo/Vivo (oppvivo)", "frame_mark"))
+        self.assertEqual(brand_compliance.RENAMED[150],
+                         ("AM85", "OPTIWAR Frame"))
+        self.assertEqual(brand_compliance.RENAMED[154],
+                         ("AM84", "OPTIWAR Frame"))
+        self.assertEqual(brand_compliance.FORMER_NAMES[150], "DASAULTS")
+        self.assertEqual(brand_compliance.FORMER_NAMES[154], "DASAULTS")
 
     def test_new_names_do_not_repeat_the_sku(self):
         # every page prints product_name then product_code
@@ -392,6 +408,73 @@ def _already_named_photo_remove_row():
 
 
 class ApplyScriptTest(unittest.TestCase):
+    def setUp(self):
+        self.photo_remove_patcher = patch.object(
+            apply_script.brand_compliance, "PHOTO_REMOVE",
+            {335: ["AL74_4.jpg"]})
+        self.photo_remove_patcher.start()
+        self.addCleanup(self.photo_remove_patcher.stop)
+
+    def test_ab87_quarantines_both_product_image_families(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image_root = Path(tmp) / "static"
+            quarantine_dir = Path(tmp) / "quarantine" / "timestamp"
+            first = Path("catalog/opticalbazaar/AB14/AB87/AB87_1.jpg")
+            second = Path("catalog/opticalbazaar/AB87/AB87_2.jpg")
+            relatives = [
+                first,
+                Path("catalog/opticalbazaar/AB14/AB87/derivatives/"
+                     "AB87_1-200.webp"),
+                second,
+                Path("catalog/opticalbazaar/AB87/derivatives/"
+                     "AB87_2-200.webp"),
+            ]
+            for relative in relatives:
+                path = image_root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(relative.name.encode())
+            row = _row(
+                961, "AB87",
+                product_image="./%s,./%s" % (
+                    first.as_posix(), second.as_posix()))
+
+            blocked, _ = apply_script._quarantine_plan(
+                [row], [], str(image_root), str(quarantine_dir),
+                str(quarantine_dir.parent), {"image_moves": []})
+
+            planned, already, missing = blocked
+            self.assertEqual(
+                {Path(item["source"]).relative_to(image_root).as_posix()
+                 for item in planned},
+                {path.as_posix() for path in relatives})
+            self.assertEqual(already, [])
+            self.assertEqual(missing, [])
+
+    def test_added_photo_remove_files_are_selected(self):
+        photo_remove = {
+            150: ["AM85_2.jpg", "AM85_4.jpg"],
+            154: ["AM84_1.jpg", "AM84_2.jpg", "AM84_4.jpg"],
+        }
+        with patch.object(apply_script.brand_compliance, "PHOTO_REMOVE",
+                          photo_remove):
+            for product_id, sku, filenames in (
+                    (150, "AM85", photo_remove[150]),
+                    (154, "AM84", photo_remove[154])):
+                keep = "catalog/opticalbazaar/%s/%s_keep.jpg" % (
+                    sku, sku)
+                removals = [
+                    "catalog/opticalbazaar/%s/%s" % (sku, filename)
+                    for filename in filenames]
+                row = _row(
+                    product_id, sku,
+                    product_image=",".join(
+                        ["./" + keep] + ["./" + path for path in removals]))
+
+                plan = apply_script._photo_remove_plan(row)
+
+                self.assertEqual(set(plan["paths"]), set(removals))
+                self.assertEqual(plan["image_value"], "./" + keep)
+
     def test_round_one_seo_descriptions_are_scrubbed(self):
         row = _row(
             671, "AD61", description_seo="LOUIS STYLE AD61 acetate frame.")

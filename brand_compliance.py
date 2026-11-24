@@ -111,6 +111,9 @@ HELD = {
     667: ('AB28', 'Ray-Ban (sister of AB27)', 'frame_mark'),
     685: ('AB66', 'Puma (sister)', 'frame_mark'),
     688: ('AB94', 'CAT', 'frame_mark'),
+    93: ('AH69', 'Tommy Hilfiger (lookalike flag)', 'frame_mark'),
+    961: ('AB87', 'Royal Navy', 'frame_mark'),
+    482: ('AA05', 'Oppo/Vivo (oppvivo)', 'frame_mark'),
 }
 
 # product_id: (sku, new product_name). The name carries no SKU: every page
@@ -137,6 +140,8 @@ RENAMED = {
     334: ('AL75', 'OPTIWAR Aviator'),
     331: ('AL76', 'OPTIWAR Aviator'),
     156: ('AM86', 'OPTIWAR Frame'),
+    150: ('AM85', 'OPTIWAR Frame'),
+    154: ('AM84', 'OPTIWAR Frame'),
     839: ('BH27', 'OPTIWAR Round'),
     821: ('BH38', 'OPTIWAR Rectangle'),
     818: ('BH40', 'OPTIWAR Rectangle'),
@@ -297,6 +302,8 @@ PHOTO_PENDING = {
 
 PHOTO_REMOVE = {
     335: ['AL74_4.jpg'],
+    150: ['AM85_2.jpg', 'AM85_4.jpg'],
+    154: ['AM84_1.jpg', 'AM84_2.jpg', 'AM84_4.jpg'],
 }
 
 STOCK_SET = {
@@ -333,6 +340,8 @@ FORMER_NAMES = {
     334: 'BRABUS 7803',
     331: 'BRABUS 7807',
     156: 'DASAULTS',
+    150: 'DASAULTS',
+    154: 'DASAULTS',
     839: 'UNITED COLORS',
     821: 'GAS',
     818: 'SHANGRI-LA',
