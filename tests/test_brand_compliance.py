@@ -708,6 +708,69 @@ class ApplyScriptTest(unittest.TestCase):
             self.assertTrue(quarantined_source.exists())
             self.assertEqual(restore_db.commits, 1)
 
+    def test_republish_quarantines_derivatives_when_master_is_already_quarantined(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image_root = Path(tmp) / "static"
+            quarantine = Path(tmp) / "quarantine"
+            restore_dir = Path(tmp) / "restore"
+            round1_restore = Path(tmp) / "round1.json"
+            relative = Path("catalog/opticalbazaar/AB85/AB85_1.jpg")
+            quarantined_source = quarantine / "20261123-163137" / relative
+            quarantined_source.parent.mkdir(parents=True)
+            quarantined_source.write_bytes(b"approved frame")
+            public_derivative_relative = Path(
+                "catalog/opticalbazaar/AB85/derivatives/AB85_1-200.webp")
+            public_derivative = image_root / public_derivative_relative
+            public_derivative.parent.mkdir(parents=True)
+            public_derivative.write_bytes(b"public derivative")
+            round1_restore.write_text(json.dumps({
+                "image_moves": [{
+                    "source": "/var/www/flaskr/static/" + relative.as_posix(),
+                    "quarantined": str(quarantined_source),
+                }],
+            }))
+            row = _row(
+                696, "AB85", product_name=brand_compliance.RENAMED[696][1],
+                product_slug=brand_compliance.slugify(
+                    brand_compliance.RENAMED[696][1]),
+                product_image="./" + relative.as_posix(),
+                sell_on_in=0, sell_on_com=0)
+
+            output = io.StringIO()
+            with patch.object(
+                    apply_script, "_load_rows",
+                    return_value=[row, _already_named_photo_remove_row()]), \
+                    redirect_stdout(output):
+                apply_script.run(
+                    _DB(), types.SimpleNamespace(
+                        apply=False, quarantine=False),
+                    str(image_root), str(quarantine), str(restore_dir),
+                    str(round1_restore))
+            self.assertIn(
+                "DRY RUN QUARANTINE %s -> %s" % (
+                    public_derivative,
+                    os.path.join(quarantine, "<timestamp>",
+                                 public_derivative_relative.as_posix())),
+                output.getvalue())
+
+            db = _DB()
+            with patch.object(
+                    apply_script, "_load_rows",
+                    return_value=[row, _already_named_photo_remove_row()]):
+                apply_script.run(
+                    db, types.SimpleNamespace(apply=True, quarantine=True),
+                    str(image_root), str(quarantine), str(restore_dir),
+                    str(round1_restore))
+            self.assertFalse(public_derivative.exists())
+            restore_file = next(restore_dir.glob("brand_compliance_restore_*.json"))
+            record = json.loads(restore_file.read_text())
+            self.assertEqual(len(record["image_moves"]), 1)
+            self.assertEqual(len(record["image_copies"]), 1)
+
+            apply_script.restore(
+                _DB(), str(restore_file), str(image_root), str(quarantine))
+            self.assertEqual(public_derivative.read_bytes(), b"public derivative")
+
 
 if __name__ == "__main__":
     unittest.main()

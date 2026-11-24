@@ -245,8 +245,7 @@ def _republish_plan(row, image_root, quarantine_base, record):
             continue
 
         public_source = os.path.join(image_root, relative)
-        if os.path.isfile(public_source):
-            old_public.append(relative)
+        old_public.append(relative)
 
         extension = os.path.splitext(relative)[1] or ".jpg"
         target_relative = os.path.join(
