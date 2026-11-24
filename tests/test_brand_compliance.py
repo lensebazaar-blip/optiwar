@@ -26,8 +26,8 @@ spec.loader.exec_module(apply_script)
 class ComplianceDataTest(unittest.TestCase):
     def test_settled_counts_keep_ids_and_spot_checks(self):
         self.assertEqual(len(brand_compliance.HELD), 101)
-        self.assertEqual(len(brand_compliance.RENAMED), 131)
-        self.assertEqual(len(brand_compliance.FORMER_NAMES), 131)
+        self.assertEqual(len(brand_compliance.RENAMED), 142)
+        self.assertEqual(len(brand_compliance.FORMER_NAMES), 142)
         self.assertEqual(len(brand_compliance.PHOTO_PENDING), 19)
         self.assertEqual(len(brand_compliance.RELEASED), 29)
         self.assertEqual(brand_compliance.PHOTO_REMOVE, {
@@ -49,6 +49,16 @@ class ComplianceDataTest(unittest.TestCase):
                          "OPTIWAR Round Metal")
         self.assertEqual(brand_compliance.RENAMED[671][1],
                          "OPTIWAR Browline")
+        self.assertEqual(brand_compliance.RENAMED[33],
+                         ("AM09", "OPTIWAR Geometric"))
+        self.assertEqual(brand_compliance.RENAMED[150],
+                         ("AM85", "OPTIWAR Rimless"))
+        self.assertEqual(brand_compliance.RENAMED[860],
+                         ("AG74", "OPTIWAR Frame"))
+        self.assertEqual(brand_compliance.RENAMED[46],
+                         ("AE19", "OPTIWAR Round"))
+        self.assertEqual(brand_compliance.RENAMED[577],
+                         ("BQ79", "OPTIWAR Half-Rim"))
         self.assertEqual(brand_compliance.HELD[93],
                          ("AH69", "Tommy Hilfiger (lookalike flag)", "frame_mark"))
         self.assertEqual(brand_compliance.HELD[961],
@@ -56,11 +66,14 @@ class ComplianceDataTest(unittest.TestCase):
         self.assertEqual(brand_compliance.HELD[482],
                          ("AA05", "Oppo/Vivo (oppvivo)", "frame_mark"))
         self.assertEqual(brand_compliance.RENAMED[150],
-                         ("AM85", "OPTIWAR Frame"))
+                         ("AM85", "OPTIWAR Rimless"))
         self.assertEqual(brand_compliance.RENAMED[154],
-                         ("AM84", "OPTIWAR Frame"))
-        self.assertEqual(brand_compliance.FORMER_NAMES[150], "DASAULTS")
-        self.assertEqual(brand_compliance.FORMER_NAMES[154], "DASAULTS")
+                         ("AM84", "OPTIWAR Rimless"))
+        self.assertEqual(brand_compliance.FORMER_NAMES[150],
+                         ("DASAULTS", "OPTIWAR Frame"))
+        self.assertEqual(brand_compliance.FORMER_NAMES[154],
+                         ("DASAULTS", "OPTIWAR Frame"))
+        self.assertEqual(brand_compliance.FORMER_NAMES[46], "RISE ABOVE")
 
     def test_bb_frames_are_released_and_unblocked(self):
         released = {
@@ -117,8 +130,47 @@ class ComplianceDataTest(unittest.TestCase):
         self.assertEqual(brand_compliance.scrub_text("STAR WARS BO76", 1), "STAR WARS BO76")
         self.assertIsNone(brand_compliance.scrub_text(None, 417))
         for product_id, former in brand_compliance.FORMER_NAMES.items():
-            cleaned = brand_compliance.scrub_text("%s X - frame." % former, product_id)
-            self.assertNotIn(former.lower(), cleaned.lower(), former)
+            formers = (former,) if isinstance(former, str) else former
+            for name in formers:
+                cleaned = brand_compliance.scrub_text(
+                    "%s X - frame." % name, product_id)
+                self.assertNotIn(name.lower(), cleaned.lower(), name)
+
+    def test_reshape_and_maker_renames_scrub_names_and_seo(self):
+        reshape = _row(
+            33, "AM09", product_name="OPTIWAR Frame",
+            product_slug="optiwar-frame",
+            product_details="OPTIWAR Frame AM09 - AJ 6 details.",
+            description_seo="OPTIWAR Frame, formerly AJ 6.")
+        changes = apply_script._changes(reshape)
+        self.assertEqual(changes["product_name"], "OPTIWAR Geometric")
+        self.assertEqual(changes["product_slug"], "optiwar-geometric")
+        self.assertEqual(
+            changes["product_details"],
+            "OPTIWAR Geometric AM09 - OPTIWAR Geometric details.")
+        self.assertEqual(
+            changes["description_seo"],
+            "OPTIWAR Geometric, formerly OPTIWAR Geometric.")
+        self.assertNotIn("sell_on_in", changes)
+        self.assertNotIn("sell_on_com", changes)
+
+        maker = _row(
+            46, "AE19", product_name="RISE ABOVE",
+            product_slug="rise-above",
+            product_details="RISE ABOVE AE19 frame.",
+            description_seo="RISE ABOVE frame.")
+        maker_changes = apply_script._changes(maker)
+        self.assertEqual(maker_changes["product_name"], "OPTIWAR Round")
+        self.assertEqual(maker_changes["product_slug"], "optiwar-round")
+        self.assertEqual(
+            maker_changes["product_details"], "OPTIWAR Round AE19 frame.")
+        self.assertEqual(
+            maker_changes["description_seo"], "OPTIWAR Round frame.")
+        self.assertNotIn("sell_on_in", maker_changes)
+        self.assertNotIn("sell_on_com", maker_changes)
+        self.assertEqual(
+            brand_compliance.scrub_text("OPTIWAR Frame AG74", 860),
+            "OPTIWAR Frame AG74")
 
     def test_renamed_page_reports_its_new_address_and_description(self):
         source = (ROOT / "models.py").read_text(encoding="utf-8")
@@ -365,6 +417,32 @@ class ProductRouteTest(unittest.TestCase):
                 sell_on_com=sell_on_com, sell_on_in=sell_on_in,
                 product_quantity=quantity)
             with self.subTest(product_id=product_id), \
+                    patch.object(self.models, "get_db",
+                                 return_value=_ProductDB(product)):
+                response = self.app.test_client().get(
+                    "/categories/spectacles-frame/%s?pid=%s"
+                    % (old_slug, product_id))
+            expected = brand_compliance.slugify(
+                brand_compliance.RENAMED[product_id][1])
+            self.assertEqual(response.status_code, 301)
+            self.assertIn("/categories/spectacles-frame/%s?pid=%s" %
+                          (expected, product_id), response.location)
+
+    def test_shape_and_maker_old_slugs_redirect_by_product_id(self):
+        cases = (
+            (33, "AM09", "optiwar-frame", 1, 1, 1),
+            (33, "AM09", "aj-6", 1, 1, 1),
+            (46, "AE19", "rise-above", 0, 0, 0),
+        )
+        for (product_id, sku, old_slug, sell_on_com, sell_on_in,
+             quantity) in cases:
+            product = _row(
+                product_id, sku, product_category="Spectacles Frame",
+                product_slug=old_slug, product_status="ACTIVE",
+                product_vertical="EYEWEAR", sell_on_com=sell_on_com,
+                sell_on_in=sell_on_in, show_in_listings=int(bool(quantity)),
+                product_quantity=quantity)
+            with self.subTest(product_id=product_id, old_slug=old_slug), \
                     patch.object(self.models, "get_db",
                                  return_value=_ProductDB(product)):
                 response = self.app.test_client().get(
