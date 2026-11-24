@@ -342,9 +342,13 @@ class ProductRouteTest(unittest.TestCase):
 class _Cursor:
     def __init__(self):
         self.queries = []
+        self.fetchone_result = None
 
     def execute(self, sql, params=()):
         self.queries.append((sql, params))
+
+    def fetchone(self):
+        return self.fetchone_result
 
 
 class _DB:
@@ -610,12 +614,45 @@ class ApplyScriptTest(unittest.TestCase):
             restore_file = next(restore_dir.glob("brand_compliance_restore_*.json"))
             record = json.loads(restore_file.read_text())
             self.assertEqual(record["updates"]["225"]["product_quantity"], 1)
+            self.assertEqual(
+                record["applied_values"]["225"]["product_quantity"], 0)
             restore_db = _DB()
+            restore_db.cursor_obj.fetchone_result = {"product_quantity": 0}
             apply_script.restore(
                 restore_db, str(restore_file), str(image_root), str(quarantine))
             self.assertTrue(any(
                 "product_quantity" in sql and "order_status" not in sql
                 for sql, _ in restore_db.cursor_obj.queries))
+
+    def test_stock_restore_skips_quantity_changed_after_apply(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image_root = Path(tmp) / "static"
+            quarantine = Path(tmp) / "quarantine"
+            restore_dir = Path(tmp) / "restore"
+            row = _row(225, "BQ49", product_quantity=1)
+            with patch.object(
+                    apply_script, "_load_rows",
+                    return_value=[row, _already_named_photo_remove_row()]):
+                apply_script.run(
+                    _DB(), types.SimpleNamespace(apply=True, quarantine=True),
+                    str(image_root), str(quarantine), str(restore_dir))
+            restore_file = next(restore_dir.glob("brand_compliance_restore_*.json"))
+
+            restore_db = _DB()
+            restore_db.cursor_obj.fetchone_result = {"product_quantity": 4}
+            output = io.StringIO()
+            with redirect_stdout(output):
+                apply_script.restore(
+                    restore_db, str(restore_file),
+                    str(image_root), str(quarantine))
+            self.assertIn(
+                "SKIP RESTORE product_quantity 225 (now 4, applied 0)",
+                output.getvalue())
+            product_update = next(
+                (sql, params) for sql, params in restore_db.cursor_obj.queries
+                if sql.startswith("UPDATE products SET") and params[-1] == 225)
+            self.assertNotIn("product_quantity", product_update[0])
+            self.assertIn("sell_on_in=%s", product_update[0])
 
     def test_stock_set_skips_a_quantity_recorded_in_a_prior_restore(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -603,6 +603,13 @@ def run(db, args, image_root=None, quarantine_base=None, restore_dir=None,
         _write_restore(restore_path, {
             "created_at": timestamp,
             "updates": before,
+            "applied_values": {
+                str(int(row["product_id"])): {
+                    "product_quantity": changes["product_quantity"],
+                }
+                for row, changes in changed_rows
+                if "product_quantity" in changes
+            },
             "image_moves": image_moves,
             "missing_images": missing_images,
             "image_copies": image_copies,
@@ -650,6 +657,29 @@ def restore(db, path, image_root=None, quarantine_base=None):
             columns = [column for column in values if column in RESTORABLE_COLUMNS]
             if len(columns) != len(values):
                 raise ValueError("restore file contains an unsupported column")
+            if "product_quantity" in columns:
+                cursor.execute(
+                    "SELECT product_quantity FROM products "
+                    "WHERE product_id=%s FOR UPDATE", (int(product_id),))
+                current_row = cursor.fetchone()
+                if isinstance(current_row, dict):
+                    current_quantity = current_row.get("product_quantity")
+                elif current_row is None:
+                    current_quantity = None
+                else:
+                    current_quantity = current_row[0]
+                applied_quantity = record.get(
+                    "applied_values", {}).get(
+                        str(product_id), {}).get("product_quantity")
+                if applied_quantity is None:
+                    stock = brand_compliance.STOCK_SET.get(int(product_id))
+                    if stock:
+                        applied_quantity = stock["to"]
+                if current_quantity != applied_quantity:
+                    print(
+                        "SKIP RESTORE product_quantity %s (now %s, applied %s)"
+                        % (product_id, current_quantity, applied_quantity))
+                    columns.remove("product_quantity")
             if not columns:
                 continue
             assignments = ", ".join("%s=%%s" % column for column in columns)
