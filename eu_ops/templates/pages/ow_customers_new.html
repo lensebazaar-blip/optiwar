@@ -150,9 +150,9 @@
             var response = await fetch("{{ base }}/ow-new-order/api/customers?q=" +
                 encodeURIComponent(query), {headers: {"Accept": "application/json"}});
             var data = await response.json();
-            var rows = data.results;
+            var rows = data && Array.isArray(data.results) ? data.results : [];
             results.replaceChildren();
-            if (!Array.isArray(rows) || !rows.length) {
+            if (!rows.length) {
                 var empty = document.createElement("p");
                 empty.textContent = "No matching customers.";
                 results.appendChild(empty);

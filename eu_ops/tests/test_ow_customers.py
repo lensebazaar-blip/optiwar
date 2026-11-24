@@ -99,7 +99,9 @@ class OpsCustomerWorkflowTest(unittest.TestCase):
         self.assertIn('type="hidden" name="intent"', template)
         self.assertIn("event.submitter.value", template)
         self.assertIn("var data = await response.json();", template)
-        self.assertIn("var rows = data.results;", template)
+        self.assertIn(
+            "var rows = data && Array.isArray(data.results) ? data.results : [];",
+            template)
 
     def post(self, path, data):
         async def send():
