@@ -512,7 +512,7 @@ class ApplyScriptTest(unittest.TestCase):
             self.assertEqual(static_status("/static/catalog/al69.jpg"), 200)
             self.assertTrue(all(not path.exists() for path in quarantined))
 
-    def test_photo_remove_quarantines_only_the_selected_file_and_restores(self):
+    def test_photo_remove_quarantines_only_the_selected_family_and_restores(self):
         with tempfile.TemporaryDirectory() as tmp:
             image_root = Path(tmp) / "static"
             quarantine = Path(tmp) / "quarantine"
@@ -543,6 +543,9 @@ class ApplyScriptTest(unittest.TestCase):
                     str(image_root), str(quarantine), str(restore_dir))
             self.assertIn("DRY RUN PHOTO REMOVE 335 %s" % remove.as_posix(),
                           dry_output.getvalue())
+            self.assertIn(
+                "DRY RUN QUARANTINE %s" % (image_root / derivative),
+                dry_output.getvalue())
             self.assertTrue((image_root / remove).exists())
 
             db = _DB()
@@ -552,7 +555,7 @@ class ApplyScriptTest(unittest.TestCase):
                     str(image_root), str(quarantine), str(restore_dir))
             self.assertFalse((image_root / remove).exists())
             self.assertTrue((image_root / keep).exists())
-            self.assertTrue((image_root / derivative).exists())
+            self.assertFalse((image_root / derivative).exists())
             product_update = next(
                 (sql, params) for sql, params in db.cursor_obj.queries
                 if "product_image=%s" in sql)
@@ -562,12 +565,13 @@ class ApplyScriptTest(unittest.TestCase):
             self.assertEqual(
                 record["updates"]["335"]["product_image"],
                 "./%s,./%s" % (keep.as_posix(), remove.as_posix()))
-            self.assertEqual(len(record["image_moves"]), 1)
+            self.assertEqual(len(record["image_moves"]), 2)
 
             apply_script.restore(
                 _DB(), str(restore_file), str(image_root), str(quarantine))
             self.assertEqual((image_root / remove).read_bytes(), b"remove")
-            self.assertTrue((image_root / derivative).exists())
+            self.assertEqual(
+                (image_root / derivative).read_bytes(), b"derivative")
 
     def test_stock_set_requires_the_planned_from_quantity_and_restores(self):
         with tempfile.TemporaryDirectory() as tmp:

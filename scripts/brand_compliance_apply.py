@@ -311,9 +311,10 @@ def _quarantine_plan(rows, extra_paths, root, quarantine_dir,
                 extra.append(family_path)
                 seen.add(family_path)
     for relative in exact_paths:
-        if relative not in seen:
-            extra.append(relative)
-            seen.add(relative)
+        for family_path in _image_family_paths(relative, root):
+            if family_path not in seen:
+                extra.append(family_path)
+                seen.add(family_path)
 
     def plan_paths(paths):
         planned, already, missing = [], [], []
