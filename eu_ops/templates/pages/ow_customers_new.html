@@ -43,6 +43,7 @@
             <h2>Create an account</h2>
             <form method="post" action="{{ base }}/ow-customers/preview"
                   data-submit-lock>
+                <input type="hidden" name="intent" value="{{ form_data.intent or 'create' }}">
                 <label for="customer-name">Customer name</label>
                 <input id="customer-name" name="name" value="{{ form_data.name or '' }}"
                        minlength="2" maxlength="120" autocomplete="name" required>
@@ -62,9 +63,9 @@
                     <small>Choose channels for “Create + send face scan”. Only the saved customer contacts are used.</small>
                 </fieldset>
                 <div class="oc-actions">
-                    <button class="oc-button oc-button-secondary" name="intent" value="create"
+                    <button class="oc-button oc-button-secondary" value="create"
                             type="submit">Create customer</button>
-                    <button class="oc-button oc-button-primary" name="intent"
+                    <button class="oc-button oc-button-primary"
                             value="create_and_scan" type="submit">Create + send face scan</button>
                 </div>
             </form>
@@ -148,7 +149,8 @@
         try {
             var response = await fetch("{{ base }}/ow-new-order/api/customers?q=" +
                 encodeURIComponent(query), {headers: {"Accept": "application/json"}});
-            var rows = await response.json();
+            var data = await response.json();
+            var rows = data.results;
             results.replaceChildren();
             if (!Array.isArray(rows) || !rows.length) {
                 var empty = document.createElement("p");
@@ -183,7 +185,11 @@
     }
 })();
 document.querySelectorAll("[data-submit-lock]").forEach(function(form) {
-    form.addEventListener("submit", function() {
+    form.addEventListener("submit", function(event) {
+        var intent = form.querySelector("input[name=intent]");
+        if (intent && event.submitter && event.submitter.value) {
+            intent.value = event.submitter.value;
+        }
         form.querySelectorAll("button[type=submit]").forEach(function(button) {
             button.disabled = true;
             button.textContent = "Preparing preview…";

@@ -94,6 +94,13 @@ class OpsCustomerWorkflowTest(unittest.TestCase):
             }}
         return False, "unexpected API call"
 
+    def test_customer_template_preserves_intent_and_reads_search_results(self):
+        template = (EU_OPS_ROOT / "templates/pages/ow_customers_new.html").read_text()
+        self.assertIn('type="hidden" name="intent"', template)
+        self.assertIn("event.submitter.value", template)
+        self.assertIn("var data = await response.json();", template)
+        self.assertIn("var rows = data.results;", template)
+
     def post(self, path, data):
         async def send():
             transport = httpx.ASGITransport(app=self.main.app)
