@@ -54,6 +54,9 @@
                    required>
             <button type="submit" class="auth-submit-btn">Verify and log in</button>
         </form>
+        <form action="{{ url_for('main.login_whatsapp_restart') }}" method="POST">
+            <button type="submit" class="auth-link-btn">Use a different number or send a new code</button>
+        </form>
         {% else %}
         <p>We'll send a one-time code if this number matches one Optiwar account.</p>
         <form action="{{ url_for('main.login_whatsapp_request') }}" method="POST"

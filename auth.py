@@ -379,6 +379,13 @@ def request_whatsapp_otp():
     return _otp_redirect("If you received a code, enter it below.", "info")
 
 
+def restart_whatsapp_otp():
+    if not _otp_enabled():
+        abort(404)
+    session.pop("_wa_login_otp_id", None)
+    return redirect(url_for("auth.login"))
+
+
 def verify_whatsapp_otp():
     if not _otp_enabled():
         abort(404)

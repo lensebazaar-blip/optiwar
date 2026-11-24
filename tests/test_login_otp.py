@@ -267,6 +267,10 @@ class LoginOtpTest(unittest.TestCase):
         def verify_otp():
             return self.auth.verify_whatsapp_otp()
 
+        @main.route("/login/whatsapp/restart", methods=["POST"])
+        def restart_otp():
+            return self.auth.restart_whatsapp_otp()
+
         @main.route("/json")
         def json_route():
             return jsonify({"ok": True})
@@ -307,6 +311,43 @@ class LoginOtpTest(unittest.TestCase):
             "/login/whatsapp/request", data={"phone": "9876543210"},
             base_url="https://optiwar.com")
         self.assertEqual(disabled.status_code, 404)
+
+    def test_restart_clears_pending_and_shows_request_form_again(self):
+        self.add_customer()
+        self.request_code()
+        otp_id = next(iter(self.db.otps))
+        with self.client.session_transaction(base_url="https://optiwar.com") as session:
+            self.assertEqual(session["_wa_login_otp_id"], otp_id)
+        response = self.client.post(
+            "/login/whatsapp/restart", base_url="https://optiwar.com")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.location, "/auth/login")
+        self.assertIsNone(self.db.otps[otp_id]["used_at"])
+        with self.client.session_transaction(base_url="https://optiwar.com") as session:
+            self.assertNotIn("_wa_login_otp_id", session)
+        with patch.object(self.auth, "render_template", return_value="login page") as render:
+            self.client.get("/auth/login", base_url="https://optiwar.com")
+        self.assertFalse(render.call_args.kwargs["otp_pending"])
+
+    def test_restart_returns_404_when_otp_is_disabled(self):
+        self.app.config["MSG91_LOGIN_OTP_WA_TEMPLATE"] = ""
+        with self.client.session_transaction(base_url="https://optiwar.com") as session:
+            session["_wa_login_otp_id"] = 12
+        response = self.client.post(
+            "/login/whatsapp/restart", base_url="https://optiwar.com")
+        self.assertEqual(response.status_code, 404)
+
+    def test_restart_does_not_reset_otp_rate_limit(self):
+        self.add_customer()
+        for _ in range(3):
+            self.request_code()
+        self.assertEqual(len(self.db.otps), 3)
+        response = self.client.post(
+            "/login/whatsapp/restart", base_url="https://optiwar.com")
+        self.assertEqual(response.status_code, 302)
+        self.request_code()
+        self.assertEqual(len(_sent_codes), 3)
+        self.assertEqual(len(self.db.otps), 3)
 
     def test_ambiguous_phone_gets_generic_reply_and_sends_nothing(self):
         self.add_customer(1)

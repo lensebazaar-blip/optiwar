@@ -103,6 +103,12 @@ def login_whatsapp_request():
 def login_whatsapp_verify():
     return auth_module.verify_whatsapp_otp()
 
+
+@bp.route('/login/whatsapp/restart', methods=['POST'])
+def login_whatsapp_restart():
+    return auth_module.restart_whatsapp_otp()
+
+
 @bp.route('/eu/')
 @bp.route('/eu/<path:rest>')
 def eu_redirect(rest=''):
