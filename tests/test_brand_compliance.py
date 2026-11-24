@@ -25,11 +25,11 @@ spec.loader.exec_module(apply_script)
 
 class ComplianceDataTest(unittest.TestCase):
     def test_settled_counts_keep_ids_and_spot_checks(self):
-        self.assertEqual(len(brand_compliance.HELD), 110)
+        self.assertEqual(len(brand_compliance.HELD), 101)
         self.assertEqual(len(brand_compliance.RENAMED), 131)
         self.assertEqual(len(brand_compliance.FORMER_NAMES), 131)
         self.assertEqual(len(brand_compliance.PHOTO_PENDING), 19)
-        self.assertEqual(len(brand_compliance.RELEASED), 20)
+        self.assertEqual(len(brand_compliance.RELEASED), 29)
         self.assertEqual(brand_compliance.PHOTO_REMOVE, {
             335: ["AL74_4.jpg"],
             150: ["AM85_2.jpg", "AM85_4.jpg"],
@@ -61,6 +61,28 @@ class ComplianceDataTest(unittest.TestCase):
                          ("AM84", "OPTIWAR Frame"))
         self.assertEqual(brand_compliance.FORMER_NAMES[150], "DASAULTS")
         self.assertEqual(brand_compliance.FORMER_NAMES[154], "DASAULTS")
+
+    def test_bb_frames_are_released_and_unblocked(self):
+        released = {
+            261: "BB22",
+            146: "BB26",
+            145: "BB27",
+            203: "BB31",
+            204: "BB32",
+            366: "BB33",
+            411: "BB74",
+            302: "BB85",
+            865: "BB94",
+        }
+        for product_id, sku in released.items():
+            with self.subTest(product_id=product_id):
+                self.assertNotIn(product_id, brand_compliance.HELD)
+                self.assertEqual(brand_compliance.RELEASED.get(product_id), sku)
+                self.assertNotIn(product_id, brand_compliance.PHOTO_PENDING)
+                self.assertNotIn(product_id, brand_compliance.blocked_ids())
+                self.assertNotIn(product_id, brand_compliance.held_ids())
+                self.assertFalse(
+                    brand_compliance.is_held({"product_id": product_id}))
 
     def test_new_names_do_not_repeat_the_sku(self):
         # every page prints product_name then product_code
