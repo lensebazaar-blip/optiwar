@@ -475,6 +475,22 @@ class ApplyScriptTest(unittest.TestCase):
                 self.assertEqual(set(plan["paths"]), set(removals))
                 self.assertEqual(plan["image_value"], "./" + keep)
 
+    def test_photo_remove_drops_found_image_when_another_is_missing(self):
+        original = [
+            "./catalog/opticalbazaar/AM85/AM85_1.jpg",
+            "./catalog/opticalbazaar/AM85/AM85_3.jpg",
+            "./catalog/opticalbazaar/AM85/AM85_4.jpg",
+        ]
+        row = _row(150, "AM85", product_image=",".join(original))
+        with patch.object(apply_script.brand_compliance, "PHOTO_REMOVE",
+                          {150: ["AM85_2.jpg", "AM85_4.jpg"]}):
+            plan = apply_script._photo_remove_plan(row)
+
+        self.assertEqual(plan["image_value"], ",".join(original[:2]))
+        self.assertEqual(
+            plan["paths"], ["catalog/opticalbazaar/AM85/AM85_4.jpg"])
+        self.assertEqual(plan["missing"], ["AM85_2.jpg"])
+
     def test_round_one_seo_descriptions_are_scrubbed(self):
         row = _row(
             671, "AD61", description_seo="LOUIS STYLE AD61 acetate frame.")

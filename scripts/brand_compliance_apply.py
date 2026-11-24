@@ -177,8 +177,7 @@ def _photo_remove_plan(row):
     remaining = [entry for index, entry in enumerate(entries)
                  if index not in removed]
     return {
-        "image_value": (
-            ",".join(remaining) if not missing and not ambiguous else original),
+        "image_value": ",".join(remaining) if not ambiguous else original,
         "paths": [
             paths[index]
             for filename in filenames
