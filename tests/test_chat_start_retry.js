@@ -10,6 +10,11 @@ const widget = fs.readFileSync(path.join(repo, 'static/js/chat-widget.js'), 'utf
 const base = fs.readFileSync(path.join(repo, 'templates/base.html'), 'utf8');
 const deploy = fs.readFileSync(path.join(repo, 'deploy/deploy.py'), 'utf8');
 
+const lifecycleStart = widget.indexOf("  window.addEventListener('pagehide'");
+const lifecycleEnd = widget.indexOf('\n\n  var API', lifecycleStart);
+if (lifecycleStart < 0 || lifecycleEnd < 0) throw new Error('missing page lifecycle listeners');
+const lifecycleSource = widget.slice(lifecycleStart, lifecycleEnd);
+
 function extractFunction(source, signature) {
   const start = source.indexOf(signature);
   if (start < 0) throw new Error('missing function: ' + signature);
@@ -33,7 +38,7 @@ function check(name, condition) {
 }
 
 function harness(apiCallImpl) {
-  const state = { calls: [], timers: [], defects: [], messages: [] };
+  const state = { calls: [], timers: [], defects: [], messages: [], listeners: {} };
   const create = new Function('state', 'apiCallImpl', `
     var _t0 = 0;
     var performance = {now: function() { return 0; }};
@@ -43,7 +48,11 @@ function harness(apiCallImpl) {
     var pageLeaving = false;
     var sessionStartInProgress = false;
     var sessionLabel = {textContent: ''};
-    var window = {location: {href: 'https://example.test/page'}};
+    var window = {
+      location: {href: 'https://example.test/page'},
+      addEventListener: function(name, callback) { state.listeners[name] = callback; }
+    };
+    ${lifecycleSource}
     function apiCall(method, path, body) {
       state.calls.push({method: method, path: path, body: body});
       return apiCallImpl(method, path, body);
@@ -61,8 +70,10 @@ function harness(apiCallImpl) {
     ${startSessionSource}
     return {
       startSession: startSession,
-      leave: function() { pageLeaving = true; },
-      setSessionId: function(value) { sessionId = value; }
+      firePagehide: function() { state.listeners.pagehide(); },
+      firePageshow: function(event) { state.listeners.pageshow(event); },
+      setSessionId: function(value) { sessionId = value; },
+      getSessionId: function() { return sessionId; }
     };
   `);
   state.widget = create(state, apiCallImpl);
@@ -113,7 +124,7 @@ async function run() {
   const leaving = harness(() => Promise.reject(new TypeError('Failed to fetch')));
   leaving.widget.startSession();
   await flushPromises();
-  leaving.widget.leave();
+  leaving.widget.firePagehide();
   leaving.timers[0].callback();
   await flushPromises();
   check('page departure suppresses retries, reports, and rendering',
@@ -130,9 +141,22 @@ async function run() {
         existing.calls.length === 1 && existing.defects.length === 0 &&
         existing.messages.length === 0);
 
-  check('pagehide and beforeunload set the page-leaving flag',
+  const restored = harness(() => Promise.resolve({session_id: 'chat_restored'}));
+  restored.widget.firePagehide();
+  restored.widget.startSession();
+  check('pagehide suppresses a new start until the page is restored',
+        restored.calls.length === 0);
+  restored.widget.firePageshow({persisted: true});
+  restored.widget.startSession();
+  await flushPromises();
+  check('persisted pageshow allows startSession again',
+        restored.calls.length === 1 &&
+        restored.widget.getSessionId() === 'chat_restored');
+
+  check('only pagehide marks departure and persisted pageshow clears it',
         /addEventListener\('pagehide', function\(\) \{\s*pageLeaving = true;/.test(widget) &&
-        /addEventListener\('beforeunload', function\(\) \{\s*pageLeaving = true;/.test(widget));
+        /addEventListener\('pageshow', function\(e\) \{\s*if \(e\.persisted\) pageLeaving = false;/.test(widget) &&
+        !/addEventListener\('beforeunload'/.test(widget));
   check('widget cache-buster is v=33',
         /chat-widget\.js'\) \+ '\?v=33'/.test(base));
   check('widget remains in DEPLOY_SET',

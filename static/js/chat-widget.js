@@ -16,7 +16,9 @@
   var pageLeaving = false;
   var sessionStartInProgress = false;
   window.addEventListener('pagehide', function() { pageLeaving = true; });
-  window.addEventListener('beforeunload', function() { pageLeaving = true; });
+  window.addEventListener('pageshow', function(e) {
+    if (e.persisted) pageLeaving = false;
+  });
 
   var API = '/api/chat';
   var POLL_INTERVAL = 4000;
