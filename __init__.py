@@ -75,6 +75,10 @@ def create_app(test_config=None):
     # MSG91 (WhatsApp & SMS notifications)
     app.config['MSG91_AUTH_KEY'] = os.environ.get('MSG91_AUTH_KEY', '')
     app.config['MSG91_WHATSAPP_NUMBER'] = '919355380318'
+    app.config['FACE_SCAN_REQUEST_WA_TEMPLATE'] = os.environ.get(
+        'FACE_SCAN_REQUEST_WA_TEMPLATE', '')
+    app.config['MSG91_LOGIN_OTP_WA_TEMPLATE'] = os.environ.get(
+        'MSG91_LOGIN_OTP_WA_TEMPLATE', '')
     app.config['MSG91_SMS_SENDER'] = 'OPTWAR'
     # Optional shared token to authenticate MSG91 delivery-status callbacks.
     app.config['MSG91_DELIVERY_TOKEN'] = os.environ.get('MSG91_DELIVERY_TOKEN', '')

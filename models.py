@@ -34,7 +34,9 @@ from .catalogue import (
     live_lenses, lens_matrix_summary, SITE_IN, SITE_COM,
 )
 from .brand_compliance import RENAMED, display_name, held_ids, is_held, scrub_text, slugify
+from . import auth as auth_module
 from . import face_cart, face_fit, face_profiles, face_profiles_api, face_scan_groups_api, face_scan_invites_api, favorites_api, frame_offers_api, order_face_scan, order_rx_documents, progressive_scan
+from . import ops_customers_api
 from . import (acr, lens_cart, lens_config, lens_documents, lens_feed,
                lens_order, lens_preview, lens_rx, lens_seo, lens_upload,
                lens_view, rx_photo, ip_notice, shipping_options, shipping_refunds, ops_controls,
@@ -84,6 +86,28 @@ order_face_scan.register(bp)
 frame_offers_api.register(bp)
 order_rx_documents.register(bp)
 progressive_scan.register(bp)
+ops_customers_api.register(bp)
+
+
+@bp.route('/set-password', methods=['GET', 'POST'])
+def set_password():
+    return auth_module.set_password()
+
+
+@bp.route('/login/whatsapp/request', methods=['POST'])
+def login_whatsapp_request():
+    return auth_module.request_whatsapp_otp()
+
+
+@bp.route('/login/whatsapp/verify', methods=['POST'])
+def login_whatsapp_verify():
+    return auth_module.verify_whatsapp_otp()
+
+
+@bp.route('/login/whatsapp/restart', methods=['POST'])
+def login_whatsapp_restart():
+    return auth_module.restart_whatsapp_otp()
+
 
 @bp.route('/eu/')
 @bp.route('/eu/<path:rest>')
