@@ -451,7 +451,8 @@ class ApplyScriptTest(unittest.TestCase):
             dry_db = _DB()
             with patch.object(apply_script, "_load_rows", return_value=rows):
                 apply_script.run(dry_db, types.SimpleNamespace(
-                    apply=False, quarantine=False))
+                    apply=False, quarantine=False), str(image_root),
+                    str(quarantine), str(restore_dir))
             self.assertEqual(dry_db.cursor_obj.queries, [])
             self.assertEqual(dry_db.commits, 0)
             self.assertEqual(dry_db.rollbacks, 1)
