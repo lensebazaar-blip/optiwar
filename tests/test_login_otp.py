@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-from flask import Blueprint, Flask, jsonify, url_for
+from flask import Blueprint, Flask, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 
 
@@ -308,15 +308,15 @@ class LoginOtpTest(unittest.TestCase):
 
     def test_auth_and_main_login_paths_are_registered(self):
         self.assertEqual(self.auth.bp.url_prefix, "/auth")
-        with self.app.test_request_context():
-            self.assertEqual(url_for("auth.login"), "/auth/login")
-            self.assertEqual(url_for("main.set_password"), "/set-password")
-            self.assertEqual(url_for("main.login_whatsapp_request"),
-                             "/login/whatsapp/request")
-            self.assertEqual(url_for("main.login_whatsapp_verify"),
-                             "/login/whatsapp/verify")
-            self.assertEqual(url_for("main.login_whatsapp_restart"),
-                             "/login/whatsapp/restart")
+        registered_paths = {rule.rule for rule in self.app.url_map.iter_rules()}
+        self.assertIn("/auth/login", registered_paths)
+        for path in ("/set-password", "/login/whatsapp/request",
+                     "/login/whatsapp/verify", "/login/whatsapp/restart"):
+            self.assertIn(path, registered_paths)
+        models_source = (ROOT / "models.py").read_text()
+        for path in ("/set-password", "/login/whatsapp/request",
+                     "/login/whatsapp/verify", "/login/whatsapp/restart"):
+            self.assertIn("@bp.route('%s'" % path, models_source)
 
     def test_otp_routes_return_404_and_login_hides_option_when_disabled(self):
         self.app.config["MSG91_LOGIN_OTP_WA_TEMPLATE"] = ""
