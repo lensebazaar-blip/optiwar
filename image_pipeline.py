@@ -50,6 +50,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+from functools import lru_cache
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
@@ -363,7 +364,8 @@ def build_derivatives(master_path, widths=DERIVATIVE_WIDTHS,
     out_dir = os.path.join(directory, "derivatives")
     _ensure_dir(out_dir)
     written = []
-    with Image.open(master_path) as master:
+    with Image.open(master_path) as source:
+        master = ImageOps.exif_transpose(source)
         master.load()
         for width in widths:
             if width > master.size[0]:
@@ -394,8 +396,27 @@ def _save_format(img, path, fmt):
     raise RecipeError("unknown derivative format %r" % fmt)
 
 
+@lru_cache(maxsize=1)
+def avif_encoder_available():
+    try:
+        __import__("pillow_avif")
+    except (ImportError, OSError):
+        pass
+    probe = Image.new("RGB", (1, 1))
+    try:
+        try:
+            probe.save(io.BytesIO(), "AVIF", quality=WEB_QUALITY)
+            return True
+        except (KeyError, OSError, ValueError):
+            return shutil.which("avifenc") is not None
+    finally:
+        probe.close()
+
+
 def _save_avif(img, path):
     """Pillow's AVIF plugin when the box has one, else the avifenc binary."""
+    if not avif_encoder_available():
+        return False
     try:
         _atomic_write(path, lambda fh: img.save(fh, "AVIF", quality=WEB_QUALITY))
         return True
@@ -440,11 +461,13 @@ def manifest_rows(paths, catalog_root):
     return sorted(rows)
 
 
-def merge_manifest(manifest_path, rows):
+def merge_manifest(manifest_path, rows, replace_prefix=None):
     """Rewrite the manifest with `rows` replacing any entry of the same path.
 
     An entry is replaced rather than appended so a re-run cannot leave two
     hashes for one file, and the file stays sorted so a diff is readable.
+    When `replace_prefix` is supplied, old entries under that catalog-relative
+    prefix are removed before the new rows are merged.
     """
     existing = {}
     if os.path.exists(manifest_path):
@@ -453,6 +476,11 @@ def merge_manifest(manifest_path, rows):
                 rel, _, digest = line.rstrip("\n").partition("\t")
                 if rel and digest:
                     existing[rel] = digest
+    if replace_prefix is not None:
+        existing = {
+            rel: digest for rel, digest in existing.items()
+            if not rel.startswith(replace_prefix)
+        }
     existing.update(dict(rows))
     _ensure_dir(os.path.dirname(manifest_path))
     _atomic_write(manifest_path, lambda fh: fh.write("".join(
