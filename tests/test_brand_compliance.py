@@ -26,8 +26,8 @@ spec.loader.exec_module(apply_script)
 class ComplianceDataTest(unittest.TestCase):
     def test_settled_counts_keep_ids_and_spot_checks(self):
         self.assertEqual(len(brand_compliance.HELD), 101)
-        self.assertEqual(len(brand_compliance.RENAMED), 142)
-        self.assertEqual(len(brand_compliance.FORMER_NAMES), 142)
+        self.assertEqual(len(brand_compliance.RENAMED), 146)
+        self.assertEqual(len(brand_compliance.FORMER_NAMES), 146)
         self.assertEqual(len(brand_compliance.PHOTO_PENDING), 19)
         self.assertEqual(len(brand_compliance.RELEASED), 29)
         self.assertEqual(brand_compliance.PHOTO_REMOVE, {
@@ -59,6 +59,18 @@ class ComplianceDataTest(unittest.TestCase):
                          ("AE19", "OPTIWAR Round"))
         self.assertEqual(brand_compliance.RENAMED[577],
                          ("BQ79", "OPTIWAR Half-Rim"))
+        self.assertEqual(brand_compliance.RENAMED[158],
+                         ("AG23", "OPTIWAR Rimless"))
+        self.assertEqual(brand_compliance.RENAMED[571],
+                         ("BQ80", "OPTIWAR Half-Rim"))
+        self.assertEqual(brand_compliance.RENAMED[574],
+                         ("BQ78", "OPTIWAR Half-Rim"))
+        self.assertEqual(brand_compliance.RENAMED[575],
+                         ("BQ81", "OPTIWAR Half-Rim"))
+        self.assertEqual(brand_compliance.FORMER_NAMES[158], "ODYSEY")
+        for product_id in (571, 574, 575):
+            self.assertEqual(
+                brand_compliance.FORMER_NAMES[product_id], "FIRST CLASS")
         self.assertEqual(brand_compliance.HELD[93],
                          ("AH69", "Tommy Hilfiger (lookalike flag)", "frame_mark"))
         self.assertEqual(brand_compliance.HELD[961],
@@ -171,6 +183,32 @@ class ComplianceDataTest(unittest.TestCase):
         self.assertEqual(
             brand_compliance.scrub_text("OPTIWAR Frame AG74", 860),
             "OPTIWAR Frame AG74")
+
+    def test_followup_maker_renames_scrub_text_and_preserve_sell_flags(self):
+        cases = (
+            (158, "AG23", "ODYSEY", "OPTIWAR Rimless"),
+            (571, "BQ80", "FIRST CLASS", "OPTIWAR Half-Rim"),
+            (574, "BQ78", "FIRST CLASS", "OPTIWAR Half-Rim"),
+            (575, "BQ81", "FIRST CLASS", "OPTIWAR Half-Rim"),
+        )
+        for product_id, sku, former, new_name in cases:
+            row = _row(
+                product_id, sku, product_name=former,
+                product_slug=brand_compliance.slugify(former),
+                product_details="%s %s frame." % (former, sku),
+                description_seo="%s frame." % former,
+                sell_on_in=1, sell_on_com=1)
+            changes = apply_script._changes(row)
+            with self.subTest(product_id=product_id):
+                self.assertEqual(changes["product_name"], new_name)
+                self.assertEqual(changes["product_slug"],
+                                 brand_compliance.slugify(new_name))
+                self.assertEqual(changes["product_details"],
+                                 "%s %s frame." % (new_name, sku))
+                self.assertEqual(changes["description_seo"],
+                                 "%s frame." % new_name)
+                self.assertNotIn("sell_on_in", changes)
+                self.assertNotIn("sell_on_com", changes)
 
     def test_renamed_page_reports_its_new_address_and_description(self):
         source = (ROOT / "models.py").read_text(encoding="utf-8")
@@ -433,6 +471,7 @@ class ProductRouteTest(unittest.TestCase):
             (33, "AM09", "optiwar-frame", 1, 1, 1),
             (33, "AM09", "aj-6", 1, 1, 1),
             (46, "AE19", "rise-above", 0, 0, 0),
+            (571, "BQ80", "first-class", 1, 1, 2),
         )
         for (product_id, sku, old_slug, sell_on_com, sell_on_in,
              quantity) in cases:
