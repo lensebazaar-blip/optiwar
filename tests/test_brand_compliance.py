@@ -28,7 +28,7 @@ class ComplianceDataTest(unittest.TestCase):
         self.assertEqual(len(brand_compliance.HELD), 101)
         self.assertEqual(len(brand_compliance.RENAMED), 146)
         self.assertEqual(len(brand_compliance.FORMER_NAMES), 146)
-        self.assertEqual(len(brand_compliance.PHOTO_PENDING), 19)
+        self.assertEqual(len(brand_compliance.PHOTO_PENDING), 17)
         self.assertEqual(len(brand_compliance.RELEASED), 29)
         self.assertEqual(brand_compliance.PHOTO_REPLACED, {
             84: "AI20",
@@ -48,7 +48,6 @@ class ComplianceDataTest(unittest.TestCase):
                          ("AB27", "Ray-Ban", "frame_mark"))
         self.assertEqual(brand_compliance.RELEASED[332], "AL69")
         self.assertNotIn(332, brand_compliance.HELD)
-        self.assertEqual(brand_compliance.PHOTO_PENDING[332], "AL69")
         self.assertEqual(brand_compliance.RENAMED[332][1],
                          "OPTIWAR Round Metal")
         self.assertEqual(brand_compliance.RENAMED[671][1],
@@ -112,6 +111,12 @@ class ComplianceDataTest(unittest.TestCase):
                 self.assertNotIn(product_id, brand_compliance.held_ids())
                 self.assertFalse(
                     brand_compliance.is_held({"product_id": product_id}))
+
+    def test_al69_and_al09_are_released_without_photo_pending(self):
+        for product_id, sku in ((332, "AL69"), (768, "AL09")):
+            with self.subTest(product_id=product_id):
+                self.assertEqual(brand_compliance.RELEASED[product_id], sku)
+                self.assertNotIn(product_id, brand_compliance.PHOTO_PENDING)
 
     def test_new_names_do_not_repeat_the_sku(self):
         # every page prints product_name then product_code
@@ -780,6 +785,53 @@ class ApplyScriptTest(unittest.TestCase):
             self.assertNotIn("product_image=", output.getvalue())
             self.assertEqual(db.cursor_obj.queries, [])
 
+    def test_al69_and_al09_republish_approved_r2_sets_over_current_images(self):
+        fixtures = {
+            332: {
+                "sku": "AL69",
+                "product_image": ",".join(
+                    "./catalog/opticalbazaar/AL69/AL69_%d.jpg" % index
+                    for index in range(1, 5)),
+                "count": 4,
+            },
+            768: {
+                "sku": "AL09",
+                "product_image": ",".join(
+                    "./catalog/opticalbazaar/AL09/AL09_%d.jpg" % index
+                    for index in range(1, 4)),
+                "count": 3,
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            image_root = Path(tmp) / "static"
+            for product_id, fixture in fixtures.items():
+                sku = fixture["sku"]
+                approved = [
+                    "catalog/r2/%s/%s_r2_%02d.jpg" % (sku, sku, index)
+                    for index in range(1, fixture["count"] + 1)
+                ]
+                for relative in approved:
+                    path = image_root / relative
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(b"approved image")
+                name = brand_compliance.RENAMED[product_id][1]
+                row = _row(
+                    product_id, sku,
+                    product_image=fixture["product_image"],
+                    product_name=name,
+                    product_slug=brand_compliance.slugify(name))
+
+                plan = apply_script._republish_plan(
+                    row, str(image_root), str(Path(tmp) / "quarantine"), {})
+
+                with self.subTest(product_id=product_id):
+                    self.assertTrue(plan["ready"])
+                    self.assertEqual(plan["image_value"], ",".join(approved))
+                    self.assertEqual(
+                        plan["old_public"], apply_script._image_paths(row))
+                    self.assertEqual(plan["copies"], [])
+                    self.assertEqual(plan["missing"], [])
+
     def test_ab87_quarantines_both_product_image_families(self):
         with tempfile.TemporaryDirectory() as tmp:
             image_root = Path(tmp) / "static"
@@ -881,7 +933,7 @@ class ApplyScriptTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             image_root = Path(tmp) / "static"
             source = image_root / "catalog" / "ab27.jpg"
-            sticker_source = image_root / "catalog" / "al69.jpg"
+            sticker_source = image_root / "catalog" / "al11.jpg"
             source.parent.mkdir(parents=True)
             source.write_bytes(b"frame")
             sticker_source.write_bytes(b"lens sticker")
@@ -897,12 +949,12 @@ class ApplyScriptTest(unittest.TestCase):
                 finally:
                     response.close()
 
-            self.assertEqual(static_status("/static/catalog/al69.jpg"), 200)
+            self.assertEqual(static_status("/static/catalog/al11.jpg"), 200)
             quarantine = Path(tmp) / "quarantine"
             restore_dir = Path(tmp) / "restore"
             rows = [
                 _row(668, "AB27", product_image="./catalog/ab27.jpg"),
-                _row(332, "AL69", product_image="./catalog/al69.jpg"),
+                _row(767, "AL11", product_image="./catalog/al11.jpg"),
                 _row(671, "AD61", product_details="LOUIS STYLE AD61 - Black frame."),
                 _row(335, "AL74", product_name="BRABUS 8023",
                      product_slug="brabus-8023-al74",
@@ -931,7 +983,7 @@ class ApplyScriptTest(unittest.TestCase):
             self.assertTrue(any("sell_on_in" in sql for sql, _ in db.cursor_obj.queries))
             self.assertFalse(source.exists())
             self.assertFalse(sticker_source.exists())
-            self.assertEqual(static_status("/static/catalog/al69.jpg"), 404)
+            self.assertEqual(static_status("/static/catalog/al11.jpg"), 404)
             restore_file = next(restore_dir.glob("brand_compliance_restore_*.json"))
             record = json.loads(restore_file.read_text())
             self.assertEqual(record["updates"]["668"]["sell_on_in"], 1)
@@ -946,10 +998,10 @@ class ApplyScriptTest(unittest.TestCase):
             already_applied = [
                 _row(668, "AB27", product_image="./catalog/ab27.jpg",
                      sell_on_in=0, sell_on_com=0, show_in_listings=0),
-                _row(332, "AL69", product_image="./catalog/al69.jpg",
-                     product_name=brand_compliance.RENAMED[332][1],
+                _row(767, "AL11", product_image="./catalog/al11.jpg",
+                     product_name=brand_compliance.RENAMED[767][1],
                      product_slug=brand_compliance.slugify(
-                         brand_compliance.RENAMED[332][1]),
+                         brand_compliance.RENAMED[767][1]),
                      sell_on_in=0, sell_on_com=0, show_in_listings=0),
                 _row(671, "AD61",
                      product_name=brand_compliance.RENAMED[671][1],
@@ -978,7 +1030,7 @@ class ApplyScriptTest(unittest.TestCase):
                                 for sql, _ in restore_db.cursor_obj.queries))
             self.assertTrue(source.exists())
             self.assertTrue(sticker_source.exists())
-            self.assertEqual(static_status("/static/catalog/al69.jpg"), 200)
+            self.assertEqual(static_status("/static/catalog/al11.jpg"), 200)
             self.assertTrue(all(not path.exists() for path in quarantined))
 
     def test_photo_remove_quarantines_only_the_selected_family_and_restores(self):
