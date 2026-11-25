@@ -293,6 +293,11 @@ RELEASED = {
     865: 'BB94',
 }
 
+PHOTO_REPLACED = {
+    84: 'AI20',
+    501: 'AI64',
+}
+
 PHOTO_PENDING = {
     675: 'AD99',
     768: 'AL09',

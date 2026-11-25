@@ -30,6 +30,10 @@ class ComplianceDataTest(unittest.TestCase):
         self.assertEqual(len(brand_compliance.FORMER_NAMES), 146)
         self.assertEqual(len(brand_compliance.PHOTO_PENDING), 19)
         self.assertEqual(len(brand_compliance.RELEASED), 29)
+        self.assertEqual(brand_compliance.PHOTO_REPLACED, {
+            84: "AI20",
+            501: "AI64",
+        })
         self.assertEqual(brand_compliance.PHOTO_REMOVE, {
             335: ["AL74_4.jpg"],
             150: ["AM85_2.jpg", "AM85_4.jpg"],
@@ -553,6 +557,228 @@ class ApplyScriptTest(unittest.TestCase):
             {335: ["AL74_4.jpg"]})
         self.photo_remove_patcher.start()
         self.addCleanup(self.photo_remove_patcher.stop)
+
+    def test_approved_r2_lists_only_sorted_master_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            r2 = Path(tmp) / "catalog" / "r2" / "AI20"
+            for relative in (
+                    "AI20_r2_02.jpg",
+                    "AI20_r2_01.jpg",
+                    "AI20_notes.txt",
+                    "derivatives/AI20_r2_01-200.jpg"):
+                path = r2 / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"image")
+
+            self.assertEqual(apply_script._approved_r2("AI20", tmp), [
+                "catalog/r2/AI20/AI20_r2_01.jpg",
+                "catalog/r2/AI20/AI20_r2_02.jpg",
+            ])
+
+    def test_photo_replacement_quarantines_families_and_restores_old_value(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image_root = Path(tmp) / "static"
+            quarantine = Path(tmp) / "quarantine"
+            restore_dir = Path(tmp) / "restore"
+            round1_restore = Path(tmp) / "round1.json"
+            old_paths = [
+                Path("catalog/opticalbazaar/AI20/AI20_%d.jpg" % index)
+                for index in range(1, 5)
+            ]
+            old_original = ",".join("./" + path.as_posix()
+                                    for path in old_paths)
+            for relative in old_paths:
+                path = image_root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(relative.name.encode())
+                derivative = (
+                    image_root / relative.parent / "derivatives"
+                    / (relative.stem + "-200.webp"))
+                derivative.parent.mkdir(parents=True, exist_ok=True)
+                derivative.write_bytes(b"old derivative")
+
+            approved = [
+                "catalog/r2/AI20/AI20_r2_01.jpg",
+                "catalog/r2/AI20/AI20_r2_02.jpg",
+            ]
+            for relative in approved:
+                path = image_root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"approved retouch")
+            name = brand_compliance.RENAMED[84][1]
+            row = _row(
+                84, "AI20", product_image=old_original,
+                product_name=name, product_slug=brand_compliance.slugify(name))
+
+            dry_output = io.StringIO()
+            dry_db = _DB()
+            with patch.object(apply_script, "_load_rows", return_value=[row]), \
+                    patch.object(apply_script.brand_compliance,
+                                 "PHOTO_REMOVE", {}), \
+                    redirect_stdout(dry_output):
+                apply_script.run(
+                    dry_db, types.SimpleNamespace(
+                        apply=False, quarantine=False),
+                    str(image_root), str(quarantine), str(restore_dir),
+                    str(round1_restore))
+            self.assertIn("REPLACE PHOTOS AI20 old=4 new=2",
+                          dry_output.getvalue())
+            self.assertIn("photos to quarantine=8", dry_output.getvalue())
+            self.assertIn("photos replaced=1", dry_output.getvalue())
+            self.assertEqual(dry_db.cursor_obj.queries, [])
+            self.assertTrue(all((image_root / path).is_file()
+                                for path in old_paths))
+
+            db = _DB()
+            with patch.object(apply_script, "_load_rows", return_value=[row]), \
+                    patch.object(apply_script.brand_compliance,
+                                 "PHOTO_REMOVE", {}):
+                apply_script.run(
+                    db, types.SimpleNamespace(
+                        apply=True, quarantine=True),
+                    str(image_root), str(quarantine), str(restore_dir),
+                    str(round1_restore))
+
+            new_image_value = ",".join(approved)
+            self.assertTrue(any(
+                "product_image=%s" in sql and new_image_value in params
+                for sql, params in db.cursor_obj.queries))
+            self.assertTrue(all(not (image_root / path).exists()
+                                for path in old_paths))
+            client = Flask(
+                "photo_replacement_static_test",
+                static_folder=str(image_root),
+                static_url_path="/static").test_client()
+            for relative in old_paths:
+                response = client.get("/static/" + relative.as_posix())
+                try:
+                    self.assertEqual(response.status_code, 404)
+                finally:
+                    response.close()
+
+            restore_file = next(
+                restore_dir.glob("brand_compliance_restore_*.json"))
+            record = json.loads(restore_file.read_text())
+            self.assertEqual(record["updates"]["84"]["product_image"],
+                             old_original)
+            self.assertEqual(len(record["image_moves"]), 8)
+            restore_db = _DB()
+            apply_script.restore(
+                restore_db, str(restore_file), str(image_root), str(quarantine))
+            self.assertTrue(all((image_root / path).is_file()
+                                for path in old_paths))
+            self.assertTrue(any(
+                "product_image=%s" in sql and old_original in params
+                for sql, params in restore_db.cursor_obj.queries))
+
+    def test_photo_replacement_skips_frames_with_fewer_than_two_approved_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image_root = Path(tmp) / "static"
+            quarantine = Path(tmp) / "quarantine"
+            restore_dir = Path(tmp) / "restore"
+            round1_restore = Path(tmp) / "round1.json"
+            approved = image_root / "catalog" / "r2" / "AI20" / "AI20_r2_01.jpg"
+            approved.parent.mkdir(parents=True)
+            approved.write_bytes(b"single approved photo")
+            name = brand_compliance.RENAMED[84][1]
+            row = _row(
+                84, "AI20", product_image="catalog/old/AI20_1.jpg",
+                product_name=name, product_slug=brand_compliance.slugify(name))
+            db = _DB()
+            output = io.StringIO()
+            with patch.object(apply_script, "_load_rows", return_value=[row]), \
+                    patch.object(apply_script.brand_compliance,
+                                 "PHOTO_REMOVE", {}), \
+                    redirect_stdout(output):
+                apply_script.run(
+                    db, types.SimpleNamespace(
+                        apply=False, quarantine=False),
+                    str(image_root), str(quarantine), str(restore_dir),
+                    str(round1_restore))
+
+            self.assertIn(
+                "MISSING approved R2 photos for AI20 (found 1, need at least 2)",
+                output.getvalue())
+            self.assertIn("photos replaced=0", output.getvalue())
+            self.assertNotIn("product_image=", output.getvalue())
+            self.assertEqual(db.cursor_obj.queries, [])
+
+    def test_released_r2_set_replaces_old_photo_count_without_copying(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image_root = Path(tmp) / "static"
+            approved = [
+                "catalog/r2/AB85/AB85_r2_01.jpg",
+                "catalog/r2/AB85/AB85_r2_02.jpg",
+                "catalog/r2/AB85/AB85_r2_03.jpg",
+            ]
+            for relative in approved:
+                path = image_root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"approved image")
+            old_paths = [
+                "catalog/opticalbazaar/AB85/AB85_%d.jpg" % index
+                for index in range(1, 5)
+            ]
+            row = _row(696, "AB85", product_image=",".join(old_paths))
+
+            plan = apply_script._republish_plan(
+                row, str(image_root), str(Path(tmp) / "quarantine"), {})
+
+            self.assertTrue(plan["ready"])
+            self.assertEqual(plan["image_value"], ",".join(approved))
+            self.assertEqual(plan["copies"], [])
+            self.assertEqual(plan["old_public"], old_paths)
+            self.assertEqual(plan["missing"], [])
+
+    def test_existing_release_r2_values_remain_unchanged_for_ten_frames(self):
+        released = {
+            696: "AB85",
+            261: "BB22",
+            146: "BB26",
+            145: "BB27",
+            203: "BB31",
+            204: "BB32",
+            366: "BB33",
+            411: "BB74",
+            302: "BB85",
+            865: "BB94",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            image_root = Path(tmp) / "static"
+            rows = []
+            for product_id, sku in released.items():
+                paths = [
+                    "catalog/r2/%s/%s_r2_%02d.jpg" % (sku, sku, index)
+                    for index in (1, 2)
+                ]
+                for relative in paths:
+                    path = image_root / relative
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(b"approved image")
+                renamed = brand_compliance.RENAMED.get(product_id)
+                name = renamed[1] if renamed else "Original " + sku
+                rows.append(_row(
+                    product_id, sku, product_image=",".join(paths),
+                    product_name=name,
+                    product_slug=brand_compliance.slugify(name)))
+
+            db = _DB()
+            output = io.StringIO()
+            with patch.object(apply_script, "_load_rows", return_value=rows), \
+                    patch.object(apply_script.brand_compliance,
+                                 "PHOTO_REMOVE", {}), \
+                    redirect_stdout(output):
+                apply_script.run(
+                    db, types.SimpleNamespace(
+                        apply=False, quarantine=False),
+                    str(image_root), str(Path(tmp) / "quarantine"),
+                    str(Path(tmp) / "restore"),
+                    str(Path(tmp) / "round1.json"))
+
+            self.assertIn("photos to republish=0", output.getvalue())
+            self.assertIn("photos replaced=0", output.getvalue())
+            self.assertNotIn("product_image=", output.getvalue())
+            self.assertEqual(db.cursor_obj.queries, [])
 
     def test_ab87_quarantines_both_product_image_families(self):
         with tempfile.TemporaryDirectory() as tmp:

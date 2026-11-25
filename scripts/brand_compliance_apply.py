@@ -12,6 +12,7 @@ import argparse
 import datetime
 import json
 import os
+import re
 import shutil
 import sys
 
@@ -49,6 +50,7 @@ def _ids():
         set(brand_compliance.blocked_ids())
         | set(brand_compliance.RELEASED)
         | set(brand_compliance.RENAMED)
+        | set(brand_compliance.PHOTO_REPLACED)
         | set(brand_compliance.PHOTO_REMOVE)
         | set(brand_compliance.STOCK_SET))
 
@@ -145,6 +147,47 @@ def _image_paths(row):
             raise ValueError("unsafe product_image path for %s" % product_id)
         paths.append(relative)
     return paths
+
+
+def _approved_r2(sku, image_root):
+    directory = os.path.join(image_root, "catalog", "r2", sku)
+    pattern = re.compile(
+        r"^%s_r2_\d{2,}\.(?:jpe?g|png|webp|avif)$" % re.escape(sku),
+        re.IGNORECASE)
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return []
+    return sorted(
+        os.path.join("catalog", "r2", sku, name).replace(os.sep, "/")
+        for name in names
+        if pattern.fullmatch(name)
+        and os.path.isfile(os.path.join(directory, name)))
+
+
+def _photo_replacement_plan(row, image_root):
+    product_id = int(row["product_id"])
+    original = row.get("product_image") or ""
+    sku = brand_compliance.PHOTO_REPLACED.get(product_id)
+    if not sku:
+        return {"ready": True, "image_value": original, "approved": [],
+                "old_public": []}
+
+    approved = _approved_r2(sku, image_root)
+    if len(approved) < 2:
+        return {"ready": False, "image_value": None, "approved": approved,
+                "old_public": []}
+
+    old_public = [
+        relative for relative in _image_paths(row)
+        if not relative.startswith("catalog/r2/")
+    ]
+    return {
+        "ready": True,
+        "image_value": ",".join(approved),
+        "approved": approved,
+        "old_public": old_public,
+    }
 
 
 def _photo_remove_plan(row):
@@ -250,6 +293,18 @@ def _republish_plan(row, image_root, quarantine_base, record):
 
     sku = brand_compliance.RELEASED[product_id]
     paths = _image_paths(row)
+    approved = _approved_r2(sku, image_root)
+    if approved:
+        return {
+            "ready": True,
+            "image_value": ",".join(approved),
+            "copies": [],
+            "old_public": [
+                relative for relative in paths
+                if not relative.startswith("catalog/r2/")
+            ],
+            "missing": [],
+        }
     if not paths:
         return {"ready": False, "image_value": None, "copies": [],
                 "old_public": [], "missing": [{"relative_path": ""}]}
@@ -397,10 +452,12 @@ def _remove_copies(copies):
 def _print_summary(summary):
     print(
         "SUMMARY off sale=%d relisted=%d renamed=%d seo-scrubbed=%d "
-        "photos to quarantine=%d photos to republish=%d stock updates=%d"
+        "photos to quarantine=%d photos to republish=%d stock updates=%d "
+        "photos replaced=%d"
         % (summary["off_sale"], summary["relisted"], summary["renamed"],
            summary["seo_scrubbed"], summary["photos_to_quarantine"],
-           summary["photos_to_republish"], summary["stock_updates"]))
+           summary["photos_to_republish"], summary["stock_updates"],
+           summary["photos_replaced"]))
 
 
 def run(db, args, image_root=None, quarantine_base=None, restore_dir=None,
@@ -454,6 +511,10 @@ def run(db, args, image_root=None, quarantine_base=None, restore_dir=None,
                 row, image_root, quarantine_base, record)
             for row in working_rows
         }
+        photo_replacements = {
+            int(row["product_id"]): _photo_replacement_plan(row, image_root)
+            for row in rows
+        }
         missing_republish = [
             {"product_id": product_id, **item}
             for product_id, plan in republish.items()
@@ -475,6 +536,11 @@ def run(db, args, image_root=None, quarantine_base=None, restore_dir=None,
             for plan in republish.values()
             for relative in plan["old_public"]
         ]
+        old_public.extend(
+            relative
+            for plan in photo_replacements.values()
+            if plan["ready"]
+            for relative in plan["old_public"])
         timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         quarantine_dir = os.path.join(quarantine_base, timestamp)
         display_quarantine_dir = (
@@ -500,17 +566,36 @@ def run(db, args, image_root=None, quarantine_base=None, restore_dir=None,
             "photos_to_quarantine": len(quarantine_plans),
             "photos_to_republish": sum(
                 len(plan["copies"]) for plan in republish.values()),
+            "photos_replaced": 0,
         }
         for row in rows:
             product_id = int(row["product_id"])
             plan = republish[product_id]
+            replacement = photo_replacements[product_id]
             stock = brand_compliance.STOCK_SET.get(product_id)
             stock_already_applied = product_id in previous_stock_updates
             if stock and stock_already_applied:
                 print("STOCK ALREADY APPLIED %s" % stock["sku"])
-            changes = _changes(
-                row, relist_ready=plan["ready"],
-                stock_already_applied=stock_already_applied)
+            if (product_id in brand_compliance.PHOTO_REPLACED
+                    and not replacement["ready"]):
+                print("MISSING approved R2 photos for %s (found %d, need at least 2)" % (
+                    brand_compliance.PHOTO_REPLACED[product_id],
+                    len(replacement["approved"])))
+                changes = {}
+            else:
+                changes = _changes(
+                    row, relist_ready=plan["ready"],
+                    stock_already_applied=stock_already_applied)
+                if (product_id in brand_compliance.PHOTO_REPLACED
+                        and replacement["image_value"] is not None
+                        and replacement["image_value"]
+                        != (row.get("product_image") or "")):
+                    changes["product_image"] = replacement["image_value"]
+                    print("REPLACE PHOTOS %s old=%d new=%d" % (
+                        brand_compliance.PHOTO_REPLACED[product_id],
+                        len(_image_paths(row)),
+                        len(replacement["approved"])))
+                    summary["photos_replaced"] += 1
             if (plan["ready"] and plan["image_value"] is not None
                     and plan["image_value"] != (row.get("product_image") or "")):
                 changes["product_image"] = plan["image_value"]

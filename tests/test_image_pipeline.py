@@ -253,6 +253,22 @@ class Manifest(unittest.TestCase):
         image_pipeline.merge_manifest(self.path, [("a/x.jpg", "1" * 64)])
         self.assertIn("frames/BB02_1.jpg", dict(self.read()))
 
+    def test_replace_prefix_removes_old_rows_and_preserves_other_products(self):
+        image_pipeline.merge_manifest(self.path, [
+            ("r2/AI20/AI20_r2_01.jpg", "1" * 64),
+            ("r2/AI20/derivatives/AI20_r2_01-200.jpg", "2" * 64),
+            ("r2/AI64/AI64_r2_01.jpg", "3" * 64),
+        ])
+        image_pipeline.merge_manifest(
+            self.path, [("r2/AI20/AI20_r2_01.jpg", "4" * 64)],
+            replace_prefix="r2/AI20/")
+
+        rows = dict(self.read())
+        self.assertEqual(rows, {
+            "r2/AI20/AI20_r2_01.jpg": "4" * 64,
+            "r2/AI64/AI64_r2_01.jpg": "3" * 64,
+        })
+
 
 if __name__ == "__main__":
     unittest.main()

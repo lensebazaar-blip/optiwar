@@ -440,11 +440,13 @@ def manifest_rows(paths, catalog_root):
     return sorted(rows)
 
 
-def merge_manifest(manifest_path, rows):
+def merge_manifest(manifest_path, rows, replace_prefix=None):
     """Rewrite the manifest with `rows` replacing any entry of the same path.
 
     An entry is replaced rather than appended so a re-run cannot leave two
     hashes for one file, and the file stays sorted so a diff is readable.
+    When `replace_prefix` is supplied, old entries under that catalog-relative
+    prefix are removed before the new rows are merged.
     """
     existing = {}
     if os.path.exists(manifest_path):
@@ -453,6 +455,11 @@ def merge_manifest(manifest_path, rows):
                 rel, _, digest = line.rstrip("\n").partition("\t")
                 if rel and digest:
                     existing[rel] = digest
+    if replace_prefix is not None:
+        existing = {
+            rel: digest for rel, digest in existing.items()
+            if not rel.startswith(replace_prefix)
+        }
     existing.update(dict(rows))
     _ensure_dir(os.path.dirname(manifest_path))
     _atomic_write(manifest_path, lambda fh: fh.write("".join(
