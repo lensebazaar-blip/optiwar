@@ -2,9 +2,11 @@ import importlib.util
 import io
 import os
 from pathlib import Path
+import stat
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from PIL import Image
 
@@ -25,10 +27,24 @@ class PublishR2PhotosTest(unittest.TestCase):
         self.image_root = self.root / "static"
         self.sources = self.root / "sources"
         self.sources.mkdir()
+        avif_check = patch.object(publisher.features, "check",
+                                  return_value=True)
+        avif_check.start()
+        self.addCleanup(avif_check.stop)
+        avif_writer = patch.object(
+            publisher.image_pipeline, "_save_avif",
+            side_effect=self._save_fake_avif)
+        avif_writer.start()
+        self.addCleanup(avif_writer.stop)
+
+    @staticmethod
+    def _save_fake_avif(image, path):
+        image.save(path, "PNG")
+        return True
 
     def source(self, name, color):
         path = self.sources / name
-        Image.new("RGB", (600, 400), color).save(path, "JPEG")
+        Image.new("RGB", (2100, 300), color).save(path, "JPEG")
         return str(path)
 
     def manifest_rows(self):
@@ -52,6 +68,7 @@ class PublishR2PhotosTest(unittest.TestCase):
         self.assertIn(str(self.image_root / "catalog" / "r2" / "AI20"
                           / "AI20_r2_01.jpg"), text)
         self.assertIn("AI20_r2_01-200.jpg", text)
+        self.assertIn("AI20_r2_01-2000.avif", text)
         self.assertIn(str(self.image_root / "catalog"
                           / "derivative_manifest.tsv"), text)
         self.assertFalse((self.image_root / "catalog").exists())
@@ -65,6 +82,7 @@ class PublishR2PhotosTest(unittest.TestCase):
         master = target_dir / "AI20_r2_01.jpg"
         self.assertTrue(master.is_file())
         derivative_paths = sorted((target_dir / "derivatives").iterdir())
+        self.assertEqual(len(derivative_paths), 15)
         self.assertTrue(any(path.name.endswith("-200.jpg")
                             for path in derivative_paths))
         written = [str(master)] + [str(path) for path in derivative_paths]
@@ -72,6 +90,88 @@ class PublishR2PhotosTest(unittest.TestCase):
             written, str(self.image_root / "catalog")))
         self.assertEqual(self.manifest_rows(), expected)
         self.assertTrue(all(len(digest) == 64 for digest in expected.values()))
+
+    def test_avif_is_required_before_a_dry_run_writes_anything(self):
+        source = self.source("retouched.jpg", (60, 90, 120))
+        stderr = io.StringIO()
+
+        with patch.object(publisher.features, "check", return_value=False), \
+                patch("sys.stderr", stderr):
+            with self.assertRaises(SystemExit) as raised:
+                publisher.main([
+                    "--sku", "AI20", "--files", source,
+                    "--image-root", str(self.image_root)])
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("AVIF encoding support is required", stderr.getvalue())
+        self.assertFalse(self.image_root.exists())
+
+    def test_missing_variant_fails_before_adding_manifest_rows(self):
+        source = self.source("retouched.jpg", (60, 90, 120))
+        build_derivatives = publisher.image_pipeline.build_derivatives
+
+        def omit_avif(master_path):
+            paths = build_derivatives(master_path)
+            missing = next(path for path in paths
+                           if path.endswith("-200.avif"))
+            os.remove(missing)
+            return [path for path in paths if path != missing]
+
+        with patch.object(publisher.image_pipeline, "build_derivatives",
+                          side_effect=omit_avif):
+            with self.assertRaisesRegex(
+                    ValueError, "incomplete derivative ladder.*200.avif"):
+                publisher.publish(
+                    "AI20", [source], str(self.image_root), apply=True)
+
+        self.assertFalse((self.image_root / "catalog"
+                          / "derivative_manifest.tsv").exists())
+        self.assertFalse((self.image_root / "catalog" / "r2"
+                          / "AI20").exists())
+
+    def test_exif_orientation_is_applied_to_master_and_derivatives(self):
+        source = self.sources / "oriented.jpg"
+        image = Image.new("RGB", (2400, 2200), (60, 90, 120))
+        exif = Image.Exif()
+        exif[274] = 6
+        image.save(source, "JPEG", exif=exif)
+
+        publisher.publish("AI20", [str(source)], str(self.image_root),
+                          apply=True)
+
+        target_dir = self.image_root / "catalog" / "r2" / "AI20"
+        master = target_dir / "AI20_r2_01.jpg"
+        with Image.open(master) as result:
+            self.assertEqual(result.size, (2200, 2400))
+            self.assertIsNone(result.getexif().get(274))
+
+        derivatives = sorted((target_dir / "derivatives").iterdir())
+        self.assertEqual(len(derivatives), 15)
+        for derivative in derivatives:
+            width = int(derivative.name.split("-")[1].split(".")[0])
+            with Image.open(derivative) as result:
+                self.assertEqual(
+                    result.size, (width, int(round(2400 * width / 2200))))
+                self.assertIsNone(result.getexif().get(274))
+
+    def test_output_files_are_mode_0644_for_mode_0600_source(self):
+        source = self.source("private.jpg", (60, 90, 120))
+        os.chmod(source, 0o600)
+
+        previous_umask = os.umask(0o077)
+        try:
+            publisher.publish(
+                "AI20", [source], str(self.image_root), apply=True)
+        finally:
+            os.umask(previous_umask)
+
+        target_dir = self.image_root / "catalog" / "r2" / "AI20"
+        output_files = [target_dir / "AI20_r2_01.jpg"]
+        output_files.extend((target_dir / "derivatives").iterdir())
+        self.assertEqual(len(output_files), 16)
+        self.assertTrue(all(
+            stat.S_IMODE(path.stat().st_mode) == 0o644
+            for path in output_files))
 
     def test_existing_masters_require_replace(self):
         first = self.source("first.jpg", (60, 90, 120))

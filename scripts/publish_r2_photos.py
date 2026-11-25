@@ -13,7 +13,7 @@ import shutil
 import sys
 import tempfile
 
-from PIL import Image
+from PIL import Image, ImageOps, features
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO not in sys.path:
@@ -58,6 +58,40 @@ def _family_paths(master_path):
     return paths
 
 
+def _require_avif_support():
+    try:
+        __import__("pillow_avif")
+    except ImportError:
+        pass
+    try:
+        available = features.check("avif")
+    except ValueError:
+        available = False
+    if not available:
+        raise ValueError(
+            "AVIF encoding support is required to publish the full derivative "
+            "ladder; install pillow-avif-plugin")
+    try:
+        webp_available = features.check("webp")
+    except ValueError:
+        webp_available = False
+    if not webp_available:
+        raise ValueError(
+            "WebP encoding support is required to publish the full derivative "
+            "ladder")
+
+
+def _expected_derivative_paths(master_path):
+    directory, filename = os.path.split(master_path)
+    stem = os.path.splitext(filename)[0]
+    derivative_dir = os.path.join(directory, "derivatives")
+    return [
+        os.path.join(derivative_dir, "%s-%d.%s" % (stem, width, fmt))
+        for width in image_pipeline.DERIVATIVE_WIDTHS
+        for fmt in image_pipeline.DERIVATIVE_FORMATS
+    ]
+
+
 def _validate_source(path):
     if not os.path.isfile(path):
         raise ValueError("source file does not exist: %s" % path)
@@ -66,8 +100,16 @@ def _validate_source(path):
             if image.format != "JPEG":
                 raise ValueError("source file must be a JPEG: %s" % path)
             image.verify()
+        with Image.open(path) as image:
+            oriented = ImageOps.exif_transpose(image)
+            width = oriented.width
     except (OSError, ValueError) as exc:
         raise ValueError("invalid JPEG source %s: %s" % (path, exc)) from exc
+    required_width = max(image_pipeline.DERIVATIVE_WIDTHS)
+    if width < required_width:
+        raise ValueError(
+            "source must be at least %d pixels wide after EXIF orientation "
+            "to build the full derivative ladder: %s" % (required_width, path))
 
 
 def publish(sku, files, image_root, apply=False, replace=False, output=None):
@@ -94,19 +136,37 @@ def publish(sku, files, image_root, apply=False, replace=False, output=None):
         path for master in existing_masters for path in _family_paths(master)
     }
 
+    _require_avif_support()
+
     with tempfile.TemporaryDirectory(prefix="publish-r2-") as staging:
         staged_files = []
         for index, source in enumerate(files, 1):
             filename = "%s_r2_%02d.jpg" % (sku, index)
             staged_master = os.path.join(staging, filename)
-            shutil.copy2(source, staged_master)
-            derivatives = image_pipeline.build_derivatives(staged_master)
+            with Image.open(source) as image:
+                master = ImageOps.exif_transpose(image).convert("RGB")
+                try:
+                    image_pipeline.save_master(master, staged_master)
+                finally:
+                    master.close()
+            os.chmod(staged_master, 0o644)
+            image_pipeline.build_derivatives(staged_master)
+            expected_derivatives = _expected_derivative_paths(staged_master)
+            missing = [path for path in expected_derivatives
+                       if not os.path.isfile(path)]
+            if missing:
+                raise ValueError(
+                    "incomplete derivative ladder for %s; missing: %s"
+                    % (filename, ", ".join(os.path.basename(path)
+                                           for path in missing)))
+            for derivative in expected_derivatives:
+                os.chmod(derivative, 0o644)
             staged_files.append(
                 (staged_master, os.path.join(target_dir, filename)))
             staged_files.extend(
                 (derivative, os.path.join(
                     target_dir, "derivatives", os.path.basename(derivative)))
-                for derivative in derivatives)
+                for derivative in expected_derivatives)
 
         label = "WRITE" if apply else "DRY RUN WRITE"
         for _, destination in staged_files:
@@ -120,6 +180,7 @@ def publish(sku, files, image_root, apply=False, replace=False, output=None):
         for source, destination in staged_files:
             os.makedirs(os.path.dirname(destination), exist_ok=True)
             shutil.copy2(source, destination)
+            os.chmod(destination, 0o644)
             written.append(destination)
 
         rows = image_pipeline.manifest_rows(written, catalog_root)

@@ -363,7 +363,8 @@ def build_derivatives(master_path, widths=DERIVATIVE_WIDTHS,
     out_dir = os.path.join(directory, "derivatives")
     _ensure_dir(out_dir)
     written = []
-    with Image.open(master_path) as master:
+    with Image.open(master_path) as source:
+        master = ImageOps.exif_transpose(source)
         master.load()
         for width in widths:
             if width > master.size[0]:
