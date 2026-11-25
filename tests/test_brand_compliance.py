@@ -226,6 +226,9 @@ class ComplianceDataTest(unittest.TestCase):
         self.assertEqual(
             brand_compliance.scrub_text("LOUIS STYLE N-5075 AG74", 860),
             "OPTIWAR Round AG74")
+        self.assertEqual(
+            brand_compliance.scrub_text("OPTIWAR Frame AG74", 860),
+            "OPTIWAR Round AG74")
 
     def test_followup_maker_renames_scrub_text_and_preserve_sell_flags(self):
         cases = (
