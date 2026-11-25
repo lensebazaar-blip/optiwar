@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from PIL import Image
+from PIL import Image, ImageCms
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -27,10 +27,11 @@ class PublishR2PhotosTest(unittest.TestCase):
         self.image_root = self.root / "static"
         self.sources = self.root / "sources"
         self.sources.mkdir()
-        avif_check = patch.object(publisher.features, "check",
-                                  return_value=True)
-        avif_check.start()
-        self.addCleanup(avif_check.stop)
+        avif_available = patch.object(
+            publisher.image_pipeline, "avif_encoder_available",
+            return_value=True)
+        avif_available.start()
+        self.addCleanup(avif_available.stop)
         avif_writer = patch.object(
             publisher.image_pipeline, "_save_avif",
             side_effect=self._save_fake_avif)
@@ -95,7 +96,8 @@ class PublishR2PhotosTest(unittest.TestCase):
         source = self.source("retouched.jpg", (60, 90, 120))
         stderr = io.StringIO()
 
-        with patch.object(publisher.features, "check", return_value=False), \
+        with patch.object(publisher.image_pipeline, "avif_encoder_available",
+                          return_value=False), \
                 patch("sys.stderr", stderr):
             with self.assertRaises(SystemExit) as raised:
                 publisher.main([
@@ -105,6 +107,14 @@ class PublishR2PhotosTest(unittest.TestCase):
         self.assertEqual(raised.exception.code, 2)
         self.assertIn("AVIF encoding support is required", stderr.getvalue())
         self.assertFalse(self.image_root.exists())
+
+    def test_preflight_uses_the_shared_avif_encoder_check(self):
+        with patch.object(
+                publisher.image_pipeline, "avif_encoder_available",
+                return_value=True) as available:
+            publisher._require_avif_support()
+
+        available.assert_called_once_with()
 
     def test_missing_variant_fails_before_adding_manifest_rows(self):
         source = self.source("retouched.jpg", (60, 90, 120))
@@ -172,6 +182,35 @@ class PublishR2PhotosTest(unittest.TestCase):
         self.assertTrue(all(
             stat.S_IMODE(path.stat().st_mode) == 0o644
             for path in output_files))
+
+    def test_icc_profiles_are_converted_only_when_present(self):
+        lab_profile = ImageCms.ImageCmsProfile(
+            ImageCms.createProfile("LAB")).tobytes()
+        profiled = self.sources / "profiled.jpg"
+        Image.new("RGB", (2100, 300), (60, 90, 120)).save(
+            profiled, "JPEG", icc_profile=lab_profile)
+        unprofiled = self.source("unprofiled.jpg", (120, 90, 60))
+        calls = []
+
+        def convert_to_srgb(image, input_profile, output_profile,
+                            outputMode):
+            calls.append((input_profile, output_profile, outputMode))
+            return image.convert(outputMode)
+
+        with patch.object(publisher.ImageCms, "profileToProfile",
+                          side_effect=convert_to_srgb):
+            publisher.publish(
+                "AI20", [str(profiled), unprofiled], str(self.image_root),
+                apply=True)
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][2], "RGB")
+        for index in (1, 2):
+            master = (self.image_root / "catalog" / "r2" / "AI20"
+                      / ("AI20_r2_%02d.jpg" % index))
+            with Image.open(master) as result:
+                self.assertEqual(result.mode, "RGB")
+                self.assertIsNone(result.info.get("icc_profile"))
 
     def test_existing_masters_require_replace(self):
         first = self.source("first.jpg", (60, 90, 120))

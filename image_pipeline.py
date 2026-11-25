@@ -50,6 +50,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+from functools import lru_cache
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
@@ -395,8 +396,27 @@ def _save_format(img, path, fmt):
     raise RecipeError("unknown derivative format %r" % fmt)
 
 
+@lru_cache(maxsize=1)
+def avif_encoder_available():
+    try:
+        __import__("pillow_avif")
+    except (ImportError, OSError):
+        pass
+    probe = Image.new("RGB", (1, 1))
+    try:
+        try:
+            probe.save(io.BytesIO(), "AVIF", quality=WEB_QUALITY)
+            return True
+        except (KeyError, OSError, ValueError):
+            return shutil.which("avifenc") is not None
+    finally:
+        probe.close()
+
+
 def _save_avif(img, path):
     """Pillow's AVIF plugin when the box has one, else the avifenc binary."""
+    if not avif_encoder_available():
+        return False
     try:
         _atomic_write(path, lambda fh: img.save(fh, "AVIF", quality=WEB_QUALITY))
         return True

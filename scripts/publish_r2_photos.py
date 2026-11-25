@@ -7,13 +7,14 @@ updates the database. embed_helper loads that manifest once at startup, so
 restart gunicorn after applying a batch to make the new entries visible.
 """
 import argparse
+import io
 import os
 import re
 import shutil
 import sys
 import tempfile
 
-from PIL import Image, ImageOps, features
+from PIL import Image, ImageCms, ImageOps
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO not in sys.path:
@@ -59,26 +60,10 @@ def _family_paths(master_path):
 
 
 def _require_avif_support():
-    try:
-        __import__("pillow_avif")
-    except ImportError:
-        pass
-    try:
-        available = features.check("avif")
-    except ValueError:
-        available = False
-    if not available:
+    if not image_pipeline.avif_encoder_available():
         raise ValueError(
             "AVIF encoding support is required to publish the full derivative "
-            "ladder; install pillow-avif-plugin")
-    try:
-        webp_available = features.check("webp")
-    except ValueError:
-        webp_available = False
-    if not webp_available:
-        raise ValueError(
-            "WebP encoding support is required to publish the full derivative "
-            "ladder")
+            "ladder; install pillow-avif-plugin or provide avifenc on PATH")
 
 
 def _expected_derivative_paths(master_path):
@@ -144,11 +129,24 @@ def publish(sku, files, image_root, apply=False, replace=False, output=None):
             filename = "%s_r2_%02d.jpg" % (sku, index)
             staged_master = os.path.join(staging, filename)
             with Image.open(source) as image:
-                master = ImageOps.exif_transpose(image).convert("RGB")
+                oriented = ImageOps.exif_transpose(image)
                 try:
-                    image_pipeline.save_master(master, staged_master)
+                    icc_profile = oriented.info.get("icc_profile")
+                    if icc_profile:
+                        master = ImageCms.profileToProfile(
+                            oriented,
+                            ImageCms.ImageCmsProfile(
+                                io.BytesIO(icc_profile)),
+                            ImageCms.createProfile("sRGB"),
+                            outputMode="RGB")
+                    else:
+                        master = oriented.convert("RGB")
+                    try:
+                        image_pipeline.save_master(master, staged_master)
+                    finally:
+                        master.close()
                 finally:
-                    master.close()
+                    oriented.close()
             os.chmod(staged_master, 0o644)
             image_pipeline.build_derivatives(staged_master)
             expected_derivatives = _expected_derivative_paths(staged_master)
