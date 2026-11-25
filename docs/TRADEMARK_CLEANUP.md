@@ -24,8 +24,8 @@ rewritten.
 | Hold | 93 | AH69 | Tommy Hilfiger (lookalike flag) |
 | Hold | 961 | AB87 | Royal Navy; quarantine both `opticalbazaar/AB14/AB87/` and `opticalbazaar/AB87/` image families |
 | Hold | 482 | AA05 | Oppo/Vivo (oppvivo) |
-| Rename | 150 | AM85 | OPTIWAR Frame; formerly DASAULTS |
-| Rename | 154 | AM84 | OPTIWAR Frame; formerly DASAULTS |
+| Rename | 150 | AM85 | OPTIWAR Rimless; formerly DASAULTS |
+| Rename | 154 | AM84 | OPTIWAR Rimless; formerly DASAULTS |
 | Remove photos | 150 | AM85 | `AM85_2.jpg`, `AM85_4.jpg` |
 | Remove photos | 154 | AM84 | `AM84_1.jpg`, `AM84_2.jpg`, `AM84_4.jpg` |
 
@@ -46,8 +46,8 @@ rewritten.
    change order status or notify customers. Old slugs for renamed sold-out
    frames still redirect to the replacement slug. The old catalog image paths
    remain quarantined. The restore JSON records the DB values, moves and copies.
-3. The current release is AB85 (PID 696). The other 19 released frames remain
-   blocked by `PHOTO_PENDING`. **The remaining 19 relist by deleting them from
+3. The current release is AB85 (PID 696). The other 5 released frames remain
+   blocked by `PHOTO_PENDING`. **The remaining 5 relist by deleting them from
    `PHOTO_PENDING` after photo approval.** Do not delete them from `HELD` again;
    they are already removed from the trademark list.
 4. Rebuild the SEO product files and purge page/image caches only after a
