@@ -155,7 +155,7 @@ RENAMED = {
     587: ('AM44', 'OPTIWAR Square'),
     584: ('AM45', 'OPTIWAR Square'),
     672: ('AD62', 'OPTIWAR Square'),
-    860: ('AG74', 'OPTIWAR Frame'),
+    860: ('AG74', 'OPTIWAR Round'),
     294: ('AA94', 'OPTIWAR Square'),
     84: ('AI20', 'OPTIWAR Half-Rim'),
     82: ('AI21', 'OPTIWAR Half-Rim'),
@@ -296,28 +296,19 @@ RELEASED = {
 PHOTO_REPLACED = {
     84: 'AI20',
     501: 'AI64',
+    82: 'AI21',
+    713: 'AK09',
+    580: 'AM58',
+    348: 'AK02',
+    347: 'AK03',
 }
 
 PHOTO_PENDING = {
-    675: 'AD99',
-    768: 'AL09',
     767: 'AL11',
     770: 'AL12',
-    808: 'AL37',
-    814: 'AL38',
-    813: 'AL40',
-    332: 'AL69',
-    336: 'AL70',
-    330: 'AL71',
-    333: 'AL73',
-    334: 'AL75',
-    331: 'AL76',
     26: 'AL54',
     29: 'AL55',
-    587: 'AM44',
     584: 'AM45',
-    672: 'AD62',
-    860: 'AG74',
 }
 
 PHOTO_REMOVE = {
@@ -384,7 +375,7 @@ FORMER_NAMES = {
     587: 'JACK JOHNSON',
     584: 'JACK JOHNSON',
     672: 'LOUIS STYLE',
-    860: 'LOUIS STYLE N-5075',
+    860: ('LOUIS STYLE N-5075', 'OPTIWAR Frame'),
     294: 'IDEA',
     84: ('ARMLIN AR002', 'OPTIWAR Frame'),
     82: ('ARMLIN AR004', 'OPTIWAR Frame'),
