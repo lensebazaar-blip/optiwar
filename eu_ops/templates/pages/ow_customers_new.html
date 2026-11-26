@@ -38,13 +38,11 @@
     </section>
     {% else %}
     <div class="oc-layout">
-        {% set selected_channels = form_data.get('channels', ['email', 'whatsapp']) %}
         <section class="oc-card">
             <span class="oc-eyebrow">STEP 1 · CUSTOMER DETAILS</span>
             <h2>Create an account</h2>
             <form method="post" action="{{ base }}/ow-customers/preview"
                   data-submit-lock>
-                <input type="hidden" name="intent" value="{{ form_data.intent or 'create' }}">
                 <label for="customer-name">Customer name</label>
                 <input id="customer-name" name="name" value="{{ form_data.name or '' }}"
                        minlength="2" maxlength="120" autocomplete="name" required>
@@ -57,16 +55,16 @@
                        autocomplete="tel" required>
                 <fieldset class="oc-channels">
                     <legend>Face-scan request channels</legend>
-                    <label><input type="checkbox" name="channels" value="email"{% if 'email' in selected_channels %} checked{% endif %}>
+                    <label><input type="checkbox" name="channels" value="email" checked>
                         Email</label>
-                    <label><input type="checkbox" name="channels" value="whatsapp"{% if 'whatsapp' in selected_channels %} checked{% endif %}>
+                    <label><input type="checkbox" name="channels" value="whatsapp" checked>
                         WhatsApp</label>
                     <small>Choose channels for “Create + send face scan”. Only the saved customer contacts are used.</small>
                 </fieldset>
                 <div class="oc-actions">
-                    <button class="oc-button oc-button-secondary" value="create"
+                    <button class="oc-button oc-button-secondary" name="intent" value="create"
                             type="submit">Create customer</button>
-                    <button class="oc-button oc-button-primary"
+                    <button class="oc-button oc-button-primary" name="intent"
                             value="create_and_scan" type="submit">Create + send face scan</button>
                 </div>
             </form>
@@ -150,10 +148,9 @@
         try {
             var response = await fetch("{{ base }}/ow-new-order/api/customers?q=" +
                 encodeURIComponent(query), {headers: {"Accept": "application/json"}});
-            var data = await response.json();
-            var rows = data && Array.isArray(data.results) ? data.results : [];
+            var rows = await response.json();
             results.replaceChildren();
-            if (!rows.length) {
+            if (!Array.isArray(rows) || !rows.length) {
                 var empty = document.createElement("p");
                 empty.textContent = "No matching customers.";
                 results.appendChild(empty);
@@ -186,11 +183,7 @@
     }
 })();
 document.querySelectorAll("[data-submit-lock]").forEach(function(form) {
-    form.addEventListener("submit", function(event) {
-        var intent = form.querySelector("input[name=intent]");
-        if (intent && event.submitter && event.submitter.value) {
-            intent.value = event.submitter.value;
-        }
+    form.addEventListener("submit", function() {
         form.querySelectorAll("button[type=submit]").forEach(function(button) {
             button.disabled = true;
             button.textContent = "Preparing preview…";

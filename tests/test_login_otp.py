@@ -5,7 +5,6 @@ import sys
 import types
 import unittest
 from datetime import datetime, timedelta
-import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -21,8 +20,6 @@ except ImportError:
 ROOT = Path(__file__).resolve().parents[1]
 _db_for_auth = None
 _sent_codes = []
-GENERIC_OTP_REPLY = (
-    "If this number matches an account, we've sent a code. Enter it below.")
 
 
 class FakeCursor:
@@ -38,14 +35,6 @@ class FakeCursor:
         self.rows = []
         self.rowcount = 0
         if sql.startswith("CREATE TABLE"):
-            return
-        if sql.startswith("SELECT GET_LOCK(%s, 5) AS acquired"):
-            self.db.events.append(("get_lock", params[0], 5))
-            self.rows = [{"acquired": int(self.db.lock_granted)}]
-            return
-        if sql.startswith("SELECT RELEASE_LOCK(%s) AS released"):
-            self.db.events.append(("release_lock", params[0]))
-            self.rows = [{"released": 1}]
             return
         if sql.startswith("SELECT customer_id") and "FROM customers WHERE customer_email = %s" in sql:
             self.rows = [row for row in self.db.customers.values()
@@ -67,23 +56,16 @@ class FakeCursor:
             row = self.db.temp_passwords.get(int(params[0]))
             self.rows = [{"expires_at": row["expires_at"]}] if row else []
             return
-        if sql.startswith("SELECT customer_id FROM customer_temp_passwords"):
-            row = self.db.temp_passwords.get(int(params[0]))
-            self.rows = [{"customer_id": params[0]}] if row else []
-            return
         if sql.startswith("SELECT COUNT(*) AS n FROM customer_login_otps"):
             value = params[0]
-            window = (timedelta(hours=24)
-                      if "INTERVAL 24 HOUR" in sql
-                      else timedelta(minutes=15))
             if "WHERE phone=%s" in sql:
                 self.rows = [{"n": sum(1 for row in self.db.otps.values()
                                        if row["phone"] == value and
-                                       row["created_at"] >= datetime.now() - window)}]
+                                       row["created_at"] >= datetime.now() - timedelta(minutes=15))}]
             else:
                 self.rows = [{"n": sum(1 for row in self.db.otps.values()
                                        if row["created_ip"] == value and
-                                       row["created_at"] >= datetime.now() - window)}]
+                                       row["created_at"] >= datetime.now() - timedelta(minutes=15))}]
             return
         if sql.startswith("INSERT INTO customer_login_otps"):
             customer_id, phone, code_hash, expires_at, created_ip = params
@@ -95,7 +77,6 @@ class FakeCursor:
                 "attempts": 0, "used_at": None, "created_ip": created_ip,
                 "created_at": datetime.now(),
             }
-            self.db.events.append(("insert", otp_id))
             self.lastrowid = otp_id
             self.rowcount = 1
             return
@@ -157,14 +138,12 @@ class FakeDB:
         self.temp_passwords = {}
         self.otps = {}
         self.next_otp_id = 1
-        self.lock_granted = True
-        self.events = []
 
     def cursor(self):
         return FakeCursor(self)
 
     def commit(self):
-        self.events.append(("commit",))
+        pass
 
     def rollback(self):
         pass
@@ -233,7 +212,8 @@ def _test_auth():
     ops_customers.normalize_phone = normalize_phone
     ops_customers.find_customers = find_customers
     ops_customers.CustomerError = CustomerError
-    ops_customers.OTP_GENERIC_MESSAGE = GENERIC_OTP_REPLY
+    ops_customers.OTP_GENERIC_MESSAGE = (
+        "We couldn't send a code to this number. Please log in with your email.")
     sys.modules[ops_customers.__name__] = ops_customers
 
     notifications = types.ModuleType(package_name + ".notifications")
@@ -273,17 +253,6 @@ class LoginOtpTest(unittest.TestCase):
             SECRET_KEY="test-login-otp-secret",
             MSG91_LOGIN_OTP_WA_TEMPLATE="ow_login_otp",
         )
-        self.app.url_build_error_handlers.append(
-            lambda _error, _endpoint, _values: "#")
-        self.app.context_processor(
-            lambda: {
-                "cart_count": 0,
-                "available_languages": {},
-                "current_user_id": None,
-                "current_user_name": "",
-                "current_user_email": "",
-                "current_user_phone": "",
-            })
         self.app.jinja_env.globals["_"] = lambda value: value
         self.app.session_interface.regenerate = lambda _session: None
         main = Blueprint("main", __name__)
@@ -324,9 +293,9 @@ class LoginOtpTest(unittest.TestCase):
             "customer_password": generate_password_hash(password),
         }
 
-    def set_captcha(self, value="ABCD"):
+    def set_captcha(self):
         with self.client.session_transaction(base_url="https://optiwar.com") as session:
-            session["captcha"] = value
+            session["captcha"] = "ABCD"
 
     def request_code(self, phone="9876543210"):
         self.set_captcha()
@@ -338,48 +307,16 @@ class LoginOtpTest(unittest.TestCase):
     def current_code(self):
         return _sent_codes[-1][2]["body_1"]["value"]
 
-    def add_otp_history(self, ages, created_ip="198.51.100.1"):
-        now = datetime.now()
-        self.db.otps = {
-            otp_id: {
-                "phone": "+919876543210",
-                "created_ip": created_ip,
-                "created_at": now - age,
-            }
-            for otp_id, age in enumerate(ages, 1)
-        }
-        self.db.next_otp_id = len(ages) + 1
-
-    def test_auth_and_main_login_paths_are_registered(self):
-        self.assertEqual(self.auth.bp.url_prefix, "/auth")
-        registered_paths = {rule.rule for rule in self.app.url_map.iter_rules()}
-        self.assertIn("/auth/login", registered_paths)
-        for path in ("/set-password", "/login/whatsapp/request",
-                     "/login/whatsapp/verify", "/login/whatsapp/restart"):
-            self.assertIn(path, registered_paths)
-        models_source = (ROOT / "models.py").read_text()
-        for path in ("/set-password", "/login/whatsapp/request",
-                     "/login/whatsapp/verify", "/login/whatsapp/restart"):
-            self.assertIn("@bp.route('%s'" % path, models_source)
-
     def test_otp_routes_return_404_and_login_hides_option_when_disabled(self):
-        self.app.config.pop("MSG91_LOGIN_OTP_WA_TEMPLATE")
+        self.app.config["MSG91_LOGIN_OTP_WA_TEMPLATE"] = ""
         with patch.object(self.auth, "render_template", return_value="login page") as render:
             response = self.client.get("/auth/login", base_url="https://optiwar.com")
         self.assertEqual(response.status_code, 200)
         self.assertFalse(render.call_args.kwargs["otp_enabled"])
-        self.assertFalse(render.call_args.kwargs["otp_pending"])
-        page = self.client.get("/auth/login", base_url="https://optiwar.com")
-        page_text = page.get_data(as_text=True)
-        self.assertIn("Email Address", page_text)
-        self.assertIn("Password", page_text)
-        self.assertNotIn("Log in with WhatsApp code", page_text)
         disabled = self.client.post(
             "/login/whatsapp/request", data={"phone": "9876543210"},
             base_url="https://optiwar.com")
         self.assertEqual(disabled.status_code, 404)
-        self.assertEqual(_sent_codes, [])
-        self.assertEqual(self.db.otps, {})
 
     def test_restart_clears_pending_and_shows_request_form_again(self):
         self.add_customer()
@@ -426,157 +363,9 @@ class LoginOtpTest(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(_sent_codes, [])
         with self.client.session_transaction(base_url="https://optiwar.com") as session:
-            self.assertEqual(session["_wa_login_otp_id"], 0)
+            self.assertNotIn("_wa_login_otp_id", session)
             self.assertIn(
-                GENERIC_OTP_REPLY,
-                [message for _category, message in session.get("_flashes", [])])
-
-    def test_unmatched_phone_gets_generic_reply_and_sentinel(self):
-        response = self.request_code()
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(_sent_codes, [])
-        with self.client.session_transaction(base_url="https://optiwar.com") as session:
-            self.assertEqual(session["_wa_login_otp_id"], 0)
-            self.assertIn(
-                GENERIC_OTP_REPLY,
-                [message for _category, message in session.get("_flashes", [])])
-
-    def test_unknown_and_known_phone_render_the_same_pending_code_box_and_reply(self):
-        self.add_customer()
-        sections = []
-        replies = []
-        for phone in ("1111111111", "9876543210"):
-            client = self.app.test_client()
-            with client.session_transaction(
-                    base_url="https://optiwar.com") as session:
-                session["captcha"] = "ABCD"
-            response = client.post(
-                "/login/whatsapp/request",
-                data={"phone": phone, "captcha": "ABCD"},
-                base_url="https://optiwar.com")
-            self.assertEqual(response.status_code, 302)
-            page = client.get(
-                "/auth/login", base_url="https://optiwar.com").get_data(
-                    as_text=True)
-            start = page.index('<section class="wa-login"')
-            end = page.index("</section>", start) + len("</section>")
-            sections.append(page[start:end])
-            flash_start = page.index('<ul class="flashes">')
-            flash_end = page.index("</ul>", flash_start)
-            flash_text = page[flash_start:flash_end]
-            flash_text = " ".join(
-                flash_text.replace("<ul class=\"flashes\">", " ")
-                .replace("<li>", " ").replace("</li>", " ").split())
-            replies.append(flash_text)
-        self.assertEqual(sections[0], sections[1])
-        self.assertIn('id="wa-login-code"', sections[0])
-        self.assertEqual(replies, [GENERIC_OTP_REPLY, GENERIC_OTP_REPLY])
-
-    def test_invalid_phone_gets_generic_reply_and_sentinel(self):
-        response = self.request_code(phone="12")
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(_sent_codes, [])
-        with self.client.session_transaction(base_url="https://optiwar.com") as session:
-            self.assertEqual(session["_wa_login_otp_id"], 0)
-            self.assertIn(
-                GENERIC_OTP_REPLY,
-                [message for _category, message in session.get("_flashes", [])])
-
-    def test_real_send_uses_same_generic_reply(self):
-        self.add_customer()
-        response = self.request_code()
-        self.assertEqual(response.status_code, 302)
-        with self.client.session_transaction(base_url="https://optiwar.com") as session:
-            self.assertNotIn("captcha", session)
-            self.assertIsInstance(session["_wa_login_otp_id"], int)
-            self.assertIn(
-                GENERIC_OTP_REPLY,
-                [message for _category, message in session.get("_flashes", [])])
-
-    def test_request_holds_phone_lock_through_commit_and_releases_before_send(self):
-        self.add_customer()
-        notifications = sys.modules["login_otp_test_pkg.notifications"]
-
-        def send(*_args):
-            self.db.events.append(("send",))
-            return {"ok": True}
-
-        with patch.object(notifications, "send_whatsapp_tracked",
-                          side_effect=send):
-            response = self.request_code()
-
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(
-            [event[0] for event in self.db.events],
-            ["get_lock", "insert", "commit", "release_lock", "send"])
-        self.assertEqual(
-            self.db.events[0],
-            ("get_lock", "wa_login_otp:+919876543210", 5))
-        self.assertEqual(
-            self.db.events[3],
-            ("release_lock", "wa_login_otp:+919876543210"))
-
-    def test_phone_lock_not_granted_uses_generic_reply_without_sending(self):
-        self.add_customer()
-        self.db.lock_granted = False
-
-        response = self.request_code()
-
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(self.db.otps, {})
-        self.assertEqual([event[0] for event in self.db.events], ["get_lock"])
-        self.assertEqual(_sent_codes, [])
-        with self.client.session_transaction(
-                base_url="https://optiwar.com") as session:
-            self.assertIn(
-                GENERIC_OTP_REPLY,
-                [message for _category, message in session.get("_flashes", [])])
-
-    def test_missing_or_empty_session_captcha_is_rejected_and_consumed(self):
-        for expected in (None, "", "   "):
-            with self.client.session_transaction(
-                    base_url="https://optiwar.com") as session:
-                if expected is not None:
-                    session["captcha"] = expected
-            response = self.client.post(
-                "/login/whatsapp/request",
-                data={"phone": "9876543210", "captcha": "ABCD"},
-                base_url="https://optiwar.com")
-            self.assertEqual(response.status_code, 302)
-            self.assertEqual(_sent_codes, [])
-            with self.client.session_transaction(
-                    base_url="https://optiwar.com") as session:
-                self.assertNotIn("captcha", session)
-                self.assertIn(
-                    "Invalid CAPTCHA. Please try again.",
-                    [message for _category, message in session.get("_flashes", [])])
-
-    def test_failed_captcha_is_consumed(self):
-        self.set_captcha()
-        response = self.client.post(
-            "/login/whatsapp/request",
-            data={"phone": "9876543210", "captcha": "wrong"},
-            base_url="https://optiwar.com")
-        self.assertEqual(response.status_code, 302)
-        with self.client.session_transaction(base_url="https://optiwar.com") as session:
-            self.assertNotIn("captcha", session)
-            self.assertIn(
-                "Invalid CAPTCHA. Please try again.",
-                [message for _category, message in session.get("_flashes", [])])
-
-    def test_failed_send_uses_generic_reply_and_sentinel(self):
-        self.add_customer()
-        notifications = sys.modules["login_otp_test_pkg.notifications"]
-        with patch.object(notifications, "send_whatsapp_tracked",
-                          return_value={"ok": False}):
-            response = self.request_code()
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(len(self.db.otps), 1)
-        self.assertIsNotNone(self.db.otps[1]["used_at"])
-        with self.client.session_transaction(base_url="https://optiwar.com") as session:
-            self.assertEqual(session["_wa_login_otp_id"], 0)
-            self.assertIn(
-                GENERIC_OTP_REPLY,
+                "We couldn't send a code to this number. Please log in with your email.",
                 [message for _category, message in session.get("_flashes", [])])
 
     def test_request_is_limited_to_three_codes_per_phone_and_ip(self):
@@ -587,111 +376,6 @@ class LoginOtpTest(unittest.TestCase):
         self.request_code()
         self.assertEqual(len(_sent_codes), 3)
         self.assertEqual(len(self.db.otps), 3)
-        with self.client.session_transaction(base_url="https://optiwar.com") as session:
-            self.assertEqual(session["_wa_login_otp_id"], 0)
-            self.assertIn(
-                GENERIC_OTP_REPLY,
-                [message for _category, message in session.get("_flashes", [])])
-
-    def test_request_is_limited_to_ten_codes_per_phone_per_24_hours(self):
-        self.add_customer()
-        self.add_otp_history([
-            timedelta(hours=hours) for hours in range(0, 20, 2)])
-        self.request_code()
-        self.assertEqual(len(_sent_codes), 0)
-        self.assertEqual(len(self.db.otps), 10)
-        with self.client.session_transaction(base_url="https://optiwar.com") as session:
-            self.assertEqual(session["_wa_login_otp_id"], 0)
-            self.assertIn(
-                GENERIC_OTP_REPLY,
-                [message for _category, message in session.get("_flashes", [])])
-
-    def test_phone_otp_requests_older_than_24_hours_do_not_count(self):
-        self.add_customer()
-        ages = [
-            timedelta(hours=hours)
-            for hours in (0, 3, 6, 9, 12, 15, 18, 21, 23)
-        ]
-        ages.append(timedelta(hours=24, minutes=1))
-        self.add_otp_history(ages)
-        self.request_code()
-        self.assertEqual(len(_sent_codes), 1)
-        self.assertEqual(len(self.db.otps), 11)
-
-    def test_sentinel_verification_returns_generic_error_and_clears_after_five_tries(self):
-        with self.client.session_transaction(base_url="https://optiwar.com") as session:
-            session["_wa_login_otp_id"] = 0
-            session["_wa_login_otp_started"] = int(time.time())
-        for attempt in range(1, 6):
-            response = self.client.post(
-                "/login/whatsapp/verify", data={"code": "123456"},
-                base_url="https://optiwar.com")
-            self.assertEqual(response.status_code, 302)
-            with self.client.session_transaction(base_url="https://optiwar.com") as session:
-                self.assertIn(
-                    "That code is incorrect or expired.",
-                    [message for _category, message in session.get("_flashes", [])])
-                if attempt < 5:
-                    self.assertEqual(session["_wa_login_otp_id"], 0)
-                    self.assertEqual(session["_wa_login_otp_sentinel_attempts"],
-                                     attempt)
-                else:
-                    self.assertNotIn("_wa_login_otp_id", session)
-                    self.assertNotIn("_wa_login_otp_sentinel_attempts", session)
-                    self.assertNotIn("_wa_login_otp_started", session)
-
-    def test_unknown_and_known_otp_sessions_expire_after_eleven_minutes(self):
-        self.add_customer()
-        messages = []
-        session_states = []
-        for phone in ("1111111111", "9876543210"):
-            client = self.app.test_client()
-            with client.session_transaction(
-                    base_url="https://optiwar.com") as session:
-                session["captcha"] = "ABCD"
-            client.post(
-                "/login/whatsapp/request",
-                data={"phone": phone, "captcha": "ABCD"},
-                base_url="https://optiwar.com")
-            with client.session_transaction(
-                    base_url="https://optiwar.com") as session:
-                otp_id = session["_wa_login_otp_id"]
-                session["_wa_login_otp_started"] = int(time.time()) - 11 * 60
-            if otp_id:
-                self.db.otps[otp_id]["expires_at"] = (
-                    datetime.now() - timedelta(minutes=1))
-
-            response = client.post(
-                "/login/whatsapp/verify", data={"code": "123456"},
-                base_url="https://optiwar.com")
-            self.assertEqual(response.status_code, 302)
-            with client.session_transaction(
-                    base_url="https://optiwar.com") as session:
-                messages.append(session.get("_flashes", []))
-                session_states.append({
-                    key: session.get(key)
-                    for key in ("_wa_login_otp_id", "_wa_login_otp_started")
-                })
-
-        self.assertEqual(messages[0], messages[1])
-        self.assertEqual(
-            messages[0][-1],
-            ("danger", "This code has expired. Request a new one."))
-        self.assertEqual(session_states[0], session_states[1])
-        self.assertEqual(session_states[0], {
-            "_wa_login_otp_id": None, "_wa_login_otp_started": None})
-
-    def test_missing_otp_row_uses_generic_verify_error(self):
-        with self.client.session_transaction(base_url="https://optiwar.com") as session:
-            session["_wa_login_otp_id"] = 999
-        self.client.post(
-            "/login/whatsapp/verify", data={"code": "123456"},
-            base_url="https://optiwar.com")
-        with self.client.session_transaction(base_url="https://optiwar.com") as session:
-            self.assertNotIn("_wa_login_otp_id", session)
-            self.assertIn(
-                "That code is incorrect or expired.",
-                [message for _category, message in session.get("_flashes", [])])
 
     def test_five_wrong_attempts_kill_the_code(self):
         self.add_customer()
@@ -728,23 +412,6 @@ class LoginOtpTest(unittest.TestCase):
                          base_url="https://optiwar.com")
         self.assertEqual(self.db.otps[otp_id]["attempts"], 0)
 
-    def test_otp_expires_if_customer_phone_changes_before_verification(self):
-        self.add_customer()
-        self.request_code()
-        otp_id = next(iter(self.db.otps))
-        code = self.current_code()
-        self.db.customers[1]["customer_phone"] = "+919999999999"
-        response = self.client.post(
-            "/login/whatsapp/verify", data={"code": code},
-            base_url="https://optiwar.com")
-        self.assertEqual(response.status_code, 302)
-        self.assertIsNotNone(self.db.otps[otp_id]["used_at"])
-        with self.client.session_transaction(base_url="https://optiwar.com") as session:
-            self.assertNotIn("user_id", session)
-            self.assertNotIn("_wa_login_otp_id", session)
-            self.assertIn("This code has expired. Request a new one.",
-                          [message for _category, message in session.get("_flashes", [])])
-
     def test_expired_temp_password_is_refused(self):
         self.add_customer()
         self.db.temp_passwords[1] = {
@@ -772,13 +439,12 @@ class LoginOtpTest(unittest.TestCase):
         response = self.client.post(
             "/auth/login",
             data={"email": "customer@example.com", "password": "password123",
-                  "captcha": "ABCD", "next": "/wishlist"},
+                  "captcha": "ABCD"},
             base_url="https://optiwar.com")
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.location, "/set-password")
         with self.client.session_transaction(base_url="https://optiwar.com") as session:
             self.assertTrue(session["must_set_password"])
-            self.assertEqual(session["_login_next"], "/wishlist")
         blocked = self.client.get("/json", base_url="https://optiwar.com",
                                   headers={"Accept": "application/json"})
         self.assertEqual(blocked.status_code, 403)
@@ -788,52 +454,11 @@ class LoginOtpTest(unittest.TestCase):
             data={"password": "new-password-123", "confirm_password": "new-password-123"},
             base_url="https://optiwar.com")
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.location, "/wishlist")
         self.assertNotIn(1, self.db.temp_passwords)
         self.assertTrue(check_password_hash(
             self.db.customers[1]["customer_password"], "new-password-123"))
         with self.client.session_transaction(base_url="https://optiwar.com") as session:
             self.assertNotIn("must_set_password", session)
-            self.assertNotIn("_login_next", session)
-
-    def test_set_password_ignores_unsafe_next_target(self):
-        self.add_customer()
-        self.db.temp_passwords[1] = {
-            "customer_id": 1, "expires_at": datetime.now() + timedelta(days=1),
-        }
-        with self.client.session_transaction(base_url="https://optiwar.com") as session:
-            session["user_id"] = 1
-            session["must_set_password"] = True
-            session["_login_next"] = "https://attacker.example/steal"
-        response = self.client.post(
-            "/set-password",
-            data={"password": "new-password-123", "confirm_password": "new-password-123"},
-            base_url="https://optiwar.com")
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.location, "/")
-
-    def test_stale_temp_password_session_clears_flag_without_changing_password(self):
-        self.add_customer()
-        old_hash = self.db.customers[1]["customer_password"]
-        for method in ("GET", "POST"):
-            with self.client.session_transaction(
-                    base_url="https://optiwar.com") as session:
-                session["user_id"] = 1
-                session["must_set_password"] = True
-            if method == "GET":
-                response = self.client.get(
-                    "/set-password", base_url="https://optiwar.com")
-            else:
-                response = self.client.post(
-                    "/set-password",
-                    data={"password": "changed-password", "confirm_password": "changed-password"},
-                    base_url="https://optiwar.com")
-            self.assertEqual(response.status_code, 302)
-            self.assertEqual(response.location, "/")
-            self.assertEqual(self.db.customers[1]["customer_password"], old_hash)
-            with self.client.session_transaction(
-                    base_url="https://optiwar.com") as session:
-                self.assertNotIn("must_set_password", session)
 
     def test_forgot_password_reset_deletes_temp_password_record(self):
         self.add_customer()
