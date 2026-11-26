@@ -5,6 +5,7 @@ import sys
 import types
 import unittest
 from datetime import datetime, timedelta
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -620,6 +621,7 @@ class LoginOtpTest(unittest.TestCase):
     def test_sentinel_verification_returns_generic_error_and_clears_after_five_tries(self):
         with self.client.session_transaction(base_url="https://optiwar.com") as session:
             session["_wa_login_otp_id"] = 0
+            session["_wa_login_otp_started"] = int(time.time())
         for attempt in range(1, 6):
             response = self.client.post(
                 "/login/whatsapp/verify", data={"code": "123456"},
@@ -636,6 +638,48 @@ class LoginOtpTest(unittest.TestCase):
                 else:
                     self.assertNotIn("_wa_login_otp_id", session)
                     self.assertNotIn("_wa_login_otp_sentinel_attempts", session)
+                    self.assertNotIn("_wa_login_otp_started", session)
+
+    def test_unknown_and_known_otp_sessions_expire_after_eleven_minutes(self):
+        self.add_customer()
+        messages = []
+        session_states = []
+        for phone in ("1111111111", "9876543210"):
+            client = self.app.test_client()
+            with client.session_transaction(
+                    base_url="https://optiwar.com") as session:
+                session["captcha"] = "ABCD"
+            client.post(
+                "/login/whatsapp/request",
+                data={"phone": phone, "captcha": "ABCD"},
+                base_url="https://optiwar.com")
+            with client.session_transaction(
+                    base_url="https://optiwar.com") as session:
+                otp_id = session["_wa_login_otp_id"]
+                session["_wa_login_otp_started"] = int(time.time()) - 11 * 60
+            if otp_id:
+                self.db.otps[otp_id]["expires_at"] = (
+                    datetime.now() - timedelta(minutes=1))
+
+            response = client.post(
+                "/login/whatsapp/verify", data={"code": "123456"},
+                base_url="https://optiwar.com")
+            self.assertEqual(response.status_code, 302)
+            with client.session_transaction(
+                    base_url="https://optiwar.com") as session:
+                messages.append(session.get("_flashes", []))
+                session_states.append({
+                    key: session.get(key)
+                    for key in ("_wa_login_otp_id", "_wa_login_otp_started")
+                })
+
+        self.assertEqual(messages[0], messages[1])
+        self.assertEqual(
+            messages[0][-1],
+            ("danger", "This code has expired. Request a new one."))
+        self.assertEqual(session_states[0], session_states[1])
+        self.assertEqual(session_states[0], {
+            "_wa_login_otp_id": None, "_wa_login_otp_started": None})
 
     def test_missing_otp_row_uses_generic_verify_error(self):
         with self.client.session_transaction(base_url="https://optiwar.com") as session:

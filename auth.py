@@ -13,6 +13,7 @@ import hmac
 import logging
 import re
 import secrets
+import time
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
@@ -34,6 +35,7 @@ oauth = OAuth()
 OTP_PHONE_LIMIT_15_MINUTES = 3
 OTP_PHONE_LIMIT_24_HOURS = 10
 OTP_IP_LIMIT_15_MINUTES = 3
+OTP_LIFETIME_MINUTES = 10
 
 
 def init_oauth(app):
@@ -325,7 +327,14 @@ def _otp_redirect(message, category="info"):
 def _otp_request_generic_reply(ops_customers):
     session["_wa_login_otp_id"] = 0
     session.pop("_wa_login_otp_sentinel_attempts", None)
+    session["_wa_login_otp_started"] = int(time.time())
     return _otp_redirect(ops_customers.OTP_GENERIC_MESSAGE, "info")
+
+
+def _clear_whatsapp_otp_session():
+    session.pop("_wa_login_otp_id", None)
+    session.pop("_wa_login_otp_sentinel_attempts", None)
+    session.pop("_wa_login_otp_started", None)
 
 
 def request_whatsapp_otp():
@@ -385,7 +394,9 @@ def request_whatsapp_otp():
             return _otp_request_generic_reply(ops_customers)
 
         code = "%06d" % secrets.randbelow(1_000_000)
-        expires_at = datetime.now() + timedelta(minutes=10)
+        otp_started = int(time.time())
+        expires_at = datetime.now() + timedelta(
+            minutes=OTP_LIFETIME_MINUTES)
         cursor.execute(
             "INSERT INTO customer_login_otps "
             "(customer_id, phone, code_hash, expires_at, attempts, created_ip) "
@@ -417,14 +428,14 @@ def request_whatsapp_otp():
 
     session["_wa_login_otp_id"] = otp_id
     session.pop("_wa_login_otp_sentinel_attempts", None)
+    session["_wa_login_otp_started"] = otp_started
     return _otp_redirect(ops_customers.OTP_GENERIC_MESSAGE, "info")
 
 
 def restart_whatsapp_otp():
     if not _otp_enabled():
         abort(404)
-    session.pop("_wa_login_otp_id", None)
-    session.pop("_wa_login_otp_sentinel_attempts", None)
+    _clear_whatsapp_otp_session()
     return redirect(url_for("auth.login"))
 
 
@@ -435,10 +446,21 @@ def verify_whatsapp_otp():
 
     otp_id = session.get("_wa_login_otp_id")
     if otp_id == 0:
+        started = session.get("_wa_login_otp_started")
+        try:
+            expired = (
+                started is None
+                or int(time.time()) - int(started)
+                >= OTP_LIFETIME_MINUTES * 60)
+        except (TypeError, ValueError):
+            expired = True
+        if expired:
+            _clear_whatsapp_otp_session()
+            return _otp_redirect(
+                "This code has expired. Request a new one.", "danger")
         attempts = int(session.get("_wa_login_otp_sentinel_attempts") or 0) + 1
         if attempts >= 5:
-            session.pop("_wa_login_otp_id", None)
-            session.pop("_wa_login_otp_sentinel_attempts", None)
+            _clear_whatsapp_otp_session()
         else:
             session["_wa_login_otp_sentinel_attempts"] = attempts
         return _otp_redirect("That code is incorrect or expired.", "danger")
@@ -454,12 +476,12 @@ def verify_whatsapp_otp():
     otp = cursor.fetchone()
     if not otp:
         db.commit()
-        session.pop("_wa_login_otp_id", None)
+        _clear_whatsapp_otp_session()
         return _otp_redirect("That code is incorrect or expired.", "danger")
     if (otp.get("used_at")
             or _temporary_password_expired(otp["expires_at"])):
         db.commit()
-        session.pop("_wa_login_otp_id", None)
+        _clear_whatsapp_otp_session()
         return _otp_redirect("This code has expired. Request a new one.", "danger")
 
     if not re.fullmatch(r"\d{6}", code) or not hmac.compare_digest(
@@ -471,17 +493,17 @@ def verify_whatsapp_otp():
             (attempts, attempts, otp_id))
         db.commit()
         if attempts >= 5:
-            session.pop("_wa_login_otp_id", None)
+            _clear_whatsapp_otp_session()
         return _otp_redirect("That code is incorrect or expired.", "danger")
 
     cursor.execute("UPDATE customer_login_otps SET used_at=NOW() "
                    "WHERE id=%s AND used_at IS NULL", (otp_id,))
     if cursor.rowcount != 1:
         db.commit()
-        session.pop("_wa_login_otp_id", None)
+        _clear_whatsapp_otp_session()
         return _otp_redirect("This code has expired. Request a new one.", "danger")
     db.commit()
-    session.pop("_wa_login_otp_id", None)
+    _clear_whatsapp_otp_session()
     cursor.execute(
         "SELECT customer_id, customer_name, customer_email, customer_phone "
         "FROM customers WHERE customer_id=%s", (otp["customer_id"],))
