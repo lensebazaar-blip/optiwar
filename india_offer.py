@@ -33,21 +33,6 @@ def shipping_details():
             "@type": "DefinedRegion",
             "addressCountry": "IN",
         },
-        "deliveryTime": {
-            "@type": "ShippingDeliveryTime",
-            "handlingTime": {
-                "@type": "QuantitativeValue",
-                "minValue": 0,
-                "maxValue": 1,
-                "unitCode": "DAY",
-            },
-            "transitTime": {
-                "@type": "QuantitativeValue",
-                "minValue": 1,
-                "maxValue": int(standard["days"]) - 1,
-                "unitCode": "DAY",
-            },
-        },
     }
 
 

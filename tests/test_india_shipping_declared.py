@@ -318,15 +318,7 @@ class IndiaShippingDeclaredTests(unittest.TestCase):
         self.assertEqual(details["shippingDestination"], {
             "@type": "DefinedRegion", "addressCountry": "IN",
         })
-        standard = next(
-            option for option in shipping_options.OPTIONS
-            if option["key"] == shipping_options.STANDARD
-        )
-        handling = details["deliveryTime"]["handlingTime"]
-        transit = details["deliveryTime"]["transitTime"]
-        self.assertEqual(standard["days"], 5)
-        self.assertEqual(
-            handling["maxValue"] + transit["maxValue"], standard["days"])
+        self.assertNotIn("deliveryTime", details)
         self.assertNotIn("hasMerchantReturnPolicy", offer)
         self.assertNotIn("merchantReturnDays", offer)
 
@@ -468,12 +460,12 @@ class IndiaShippingDeclaredTests(unittest.TestCase):
             (
                 True, False,
                 "Complete checkout and pay online. Standard delivery is free "
-                "across India, within 5 days of your order.",
+                "across India.",
             ),
             (
                 True, True,
                 "Complete checkout and pay online. Standard delivery is free "
-                "across India, within 5 days of your order.",
+                "across India.",
             ),
             (
                 False, False,
@@ -485,6 +477,9 @@ class IndiaShippingDeclaredTests(unittest.TestCase):
             _blocks, parsed = _jsonld(rendered)
             howto_data = next(data for data in parsed if data.get("@type") == "HowTo")
             self.assertEqual(howto_data["step"][3]["text"], expected)
+            if is_india:
+                self.assertNotIn("5 days", howto_data["step"][3]["text"])
+                self.assertNotIn("within 5", howto_data["step"][3]["text"])
 
         checkout_source = _source("templates/checkout.html")
         checkout_snippet = (
@@ -492,10 +487,13 @@ class IndiaShippingDeclaredTests(unittest.TestCase):
         )
         self.assertEqual(
             _render_snippet(checkout_source, checkout_snippet, is_india=True),
-            "Standard delivery is free across India and arrives within 5 days "
-            "of your order. Expedite and 24-hour Delhi NCR delivery are "
-            "optional paid upgrades.",
+            "Standard delivery is free across India. Expedite and 24-hour "
+            "Delhi NCR delivery are optional paid upgrades.",
         )
+        checkout_text = _render_snippet(
+            checkout_source, checkout_snippet, is_india=True)
+        self.assertNotIn("5 days", checkout_text)
+        self.assertNotIn("within 5", checkout_text)
         self.assertEqual(
             _render_snippet(checkout_source, checkout_snippet, is_india=False),
             "Currently for a limited period we are offering free shipping and "
@@ -521,7 +519,7 @@ class IndiaShippingDeclaredTests(unittest.TestCase):
         expected = {
             True: (
                 "Complete checkout and pay. Standard delivery is free across "
-                "India, within 5 days of your order."
+                "India."
             ),
             False: "Complete checkout and pay. Free worldwide delivery in 7-14 business days.",
         }
@@ -530,6 +528,9 @@ class IndiaShippingDeclaredTests(unittest.TestCase):
             _blocks, parsed = _jsonld(html)
             howto = next(data for data in parsed if data.get("@type") == "HowTo")
             self.assertEqual(howto["step"][3]["text"], expected[is_india])
+            if is_india:
+                self.assertNotIn("5 days", howto["step"][3]["text"])
+                self.assertNotIn("within 5", howto["step"][3]["text"])
 
     def test_existing_delivery_accordion_is_not_on_india_frame_pages(self):
         product_source = _source("templates/product_page.html")
