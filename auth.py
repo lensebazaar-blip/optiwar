@@ -31,6 +31,9 @@ def _is_safe_redirect(target):
 bp = Blueprint('auth', __name__, url_prefix='/auth')
 captcha_generator = CaptchaGenerator()
 oauth = OAuth()
+OTP_PHONE_LIMIT_15_MINUTES = 3
+OTP_PHONE_LIMIT_24_HOURS = 10
+OTP_IP_LIMIT_15_MINUTES = 3
 
 
 def init_oauth(app):
@@ -263,7 +266,7 @@ def login():
     return render_template(
         'login.html', captcha_image=captcha_image, next_url=next_url,
         otp_enabled=bool(current_app.config.get("MSG91_LOGIN_OTP_WA_TEMPLATE")),
-        otp_pending=bool(session.get("_wa_login_otp_id")))
+        otp_pending="_wa_login_otp_id" in session)
 
 
 def set_password():
@@ -358,13 +361,20 @@ def request_whatsapp_otp():
         "WHERE phone=%s AND created_at >= NOW() - INTERVAL 15 MINUTE",
         (stored_phone,))
     phone_count = int((cursor.fetchone() or {}).get("n", 0))
+    cursor.execute(
+        "SELECT COUNT(*) AS n FROM customer_login_otps "
+        "WHERE phone=%s AND created_at >= NOW() - INTERVAL 24 HOUR",
+        (stored_phone,))
+    phone_day_count = int((cursor.fetchone() or {}).get("n", 0))
     ip = request.remote_addr or ""
     cursor.execute(
         "SELECT COUNT(*) AS n FROM customer_login_otps "
         "WHERE created_ip=%s AND created_at >= NOW() - INTERVAL 15 MINUTE",
         (ip,))
     ip_count = int((cursor.fetchone() or {}).get("n", 0))
-    if phone_count >= 3 or ip_count >= 3:
+    if (phone_count >= OTP_PHONE_LIMIT_15_MINUTES
+            or phone_day_count >= OTP_PHONE_LIMIT_24_HOURS
+            or ip_count >= OTP_IP_LIMIT_15_MINUTES):
         return _otp_request_generic_reply(ops_customers)
 
     code = "%06d" % secrets.randbelow(1_000_000)

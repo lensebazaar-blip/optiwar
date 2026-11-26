@@ -64,14 +64,17 @@ class FakeCursor:
             return
         if sql.startswith("SELECT COUNT(*) AS n FROM customer_login_otps"):
             value = params[0]
+            window = (timedelta(hours=24)
+                      if "INTERVAL 24 HOUR" in sql
+                      else timedelta(minutes=15))
             if "WHERE phone=%s" in sql:
                 self.rows = [{"n": sum(1 for row in self.db.otps.values()
                                        if row["phone"] == value and
-                                       row["created_at"] >= datetime.now() - timedelta(minutes=15))}]
+                                       row["created_at"] >= datetime.now() - window)}]
             else:
                 self.rows = [{"n": sum(1 for row in self.db.otps.values()
                                        if row["created_ip"] == value and
-                                       row["created_at"] >= datetime.now() - timedelta(minutes=15))}]
+                                       row["created_at"] >= datetime.now() - window)}]
             return
         if sql.startswith("INSERT INTO customer_login_otps"):
             customer_id, phone, code_hash, expires_at, created_ip = params
@@ -258,6 +261,17 @@ class LoginOtpTest(unittest.TestCase):
             SECRET_KEY="test-login-otp-secret",
             MSG91_LOGIN_OTP_WA_TEMPLATE="ow_login_otp",
         )
+        self.app.url_build_error_handlers.append(
+            lambda _error, _endpoint, _values: "#")
+        self.app.context_processor(
+            lambda: {
+                "cart_count": 0,
+                "available_languages": {},
+                "current_user_id": None,
+                "current_user_name": "",
+                "current_user_email": "",
+                "current_user_phone": "",
+            })
         self.app.jinja_env.globals["_"] = lambda value: value
         self.app.session_interface.regenerate = lambda _session: None
         main = Blueprint("main", __name__)
@@ -312,6 +326,18 @@ class LoginOtpTest(unittest.TestCase):
     def current_code(self):
         return _sent_codes[-1][2]["body_1"]["value"]
 
+    def add_otp_history(self, ages, created_ip="198.51.100.1"):
+        now = datetime.now()
+        self.db.otps = {
+            otp_id: {
+                "phone": "+919876543210",
+                "created_ip": created_ip,
+                "created_at": now - age,
+            }
+            for otp_id, age in enumerate(ages, 1)
+        }
+        self.db.next_otp_id = len(ages) + 1
+
     def test_auth_and_main_login_paths_are_registered(self):
         self.assertEqual(self.auth.bp.url_prefix, "/auth")
         registered_paths = {rule.rule for rule in self.app.url_map.iter_rules()}
@@ -325,15 +351,23 @@ class LoginOtpTest(unittest.TestCase):
             self.assertIn("@bp.route('%s'" % path, models_source)
 
     def test_otp_routes_return_404_and_login_hides_option_when_disabled(self):
-        self.app.config["MSG91_LOGIN_OTP_WA_TEMPLATE"] = ""
+        self.app.config.pop("MSG91_LOGIN_OTP_WA_TEMPLATE")
         with patch.object(self.auth, "render_template", return_value="login page") as render:
             response = self.client.get("/auth/login", base_url="https://optiwar.com")
         self.assertEqual(response.status_code, 200)
         self.assertFalse(render.call_args.kwargs["otp_enabled"])
+        self.assertFalse(render.call_args.kwargs["otp_pending"])
+        page = self.client.get("/auth/login", base_url="https://optiwar.com")
+        page_text = page.get_data(as_text=True)
+        self.assertIn("Email Address", page_text)
+        self.assertIn("Password", page_text)
+        self.assertNotIn("Log in with WhatsApp code", page_text)
         disabled = self.client.post(
             "/login/whatsapp/request", data={"phone": "9876543210"},
             base_url="https://optiwar.com")
         self.assertEqual(disabled.status_code, 404)
+        self.assertEqual(_sent_codes, [])
+        self.assertEqual(self.db.otps, {})
 
     def test_restart_clears_pending_and_shows_request_form_again(self):
         self.add_customer()
@@ -394,6 +428,37 @@ class LoginOtpTest(unittest.TestCase):
             self.assertIn(
                 GENERIC_OTP_REPLY,
                 [message for _category, message in session.get("_flashes", [])])
+
+    def test_unknown_and_known_phone_render_the_same_pending_code_box_and_reply(self):
+        self.add_customer()
+        sections = []
+        replies = []
+        for phone in ("1111111111", "9876543210"):
+            client = self.app.test_client()
+            with client.session_transaction(
+                    base_url="https://optiwar.com") as session:
+                session["captcha"] = "ABCD"
+            response = client.post(
+                "/login/whatsapp/request",
+                data={"phone": phone, "captcha": "ABCD"},
+                base_url="https://optiwar.com")
+            self.assertEqual(response.status_code, 302)
+            page = client.get(
+                "/auth/login", base_url="https://optiwar.com").get_data(
+                    as_text=True)
+            start = page.index('<section class="wa-login"')
+            end = page.index("</section>", start) + len("</section>")
+            sections.append(page[start:end])
+            flash_start = page.index('<ul class="flashes">')
+            flash_end = page.index("</ul>", flash_start)
+            flash_text = page[flash_start:flash_end]
+            flash_text = " ".join(
+                flash_text.replace("<ul class=\"flashes\">", " ")
+                .replace("<li>", " ").replace("</li>", " ").split())
+            replies.append(flash_text)
+        self.assertEqual(sections[0], sections[1])
+        self.assertIn('id="wa-login-code"', sections[0])
+        self.assertEqual(replies, [GENERIC_OTP_REPLY, GENERIC_OTP_REPLY])
 
     def test_invalid_phone_gets_generic_reply_and_sentinel(self):
         response = self.request_code(phone="12")
@@ -476,6 +541,31 @@ class LoginOtpTest(unittest.TestCase):
             self.assertIn(
                 GENERIC_OTP_REPLY,
                 [message for _category, message in session.get("_flashes", [])])
+
+    def test_request_is_limited_to_ten_codes_per_phone_per_24_hours(self):
+        self.add_customer()
+        self.add_otp_history([
+            timedelta(hours=hours) for hours in range(0, 20, 2)])
+        self.request_code()
+        self.assertEqual(len(_sent_codes), 0)
+        self.assertEqual(len(self.db.otps), 10)
+        with self.client.session_transaction(base_url="https://optiwar.com") as session:
+            self.assertEqual(session["_wa_login_otp_id"], 0)
+            self.assertIn(
+                GENERIC_OTP_REPLY,
+                [message for _category, message in session.get("_flashes", [])])
+
+    def test_phone_otp_requests_older_than_24_hours_do_not_count(self):
+        self.add_customer()
+        ages = [
+            timedelta(hours=hours)
+            for hours in (0, 3, 6, 9, 12, 15, 18, 21, 23)
+        ]
+        ages.append(timedelta(hours=24, minutes=1))
+        self.add_otp_history(ages)
+        self.request_code()
+        self.assertEqual(len(_sent_codes), 1)
+        self.assertEqual(len(self.db.otps), 11)
 
     def test_sentinel_verification_returns_generic_error_and_clears_after_five_tries(self):
         with self.client.session_transaction(base_url="https://optiwar.com") as session:
