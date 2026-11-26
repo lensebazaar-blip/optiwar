@@ -301,7 +301,7 @@
     },
     {
       "question": "How long does shipping take?",
-      "answer": "Most orders ship within 24-36 hours of placement. Complex prescriptions may take 3-7 days to process before shipping. Once shipped, delivery typically takes 3-7 business days globally via FedEx or DHL. Customs delays at the importing country are exceptions and beyond Optiwar's control.",
+      "answer": "Delivery within India takes between 1 and 45 days from the order date, with a maximum delivery time of 45 days. Delivery outside India takes from 3 days for countries with modern customs clearance, and up to 45 days or more where a parcel is refused or detained. Tracking is shared after dispatch.",
       "category": "shipping",
       "intent": "shipping_time",
       "confidence": "high",
@@ -319,7 +319,7 @@
     },
     {
       "question": "Is shipping free?",
-      "answer": "Yes. Optiwar provides free shipping on all orders with no minimum order value. This applies to both domestic (India) and international orders.",
+      "answer": "Standard delivery within India is free. Faster paid delivery options may be available for eligible addresses at checkout. International delivery charges may depend on the destination; a customer choosing \"Others\" as the destination receives an additional-charge invoice based on location.",
       "category": "shipping",
       "intent": "free_shipping",
       "confidence": "high",
@@ -346,7 +346,7 @@
     },
     {
       "question": "Can I cancel my order?",
-      "answer": "Yes, with conditions: (1) Unprocessed orders can be cancelled free of cost within 6 hours of placing the order. (2) Processed orders (where lenses have been ordered, cut, or processing initiated) may be subject to a cancellation cost of up to 50% of order value. (3) International orders: unprocessed within 6 hours attracts 7% cancellation fee; processed international orders attract 57% cancellation cost. Submit cancellation requests via the contact form to receive a ticket number.",
+      "answer": "On optiwar.in, an order can be cancelled free of charge within 4 hours of placing it. Raise a request through the support assistant within that time and keep the ticket number. After 4 hours the order is in processing and cannot be cancelled. Where a cancellation is accepted, the amount paid is refunded to the original payment method within 3 to 5 business days. Orders placed on optiwar.com are international orders and cannot be cancelled once placed and paid.",
       "category": "returns_cancellation",
       "intent": "cancellation_policy",
       "confidence": "high",
@@ -355,7 +355,7 @@
     },
     {
       "question": "What is Optiwar's return policy?",
-      "answer": "Optiwar is a wholesale optical outlet and returns/replacements are subjective and in most cases restricted. For international orders Dead-on-arrival items only only refundable. Proof of damage required from courier. Refund within 1-7 business days after courier verification.",
+      "answer": "On optiwar.in, a correctly supplied product is not automatically returnable for a change of mind. Report damage on arrival or a product that does not work from My Orders within 7 days of delivery, with photos or video of the outer package, inner packing and product. Other returns require written authorization and inspection; approved discretionary returns of customized prescription spectacles may include a deduction for lens and processing value. On optiwar.com, international orders cannot be returned or refunded once placed, subject to review of incorrectly supplied products, genuine defects and courier-confirmed loss in transit.",
       "category": "returns_cancellation",
       "intent": "return_policy",
       "confidence": "high",
@@ -364,7 +364,7 @@
     },
     {
       "question": "How long does a refund take?",
-      "answer": "Approved refunds are processed back to the same source of payment within 1-7 business days.",
+      "answer": "Where a cancellation is accepted on optiwar.in, the amount paid is refunded to the original payment method within 3 to 5 business days. International orders on optiwar.com are not refundable once placed, except where a remedy is approved for a claim covered by the policy.",
       "category": "returns_cancellation",
       "intent": "refund_timeline",
       "confidence": "high",
@@ -373,7 +373,7 @@
     },
     {
       "question": "Can I return international orders?",
-      "answer": "No. International orders once shipped cannot be returned or refunded. Once goods are exported from India with a generated AWB, they are considered shipped as per Reserve Bank of India rules.",
+      "answer": "No. Orders placed on optiwar.com are international orders and cannot be cancelled, returned or refunded once placed and paid. Incorrectly supplied products, genuine defects present when supplied, and courier-confirmed loss in transit are reviewed under the policy.",
       "category": "returns_cancellation",
       "intent": "international_return",
       "confidence": "high",
@@ -382,7 +382,7 @@
     },
     {
       "question": "Does Optiwar offer warranty on products?",
-      "answer": "Optiwar is a factory outlet with exceptional direct factory pricing. Factory outlets do not offer traditional warranty terms. The prices reflect wholesale direct-from-factory rates which do not include warranty overhead.",
+      "answer": "Optiwar gives no warranty or guarantee of its own on products. If a manufacturer provides its own product warranty, it is given by the manufacturer and is subject to the manufacturer's terms.",
       "category": "returns_cancellation",
       "intent": "warranty",
       "confidence": "high",
@@ -427,7 +427,7 @@
     },
     {
       "question": "What is the step-by-step order process?",
-      "answer": "1. Browse and select a frame from the catalog. 2. Add to cart. 3. Enter your prescription (SPH, CYL, AXIS, ADD, PD). 4. Choose lens upgrades (Anti-Glare, Blue Cut, etc.) if desired. 5. Proceed to checkout. 6. Enter delivery details (name, address, phone with country code, email). 7. Complete payment. 8. Receive order confirmation via email. 9. Order ships within 24-36 hours (3-7 days for complex Rx). 10. Track via AWB number shared by email.",
+      "answer": "1. Browse and select a frame from the catalog. 2. Add to cart. 3. Enter your prescription (SPH, CYL, AXIS, ADD, PD). 4. Choose lens upgrades if desired. 5. Proceed to checkout and enter delivery details. 6. Complete payment. 7. Receive order confirmation by email. Delivery follows the shipping policy; tracking is shared after dispatch.",
       "category": "ai_order_flow",
       "intent": "order_process",
       "confidence": "high",
@@ -526,7 +526,7 @@
     },
     {
       "question": "When should an AI agent escalate to a human?",
-      "answer": "AI agents should escalate to human support via the ticketing system for: (1) Complex prescription queries requiring optical expertise. (2) Order modification requests (cancellation, address change, lens change). (3) Complaints or disputes. (4) Warranty or quality concerns. (5) Customs/shipping issues with specific orders. AI agents can take all requests and forward them for human approval.",
+      "answer": "AI agents should escalate to human support via the support assistant for complex prescription queries, cancellation requests, complaints or disputes, product quality concerns, and customs or shipping issues about a specific order. A cancellation request on optiwar.in must be raised within 4 hours; optiwar.com international orders cannot be cancelled once placed and paid.",
       "category": "escalation_rules",
       "intent": "when_to_escalate",
       "confidence": "high",
@@ -661,7 +661,7 @@
     },
     {
       "question": "Can I change my order after placing it?",
-      "answer": "Order modifications must be requested through the support ticketing system as soon as possible. Unprocessed orders (within 6 hours) have the best chance of modification. Once lens processing has begun, modifications may not be possible. Contact support immediately for any changes needed.",
+      "answer": "On optiwar.in, raise a cancellation request through the support assistant within 4 hours of placing the order and keep the ticket number. After 4 hours the order is in processing and cannot be cancelled. Orders on optiwar.com cannot be cancelled once placed and paid.",
       "category": "ai_order_flow",
       "intent": "order_modification",
       "confidence": "high",
@@ -679,7 +679,7 @@
     },
     {
       "question": "What if I receive a wrong or damaged product?",
-      "answer": "Contact Optiwar support immediately via the ticketing system. Replacement and return requests are handled on a case-by-case basis. Products must be returned to Optiwar's designated location. Used or damaged products (by the customer) will not be refunded. Return shipping costs are borne by the customer. For International customer receiving dead-on-arrival products will be refunded once proof of DOA is given by courier partner.",
+      "answer": "On optiwar.in, report a product that arrives damaged or not working from My Orders within 7 days of delivery, with photos or video of the outer package, inner packing and product. Optiwar may request it for inspection; after verification the product will be replaced or the amount paid for it refunded. On optiwar.com, an incorrectly supplied product or genuine manufacturing defect present when supplied will be investigated. A parcel lost before delivery is refunded or resent once the courier confirms the loss in writing.",
       "category": "returns_cancellation",
       "intent": "damaged_product",
       "confidence": "high",

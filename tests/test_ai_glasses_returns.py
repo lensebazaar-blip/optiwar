@@ -1,4 +1,4 @@
-"""AI Glasses returns: dead on arrival only (policy clause 13A, the checkout
+"""AI Glasses returns: dead on arrival only (policy clause 14A, the checkout
 notice and the My Orders return request), and refunded orders leave the sold count."""
 import importlib
 import importlib.util
@@ -50,20 +50,20 @@ class PolicyTest(unittest.TestCase):
     def test_flag_off_keeps_the_sealed_india_version(self):
         with _Flag(False):
             cur = pt.current("optiwar.in")
-            self.assertEqual(cur["returns"]["version"], "2026-10-03-in")
-            self.assertNotIn("13A. AI GLASSES", cur["returns"]["text"])
+            self.assertEqual(cur["returns"]["version"], "2026-11-26-in")
+            self.assertNotIn("14A. AI GLASSES", cur["returns"]["text"])
             self.assertNotIn("AI Glasses", pt.returns_html("optiwar.in"))
 
     def test_flag_on_is_a_new_india_version_with_the_doa_clause(self):
         with _Flag(True):
             cur = pt.current("optiwar.in")
-            self.assertEqual(cur["returns"]["version"], "2026-10-31-in")
+            self.assertEqual(cur["returns"]["version"], "2026-11-26-aig-in")
             text = cur["returns"]["text"]
-            self.assertLess(text.index("13A. AI GLASSES"), text.index("14. RETURN DECISIONS"))
+            self.assertLess(text.index("14A. AI GLASSES"), text.index("15. RETURN DECISIONS"))
             self.assertIn("dead on arrival (DOA)", cur["acceptance_text"])
-            self.assertIn("13A. AI GLASSES", pt.returns_html("optiwar.in"))
+            self.assertIn("14A. AI GLASSES", pt.returns_html("optiwar.in"))
             com = pt.current("optiwar.com")
-            self.assertEqual(com["returns"]["version"], "2026-09-15-com")
+            self.assertEqual(com["returns"]["version"], "2026-11-26-com")
             self.assertNotIn("AI Glasses", com["returns"]["text"])
 
     def test_checkout_shows_doa_and_no_lens_deduction_for_ai_glasses(self):

@@ -864,6 +864,7 @@
 					<li><a href="{{ url_for('main.search_products') }}" onclick="if (window.owChatOpen) { window.owChatOpen('text', 'footer_search'); return false; }">{{ _('Search Products') }}</a></li>
 					<li><a href="{{ url_for('main.terms_and_conditions') }}">{{ _('Terms & Conditions') }}</a></li>
 					<li><a href="{{ url_for('main.privacy_policy') }}">{{ _('Privacy Policy') }}</a></li>
+					<li><a href="/terms_and_conditions#grievance-redressal">{{ _('Grievance redressal') }}</a></li>
 					<li><a href="{{ url_for('main.ip_notice') }}">{{ _('Brand &amp; copyright notices') }}</a></li>
 					<li><a href="{{ url_for('main.supplier_signup') }}">{{ _('Become a supplier') }}</a></li>
 					<li><a href="javascript:void(0)" onclick="openContactChoice()">{{ _('Contact Us') }}</a></li>
@@ -896,7 +897,7 @@
 
 		<!-- Bottom bar -->
 		<div class="ow-footer-bottom">
-			<p>&copy; 2025 Optiwar. {{ _('All rights reserved.') }}</p>
+			<p>&copy; {{ current_year }} Optiwar. {{ _('All rights reserved.') }}</p>
 			<form action="{{ url_for('main.clear_the_cart') }}" method="post" class="ow-footer-clear-cart">
 				<button type="submit">{{ _('Clear Cart') }}</button>
 			</form>

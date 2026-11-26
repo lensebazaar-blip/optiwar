@@ -1940,7 +1940,7 @@ footer{ display:none !important; }
         </details>
         <label class="ow-ck-policy-accept" for="owTermsAccepted">
           <input type="checkbox" id="owTermsAccepted" name="{{ terms_field }}" value="1" required>
-          <span>{{ acceptance_text|replace("Terms & Conditions", '<a href="' ~ terms_url ~ '" target="_blank" rel="noopener">Terms &amp; Conditions</a>')|replace("Returns, Replacements & Limited Warranty Policy", '<a href="' ~ returns_url ~ '" target="_blank" rel="noopener">Returns, Replacements &amp; Limited Warranty Policy</a>')|safe }}</span>
+          <span>{{ acceptance_text|replace("Terms & Conditions", '<a href="' ~ terms_url ~ '" target="_blank" rel="noopener">Terms &amp; Conditions</a>')|replace("Returns and Replacements Policy", '<a href="' ~ returns_url ~ '" target="_blank" rel="noopener">Returns and Replacements Policy</a>')|safe }}</span>
         </label>
         <input type="hidden" name="{{ terms_version_field }}" value="{{ returns_policy_version }}">
         <input type="hidden" name="terms_version" value="{{ terms_version }}">
@@ -2213,7 +2213,7 @@ function owValidateForm() {
   var terms = document.getElementById('owTermsAccepted');
   if (valid && terms && !terms.checked) {
     document.getElementById('owPolicyBlock').classList.add('ow-ck-policy-missing');
-    owShowToast('Please accept the Terms & Conditions and Returns Policy to continue');
+    owShowToast('Please accept the Terms & Conditions and Returns and Replacements Policy to continue');
     terms.focus();
     valid = false;
   }

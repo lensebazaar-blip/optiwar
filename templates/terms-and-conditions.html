@@ -21,8 +21,8 @@
     <h1>{{ _('Terms and Conditions') }}</h1>
     <p class="ow-legal__lead">{{ _('How buying from Optiwar works: cancellations, returns, shipping, and your rights and ours. Please read the returns policy before you order.') }}</p>
     <ul class="ow-legal__meta">
-      <li><strong>{{ _('Updated') }}</strong> 9 November 2026</li>
-      <li>{{ _('Previously') }} 7 November 2026 &middot; 15 September 2026 &middot; 12 June 2025 &middot; 30 September 2024</li>
+      <li><strong>{{ _('Updated') }}</strong> 26 November 2026</li>
+      <li>{{ _('Previously') }} 9 November 2026 &middot; 7 November 2026 &middot; 15 September 2026 &middot; 12 June 2025 &middot; 30 September 2024</li>
       <li>{{ _('Returns policy') }} v{{ returns_policy_version }}</li>
       <li>{{ _('Terms') }} v{{ terms_version }}</li>
     </ul>
@@ -53,16 +53,17 @@
     <h2> Eligibility</h2>
     <p>You must be at least 18 years of age to use the Website. By using the Website, you represent and warrant that you have the legal capacity to enter into this agreement and abide by these Terms.</p>
     </li>
-    <li class="ow-legal__note">
-	<sup>1</sup> Limited prescriptions changes as per system automation proces
-    </li>
-    <li> 
-   <h2> Cancellation and Refunds Policy</h2>
-   <p> Simply request for cancellation using our contact form and get a ticket number issued. <br> 
-   <br> Orders once placed can be cancelled free of cost within 6 hours of placing the orders considered un-processed orders. <br> 
- <br> Processed Orders means where lenses have been ordered or cut make to order or basically processing has been initiated cannot be cancelled and may be subject to cancellation cost of upto 50% of the order value, however, for International orders, any cancellation request less than 6 hours will attract a 7% cancellation fees for un-processed orders within 6 hours of placing orders  or 57% cancellation cost where orders have been processed. 
-   	<br><br> Money will be refunded back to same source of payment within 3-5 business days
-   </p>
+    <li>
+    <h2>Cancellation Policy</h2>
+    {% if is_india %}
+    <p>An order placed on optiwar.in can be cancelled free of charge within {{ cancellation_window_hours }} hours of placing it. To cancel, raise a request through our <a href="{{ support_url }}">support assistant</a> within that time and keep the ticket number issued.</p>
+    <p>After {{ cancellation_window_hours }} hours the order is in processing (lenses are ordered, cut or fitted to your prescription) and it can no longer be cancelled.</p>
+    <p>Where a cancellation is accepted, the amount paid is refunded to the original payment method within 3 to 5 business days.</p>
+    <p>Optiwar may revise the cancellation window from time to time. The window that applies to an order is the one published when that order was placed.</p>
+    <p>International orders cannot be cancelled once placed and paid.</p>
+    {% else %}
+    <p>Orders placed on optiwar.com are international orders. Once an order has been placed and paid it cannot be cancelled, returned or refunded, as set out in the policy below.</p>
+    {% endif %}
     </li>
 
 	<li id="returns">
@@ -73,14 +74,15 @@
 	</li>
 
     <li>
-	<h2 id="shipping-policy"> Shipping Policy </h2>
-	<p> Processed goods will be shipped and AWB tracking will be shared with customers / buyers.
-	<br> Minimum delivery time within India 1 day and maximum delivery time 45 days <br>
-	<br> Minimum delivery time outside India -3 days for most modern customs countries , maximum is 45+ days subject to refusal or detention cases. <br> 
-	<br>International Orders once shipped cannot be returned or refunded. Once goods are exported from India, they are considered as shipped with generated AWB as per Reserve Bank of India rules and any confiscation or detention of goods in foreign land outside control of India juristication will be liability of the customers. <br>
-	<br> Goods once exported outside of India cannot be refunded / returned or chargeback will be un-authorised as per regulations mandate.
-	<br> If you choose Country of delivery as 'Others' we will send you additional charge invoice basis your location. <br>
-	</p> 
+    <h2 id="shipping-policy">Shipping Policy</h2>
+    <p>Processed orders are shipped by courier and the tracking (AWB) number is shared with the customer.</p>
+    {% if is_india %}
+    <p>Standard delivery within India is free. Faster paid delivery options, where available for your address, are shown at checkout with their fee. Where a delivery date is shown at checkout for a paid option, that date applies to that order.</p>
+    {% endif %}
+    <p>Delivery within India takes between 1 and 45 days from the order date. The maximum delivery time is 45 days.</p>
+    <p>Delivery outside India takes from 3 days for countries with modern customs clearance, and up to 45 days or more where a parcel is refused or detained.</p>
+    <p>International orders cannot be cancelled, returned or refunded once placed. Once goods are exported from India they are treated as shipped under the generated AWB, as per Reserve Bank of India rules. Any confiscation or detention of goods outside the jurisdiction of India is the customer's liability. A chargeback on exported goods is unauthorised under the applicable regulations.</p>
+    <p>If you choose "Others" as the country of delivery, we will send an invoice for the additional charge based on your location.</p>
     </li>
     <li>
     <h2> Use of the Website</h2>
@@ -110,7 +112,9 @@
 
     <li>
     <h2> Disclaimer of Warranties</h2>
-    <p>All content, services, and products provided through the Website are provided "as is" and "as available" without warranties of any kind, either express or implied. Krishna Ecommerce Technologies Private Limited does not provide any warranty that the Website will be uninterrupted, error-free, or free of viruses or other harmful components.</p>
+    <p>Optiwar sells at factory-outlet prices and gives no warranty or guarantee of its own, express or implied, on any product sold through the Website. Products are sold as described on their product page at the time of order. Where a manufacturer provides its own warranty on a product, that warranty is given by the manufacturer and is subject to the manufacturer's terms.</p>
+    <p>All content and services on the Website are provided "as is" and "as available". Krishna Ecommerce Technologies Private Limited does not warrant that the Website will be uninterrupted, error-free, or free of viruses or other harmful components.</p>
+    <p>Nothing in these Terms excludes any right or remedy that cannot lawfully be excluded or limited. Claims that Optiwar supplied a wrong, damaged or defective product are handled under the returns policy above.</p>
     </li>
 
     <li>
@@ -145,7 +149,7 @@
     <h2> Trademark and Copyright Holder Notices (Notice, Hold Period and Takedown)</h2>
     <p>Optiwar is not a marketplace. It is an inventory-led, direct-to-consumer factory-outlet storefront operated by Krishna Ecommerce Technologies Private Limited: the products listed on the Website are bought into and held in our own inventory from various manufacturers, national/international factories and national/international distributors, and sold direct to consumers within India and internationally. Brand names, logos and images appear on the Website to identify the goods we hold and sell. Any brand, trademark or copyright remains the property of its respective owner.</p>
     <h3>a. Mandatory prior notice</h3>
-    <p>If you are a trademark owner, copyright holder or their authorised agent ("Rights Holder") and you believe that a product, listing, image or text on the Website infringes your rights, you must first notify us in writing before initiating any complaint, claim, proceeding or action in any forum. Send the notice to Krishna Ecommerce Technologies Private Limited, Godown Village Fazilpur, Badshahpur Tethar(222), Badshahpur, Gurgaon-122101, India, or, preferably, through the <a href="{{ url_for('main.ip_notice') }}">trademark and copyright notice form</a>, which gives you a reference and emails a copy of the notice to you and to us. By accessing or using the Website, or by listing, viewing or dealing with any product on it, a Rights Holder agrees to this notice procedure.</p>
+    <p>If you are a trademark owner, copyright holder or their authorised agent ("Rights Holder") and you believe that a product, listing, image or text on the Website infringes your rights, you must first notify us in writing before initiating any complaint, claim, proceeding or action in any forum. Send the notice to Krishna Ecommerce Technologies Private Limited, Godown Village Fazilpur, Badshahpur Tethar(222), Badshahpur, Gurgaon-122101, India, or, preferably, through the <a href="{{ url_for('main.ip_notice') }}">trademark and copyright notice form</a>, which gives you a reference and emails a copy of the notice to you and to us. By accessing or using the Website for any purpose, including viewing, monitoring, investigating, gathering evidence or making a test purchase, whether directly or through an agent, investigator or law firm, a Rights Holder accepts these Terms and agrees to follow this notice procedure. Any purchase made on the Website, including a test purchase, is made subject to these Terms as accepted at checkout.</p>
     <h3>b. What the notice must contain</h3>
     <p>(i) the registered trademark or copyrighted work concerned, with registration numbers or proof of ownership; (ii) the exact listing URL(s) or product code(s) on the Website; (iii) the reason you believe the listing infringes your rights, including whether you contend the goods are counterfeit, grey-market, or lawfully sourced; (iv) the action you request (for example, correction of a listing, removal of an image, or withdrawal of a product); (v) your name, designation, company, address, email and telephone; and (vi) a statement, made in good faith, that the information in the notice is accurate and that you are the Rights Holder or authorised to act for them.</p>
     <h3>c. Ninety-day hold period</h3>
@@ -157,7 +161,12 @@
     <li>
     <h2> Governing Law and Jurisdiction</h2>
     <p>These Terms, and every dispute, claim, notice or proceeding arising out of or in connection with the Website, its listings, any product bought through it, or any trademark or copyright notice concerning it, shall be governed by and construed in accordance with the laws of India.</p>
-    <p>The courts at New Delhi and the courts at Gurugram (Gurgaon), Haryana, shall have exclusive jurisdiction. By accessing or using the Website, by purchasing through it, or by sending any notice under these Terms, you agree that any complaint, claim, suit or proceeding shall be brought only before these courts, and you waive any objection to this forum. Any proceeding commenced in any other court or forum is, as between you and us, in breach of these Terms, and we may rely on this section to seek its dismissal, transfer or stay and to recover our costs.</p>
+    <p>To the fullest extent permitted by law, the courts at New Delhi and the courts at Gurugram (Gurgaon), Haryana, shall have exclusive jurisdiction. By accessing or using the Website, by purchasing through it, or by sending any notice under these Terms, you agree that any complaint, claim, suit or proceeding shall be brought only before these courts, and you waive any objection to this forum. Any proceeding commenced in any other court or forum is, as between you and us, in breach of these Terms, and we may rely on this section to seek its dismissal, transfer or stay and to recover our costs.</p>
+    </li>
+
+    <li>
+    <h2>Severability</h2>
+    <p>If any provision of these Terms is held to be invalid or unenforceable, that provision is limited to the minimum extent necessary and the remaining provisions stay in full force.</p>
     </li>
 
     <li>
@@ -166,11 +175,15 @@
     </li>
 
 
-    <li>
-    <h2> Contact Information</h2>
-    <p>If you have any questions or concerns about these Terms, either write to us at Krishna Ecommerce Technologies Private Limited>
-        Godown Village Fazilpur, Badshahpur Tethar(222), Badshahpur, Gurgaon-122101 ,India  OR by using contact email form  <a href="{{ url_for('crm.create_ticket') }}">  Conact us form </a> <br>
-        Phone: +91-8010077770</p>
+    <li id="grievance-redressal">
+    <h2>Contact and Grievance Redressal</h2>
+    <p>Krishna Ecommerce Technologies Private Limited<br>
+    Registered office: [OWNER TO FILL: Registered office]<br>
+    CIN: [OWNER TO FILL: CIN] · GSTIN: [OWNER TO CONFIRM: GSTIN]<br>
+    Phone: +91-8010077770<br>
+    Grievance Officer: [OWNER TO FILL: Grievance Officer name, designation] · Email: [OWNER TO FILL: Grievance email]<br>
+    We acknowledge every complaint within 48 hours and aim to resolve it within one month of receiving it.<br>
+    You can also write to us through the <a href="{{ support_url }}">support assistant</a>.</p>
     </li>
 </ol>
 </div>

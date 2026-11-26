@@ -109,10 +109,52 @@ class SiteAwareText(unittest.TestCase):
 
     def test_versions_differ_per_site_and_hash_the_text(self):
         com, ind = pt.current("com"), pt.current("in")
+        self.assertEqual(pt.TERMS_VERSION_DATE, "2026-11-26")
+        self.assertEqual(com["terms"]["version"], "2026-11-26")
+        self.assertEqual(ind["terms"]["version"], "2026-11-26")
+        self.assertEqual(com["returns"]["version"], "2026-11-26-com")
+        self.assertEqual(ind["returns"]["version"], "2026-11-26-in")
         self.assertNotEqual(com["returns"]["sha256"], ind["returns"]["sha256"])
         self.assertNotEqual(com["returns"]["version"], ind["returns"]["version"])
         self.assertEqual(com["returns"]["sha256"], pt.sha(com["returns"]["text"]))
         self.assertEqual(com["terms"]["sha256"], pt.sha(pt.terms_text()))
+
+    def test_returns_policy_has_the_new_title_and_preserves_the_lens_cap(self):
+        ind, com = pt.current("in"), pt.current("com")
+        for doc in (ind, com):
+            self.assertIn("OPTIWAR RETURNS AND REPLACEMENTS POLICY", doc["returns"]["text"])
+            self.assertNotIn("Limited Warranty", doc["returns"]["text"])
+        self.assertIn("up to 50%", ind["returns"]["text"])
+        self.assertEqual(pt.LENS_DEDUCTION_CAP_PERCENT, 50)
+        self.assertIn("applicable law.", ind["returns"]["text"])
+        self.assertIn("applicable law.", com["returns"]["text"])
+
+    def test_cancellation_window_is_a_text_only_four_hour_value(self):
+        self.assertEqual(pt.CANCELLATION_WINDOW_HOURS, 4)
+
+    def test_seal_versions_inserts_current_bodies_without_replacing_old_rows(self):
+        class Cursor:
+            def __init__(self):
+                self.rows = {}
+
+            def execute(self, _sql, params):
+                kind, site, version, sha, body = params
+                self.rows.setdefault((kind, site, sha), (version, body))
+
+        cur = Cursor()
+        for site in ("in", "com"):
+            for kind in ("terms", "returns"):
+                old = ("2025-01-01", "old accepted %s body" % kind)
+                cur.rows[(kind, site, "old-%s-sha" % kind)] = old
+            pt.seal_versions(cur, site)
+            current = pt.current(site)
+            for kind in ("terms", "returns"):
+                self.assertEqual(
+                    cur.rows[(kind, site, "old-%s-sha" % kind)],
+                    ("2025-01-01", "old accepted %s body" % kind))
+                self.assertEqual(
+                    cur.rows[(kind, site, current[kind]["sha256"])],
+                    (current[kind]["version"], current[kind]["text"]))
 
     def test_terms_text_is_the_deployed_template(self):
         self.assertIn("<h2", pt.terms_text())
@@ -127,7 +169,7 @@ class SiteAwareText(unittest.TestCase):
 class ReturnedParcelClause(unittest.TestCase):
     def test_in_policy_is_a_new_version_with_the_holding_clause(self):
         ind = pt.current("in")
-        self.assertEqual(ind["returns"]["version"], "2026-10-03-in")
+        self.assertEqual(ind["returns"]["version"], "2026-11-26-in")
         text = pt.RETURNS_TEXT["in"]
         self.assertIn("FAILED DELIVERY, RETURNED PACKAGES AND UNCLAIMED PARCELS", text)
         self.assertIn("sixty (60) days", text)
@@ -136,7 +178,7 @@ class ReturnedParcelClause(unittest.TestCase):
         self.assertIn("treated as abandoned", text)
         # the clause is India-only; .com stays on its sealed version
         self.assertNotIn("UNCLAIMED PARCELS", pt.RETURNS_TEXT["com"])
-        self.assertEqual(pt.current("com")["returns"]["version"], "2026-09-15-com")
+        self.assertEqual(pt.current("com")["returns"]["version"], "2026-11-26-com")
 
 
 class Disclosures(unittest.TestCase):
@@ -268,16 +310,15 @@ class ConfirmationEmail(unittest.TestCase):
     def test_line_and_links(self):
         line, terms, returns = pt.confirmation_line("optiwar.in", None)
         self.assertEqual(line, "Your order was placed subject to the Optiwar Terms & "
-                               "Conditions and Returns, Replacements & Limited Warranty "
-                               "Policy accepted at checkout.")
+                               "Conditions and Returns and Replacements Policy accepted at checkout.")
         self.assertEqual(terms, "https://optiwar.in/terms_and_conditions")
         self.assertTrue(returns.endswith("#returns-policy"))
 
     def test_line_names_versions_when_known(self):
         line, _, _ = pt.confirmation_line("optiwar.com", {
-            "terms_version": "2026-09-15", "returns_policy_version": "2026-09-15-com"})
-        self.assertIn("Terms 2026-09-15", line)
-        self.assertIn("Returns policy 2026-09-15-com", line)
+            "terms_version": "2026-11-26", "returns_policy_version": "2026-11-26-com"})
+        self.assertIn("Terms 2026-11-26", line)
+        self.assertIn("Returns policy 2026-11-26-com", line)
 
 
 if __name__ == "__main__":
