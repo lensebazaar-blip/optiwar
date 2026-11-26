@@ -65,6 +65,7 @@ rewritten.
 | Rename | 734 | BQ08 | OPTIWAR Half-Rim; formerly ENSRGIE |
 | Rename | 404 | AF23 | OPTIWAR Square; formerly IDOR |
 | Remove photo | 294 | AA94 | `AA94_1.jpg`; retain photos 2–5 |
+| Remove photo | 404 | AF23 | `AF23_1.jpg`; “IDOR” printed inside the arm; retain photos 2–5; no reshoot |
 | Remove duplicate R2 photos | 261, 146, 145, 203, 204, 366, 411, 302, 865 | BB22, BB26, BB27, BB31, BB32, BB33, BB74, BB85, BB94 | Remove each SKU's `_r2_04.jpg`, `_r2_05.jpg` and `_r2_06.jpg`; they duplicate views 01–03 |
 
 The six renamed frames stay on sale and are not in `HELD` or
