@@ -51,6 +51,7 @@ class ComplianceDataTest(unittest.TestCase):
             150: ["AM85_2.jpg", "AM85_4.jpg"],
             154: ["AM84_1.jpg", "AM84_2.jpg", "AM84_4.jpg"],
             294: ["AA94_1.jpg"],
+            404: ["AF23_1.jpg"],
             261: ["BB22_r2_04.jpg", "BB22_r2_05.jpg", "BB22_r2_06.jpg"],
             146: ["BB26_r2_04.jpg", "BB26_r2_05.jpg", "BB26_r2_06.jpg"],
             145: ["BB27_r2_04.jpg", "BB27_r2_05.jpg", "BB27_r2_06.jpg"],
@@ -1198,6 +1199,58 @@ class ApplyScriptTest(unittest.TestCase):
             self.assertEqual((image_root / remove).read_bytes(), b"remove")
             self.assertEqual(
                 (image_root / derivative).read_bytes(), b"derivative")
+
+    def test_af23_photo_remove_keeps_photos_two_through_five(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image_root = Path(tmp) / "static"
+            quarantine = Path(tmp) / "quarantine"
+            restore_dir = Path(tmp) / "restore"
+            photos = [
+                Path("catalog/opticalbazaar/AF23/AF23_%d.jpg" % index)
+                for index in range(1, 6)
+            ]
+            derivative = Path(
+                "catalog/opticalbazaar/AF23/derivatives/AF23_1-200.webp")
+            for index, relative in enumerate(photos, 1):
+                path = image_root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(("photo %d" % index).encode("utf-8"))
+            derivative_path = image_root / derivative
+            derivative_path.parent.mkdir(parents=True, exist_ok=True)
+            derivative_path.write_bytes(b"photo 1 derivative")
+            row = _row(
+                404, "AF23", product_name="OPTIWAR Square",
+                product_slug=brand_compliance.slugify("OPTIWAR Square"),
+                product_image=",".join("./" + path.as_posix()
+                                        for path in photos))
+            kept_value = ",".join("./" + path.as_posix()
+                                  for path in photos[1:])
+            with patch.object(
+                    apply_script.brand_compliance, "PHOTO_REMOVE",
+                    {404: ["AF23_1.jpg"]}):
+                plan = apply_script._photo_remove_plan(row)
+                self.assertEqual(plan["paths"], [photos[0].as_posix()])
+                self.assertEqual(plan["image_value"], kept_value)
+
+                db = _DB()
+                with patch.object(
+                        apply_script, "_load_rows", return_value=[row]):
+                    apply_script.run(
+                        db, types.SimpleNamespace(
+                            apply=True, quarantine=True),
+                        str(image_root), str(quarantine), str(restore_dir))
+
+            self.assertFalse((image_root / photos[0]).exists())
+            self.assertTrue(all((image_root / path).is_file()
+                                for path in photos[1:]))
+            self.assertFalse(derivative_path.exists())
+            product_update = next(
+                params for sql, params in db.cursor_obj.queries
+                if "product_image=%s" in sql)
+            self.assertEqual(product_update, (kept_value, 404))
+            restore_file = next(restore_dir.glob("brand_compliance_restore_*.json"))
+            record = json.loads(restore_file.read_text())
+            self.assertEqual(len(record["image_moves"]), 2)
 
     def test_r2_photo_remove_stays_removed_when_republishing_and_quarantines_family(self):
         with tempfile.TemporaryDirectory() as tmp:

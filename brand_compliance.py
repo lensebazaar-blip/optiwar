@@ -322,6 +322,7 @@ PHOTO_REMOVE = {
     150: ['AM85_2.jpg', 'AM85_4.jpg'],
     154: ['AM84_1.jpg', 'AM84_2.jpg', 'AM84_4.jpg'],
     294: ['AA94_1.jpg'],
+    404: ['AF23_1.jpg'],
     261: ['BB22_r2_04.jpg', 'BB22_r2_05.jpg', 'BB22_r2_06.jpg'],
     146: ['BB26_r2_04.jpg', 'BB26_r2_05.jpg', 'BB26_r2_06.jpg'],
     145: ['BB27_r2_04.jpg', 'BB27_r2_05.jpg', 'BB27_r2_06.jpg'],
