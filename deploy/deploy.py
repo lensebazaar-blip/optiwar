@@ -99,8 +99,6 @@ DEPLOY_SET = ("__init__.py", "log_hygiene.py", "pricing.py", "acr.py", "ai_api.p
               "order_face_scan.py", "templates/ops_order_face_scan.html",
               "frame_offers.py", "frame_offers_api.py",
               "templates/frame_offer_guest.html",
-              "ops_customers.py", "ops_customers_api.py",
-              "templates/set_password.html",
               "order_rx_documents.py", "templates/ops_order_rx_documents.html",
               "static/ai/optiwar_ai_knowledge_base.json",
               "static/ai/frame_rules.json",
@@ -128,8 +126,7 @@ DEPLOY_SET = ("__init__.py", "log_hygiene.py", "pricing.py", "acr.py", "ai_api.p
               "templates/lens_select.html", "templates/_lens_eye_cards.html",
               "templates/product_page.html", "templates/product_page_lens.html",
               "templates/_product_reviews.html", "templates/_picture.html",
-              "templates/base.html", "templates/login.html",
-              "static/js/chat-widget.js",
+              "templates/base.html", "static/js/chat-widget.js",
               "templates/all_frames.html", "templates/guide_frame_shapes.html",
               "templates/ai_faq.html",
               # AI Glasses (optiwar.in, behind AI_GLASSES_IN_ENABLED) + the .in homepage JSON-LD currency fix
@@ -173,8 +170,6 @@ NEW_IN_RELEASE = ("log_hygiene.py", "test_identity.py", "ai_language.py", "rx_lo
                   "order_face_scan.py", "templates/ops_order_face_scan.html",
                   "frame_offers.py", "frame_offers_api.py",
                   "templates/frame_offer_guest.html",
-                  "ops_customers.py", "ops_customers_api.py",
-                  "templates/set_password.html",
                   "order_rx_documents.py", "templates/ops_order_rx_documents.html",
                   "reship.py", "reship_api.py", "reship_assistant.py", "return_assistant.py", "return_fee.py", "return_refund.py", "return_request.py", "reverse_pickup.py", "templates/ops_reship.html",
                   "templates/face_scan_guest.html",
@@ -339,9 +334,6 @@ SMOKE = (
      "Authorization: Bearer smoke-not-a-token"),
     ("frame-offer ops create not origin-blocked",
      "https://optiwar.in/ops/api/orders/SMOKE-0/frame-offer", 401, "POST",
-     "Authorization: Bearer smoke-not-a-token"),
-    ("ops customer create rejects anonymous",
-     "https://optiwar.in/ops/api/customers", 401, "POST",
      "Authorization: Bearer smoke-not-a-token"),
     ("ops shipment api without bearer still origin-guarded",
      "https://optiwar.in/ops/api/shipments/SMOKE-0/reverse-pickup", 403, "POST"),
@@ -530,18 +522,6 @@ def face_scan_invites_module():
     sys.modules[pkg_name + ".face_profiles"] = face_profiles_module()
     spec = importlib.util.spec_from_file_location(
         pkg_name + ".face_scan_invites", os.path.join(REPO, "face_scan_invites.py"))
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-def ops_customers_module():
-    """Load Ops customer DDL with the isolated face-scan modules."""
-    face_scan_invites_module()
-    pkg_name = "face_deploy_pkg"
-    spec = importlib.util.spec_from_file_location(
-        pkg_name + ".ops_customers", os.path.join(REPO, "ops_customers.py"))
     mod = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)
@@ -801,8 +781,6 @@ def migration():
               for name, ddl in progressive_scan_module().TABLES]
     items += [("%s (table)" % name, " ".join(ddl.split()))
               for name, ddl in face_scan_invites_module().TABLES]
-    items += [("%s (table)" % name, " ".join(ddl.split()))
-              for name, ddl in ops_customers_module().TABLES]
     items += [("%s (table)" % name, " ".join(ddl.split()))
               for name, ddl in face_scan_groups_module().TABLES]
     items += [("%s (table)" % name, " ".join(ddl.split()))

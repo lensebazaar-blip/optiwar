@@ -573,63 +573,6 @@ def create(db, customer_id, profile_id, channel, destination, sender_name=None,
     return row, token
 
 
-def create_for_ops(db, customer_id, channels, recipient_email=None,
-                   recipient_phone=None, sender_name="Optiwar Support",
-                   site_host="optiwar.com", created_ip=None, created_by=None,
-                   account_name=None, environ=None, now=None):
-    """Create one Ops request for the account's Self profile and contacts."""
-    selected = {str(channel or "").strip().lower() for channel in channels}
-    if not selected or not selected.issubset({CH_EMAIL, CH_WHATSAPP}):
-        raise InviteError("bad_channel", "Choose email, WhatsApp, or both", 400)
-    if CH_EMAIL in selected and not recipient_email:
-        raise InviteError("missing_email", "This customer has no stored email address", 400)
-    if CH_WHATSAPP in selected and not recipient_phone:
-        raise InviteError("missing_phone", "This customer has no stored phone number", 400)
-
-    fp.ensure_schema(db)
-    profile = fp.ensure_self(db, customer_id, account_name)
-    if not profile.get("is_self"):
-        raise InviteError("self_profile_required", "Self profile not found", 409)
-
-    cur = db.cursor()
-    if _count_day(cur, "customer_id=%s AND sender_name=%s",
-                  (int(customer_id), "Optiwar Support")) >= 5:
-        raise InviteError("rate_limited", "Daily Ops scan-request limit reached", 429)
-    now = now or datetime.now()
-    token = new_token()
-    request_uuid = str(uuid.uuid4())
-    channel = CH_WHATSAPP if CH_WHATSAPP in selected else CH_EMAIL
-    try:
-        cur.execute("UPDATE face_scan_invites SET status=%s, cancelled_at=%s, "
-                    "active_slot=NULL WHERE face_profile_id=%s AND active_slot=1",
-                    (ST_CANCELLED, now, int(profile["id"])))
-        replaced = cur.rowcount
-        cur.execute(
-            "INSERT INTO face_scan_invites (request_uuid, customer_id, face_profile_id, "
-            "channel, recipient_email, recipient_phone, token_hash, status, active_slot, "
-            "sender_name, site_host, expires_at, created_ip) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,1,%s,%s,%s,%s)",
-            (request_uuid, int(customer_id), int(profile["id"]), channel,
-             (recipient_email or "").strip().lower() or None,
-             (recipient_phone or "").strip() or None, hash_token(token), ST_PENDING,
-             (sender_name or "Optiwar Support")[:120], (site_host or "optiwar.com")[:120],
-             now + timedelta(hours=ttl_hours(environ)),
-             (created_ip or "")[:45] or None))
-        row = by_uuid(db, request_uuid)
-        emit(db, EV_CREATED, row, {
-            "channel": channel,
-            "channels": sorted(selected),
-            "created_by": str(created_by or "")[:120],
-            "replaced_active": replaced,
-            "expires_at": str(row["expires_at"]),
-        }, commit=False)
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise
-    return row, token
-
-
 def cancel(db, customer_id, request_uuid, reason="sender", now=None):
     row = by_uuid(db, request_uuid)
     if not row or int(row["customer_id"]) != int(customer_id):
@@ -791,33 +734,6 @@ def record_delivery(db, row, ok, ref=None, error=None, now=None):
              event_id=event_id_for(EV_SENT if ok else EV_DELIVERY_FAILED,
                                    row["request_uuid"],
                                    str(int(row["delivery_attempts"]) + 1)),
-             commit=False)
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise
-    return by_uuid(db, row["request_uuid"])
-
-
-def record_ops_delivery(db, row, channels, ok, ref=None, error=None, now=None):
-    now = now or datetime.now()
-    event_type = EV_SENT if ok else EV_DELIVERY_FAILED
-    cur = db.cursor()
-    try:
-        cur.execute(
-            "UPDATE face_scan_invites SET delivery_status=%s, delivery_ref=%s, "
-            "delivery_error=%s, delivered_at=%s, delivery_attempts=delivery_attempts+1 "
-            "WHERE id=%s",
-            (DL_SENT if ok else DL_FAILED, (ref or "")[:120] or None,
-             (error or "")[:160] or None, now if ok else None, int(row["id"])))
-        emit(db, event_type, row, {
-            "channel": row["channel"],
-            "channels": sorted(channels),
-            "error": error,
-            "ref": ref,
-        }, event_id=event_id_for(
-            event_type, row["request_uuid"],
-            str(int(row.get("delivery_attempts") or 0) + 1)),
              commit=False)
         db.commit()
     except Exception:
