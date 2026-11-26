@@ -13,6 +13,7 @@ import hmac
 import logging
 import re
 import secrets
+import time
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
@@ -31,6 +32,10 @@ def _is_safe_redirect(target):
 bp = Blueprint('auth', __name__, url_prefix='/auth')
 captcha_generator = CaptchaGenerator()
 oauth = OAuth()
+OTP_PHONE_LIMIT_15_MINUTES = 3
+OTP_PHONE_LIMIT_24_HOURS = 10
+OTP_IP_LIMIT_15_MINUTES = 3
+OTP_LIFETIME_MINUTES = 10
 
 
 def init_oauth(app):
@@ -235,7 +240,11 @@ def login():
 
         current_app.logger.info(f'[{request.host}] ACTIVITY:LOGIN IP:{request.headers.get("X-Forwarded-For", request.remote_addr)} user:{session.get("user_id")} email:{email}')
         if temporary_password:
-            return redirect('/set-password')
+            next_url = (request.args.get('next') or request.form.get('next')
+                        or session.get('_login_next'))
+            if next_url and _is_safe_redirect(next_url):
+                session['_login_next'] = next_url
+            return redirect(url_for('main.set_password'))
         flash(f'Welcome back, {user["customer_name"]}!', 'success')
 
         # Redirect to intended page (cart, tryon, etc.) or homepage
@@ -259,13 +268,22 @@ def login():
     return render_template(
         'login.html', captcha_image=captcha_image, next_url=next_url,
         otp_enabled=bool(current_app.config.get("MSG91_LOGIN_OTP_WA_TEMPLATE")),
-        otp_pending=bool(session.get("_wa_login_otp_id")))
+        otp_pending="_wa_login_otp_id" in session)
 
 
 def set_password():
     if not session.get('user_id'):
         return redirect(url_for('auth.login'))
     if not session.get('must_set_password'):
+        return redirect(url_for('main.index'))
+    from . import ops_customers
+    db = get_db()
+    ops_customers.ensure_schema(db)
+    cursor = db.cursor()
+    cursor.execute("SELECT customer_id FROM customer_temp_passwords "
+                   "WHERE customer_id=%s", (session['user_id'],))
+    if not cursor.fetchone():
+        session.pop('must_set_password', None)
         return redirect(url_for('main.index'))
     if request.method == 'POST':
         password = request.form.get('password', '')
@@ -277,10 +295,6 @@ def set_password():
             flash('Passwords do not match.', 'danger')
             return render_template('set_password.html')
 
-        from . import ops_customers
-        db = get_db()
-        ops_customers.ensure_schema(db)
-        cursor = db.cursor()
         cursor.execute("UPDATE customers SET customer_password=%s "
                        "WHERE customer_id=%s",
                        (generate_password_hash(password), session['user_id']))
@@ -289,6 +303,9 @@ def set_password():
         db.commit()
         session.pop('must_set_password', None)
         flash('Your password has been updated.', 'success')
+        next_url = session.pop('_login_next', None)
+        if next_url and _is_safe_redirect(next_url):
+            return redirect(next_url)
         return redirect(url_for('main.index'))
     return render_template('set_password.html')
 
@@ -307,6 +324,19 @@ def _otp_redirect(message, category="info"):
     return redirect(url_for('auth.login'))
 
 
+def _otp_request_generic_reply(ops_customers):
+    session["_wa_login_otp_id"] = 0
+    session.pop("_wa_login_otp_sentinel_attempts", None)
+    session["_wa_login_otp_started"] = int(time.time())
+    return _otp_redirect(ops_customers.OTP_GENERIC_MESSAGE, "info")
+
+
+def _clear_whatsapp_otp_session():
+    session.pop("_wa_login_otp_id", None)
+    session.pop("_wa_login_otp_sentinel_attempts", None)
+    session.pop("_wa_login_otp_started", None)
+
+
 def request_whatsapp_otp():
     if not _otp_enabled():
         abort(404)
@@ -314,47 +344,69 @@ def request_whatsapp_otp():
 
     data = request.get_json(silent=True) or request.form
     captcha = str(data.get("captcha") or "").strip()
-    if captcha.upper() != session.get('captcha', '').upper():
+    expected_captcha = session.pop("captcha", None)
+    expected_captcha = str(expected_captcha or "").strip()
+    if not expected_captcha or captcha.upper() != expected_captcha.upper():
         return _otp_redirect('Invalid CAPTCHA. Please try again.', 'danger')
     try:
         requested_phone = ops_customers.normalize_phone(data.get("phone"))
     except ops_customers.CustomerError:
-        return _otp_redirect(ops_customers.OTP_GENERIC_MESSAGE, 'info')
+        return _otp_request_generic_reply(ops_customers)
 
     db = get_db()
     ops_customers.ensure_schema(db)
     matches = ops_customers.find_customers(db, phone=requested_phone)
     if len(matches) != 1:
-        return _otp_redirect(ops_customers.OTP_GENERIC_MESSAGE, 'info')
+        return _otp_request_generic_reply(ops_customers)
     user = matches[0]
     try:
         stored_phone = ops_customers.normalize_phone(user["phone"])
     except ops_customers.CustomerError:
-        return _otp_redirect(ops_customers.OTP_GENERIC_MESSAGE, 'info')
+        return _otp_request_generic_reply(ops_customers)
 
     cursor = db.cursor()
-    cursor.execute(
-        "SELECT COUNT(*) AS n FROM customer_login_otps "
-        "WHERE phone=%s AND created_at >= NOW() - INTERVAL 15 MINUTE",
-        (stored_phone,))
-    phone_count = int((cursor.fetchone() or {}).get("n", 0))
-    ip = request.remote_addr or ""
-    cursor.execute(
-        "SELECT COUNT(*) AS n FROM customer_login_otps "
-        "WHERE created_ip=%s AND created_at >= NOW() - INTERVAL 15 MINUTE",
-        (ip,))
-    ip_count = int((cursor.fetchone() or {}).get("n", 0))
-    if phone_count >= 3 or ip_count >= 3:
-        return _otp_redirect(ops_customers.OTP_GENERIC_MESSAGE, 'info')
+    lock_name = "wa_login_otp:" + stored_phone
+    cursor.execute("SELECT GET_LOCK(%s, 5) AS acquired", (lock_name,))
+    lock = cursor.fetchone()
+    if not lock or int(lock.get("acquired") or 0) != 1:
+        return _otp_request_generic_reply(ops_customers)
 
-    code = "%06d" % secrets.randbelow(1_000_000)
-    expires_at = datetime.now() + timedelta(minutes=10)
-    cursor.execute(
-        "INSERT INTO customer_login_otps "
-        "(customer_id, phone, code_hash, expires_at, attempts, created_ip) "
-        "VALUES (%s,%s,%s,%s,0,%s)",
-        (user["customer_id"], stored_phone, _otp_hash(code), expires_at, ip))
-    otp_id = cursor.lastrowid
+    try:
+        cursor.execute(
+            "SELECT COUNT(*) AS n FROM customer_login_otps "
+            "WHERE phone=%s AND created_at >= NOW() - INTERVAL 15 MINUTE",
+            (stored_phone,))
+        phone_count = int((cursor.fetchone() or {}).get("n", 0))
+        cursor.execute(
+            "SELECT COUNT(*) AS n FROM customer_login_otps "
+            "WHERE phone=%s AND created_at >= NOW() - INTERVAL 24 HOUR",
+            (stored_phone,))
+        phone_day_count = int((cursor.fetchone() or {}).get("n", 0))
+        ip = request.remote_addr or ""
+        cursor.execute(
+            "SELECT COUNT(*) AS n FROM customer_login_otps "
+            "WHERE created_ip=%s AND created_at >= NOW() - INTERVAL 15 MINUTE",
+            (ip,))
+        ip_count = int((cursor.fetchone() or {}).get("n", 0))
+        if (phone_count >= OTP_PHONE_LIMIT_15_MINUTES
+                or phone_day_count >= OTP_PHONE_LIMIT_24_HOURS
+                or ip_count >= OTP_IP_LIMIT_15_MINUTES):
+            return _otp_request_generic_reply(ops_customers)
+
+        code = "%06d" % secrets.randbelow(1_000_000)
+        otp_started = int(time.time())
+        expires_at = datetime.now() + timedelta(
+            minutes=OTP_LIFETIME_MINUTES)
+        cursor.execute(
+            "INSERT INTO customer_login_otps "
+            "(customer_id, phone, code_hash, expires_at, attempts, created_ip) "
+            "VALUES (%s,%s,%s,%s,0,%s)",
+            (user["customer_id"], stored_phone, _otp_hash(code), expires_at, ip))
+        otp_id = cursor.lastrowid
+        db.commit()
+    finally:
+        cursor.execute("SELECT RELEASE_LOCK(%s) AS released", (lock_name,))
+
     try:
         from .notifications import send_whatsapp_tracked
         result = send_whatsapp_tracked(
@@ -372,17 +424,18 @@ def request_whatsapp_otp():
         cursor.execute("UPDATE customer_login_otps SET used_at=NOW() WHERE id=%s",
                        (otp_id,))
         db.commit()
-        return _otp_redirect(ops_customers.OTP_GENERIC_MESSAGE, 'info')
+        return _otp_request_generic_reply(ops_customers)
 
-    db.commit()
     session["_wa_login_otp_id"] = otp_id
-    return _otp_redirect("If you received a code, enter it below.", "info")
+    session.pop("_wa_login_otp_sentinel_attempts", None)
+    session["_wa_login_otp_started"] = otp_started
+    return _otp_redirect(ops_customers.OTP_GENERIC_MESSAGE, "info")
 
 
 def restart_whatsapp_otp():
     if not _otp_enabled():
         abort(404)
-    session.pop("_wa_login_otp_id", None)
+    _clear_whatsapp_otp_session()
     return redirect(url_for("auth.login"))
 
 
@@ -392,8 +445,27 @@ def verify_whatsapp_otp():
     from . import ops_customers
 
     otp_id = session.get("_wa_login_otp_id")
+    if otp_id == 0:
+        started = session.get("_wa_login_otp_started")
+        try:
+            expired = (
+                started is None
+                or int(time.time()) - int(started)
+                >= OTP_LIFETIME_MINUTES * 60)
+        except (TypeError, ValueError):
+            expired = True
+        if expired:
+            _clear_whatsapp_otp_session()
+            return _otp_redirect(
+                "This code has expired. Request a new one.", "danger")
+        attempts = int(session.get("_wa_login_otp_sentinel_attempts") or 0) + 1
+        if attempts >= 5:
+            _clear_whatsapp_otp_session()
+        else:
+            session["_wa_login_otp_sentinel_attempts"] = attempts
+        return _otp_redirect("That code is incorrect or expired.", "danger")
     if not otp_id:
-        return _otp_redirect("This code has expired. Request a new one.", "danger")
+        return _otp_redirect("That code is incorrect or expired.", "danger")
     data = request.get_json(silent=True) or request.form
     code = str(data.get("code") or "").strip()
     db = get_db()
@@ -402,10 +474,14 @@ def verify_whatsapp_otp():
     cursor.execute("SELECT * FROM customer_login_otps WHERE id=%s FOR UPDATE",
                    (otp_id,))
     otp = cursor.fetchone()
-    if (not otp or otp.get("used_at")
+    if not otp:
+        db.commit()
+        _clear_whatsapp_otp_session()
+        return _otp_redirect("That code is incorrect or expired.", "danger")
+    if (otp.get("used_at")
             or _temporary_password_expired(otp["expires_at"])):
         db.commit()
-        session.pop("_wa_login_otp_id", None)
+        _clear_whatsapp_otp_session()
         return _otp_redirect("This code has expired. Request a new one.", "danger")
 
     if not re.fullmatch(r"\d{6}", code) or not hmac.compare_digest(
@@ -417,22 +493,28 @@ def verify_whatsapp_otp():
             (attempts, attempts, otp_id))
         db.commit()
         if attempts >= 5:
-            session.pop("_wa_login_otp_id", None)
+            _clear_whatsapp_otp_session()
         return _otp_redirect("That code is incorrect or expired.", "danger")
 
     cursor.execute("UPDATE customer_login_otps SET used_at=NOW() "
                    "WHERE id=%s AND used_at IS NULL", (otp_id,))
     if cursor.rowcount != 1:
         db.commit()
-        session.pop("_wa_login_otp_id", None)
+        _clear_whatsapp_otp_session()
         return _otp_redirect("This code has expired. Request a new one.", "danger")
     db.commit()
-    session.pop("_wa_login_otp_id", None)
+    _clear_whatsapp_otp_session()
     cursor.execute(
         "SELECT customer_id, customer_name, customer_email, customer_phone "
         "FROM customers WHERE customer_id=%s", (otp["customer_id"],))
     user = cursor.fetchone()
     if not user:
+        return _otp_redirect("This code has expired. Request a new one.", "danger")
+    try:
+        current_phone = ops_customers.normalize_phone(user.get("customer_phone"))
+    except ops_customers.CustomerError:
+        current_phone = None
+    if current_phone != otp.get("phone"):
         return _otp_redirect("This code has expired. Request a new one.", "danger")
     _complete_login(cursor, user)
     current_app.logger.info(

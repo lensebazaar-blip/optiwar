@@ -94,6 +94,15 @@ class OpsCustomerWorkflowTest(unittest.TestCase):
             }}
         return False, "unexpected API call"
 
+    def test_customer_template_preserves_intent_and_reads_search_results(self):
+        template = (EU_OPS_ROOT / "templates/pages/ow_customers_new.html").read_text()
+        self.assertIn('type="hidden" name="intent"', template)
+        self.assertIn("event.submitter.value", template)
+        self.assertIn("var data = await response.json();", template)
+        self.assertIn(
+            "var rows = data && Array.isArray(data.results) ? data.results : [];",
+            template)
+
     def post(self, path, data):
         async def send():
             transport = httpx.ASGITransport(app=self.main.app)
@@ -121,6 +130,25 @@ class OpsCustomerWorkflowTest(unittest.TestCase):
         self.assertEqual(len(self.calls), 1)
         self.assertFalse(any(method == "POST"
                              for _path, method, _payload in self.calls))
+
+    def test_preview_validation_error_preserves_selected_scan_channel(self):
+        def invalid_phone(path, method="GET", payload=None):
+            self.calls.append((path, method, payload))
+            return False, "invalid phone"
+        self.main.ow_customers_svc.api_call = invalid_phone
+
+        response = self.post("/ow-customers/preview", {
+            "name": "New Customer", "email": "new@example.com",
+            "phone": "bad-phone", "intent": "create_and_scan",
+            "channels": ["email"],
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            'name="channels" value="email" checked', response.text)
+        self.assertIn('name="channels" value="whatsapp"', response.text)
+        self.assertNotIn(
+            'name="channels" value="whatsapp" checked', response.text)
 
     def test_confirm_calls_create_then_face_scan(self):
         response = self.post("/ow-customers/confirm", {

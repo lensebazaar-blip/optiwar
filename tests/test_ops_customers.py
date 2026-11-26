@@ -291,6 +291,8 @@ class OpsCustomersTest(unittest.TestCase):
         self.assertTrue(result["welcome_email"]["ok"])
 
     def test_welcome_preview_and_email_omit_whatsapp_while_otp_is_disabled(self):
+        self.assertEqual(self.ops.WELCOME_LOGIN_URL,
+                         "https://optiwar.com/auth/login")
         preview = self.ops.message_preview(
             "welcome", "A Customer", "a@example.com", "+919876543082",
             otp_enabled=False)

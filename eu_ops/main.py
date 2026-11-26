@@ -5221,13 +5221,14 @@ def ow_customers_new(request: Request, user: dict = Depends(get_current_user)):
 async def ow_customers_preview(request: Request,
                               user: dict = Depends(get_current_user)):
     form = await request.form()
+    channels = sorted(set(form.getlist("channels")))
     form_data = {
         "name": str(form.get("name") or "").strip(),
         "email": str(form.get("email") or "").strip(),
         "phone": str(form.get("phone") or "").strip(),
         "intent": str(form.get("intent") or "create"),
+        "channels": channels,
     }
-    channels = sorted(set(form.getlist("channels")))
     if form_data["intent"] not in ("create", "create_and_scan"):
         return _ow_customer_new_page(
             request, user, form_data=form_data, matches=[],
@@ -5273,6 +5274,13 @@ async def ow_customers_confirm(request: Request,
     form = await request.form()
     intent = str(form.get("intent") or "")
     channels = sorted(set(form.getlist("channels")))
+    form_data = {
+        "name": str(form.get("name") or "").strip(),
+        "email": str(form.get("email") or "").strip(),
+        "phone": str(form.get("phone") or "").strip(),
+        "intent": intent,
+        "channels": channels,
+    }
     actor = _ow_customer_actor(user)
     if intent == "face_scan":
         customer_id = int(form.get("customer_id") or 0)
@@ -5294,14 +5302,8 @@ async def ow_customers_confirm(request: Request,
 
     if intent not in ("create", "create_and_scan"):
         return _ow_customer_new_page(
-            request, user, form_data={}, matches=[],
+            request, user, form_data=form_data, matches=[],
             error="The confirmation was not valid. Preview the message again.")
-    form_data = {
-        "name": str(form.get("name") or "").strip(),
-        "email": str(form.get("email") or "").strip(),
-        "phone": str(form.get("phone") or "").strip(),
-        "intent": intent,
-    }
     ok, lookup_result = ow_customers_svc.lookup(
         email=form_data["email"], phone=form_data["phone"])
     if not ok:

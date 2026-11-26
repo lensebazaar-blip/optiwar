@@ -16,9 +16,9 @@ from . import face_scan_invites as fsi
 
 TEMP_PASSWORD_DAYS = 7
 TEMP_PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
-OTP_GENERIC_MESSAGE = "We couldn't send a code to this number. Please log in with your email."
+OTP_GENERIC_MESSAGE = "If this number matches an account, we've sent a code. Enter it below."
 WELCOME_SUBJECT = "Welcome to Optiwar \u2013 your login details"
-WELCOME_LOGIN_URL = "https://optiwar.com/login"
+WELCOME_LOGIN_URL = "https://optiwar.com/auth/login"
 
 TEMP_PASSWORDS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS customer_temp_passwords (
