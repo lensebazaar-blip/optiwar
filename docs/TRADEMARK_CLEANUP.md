@@ -2,9 +2,9 @@
 
 ## Scope
 
-`brand_compliance.py` is the source of truth for the 110 trademark-held products,
-the 20 released products, the 19 released products still pending photo approval,
-and all 131 approved replacement names. It keeps the product ID, SKU, brand
+`brand_compliance.py` is the source of truth for the 101 trademark-held products,
+the 29 released products, the 5 released products still pending photo approval,
+and all 152 approved replacement names. It keeps the product ID, SKU, brand
 and hold kind together so the list can be reviewed or released one row at a
 time. IDs 1 (`BB44`) and 362 (`AK98`) are explicitly kept on sale;
 `KEEP_ON_SALE` is documentation only.
@@ -13,7 +13,7 @@ Blocked products are removed from both storefronts and customer-facing
 catalogues independently of database flags. `HELD` remains the trademark-only
 list; the effective blocked set also includes `PHOTO_PENDING`. The apply script
 sets blocked products' storefront/listing flags to zero, without changing
-`product_status`. The 131 renames use the replacement name and its slug before
+`product_status`. The 152 renames use the replacement name and its slug before
 and after the database script runs. Historical order descriptions are not
 rewritten.
 
@@ -53,6 +53,28 @@ rewritten.
 4. Rebuild the SEO product files and purge page/image caches only after a
    successful apply. Keep `static/seo/sitemap.xml`; the app serves it at
    runtime and removes blocked product URLs while updating renamed slugs.
+
+## Round 4
+
+| Action | PID | SKU | Details |
+| --- | ---: | --- | --- |
+| Rename | 733 | BQ03 | OPTIWAR Half-Rim; formerly ENSRGIE |
+| Rename | 732 | BQ04 | OPTIWAR Half-Rim; formerly ENSRGIE |
+| Rename | 736 | BQ06 | OPTIWAR Half-Rim; formerly ENSRGIE |
+| Rename | 735 | BQ07 | OPTIWAR Half-Rim; formerly ENSRGIE |
+| Rename | 734 | BQ08 | OPTIWAR Half-Rim; formerly ENSRGIE |
+| Rename | 404 | AF23 | OPTIWAR Square; formerly IDOR |
+| Remove photo | 294 | AA94 | `AA94_1.jpg`; retain photos 2–5 |
+| Remove duplicate R2 photos | 261, 146, 145, 203, 204, 366, 411, 302, 865 | BB22, BB26, BB27, BB31, BB32, BB33, BB74, BB85, BB94 | Remove each SKU's `_r2_04.jpg`, `_r2_05.jpg` and `_r2_06.jpg`; they duplicate views 01–03 |
+
+The six renamed frames stay on sale and are not in `HELD` or
+`PHOTO_PENDING`. `PHOTO_REMOVE` matches stored image paths by basename, so it
+also handles `catalog/r2/<SKU>/...`; applying a removal drops the master from
+`product_image` and quarantines its derivative family. After reviewing the
+dry run, build only the retained masters' derivative ladders with
+`scripts/publish_r2_photos.py --sku <SKU> --image-root <static> --derivatives-only --keep <N> --apply`.
+For BB22–BB94 use `--keep 3`; for AB85 use `--keep 5`. The publisher is a dry
+run unless `--apply` is supplied and does not rewrite or delete masters.
 
 ## Run order
 

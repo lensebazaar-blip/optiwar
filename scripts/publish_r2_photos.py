@@ -2,9 +2,10 @@
 """Publish approved retouched JPEGs under static/catalog/r2/<SKU>.
 
 The command is a dry run unless --apply is supplied. It writes masters,
-derivatives, and their SHA-256 rows to derivative_manifest.tsv; it never
-updates the database. embed_helper loads that manifest once at startup, so
-restart gunicorn after applying a batch to make the new entries visible.
+derivatives, and their SHA-256 rows to derivative_manifest.tsv; with
+--derivatives-only it builds variants for existing masters without rewriting
+them. It never updates the database. embed_helper loads the manifest once at
+startup, so restart gunicorn after applying a batch to make new entries visible.
 """
 import argparse
 import io
@@ -25,7 +26,7 @@ import image_pipeline
 
 def _master_pattern(sku):
     return re.compile(
-        r"^%s_r2_\d{2,}\.(?:jpe?g|png|webp|avif)$" % re.escape(sku),
+        r"^%s_r2_(\d{2,})\.(?:jpe?g|png|webp|avif)$" % re.escape(sku),
         re.IGNORECASE)
 
 
@@ -41,6 +42,11 @@ def _master_paths(sku, image_root):
         for name in names
         if pattern.fullmatch(name)
         and os.path.isfile(os.path.join(directory, name)))
+
+
+def _master_index(sku, master_path):
+    match = _master_pattern(sku).fullmatch(os.path.basename(master_path))
+    return int(match.group(1)) if match else None
 
 
 def _family_paths(master_path):
@@ -193,17 +199,100 @@ def publish(sku, files, image_root, apply=False, replace=False, output=None):
     return 0
 
 
+def publish_derivatives_only(sku, image_root, apply=False, keep=None,
+                             output=None):
+    output = output or sys.stdout
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", sku):
+        raise ValueError("invalid SKU: %s" % sku)
+    if keep is not None and keep < 1:
+        raise ValueError("--keep must be at least 1")
+
+    image_root = os.path.abspath(image_root)
+    catalog_root = os.path.join(image_root, "catalog")
+    manifest_path = os.path.join(catalog_root, "derivative_manifest.tsv")
+    masters = _master_paths(sku, image_root)
+    if keep is not None:
+        masters = [
+            master for master in masters
+            if 1 <= _master_index(sku, master) <= keep
+        ]
+    if not masters:
+        detail = " with --keep %d" % keep if keep is not None else ""
+        raise ValueError("no existing R2 masters for %s%s" % (sku, detail))
+
+    _require_avif_support()
+
+    with tempfile.TemporaryDirectory(prefix="publish-r2-derivatives-") as staging:
+        staged_files = []
+        for master in masters:
+            staged_master = os.path.join(
+                staging, os.path.basename(master))
+            shutil.copy2(master, staged_master)
+            image_pipeline.build_derivatives(staged_master)
+            expected_derivatives = _expected_derivative_paths(staged_master)
+            missing = [path for path in expected_derivatives
+                       if not os.path.isfile(path)]
+            if missing:
+                raise ValueError(
+                    "incomplete derivative ladder for %s; missing: %s"
+                    % (os.path.basename(master),
+                       ", ".join(os.path.basename(path) for path in missing)))
+            for derivative in expected_derivatives:
+                os.chmod(derivative, 0o644)
+                destination = os.path.join(
+                    os.path.dirname(master), "derivatives",
+                    os.path.basename(derivative))
+                staged_files.append((derivative, destination))
+
+        label = "WRITE" if apply else "DRY RUN WRITE"
+        for _, destination in staged_files:
+            print("%s %s" % (label, destination), file=output)
+        print("%s %s" % (label, manifest_path), file=output)
+
+        if not apply:
+            return 0
+
+        written = []
+        for source, destination in staged_files:
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            shutil.copy2(source, destination)
+            os.chmod(destination, 0o644)
+            written.append(destination)
+
+        rows = image_pipeline.manifest_rows(masters + written, catalog_root)
+        image_pipeline.merge_manifest(
+            manifest_path, rows, replace_prefix="r2/%s/" % sku)
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sku", required=True)
-    parser.add_argument("--files", nargs="+", required=True, metavar="FILE")
+    parser.add_argument("--files", nargs="+", metavar="FILE")
     parser.add_argument("--image-root", required=True, metavar="PATH")
+    parser.add_argument("--derivatives-only", action="store_true",
+                        help="build derivatives for existing R2 masters only")
+    parser.add_argument("--keep", type=int,
+                        help="with --derivatives-only, include masters 01..N")
     parser.add_argument("--apply", action="store_true",
-                        help="write the masters, derivatives, and manifest")
+                        help="write planned files and the manifest")
     parser.add_argument("--replace", action="store_true",
                         help="replace an existing R2 photo set")
     args = parser.parse_args(argv)
+    if args.derivatives_only:
+        if args.files:
+            parser.error("--files cannot be used with --derivatives-only")
+        if args.replace:
+            parser.error("--replace cannot be used with --derivatives-only")
+    else:
+        if not args.files:
+            parser.error("--files is required unless --derivatives-only is used")
+        if args.keep is not None:
+            parser.error("--keep requires --derivatives-only")
     try:
+        if args.derivatives_only:
+            return publish_derivatives_only(
+                args.sku, args.image_root, apply=args.apply, keep=args.keep)
         return publish(
             args.sku, args.files, args.image_root,
             apply=args.apply, replace=args.replace)

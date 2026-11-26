@@ -293,7 +293,11 @@ def _republish_plan(row, image_root, quarantine_base, record):
 
     sku = brand_compliance.RELEASED[product_id]
     paths = _image_paths(row)
-    approved = _approved_r2(sku, image_root)
+    removed_filenames = set(brand_compliance.PHOTO_REMOVE.get(product_id, ()))
+    approved = [
+        relative for relative in _approved_r2(sku, image_root)
+        if os.path.basename(relative) not in removed_filenames
+    ]
     if approved:
         return {
             "ready": True,
