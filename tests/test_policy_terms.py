@@ -159,6 +159,17 @@ class SiteAwareText(unittest.TestCase):
     def test_terms_text_is_the_deployed_template(self):
         self.assertIn("<h2", pt.terms_text())
 
+    def test_cancellation_deadline_is_literal_in_the_sealed_terms_text(self):
+        text = pt.terms_text()
+        start = text.index("<h2>Cancellation Policy</h2>")
+        end = text.index("</li>", start)
+        cancellation = text[start:end]
+        self.assertIn(
+            "within %d hours" % pt.CANCELLATION_WINDOW_HOURS, cancellation)
+        self.assertIn(
+            "After %d hours" % pt.CANCELLATION_WINDOW_HOURS, cancellation)
+        self.assertNotIn("{{", cancellation)
+
     def test_render_html_escapes_and_anchors(self):
         html = pt.returns_html("in")
         self.assertIn('id="returns-policy"', html)

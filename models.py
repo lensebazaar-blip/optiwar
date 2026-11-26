@@ -4435,8 +4435,7 @@ def terms_and_conditions():
                            returns_policy_html=policy_terms.returns_html(site),
                            returns_policy_version=cur['returns']['version'],
                            terms_version=cur['terms']['version'],
-                           is_india=site == policy_terms.SITE_IN,
-                           cancellation_window_hours=policy_terms.CANCELLATION_WINDOW_HOURS)
+                           is_india=site == policy_terms.SITE_IN)
 
 
 @bp.route('/privacy_policy')
