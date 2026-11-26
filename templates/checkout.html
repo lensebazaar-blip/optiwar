@@ -1374,7 +1374,7 @@ footer{ display:none !important; }
               </div>
               <div class="ow-rx-body">
                 <div class="ow-rx-section" style="text-align:center;padding:12px 0;">
-                  <p style="font-size:14px;color:#475569;line-height:1.7;">Currently for a limited period we are offering free shipping and subject to our terms and conditions these may change at a future date.</p>
+                  <p style="font-size:14px;color:#475569;line-height:1.7;">{% if is_india %}Standard delivery is free across India and arrives within 5 days of your order. Expedite and 24-hour Delhi NCR delivery are optional paid upgrades.{% else %}Currently for a limited period we are offering free shipping and subject to our terms and conditions these may change at a future date.{% endif %}</p>
                 </div>
               </div>
             </div>

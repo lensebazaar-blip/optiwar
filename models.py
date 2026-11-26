@@ -33,6 +33,7 @@ from .catalogue import (
     current_site, strip_ineligible_urls, age_group, ensure_gmc_columns,
     live_lenses, lens_matrix_summary, SITE_IN, SITE_COM,
 )
+from . import india_offer
 from .brand_compliance import RENAMED, display_name, held_ids, is_held, scrub_text, slugify
 from . import face_cart, face_fit, face_profiles, face_profiles_api, face_scan_groups_api, face_scan_invites_api, favorites_api, frame_offers_api, order_face_scan, order_rx_documents, progressive_scan
 from . import (acr, lens_cart, lens_config, lens_documents, lens_feed,
@@ -197,7 +198,9 @@ def inject_currency():
         'is_eur': not _india,
         'currency_symbol': '₹' if _india else '€',
         'eur_rate': EUR_RATE,
-        'google_maps_api_key': GOOGLE_MAPS_API_KEY
+        'google_maps_api_key': GOOGLE_MAPS_API_KEY,
+        'in_ship_declared': _india and india_offer.enabled(),
+        'in_offer_shipping': india_offer.shipping_details(),
     }
 
 
@@ -4540,6 +4543,7 @@ def google_merchant_feed():
     else:
         host, currency, title_suffix = 'in.optiwar.com', 'INR', 'Optiwar (India)'
     base = 'https://' + host
+    declare_india_shipping = is_india and india_offer.enabled()
 
     # 178 = "Sunglasses" in Google's taxonomy, wrong for prescription eyeglass
     # frames. Default-remove the legacy hardcoded category so Google
@@ -4679,6 +4683,8 @@ def google_merchant_feed():
             parts.append('      <g:age_group>%s</g:age_group>' % _xesc(_age))
         if shape:
             parts.append('      <g:custom_label_0>%s</g:custom_label_0>' % _xesc(shape))
+        if declare_india_shipping:
+            parts.append('      ' + india_offer.feed_shipping_xml())
         parts.append('    </item>')
         items.append('\n'.join(parts))
 
