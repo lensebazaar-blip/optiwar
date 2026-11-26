@@ -15,6 +15,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from PIL import Image
 
@@ -32,6 +33,42 @@ def _load(name):
 
 
 image_pipeline = _load("image_pipeline")
+
+
+class AvifAvailability(unittest.TestCase):
+
+    def setUp(self):
+        image_pipeline.avif_encoder_available.cache_clear()
+        self.addCleanup(image_pipeline.avif_encoder_available.cache_clear)
+
+    @staticmethod
+    def _reject_avif(image, fp, format=None, **kwargs):
+        if format == "AVIF":
+            raise OSError("Pillow has no AVIF encoder")
+        return Image.Image.save(image, fp, format, **kwargs)
+
+    def test_avifenc_fallback_counts_as_available(self):
+        with patch.object(Image.Image, "save", self._reject_avif), \
+                patch.object(image_pipeline.shutil, "which",
+                             return_value="/usr/bin/avifenc"):
+            self.assertTrue(image_pipeline.avif_encoder_available())
+
+    def test_no_pillow_or_avifenc_encoder_is_unavailable(self):
+        with patch.object(Image.Image, "save", self._reject_avif), \
+                patch.object(image_pipeline.shutil, "which",
+                             return_value=None):
+            self.assertFalse(image_pipeline.avif_encoder_available())
+
+    def test_avif_writer_uses_the_shared_availability_check(self):
+        image = Image.new("RGB", (1, 1), (0, 0, 0))
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(image_pipeline, "avif_encoder_available",
+                             return_value=False) as available:
+            self.assertFalse(image_pipeline._save_avif(
+                image, os.path.join(tmp, "sample.avif")))
+        image.close()
+        available.assert_called_once_with()
+
 
 RECIPE = {
     "product": "TESTPACK",
@@ -252,6 +289,22 @@ class Manifest(unittest.TestCase):
         image_pipeline.merge_manifest(self.path, [("frames/BB02_1.jpg", "9" * 64)])
         image_pipeline.merge_manifest(self.path, [("a/x.jpg", "1" * 64)])
         self.assertIn("frames/BB02_1.jpg", dict(self.read()))
+
+    def test_replace_prefix_removes_old_rows_and_preserves_other_products(self):
+        image_pipeline.merge_manifest(self.path, [
+            ("r2/AI20/AI20_r2_01.jpg", "1" * 64),
+            ("r2/AI20/derivatives/AI20_r2_01-200.jpg", "2" * 64),
+            ("r2/AI64/AI64_r2_01.jpg", "3" * 64),
+        ])
+        image_pipeline.merge_manifest(
+            self.path, [("r2/AI20/AI20_r2_01.jpg", "4" * 64)],
+            replace_prefix="r2/AI20/")
+
+        rows = dict(self.read())
+        self.assertEqual(rows, {
+            "r2/AI20/AI20_r2_01.jpg": "4" * 64,
+            "r2/AI64/AI64_r2_01.jpg": "3" * 64,
+        })
 
 
 if __name__ == "__main__":

@@ -13,6 +13,12 @@
   // customer is from the login, and binds the chat to this browser by cookie.
   var signedIn = !!cfg.signedIn;
   var pendingEntry = '';
+  var pageLeaving = false;
+  var sessionStartInProgress = false;
+  window.addEventListener('pagehide', function() { pageLeaving = true; });
+  window.addEventListener('pageshow', function(e) {
+    if (e.persisted) pageLeaving = false;
+  });
 
   var API = '/api/chat';
   var POLL_INTERVAL = 4000;
@@ -527,21 +533,59 @@
   }
 
   function startSession() {
+    if (pageLeaving || sessionId || sessionStartInProgress) return;
     console.log('[ChatWidget] startSession() at', (performance.now() - _t0).toFixed(0), 'ms after script load');
+    sessionStartInProgress = true;
     var entry = pendingEntry;
     pendingEntry = '';
-    apiCall('POST', '/start', {
-      page_url: window.location.href,
-      entry: entry
-    }).then(function(data) {
-      sessionId = data.session_id;
-      sessionLabel.textContent = 'Session: ' + sessionId.replace('chat_', '#');
-      loadMessages();
-      startPolling();
-    }).catch(function(e) {
-      reportDefect('CHAT_START_FAILED', e && e.message);
-      renderSystemMsg('Failed to connect. Please refresh the page.');
-    });
+    var attempts = 0;
+    var retryDelays = [1000, 3000];
+
+    function attempt() {
+      if (pageLeaving || sessionId) {
+        sessionStartInProgress = false;
+        return;
+      }
+      attempts += 1;
+      apiCall('POST', '/start', {
+        page_url: window.location.href,
+        entry: entry
+      }).then(function(data) {
+        if (pageLeaving || sessionId) {
+          sessionStartInProgress = false;
+          return;
+        }
+        sessionId = data.session_id;
+        sessionStartInProgress = false;
+        sessionLabel.textContent = 'Session: ' + sessionId.replace('chat_', '#');
+        loadMessages();
+        startPolling();
+      }).catch(function(e) {
+        if (pageLeaving || sessionId) {
+          sessionStartInProgress = false;
+          return;
+        }
+        if (e instanceof TypeError && attempts < 3) {
+          setTimeout(function() {
+            if (pageLeaving || sessionId) {
+              sessionStartInProgress = false;
+              return;
+            }
+            attempt();
+          }, retryDelays[attempts - 1]);
+          return;
+        }
+        sessionStartInProgress = false;
+        var message = e && e.message;
+        if (e instanceof TypeError && attempts >= 3) {
+          message = (message || '') + ' after 3 tries';
+        }
+        reportDefect('CHAT_START_FAILED', message);
+        renderSystemMsg('Failed to connect. Please refresh the page.');
+      });
+    }
+
+    attempt();
   }
 
   function _newClientMsgId() {
