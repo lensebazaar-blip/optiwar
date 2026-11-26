@@ -1,46 +1,78 @@
 import datetime
-import importlib
+import ast
+import importlib.util
 import json
 import os
 import re
-import sys
-import types
 import unittest
 
-from flask import Flask
+from flask import Flask, make_response, render_template, request
 from jinja2 import ChoiceLoader, DictLoader
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if REPO not in sys.path:
-    sys.path.insert(0, REPO)
 
-try:
-    importlib.import_module("MySQLdb")
-except ImportError:
-    import pymysql
-    pymysql.install_as_MySQLdb()
 
-package = sys.modules.get("flaskr")
-if package is None:
-    package = types.ModuleType("flaskr")
-    package.__path__ = [REPO]
-    sys.modules["flaskr"] = package
-elif not getattr(package, "__path__", None):
-    package.__path__ = [REPO]
+def _load_module(name):
+    path = os.path.join(REPO, name + ".py")
+    spec = importlib.util.spec_from_file_location(name + "_under_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
-mail_stub = sys.modules.get("flaskr.mail")
-missing = object()
-mail_function = getattr(mail_stub, "send_order_confirmation", missing)
-if mail_stub is not None and mail_function is missing:
-    mail_stub.send_order_confirmation = lambda *args, **kwargs: None
-    try:
-        models = importlib.import_module("flaskr.models")
-    finally:
-        del mail_stub.send_order_confirmation
-else:
-    models = importlib.import_module("flaskr.models")
-policy_terms = importlib.import_module("flaskr.policy_terms")
-crm = importlib.import_module("flaskr.crm")
+
+def _source_constant(name):
+    path = os.path.join(REPO, "crm.py")
+    with open(path, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read(), filename=path)
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            if any(isinstance(target, ast.Name) and target.id == name
+                   for target in node.targets):
+                return ast.literal_eval(node.value)
+    raise AssertionError("missing %s in crm.py" % name)
+
+
+def _faq_text(_template, faq_sections, all_faq_items, **kwargs):
+    return "\n".join(
+        item["a"]
+        for section in faq_sections
+        for item in section["questions"])
+
+
+def _load_model_helpers():
+    path = os.path.join(REPO, "models.py")
+    with open(path, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read(), filename=path)
+    names = {"_req_is_india", "ai_faq", "llms_txt"}
+    functions = [
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name in names
+    ]
+    for function in functions:
+        function.decorator_list = []
+    if {function.name for function in functions} != names:
+        raise AssertionError("could not locate model route helpers")
+    namespace = {
+        "make_response": make_response,
+        "policy_terms": policy_terms,
+        "render_template": _faq_text,
+        "request": request,
+    }
+    exec(compile(ast.Module(body=functions, type_ignores=[]), path, "exec"),
+         namespace)
+    return namespace
+
+
+policy_terms = _load_module("policy_terms")
+model_helpers = _load_model_helpers()
+ASSISTANT_URL = _source_constant("ASSISTANT_URL")
+
+
+def app_context():
+    return {
+        "current_year": datetime.datetime.now().year,
+        "support_url": ASSISTANT_URL,
+    }
 
 
 def _app():
@@ -57,21 +89,41 @@ def _app():
         app.jinja_loader,
     ])
     app.jinja_env.globals["_"] = lambda text: text
-    app.context_processor(models.inject_currency)
+
+    @app.context_processor
+    def inject_test_context():
+        return app_context()
+
+    def terms_and_conditions():
+        site = "in" if model_helpers["_req_is_india"]() else "com"
+        current = policy_terms.current(site)
+        return render_template(
+            "terms-and-conditions.html",
+            returns_policy_html=policy_terms.returns_html(site),
+            returns_policy_version=current["returns"]["version"],
+            terms_version=current["terms"]["version"],
+            is_india=site == "in",
+        )
+
+    def privacy_policy():
+        return render_template("privacy_policy.html")
+
     app.add_url_rule(
         "/", endpoint="main.index", view_func=lambda: "")
     app.add_url_rule(
         "/terms_and_conditions", endpoint="main.terms_and_conditions",
-        view_func=models.terms_and_conditions)
+        view_func=terms_and_conditions)
     app.add_url_rule(
         "/privacy_policy", endpoint="main.privacy_policy",
-        view_func=models.privacy_policy)
+        view_func=privacy_policy)
     app.add_url_rule(
         "/ip-notice", endpoint="main.ip_notice", view_func=lambda: "")
     app.add_url_rule(
-        "/ai-faq", endpoint="main.ai_faq", view_func=models.ai_faq)
+        "/ai-faq", endpoint="main.ai_faq",
+        view_func=model_helpers["ai_faq"])
     app.add_url_rule(
-        "/llms.txt", endpoint="main.llms_txt", view_func=models.llms_txt)
+        "/llms.txt", endpoint="main.llms_txt",
+        view_func=model_helpers["llms_txt"])
     return app
 
 
@@ -175,7 +227,7 @@ class TermsAndPrivacyRendering(unittest.TestCase):
         with self.app.test_request_context(
                 "/", base_url="https://optiwar.in"):
             self.assertEqual(
-                models.inject_currency()["current_year"],
+                app_context()["current_year"],
                 datetime.datetime.now().year)
         with open(os.path.join(REPO, "templates", "base.html"),
                   encoding="utf-8") as fh:
@@ -214,8 +266,8 @@ class TermsAndPrivacyRendering(unittest.TestCase):
         with self.app.test_request_context(
                 "/", base_url="https://optiwar.in"):
             self.assertEqual(
-                models.inject_currency()["support_url"], crm.ASSISTANT_URL)
-        self.assertEqual(crm.ASSISTANT_URL, "/?support=legacy_contact_us")
+                app_context()["support_url"], ASSISTANT_URL)
+        self.assertEqual(ASSISTANT_URL, "/?support=legacy_contact_us")
         with open(os.path.join(REPO, "static", "js", "chat-widget.js"),
                   encoding="utf-8") as fh:
             widget = fh.read()
