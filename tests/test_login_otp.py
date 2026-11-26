@@ -38,6 +38,14 @@ class FakeCursor:
         self.rowcount = 0
         if sql.startswith("CREATE TABLE"):
             return
+        if sql.startswith("SELECT GET_LOCK(%s, 5) AS acquired"):
+            self.db.events.append(("get_lock", params[0], 5))
+            self.rows = [{"acquired": int(self.db.lock_granted)}]
+            return
+        if sql.startswith("SELECT RELEASE_LOCK(%s) AS released"):
+            self.db.events.append(("release_lock", params[0]))
+            self.rows = [{"released": 1}]
+            return
         if sql.startswith("SELECT customer_id") and "FROM customers WHERE customer_email = %s" in sql:
             self.rows = [row for row in self.db.customers.values()
                          if row["customer_email"].lower() == str(params[0]).lower()]
@@ -86,6 +94,7 @@ class FakeCursor:
                 "attempts": 0, "used_at": None, "created_ip": created_ip,
                 "created_at": datetime.now(),
             }
+            self.db.events.append(("insert", otp_id))
             self.lastrowid = otp_id
             self.rowcount = 1
             return
@@ -147,12 +156,14 @@ class FakeDB:
         self.temp_passwords = {}
         self.otps = {}
         self.next_otp_id = 1
+        self.lock_granted = True
+        self.events = []
 
     def cursor(self):
         return FakeCursor(self)
 
     def commit(self):
-        pass
+        self.events.append(("commit",))
 
     def rollback(self):
         pass
@@ -477,6 +488,45 @@ class LoginOtpTest(unittest.TestCase):
         with self.client.session_transaction(base_url="https://optiwar.com") as session:
             self.assertNotIn("captcha", session)
             self.assertIsInstance(session["_wa_login_otp_id"], int)
+            self.assertIn(
+                GENERIC_OTP_REPLY,
+                [message for _category, message in session.get("_flashes", [])])
+
+    def test_request_holds_phone_lock_through_commit_and_releases_before_send(self):
+        self.add_customer()
+        notifications = sys.modules["login_otp_test_pkg.notifications"]
+
+        def send(*_args):
+            self.db.events.append(("send",))
+            return {"ok": True}
+
+        with patch.object(notifications, "send_whatsapp_tracked",
+                          side_effect=send):
+            response = self.request_code()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            [event[0] for event in self.db.events],
+            ["get_lock", "insert", "commit", "release_lock", "send"])
+        self.assertEqual(
+            self.db.events[0],
+            ("get_lock", "wa_login_otp:+919876543210", 5))
+        self.assertEqual(
+            self.db.events[3],
+            ("release_lock", "wa_login_otp:+919876543210"))
+
+    def test_phone_lock_not_granted_uses_generic_reply_without_sending(self):
+        self.add_customer()
+        self.db.lock_granted = False
+
+        response = self.request_code()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.db.otps, {})
+        self.assertEqual([event[0] for event in self.db.events], ["get_lock"])
+        self.assertEqual(_sent_codes, [])
+        with self.client.session_transaction(
+                base_url="https://optiwar.com") as session:
             self.assertIn(
                 GENERIC_OTP_REPLY,
                 [message for _category, message in session.get("_flashes", [])])

@@ -356,35 +356,46 @@ def request_whatsapp_otp():
         return _otp_request_generic_reply(ops_customers)
 
     cursor = db.cursor()
-    cursor.execute(
-        "SELECT COUNT(*) AS n FROM customer_login_otps "
-        "WHERE phone=%s AND created_at >= NOW() - INTERVAL 15 MINUTE",
-        (stored_phone,))
-    phone_count = int((cursor.fetchone() or {}).get("n", 0))
-    cursor.execute(
-        "SELECT COUNT(*) AS n FROM customer_login_otps "
-        "WHERE phone=%s AND created_at >= NOW() - INTERVAL 24 HOUR",
-        (stored_phone,))
-    phone_day_count = int((cursor.fetchone() or {}).get("n", 0))
-    ip = request.remote_addr or ""
-    cursor.execute(
-        "SELECT COUNT(*) AS n FROM customer_login_otps "
-        "WHERE created_ip=%s AND created_at >= NOW() - INTERVAL 15 MINUTE",
-        (ip,))
-    ip_count = int((cursor.fetchone() or {}).get("n", 0))
-    if (phone_count >= OTP_PHONE_LIMIT_15_MINUTES
-            or phone_day_count >= OTP_PHONE_LIMIT_24_HOURS
-            or ip_count >= OTP_IP_LIMIT_15_MINUTES):
+    lock_name = "wa_login_otp:" + stored_phone
+    cursor.execute("SELECT GET_LOCK(%s, 5) AS acquired", (lock_name,))
+    lock = cursor.fetchone()
+    if not lock or int(lock.get("acquired") or 0) != 1:
         return _otp_request_generic_reply(ops_customers)
 
-    code = "%06d" % secrets.randbelow(1_000_000)
-    expires_at = datetime.now() + timedelta(minutes=10)
-    cursor.execute(
-        "INSERT INTO customer_login_otps "
-        "(customer_id, phone, code_hash, expires_at, attempts, created_ip) "
-        "VALUES (%s,%s,%s,%s,0,%s)",
-        (user["customer_id"], stored_phone, _otp_hash(code), expires_at, ip))
-    otp_id = cursor.lastrowid
+    try:
+        cursor.execute(
+            "SELECT COUNT(*) AS n FROM customer_login_otps "
+            "WHERE phone=%s AND created_at >= NOW() - INTERVAL 15 MINUTE",
+            (stored_phone,))
+        phone_count = int((cursor.fetchone() or {}).get("n", 0))
+        cursor.execute(
+            "SELECT COUNT(*) AS n FROM customer_login_otps "
+            "WHERE phone=%s AND created_at >= NOW() - INTERVAL 24 HOUR",
+            (stored_phone,))
+        phone_day_count = int((cursor.fetchone() or {}).get("n", 0))
+        ip = request.remote_addr or ""
+        cursor.execute(
+            "SELECT COUNT(*) AS n FROM customer_login_otps "
+            "WHERE created_ip=%s AND created_at >= NOW() - INTERVAL 15 MINUTE",
+            (ip,))
+        ip_count = int((cursor.fetchone() or {}).get("n", 0))
+        if (phone_count >= OTP_PHONE_LIMIT_15_MINUTES
+                or phone_day_count >= OTP_PHONE_LIMIT_24_HOURS
+                or ip_count >= OTP_IP_LIMIT_15_MINUTES):
+            return _otp_request_generic_reply(ops_customers)
+
+        code = "%06d" % secrets.randbelow(1_000_000)
+        expires_at = datetime.now() + timedelta(minutes=10)
+        cursor.execute(
+            "INSERT INTO customer_login_otps "
+            "(customer_id, phone, code_hash, expires_at, attempts, created_ip) "
+            "VALUES (%s,%s,%s,%s,0,%s)",
+            (user["customer_id"], stored_phone, _otp_hash(code), expires_at, ip))
+        otp_id = cursor.lastrowid
+        db.commit()
+    finally:
+        cursor.execute("SELECT RELEASE_LOCK(%s) AS released", (lock_name,))
+
     try:
         from .notifications import send_whatsapp_tracked
         result = send_whatsapp_tracked(
@@ -404,7 +415,6 @@ def request_whatsapp_otp():
         db.commit()
         return _otp_request_generic_reply(ops_customers)
 
-    db.commit()
     session["_wa_login_otp_id"] = otp_id
     session.pop("_wa_login_otp_sentinel_attempts", None)
     return _otp_redirect(ops_customers.OTP_GENERIC_MESSAGE, "info")
