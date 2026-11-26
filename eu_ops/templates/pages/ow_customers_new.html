@@ -38,6 +38,7 @@
     </section>
     {% else %}
     <div class="oc-layout">
+        {% set selected_channels = form_data.get('channels', ['email', 'whatsapp']) %}
         <section class="oc-card">
             <span class="oc-eyebrow">STEP 1 · CUSTOMER DETAILS</span>
             <h2>Create an account</h2>
@@ -56,9 +57,9 @@
                        autocomplete="tel" required>
                 <fieldset class="oc-channels">
                     <legend>Face-scan request channels</legend>
-                    <label><input type="checkbox" name="channels" value="email" checked>
+                    <label><input type="checkbox" name="channels" value="email"{% if 'email' in selected_channels %} checked{% endif %}>
                         Email</label>
-                    <label><input type="checkbox" name="channels" value="whatsapp" checked>
+                    <label><input type="checkbox" name="channels" value="whatsapp"{% if 'whatsapp' in selected_channels %} checked{% endif %}>
                         WhatsApp</label>
                     <small>Choose channels for “Create + send face scan”. Only the saved customer contacts are used.</small>
                 </fieldset>
