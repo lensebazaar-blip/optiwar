@@ -38,67 +38,10 @@
         <button type="submit" class="auth-submit-btn">{{ _('Login') }}</button>
     </form>
 
-    {% if otp_enabled %}
-    <div class="auth-divider" style="margin-top:24px;">
-        <span>OR</span>
-    </div>
-    <section class="wa-login" aria-labelledby="wa-login-title">
-        <h3 id="wa-login-title">Log in with WhatsApp code</h3>
-        {% if otp_pending %}
-        <p>Enter the six-digit code sent to your WhatsApp number.</p>
-        <form action="{{ url_for('main.login_whatsapp_verify') }}" method="POST"
-              class="auth-form" data-disable-on-submit>
-            <label for="wa-login-code">One-time code</label>
-            <input type="text" id="wa-login-code" name="code" inputmode="numeric"
-                   pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code"
-                   required>
-            <button type="submit" class="auth-submit-btn">Verify and log in</button>
-        </form>
-        <form action="{{ url_for('main.login_whatsapp_restart') }}" method="POST">
-            <button type="submit" class="auth-link-btn">Use a different number or send a new code</button>
-        </form>
-        {% else %}
-        <p>We'll send a one-time code if this number matches one Optiwar account.</p>
-        <form action="{{ url_for('main.login_whatsapp_request') }}" method="POST"
-              class="auth-form" data-disable-on-submit>
-            <label for="wa-login-phone">WhatsApp number</label>
-            <input type="tel" id="wa-login-phone" name="phone"
-                   placeholder="+91 98765 43210" autocomplete="tel" required>
-            <div class="captcha-section">
-                <label for="wa-login-captcha">Enter the text shown below:</label>
-                <img src="data:image/png;base64,{{ captcha_image }}" alt="CAPTCHA"
-                     class="captcha-img">
-                <input type="text" id="wa-login-captcha" name="captcha"
-                       placeholder="Enter CAPTCHA" required>
-            </div>
-            <button type="submit" class="auth-submit-btn">Send code</button>
-        </form>
-        {% endif %}
-    </section>
-    {% endif %}
-
     <div class="auth-switch">
         <p>{{ _('Don\'t have an account?') }} <a href="{{ url_for('auth.register') }}">{{ _('Register here') }}</a></p>
         <p><a href="{{ url_for('auth.forgot_password') }}" style="color:#e74c3c;">{{ _('Forgot your password? Click here') }}</a></p>
     </div>
 </div>
 
-<style>
-.wa-login { margin-top: 8px; padding: 18px; border: 1px solid #e8e6f3;
-    border-radius: 14px; background: #fbfaff; }
-.wa-login h3 { margin: 0 0 6px; }
-.wa-login p { color: #666; font-size: 14px; margin: 0 0 14px; }
-.auth-form button[disabled] { opacity: .65; cursor: wait; }
-</style>
-<script>
-document.querySelectorAll("[data-disable-on-submit]").forEach(function(form) {
-    form.addEventListener("submit", function() {
-        var button = form.querySelector("button[type=submit]");
-        if (button) {
-            button.disabled = true;
-            button.textContent = "Please wait…";
-        }
-    });
-});
-</script>
 {% endblock %}

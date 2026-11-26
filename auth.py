@@ -1,5 +1,4 @@
-from flask import (Blueprint, abort, current_app, flash, jsonify, redirect,
-                   render_template, request, session, url_for)
+from flask import Blueprint, render_template, request, redirect, url_for, session, flash, current_app
 from werkzeug.security import generate_password_hash, check_password_hash
 from .captcha import CaptchaGenerator
 from .db import get_db
@@ -8,12 +7,8 @@ from .test_identity import is_test_customer
 from authlib.integrations.flask_client import OAuth
 from authlib.integrations.base_client.errors import MismatchingStateError
 import functools
-import hashlib
-import hmac
 import logging
 import re
-import secrets
-from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
 
@@ -57,48 +52,6 @@ def login_required(view):
 def is_valid_email(email):
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return re.match(pattern, email) is not None
-
-
-def _complete_login(cursor, user, must_set_password=False, google_id=None):
-    current_app.session_interface.regenerate(session)
-    session.pop('must_set_password', None)
-    session['user_id'] = user['customer_id']
-    session['user_name'] = user['customer_name']
-    session['user_email'] = user['customer_email']
-    session['user_phone'] = user.get('customer_phone', '')
-    session['is_test_customer'] = is_test_customer(cursor, user['customer_id'])
-    if google_id:
-        session['google_id'] = google_id
-    if must_set_password:
-        session['must_set_password'] = True
-    load_cart_from_db()
-    if session.get('cart'):
-        save_cart_to_db()
-
-
-def _temporary_password_expired(value):
-    if isinstance(value, str):
-        value = datetime.fromisoformat(value)
-    return value <= datetime.now()
-
-
-@bp.before_app_request
-def _require_temporary_password_change():
-    if not session.get('user_id') or not session.get('must_set_password'):
-        return None
-    if request.endpoint in ('main.set_password', 'auth.set_password',
-                            'auth.logout', 'static'):
-        return None
-    if request.path.startswith('/static/'):
-        return None
-    is_json_or_xhr = (
-        request.is_json
-        or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
-        or request.accept_mimetypes.best == 'application/json'
-    )
-    if is_json_or_xhr:
-        return jsonify({"error": "password_change_required"}), 403
-    return redirect('/set-password')
 
 
 @bp.route('/register', methods=['GET', 'POST'])
@@ -220,22 +173,21 @@ def login():
             current_app.logger.warning(f'[{request.host}] ACTIVITY:LOGIN_FAILED IP:{request.headers.get("X-Forwarded-For", request.remote_addr)} email:{email}')
             return redirect(url_for('auth.login'))
 
-        from . import ops_customers
-        ops_customers.ensure_schema(db)
-        cursor.execute("SELECT expires_at FROM customer_temp_passwords "
-                       "WHERE customer_id=%s", (user['customer_id'],))
-        temporary_password = cursor.fetchone()
-        if temporary_password and _temporary_password_expired(
-                temporary_password['expires_at']):
-            flash("Your temporary password has expired. Log in with a WhatsApp code or use Forgot password.",
-                  'danger')
-            return redirect(url_for('auth.login'))
+        # Successful login
+        current_app.session_interface.regenerate(session)  # prevent session fixation
+        session['user_id'] = user['customer_id']
+        session['user_name'] = user['customer_name']
+        session['user_email'] = user['customer_email']
+        session['user_phone'] = user.get('customer_phone', '')
+        session['is_test_customer'] = is_test_customer(cursor, user['customer_id'])
 
-        _complete_login(cursor, user, must_set_password=bool(temporary_password))
+        # Restore persistent cart from DB (cross-device sync)
+        load_cart_from_db()
+        # If session already had items before login, persist them too
+        if session.get('cart'):
+            save_cart_to_db()
 
         current_app.logger.info(f'[{request.host}] ACTIVITY:LOGIN IP:{request.headers.get("X-Forwarded-For", request.remote_addr)} user:{session.get("user_id")} email:{email}')
-        if temporary_password:
-            return redirect('/set-password')
         flash(f'Welcome back, {user["customer_name"]}!', 'success')
 
         # Redirect to intended page (cart, tryon, etc.) or homepage
@@ -256,192 +208,7 @@ def login():
     else:
         next_url = ''
 
-    return render_template(
-        'login.html', captcha_image=captcha_image, next_url=next_url,
-        otp_enabled=bool(current_app.config.get("MSG91_LOGIN_OTP_WA_TEMPLATE")),
-        otp_pending=bool(session.get("_wa_login_otp_id")))
-
-
-def set_password():
-    if not session.get('user_id'):
-        return redirect(url_for('auth.login'))
-    if not session.get('must_set_password'):
-        return redirect(url_for('main.index'))
-    if request.method == 'POST':
-        password = request.form.get('password', '')
-        confirmation = request.form.get('confirm_password', '')
-        if len(password) < 8:
-            flash('Password must be at least 8 characters.', 'danger')
-            return render_template('set_password.html')
-        if password != confirmation:
-            flash('Passwords do not match.', 'danger')
-            return render_template('set_password.html')
-
-        from . import ops_customers
-        db = get_db()
-        ops_customers.ensure_schema(db)
-        cursor = db.cursor()
-        cursor.execute("UPDATE customers SET customer_password=%s "
-                       "WHERE customer_id=%s",
-                       (generate_password_hash(password), session['user_id']))
-        cursor.execute("DELETE FROM customer_temp_passwords WHERE customer_id=%s",
-                       (session['user_id'],))
-        db.commit()
-        session.pop('must_set_password', None)
-        flash('Your password has been updated.', 'success')
-        return redirect(url_for('main.index'))
-    return render_template('set_password.html')
-
-
-def _otp_enabled():
-    return bool(current_app.config.get("MSG91_LOGIN_OTP_WA_TEMPLATE"))
-
-
-def _otp_hash(code):
-    secret = str(current_app.config.get("SECRET_KEY") or "").encode("utf-8")
-    return hmac.new(secret, str(code).encode("utf-8"), hashlib.sha256).hexdigest()
-
-
-def _otp_redirect(message, category="info"):
-    flash(message, category)
-    return redirect(url_for('auth.login'))
-
-
-def request_whatsapp_otp():
-    if not _otp_enabled():
-        abort(404)
-    from . import ops_customers
-
-    data = request.get_json(silent=True) or request.form
-    captcha = str(data.get("captcha") or "").strip()
-    if captcha.upper() != session.get('captcha', '').upper():
-        return _otp_redirect('Invalid CAPTCHA. Please try again.', 'danger')
-    try:
-        requested_phone = ops_customers.normalize_phone(data.get("phone"))
-    except ops_customers.CustomerError:
-        return _otp_redirect(ops_customers.OTP_GENERIC_MESSAGE, 'info')
-
-    db = get_db()
-    ops_customers.ensure_schema(db)
-    matches = ops_customers.find_customers(db, phone=requested_phone)
-    if len(matches) != 1:
-        return _otp_redirect(ops_customers.OTP_GENERIC_MESSAGE, 'info')
-    user = matches[0]
-    try:
-        stored_phone = ops_customers.normalize_phone(user["phone"])
-    except ops_customers.CustomerError:
-        return _otp_redirect(ops_customers.OTP_GENERIC_MESSAGE, 'info')
-
-    cursor = db.cursor()
-    cursor.execute(
-        "SELECT COUNT(*) AS n FROM customer_login_otps "
-        "WHERE phone=%s AND created_at >= NOW() - INTERVAL 15 MINUTE",
-        (stored_phone,))
-    phone_count = int((cursor.fetchone() or {}).get("n", 0))
-    ip = request.remote_addr or ""
-    cursor.execute(
-        "SELECT COUNT(*) AS n FROM customer_login_otps "
-        "WHERE created_ip=%s AND created_at >= NOW() - INTERVAL 15 MINUTE",
-        (ip,))
-    ip_count = int((cursor.fetchone() or {}).get("n", 0))
-    if phone_count >= 3 or ip_count >= 3:
-        return _otp_redirect(ops_customers.OTP_GENERIC_MESSAGE, 'info')
-
-    code = "%06d" % secrets.randbelow(1_000_000)
-    expires_at = datetime.now() + timedelta(minutes=10)
-    cursor.execute(
-        "INSERT INTO customer_login_otps "
-        "(customer_id, phone, code_hash, expires_at, attempts, created_ip) "
-        "VALUES (%s,%s,%s,%s,0,%s)",
-        (user["customer_id"], stored_phone, _otp_hash(code), expires_at, ip))
-    otp_id = cursor.lastrowid
-    try:
-        from .notifications import send_whatsapp_tracked
-        result = send_whatsapp_tracked(
-            stored_phone.lstrip("+"),
-            current_app.config["MSG91_LOGIN_OTP_WA_TEMPLATE"],
-            {
-                "body_1": {"type": "text", "value": code},
-                "button_1": {
-                    "subtype": "url", "type": "text", "value": code,
-                },
-            })
-    except Exception:
-        result = {"ok": False}
-    if not result or not result.get("ok"):
-        cursor.execute("UPDATE customer_login_otps SET used_at=NOW() WHERE id=%s",
-                       (otp_id,))
-        db.commit()
-        return _otp_redirect(ops_customers.OTP_GENERIC_MESSAGE, 'info')
-
-    db.commit()
-    session["_wa_login_otp_id"] = otp_id
-    return _otp_redirect("If you received a code, enter it below.", "info")
-
-
-def restart_whatsapp_otp():
-    if not _otp_enabled():
-        abort(404)
-    session.pop("_wa_login_otp_id", None)
-    return redirect(url_for("auth.login"))
-
-
-def verify_whatsapp_otp():
-    if not _otp_enabled():
-        abort(404)
-    from . import ops_customers
-
-    otp_id = session.get("_wa_login_otp_id")
-    if not otp_id:
-        return _otp_redirect("This code has expired. Request a new one.", "danger")
-    data = request.get_json(silent=True) or request.form
-    code = str(data.get("code") or "").strip()
-    db = get_db()
-    ops_customers.ensure_schema(db)
-    cursor = db.cursor()
-    cursor.execute("SELECT * FROM customer_login_otps WHERE id=%s FOR UPDATE",
-                   (otp_id,))
-    otp = cursor.fetchone()
-    if (not otp or otp.get("used_at")
-            or _temporary_password_expired(otp["expires_at"])):
-        db.commit()
-        session.pop("_wa_login_otp_id", None)
-        return _otp_redirect("This code has expired. Request a new one.", "danger")
-
-    if not re.fullmatch(r"\d{6}", code) or not hmac.compare_digest(
-            otp["code_hash"], _otp_hash(code)):
-        attempts = int(otp.get("attempts") or 0) + 1
-        cursor.execute(
-            "UPDATE customer_login_otps SET attempts=%s, "
-            "used_at=IF(%s >= 5, NOW(), used_at) WHERE id=%s AND used_at IS NULL",
-            (attempts, attempts, otp_id))
-        db.commit()
-        if attempts >= 5:
-            session.pop("_wa_login_otp_id", None)
-        return _otp_redirect("That code is incorrect or expired.", "danger")
-
-    cursor.execute("UPDATE customer_login_otps SET used_at=NOW() "
-                   "WHERE id=%s AND used_at IS NULL", (otp_id,))
-    if cursor.rowcount != 1:
-        db.commit()
-        session.pop("_wa_login_otp_id", None)
-        return _otp_redirect("This code has expired. Request a new one.", "danger")
-    db.commit()
-    session.pop("_wa_login_otp_id", None)
-    cursor.execute(
-        "SELECT customer_id, customer_name, customer_email, customer_phone "
-        "FROM customers WHERE customer_id=%s", (otp["customer_id"],))
-    user = cursor.fetchone()
-    if not user:
-        return _otp_redirect("This code has expired. Request a new one.", "danger")
-    _complete_login(cursor, user)
-    current_app.logger.info(
-        "[%s] ACTIVITY:LOGIN_WA_OTP user:%s", request.host, user["customer_id"])
-    flash("Welcome back, %s!" % user["customer_name"], "success")
-    next_url = session.pop('_login_next', None)
-    if next_url and _is_safe_redirect(next_url):
-        return redirect(next_url)
-    return redirect(url_for('main.index'))
+    return render_template('login.html', captcha_image=captcha_image, next_url=next_url)
 
 
 @bp.route('/logout')
@@ -536,9 +303,19 @@ def google_callback():
                 }
                 current_app.logger.info(f'New Google user created: {email} (ID: {customer_id})')
 
-        user = dict(user)
-        user['customer_email'] = email
-        _complete_login(cursor, user, google_id=google_id)
+        # Log user in — always use Google-authenticated email
+        current_app.session_interface.regenerate(session)  # prevent session fixation
+        session['user_id'] = user['customer_id']
+        session['user_name'] = user['customer_name']
+        session['user_email'] = email
+        session['user_phone'] = user.get('customer_phone', '')
+        session['google_id'] = google_id
+
+        # Restore persistent cart from DB (cross-device sync)
+        load_cart_from_db()
+        # If session already had items before login, persist them too
+        if session.get('cart'):
+            save_cart_to_db()
 
         flash(f'Welcome, {user["customer_name"]}!', 'success')
 
@@ -735,16 +512,8 @@ def reset_password():
         email = session.get('_reset_email')
         db = get_db()
         cursor = db.cursor()
-        from . import ops_customers
-        ops_customers.ensure_schema(db)
-        cursor.execute('SELECT customer_id FROM customers WHERE customer_email = %s',
-                       (email,))
-        customer_ids = [row['customer_id'] for row in cursor.fetchall()]
         hashed_password = generate_password_hash(password)
         cursor.execute('UPDATE customers SET customer_password = %s WHERE customer_email = %s', (hashed_password, email))
-        for customer_id in customer_ids:
-            cursor.execute('DELETE FROM customer_temp_passwords WHERE customer_id=%s',
-                           (customer_id,))
         db.commit()
 
         # Clear reset session data
