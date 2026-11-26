@@ -48,6 +48,13 @@ class PublishR2PhotosTest(unittest.TestCase):
         Image.new("RGB", (2100, 300), color).save(path, "JPEG")
         return str(path)
 
+    def existing_master(self, sku, index, color):
+        path = (self.image_root / "catalog" / "r2" / sku
+                / ("%s_r2_%02d.jpg" % (sku, index)))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (2100, 300), color).save(path, "JPEG")
+        return path
+
     def manifest_rows(self):
         manifest = self.image_root / "catalog" / "derivative_manifest.tsv"
         with manifest.open(encoding="utf-8") as stream:
@@ -138,6 +145,116 @@ class PublishR2PhotosTest(unittest.TestCase):
                           / "derivative_manifest.tsv").exists())
         self.assertFalse((self.image_root / "catalog" / "r2"
                           / "AI20").exists())
+
+    def test_derivatives_only_dry_run_writes_nothing(self):
+        master = self.existing_master("BB22", 1, (60, 90, 120))
+        manifest = self.image_root / "catalog" / "derivative_manifest.tsv"
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text("r2/OTHER/keep.jpg\t%s\n" % ("a" * 64))
+        master_bytes = master.read_bytes()
+        manifest_bytes = manifest.read_bytes()
+        output = io.StringIO()
+
+        with patch("sys.stdout", output):
+            result = publisher.main([
+                "--sku", "BB22", "--image-root", str(self.image_root),
+                "--derivatives-only", "--keep", "3"])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(master.read_bytes(), master_bytes)
+        self.assertFalse((master.parent / "derivatives").exists())
+        self.assertEqual(manifest.read_bytes(), manifest_bytes)
+        self.assertIn("DRY RUN WRITE", output.getvalue())
+        self.assertIn("BB22_r2_01-2000.avif", output.getvalue())
+
+    def test_derivatives_only_requires_avif_before_writing(self):
+        master = self.existing_master("BB22", 1, (60, 90, 120))
+        master_bytes = master.read_bytes()
+        stderr = io.StringIO()
+
+        with patch.object(publisher.image_pipeline, "avif_encoder_available",
+                          return_value=False), \
+                patch("sys.stderr", stderr):
+            with self.assertRaises(SystemExit) as raised:
+                publisher.main([
+                    "--sku", "BB22", "--image-root", str(self.image_root),
+                    "--derivatives-only", "--keep", "3", "--apply"])
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("AVIF encoding support is required", stderr.getvalue())
+        self.assertEqual(master.read_bytes(), master_bytes)
+        self.assertFalse((master.parent / "derivatives").exists())
+        self.assertFalse((self.image_root / "catalog"
+                          / "derivative_manifest.tsv").exists())
+
+    def test_derivatives_only_applies_selected_ladders_and_preserves_masters(self):
+        masters = [
+            self.existing_master("BB22", index, (index * 20, 90, 120))
+            for index in range(1, 5)
+        ]
+        os.chmod(masters[0], 0o600)
+        master_bytes = {path: path.read_bytes() for path in masters}
+        master_modes = {
+            path: stat.S_IMODE(path.stat().st_mode) for path in masters}
+        manifest = self.image_root / "catalog" / "derivative_manifest.tsv"
+        manifest.write_text(
+            "r2/BB22/stale.jpg\t%s\nr2/OTHER/keep.jpg\t%s\n"
+            % ("b" * 64, "a" * 64))
+        output = io.StringIO()
+
+        with patch("sys.stdout", output):
+            result = publisher.main([
+                "--sku", "BB22", "--image-root", str(self.image_root),
+                "--derivatives-only", "--keep", "3", "--apply"])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            {path: path.read_bytes() for path in masters}, master_bytes)
+        self.assertEqual(
+            {path: stat.S_IMODE(path.stat().st_mode) for path in masters},
+            master_modes)
+        derivative_dir = masters[0].parent / "derivatives"
+        derivatives = sorted(derivative_dir.iterdir())
+        self.assertEqual(len(derivatives), 45)
+        self.assertFalse(any("BB22_r2_04-" in path.name
+                            for path in derivatives))
+        self.assertTrue(all(
+            stat.S_IMODE(path.stat().st_mode) == 0o644
+            for path in derivatives))
+        rows = self.manifest_rows()
+        self.assertNotIn("r2/BB22/stale.jpg", rows)
+        self.assertIn("r2/OTHER/keep.jpg", rows)
+        bb22_rows = {
+            path: digest for path, digest in rows.items()
+            if path.startswith("r2/BB22/")}
+        self.assertEqual(len(bb22_rows), 48)
+        self.assertFalse(any("BB22_r2_04" in path for path in bb22_rows))
+        self.assertIn("r2/BB22/BB22_r2_01.jpg", bb22_rows)
+        self.assertIn("r2/BB22/derivatives/BB22_r2_03-2000.avif",
+                      bb22_rows)
+
+    def test_derivatives_only_refuses_incomplete_ladder(self):
+        self.existing_master("BB22", 1, (60, 90, 120))
+        build_derivatives = publisher.image_pipeline.build_derivatives
+
+        def omit_avif(master_path):
+            paths = build_derivatives(master_path)
+            missing = next(path for path in paths
+                           if path.endswith("-200.avif"))
+            os.remove(missing)
+            return [path for path in paths if path != missing]
+
+        with patch.object(publisher.image_pipeline, "build_derivatives",
+                          side_effect=omit_avif):
+            with self.assertRaisesRegex(
+                    ValueError, "incomplete derivative ladder.*200.avif"):
+                publisher.publish_derivatives_only(
+                    "BB22", str(self.image_root), apply=True, keep=3)
+
+        self.assertFalse((self.image_root / "catalog"
+                          / "derivative_manifest.tsv").exists())
+        self.assertFalse((self.image_root / "catalog" / "r2" / "BB22"
+                          / "derivatives").exists())
 
     def test_exif_orientation_is_applied_to_master_and_derivatives(self):
         source = self.sources / "oriented.jpg"

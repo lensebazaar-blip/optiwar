@@ -26,8 +26,8 @@ spec.loader.exec_module(apply_script)
 class ComplianceDataTest(unittest.TestCase):
     def test_settled_counts_keep_ids_and_spot_checks(self):
         self.assertEqual(len(brand_compliance.HELD), 101)
-        self.assertEqual(len(brand_compliance.RENAMED), 146)
-        self.assertEqual(len(brand_compliance.FORMER_NAMES), 146)
+        self.assertEqual(len(brand_compliance.RENAMED), 152)
+        self.assertEqual(len(brand_compliance.FORMER_NAMES), 152)
         self.assertEqual(len(brand_compliance.PHOTO_PENDING), 5)
         self.assertEqual(len(brand_compliance.RELEASED), 29)
         self.assertEqual(brand_compliance.PHOTO_REPLACED, {
@@ -50,6 +50,16 @@ class ComplianceDataTest(unittest.TestCase):
             335: ["AL74_4.jpg"],
             150: ["AM85_2.jpg", "AM85_4.jpg"],
             154: ["AM84_1.jpg", "AM84_2.jpg", "AM84_4.jpg"],
+            294: ["AA94_1.jpg"],
+            261: ["BB22_r2_04.jpg", "BB22_r2_05.jpg", "BB22_r2_06.jpg"],
+            146: ["BB26_r2_04.jpg", "BB26_r2_05.jpg", "BB26_r2_06.jpg"],
+            145: ["BB27_r2_04.jpg", "BB27_r2_05.jpg", "BB27_r2_06.jpg"],
+            203: ["BB31_r2_04.jpg", "BB31_r2_05.jpg", "BB31_r2_06.jpg"],
+            204: ["BB32_r2_04.jpg", "BB32_r2_05.jpg", "BB32_r2_06.jpg"],
+            366: ["BB33_r2_04.jpg", "BB33_r2_05.jpg", "BB33_r2_06.jpg"],
+            411: ["BB74_r2_04.jpg", "BB74_r2_05.jpg", "BB74_r2_06.jpg"],
+            302: ["BB85_r2_04.jpg", "BB85_r2_05.jpg", "BB85_r2_06.jpg"],
+            865: ["BB94_r2_04.jpg", "BB94_r2_05.jpg", "BB94_r2_06.jpg"],
         })
         self.assertEqual(brand_compliance.STOCK_SET[225]["from"], 1)
         self.assertEqual(brand_compliance.STOCK_SET[225]["to"], 0)
@@ -236,6 +246,12 @@ class ComplianceDataTest(unittest.TestCase):
             (571, "BQ80", "FIRST CLASS", "OPTIWAR Half-Rim"),
             (574, "BQ78", "FIRST CLASS", "OPTIWAR Half-Rim"),
             (575, "BQ81", "FIRST CLASS", "OPTIWAR Half-Rim"),
+            (733, "BQ03", "ENSRGIE", "OPTIWAR Half-Rim"),
+            (732, "BQ04", "ENSRGIE", "OPTIWAR Half-Rim"),
+            (736, "BQ06", "ENSRGIE", "OPTIWAR Half-Rim"),
+            (735, "BQ07", "ENSRGIE", "OPTIWAR Half-Rim"),
+            (734, "BQ08", "ENSRGIE", "OPTIWAR Half-Rim"),
+            (404, "AF23", "IDOR", "OPTIWAR Square"),
         )
         for product_id, sku, former, new_name in cases:
             row = _row(
@@ -255,6 +271,49 @@ class ComplianceDataTest(unittest.TestCase):
                                  "%s frame." % new_name)
                 self.assertNotIn("sell_on_in", changes)
                 self.assertNotIn("sell_on_com", changes)
+
+    def test_shape_renames_and_former_names_scrub_without_blocking_sale(self):
+        expected = {
+            733: ("BQ03", "OPTIWAR Half-Rim"),
+            732: ("BQ04", "OPTIWAR Half-Rim"),
+            736: ("BQ06", "OPTIWAR Half-Rim"),
+            735: ("BQ07", "OPTIWAR Half-Rim"),
+            734: ("BQ08", "OPTIWAR Half-Rim"),
+            404: ("AF23", "OPTIWAR Square"),
+        }
+        self.assertEqual(
+            {product_id: brand_compliance.RENAMED[product_id]
+             for product_id in expected}, expected)
+        self.assertEqual(
+            {product_id: brand_compliance.FORMER_NAMES[product_id]
+             for product_id in expected},
+            {
+                733: "ENSRGIE",
+                732: "ENSRGIE",
+                736: "ENSRGIE",
+                735: "ENSRGIE",
+                734: "ENSRGIE",
+                404: "IDOR",
+            })
+        for product_id in expected:
+            self.assertNotIn(product_id, brand_compliance.HELD)
+            self.assertNotIn(product_id, brand_compliance.PHOTO_PENDING)
+
+        self.assertEqual(
+            brand_compliance.scrub_text(
+                "ENSRGIE BQ04 - Gunmetal Grey frame…", 732),
+            "OPTIWAR Half-Rim BQ04 - Gunmetal Grey frame…")
+        self.assertEqual(
+            brand_compliance.scrub_text(
+                "ENSRGIE Spectacles Frame, in Gunmetal Gray…", 732),
+            "OPTIWAR Half-Rim Spectacles Frame, in Gunmetal Gray…")
+        self.assertEqual(
+            brand_compliance.scrub_text(
+                "IDOR AF23 - Black Brownish frame…", 404),
+            "OPTIWAR Square AF23 - Black Brownish frame…")
+        self.assertEqual(
+            brand_compliance.scrub_text("IDOR Spectacles Frame", 404),
+            "OPTIWAR Square Spectacles Frame")
 
     def test_renamed_page_reports_its_new_address_and_description(self):
         source = (ROOT / "models.py").read_text(encoding="utf-8")
@@ -1139,6 +1198,58 @@ class ApplyScriptTest(unittest.TestCase):
             self.assertEqual((image_root / remove).read_bytes(), b"remove")
             self.assertEqual(
                 (image_root / derivative).read_bytes(), b"derivative")
+
+    def test_r2_photo_remove_stays_removed_when_republishing_and_quarantines_family(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image_root = Path(tmp) / "static"
+            quarantine = Path(tmp) / "quarantine"
+            restore_dir = Path(tmp) / "restore"
+            filenames = [
+                "BB22_r2_04.jpg", "BB22_r2_05.jpg", "BB22_r2_06.jpg"]
+            paths = [
+                Path("catalog/r2/BB22/BB22_r2_%02d.jpg" % index)
+                for index in range(1, 7)]
+            derivatives = [
+                Path("catalog/r2/BB22/derivatives/BB22_r2_%02d-200.webp"
+                     % index)
+                for index in range(4, 7)]
+            for relative in paths + derivatives:
+                path = image_root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(relative.name.encode("utf-8"))
+            row = _row(
+                261, "BB22",
+                product_image=",".join("./" + path.as_posix()
+                                        for path in paths))
+
+            db = _DB()
+            with patch.object(apply_script.brand_compliance, "PHOTO_REMOVE",
+                              {261: filenames}), \
+                    patch.object(apply_script, "_load_rows",
+                                 return_value=[row]):
+                apply_script.run(
+                    db, types.SimpleNamespace(apply=True, quarantine=True),
+                    str(image_root), str(quarantine), str(restore_dir))
+
+            product_update = next(
+                params for sql, params in db.cursor_obj.queries
+                if "product_image=%s" in sql)
+            self.assertEqual(
+                product_update,
+                (",".join(path.as_posix() for path in paths[:3]), 261))
+            self.assertTrue(all((image_root / path).is_file()
+                                for path in paths[:3]))
+            self.assertTrue(all(not (image_root / path).exists()
+                                for path in paths[3:] + derivatives))
+            restore_file = next(
+                restore_dir.glob("brand_compliance_restore_*.json"))
+            record = json.loads(restore_file.read_text())
+            self.assertEqual(len(record["image_moves"]), 6)
+
+            apply_script.restore(
+                _DB(), str(restore_file), str(image_root), str(quarantine))
+            self.assertTrue(all((image_root / path).is_file()
+                                for path in paths[3:] + derivatives))
 
     def test_stock_set_requires_the_planned_from_quantity_and_restores(self):
         with tempfile.TemporaryDirectory() as tmp:
