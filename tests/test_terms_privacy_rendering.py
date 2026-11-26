@@ -14,6 +14,12 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
 
+try:
+    importlib.import_module("MySQLdb")
+except ImportError:
+    import pymysql
+    pymysql.install_as_MySQLdb()
+
 package = sys.modules.get("flaskr")
 if package is None:
     package = types.ModuleType("flaskr")
@@ -23,17 +29,14 @@ elif not getattr(package, "__path__", None):
     package.__path__ = [REPO]
 
 mail_stub = sys.modules.get("flaskr.mail")
-package_mail = getattr(package, "mail", None)
-if mail_stub is not None and not hasattr(mail_stub, "send_order_confirmation"):
-    sys.modules.pop("flaskr.mail")
+missing = object()
+mail_function = getattr(mail_stub, "send_order_confirmation", missing)
+if mail_stub is not None and mail_function is missing:
+    mail_stub.send_order_confirmation = lambda *args, **kwargs: None
     try:
         models = importlib.import_module("flaskr.models")
     finally:
-        sys.modules["flaskr.mail"] = mail_stub
-        if package_mail is not None:
-            package.mail = package_mail
-        else:
-            package.__dict__.pop("mail", None)
+        del mail_stub.send_order_confirmation
 else:
     models = importlib.import_module("flaskr.models")
 policy_terms = importlib.import_module("flaskr.policy_terms")
