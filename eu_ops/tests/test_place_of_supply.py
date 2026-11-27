@@ -445,10 +445,11 @@ def test_issue_route_with_existing_invoice_does_not_touch_pos(monkeypatch):
     assert events == []
 
 
-def test_issue_route_prompts_for_unknown_pos_without_inserts(monkeypatch):
+def test_issue_route_ignores_latest_address_text_without_order_evidence(monkeypatch):
     order = {
-        "site_from": "in.optiwar.com", "shipping_zone": "",
-        "shipping_postcode": "", "shipping_address_1": "",
+        "site_from": "in.optiwar.com", "pos_address_missing": True,
+        "shipping_zone": "", "shipping_postcode": "",
+        "shipping_address_1": "Latest saved address near Gurugram",
         "shipping_address_2": "", "date_added": datetime(2026, 11, 26),
     }
     app, events, request = _patch_issue_route(monkeypatch, order)
@@ -479,7 +480,7 @@ def test_issue_route_manual_state_uses_ops_source_and_rejects_noncanonical(monke
     app, events, request = _patch_issue_route(monkeypatch, order)
     response = _call_issue(app, request, pos_state="up")
     assert response["context"]["error"] == (
-        "Place of supply unknown: pin 000000, state ''. Choose the state.")
+        "Place of supply unknown: pin , state ''. Choose the state.")
     assert events == []
 
 
