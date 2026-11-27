@@ -38,7 +38,7 @@ REASONS = {
     "OTHER": "Other",
 }
 # An order with AI Glasses (SMART_EYEWEAR) is returnable only if they are dead on
-# arrival (policy_terms clause 13A); a wrong item is still reviewed (clause 7).
+# arrival (policy_terms clause 14A); a wrong item is still reviewed (clause 7).
 # An order that also holds an Optiwar frame offers the frame reasons too.
 AIG_REASONS = {
     "DEAD_ON_ARRIVAL": "AI Glasses dead on arrival (do not switch on or work)",

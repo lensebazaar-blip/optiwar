@@ -396,7 +396,7 @@ def notify_order_confirmed(customer_email, customer_phone, customer_name, order_
         <p>We're preparing your eyewear now. You'll receive a shipping notification once your order is on its way.</p>
         <p style="margin-top:20px;"><a href="https://{site_host}/success/{order_id}" style="background:#4f46e5;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;">View Order</a></p>
         <p style="color:#475569;font-size:12px;margin-top:24px;line-height:1.6;">{_policy_line}<br>
-        <a href="{_terms_url}" style="color:#4f46e5;">Terms &amp; Conditions</a> &middot; <a href="{_returns_url}" style="color:#4f46e5;">Returns, Replacements &amp; Limited Warranty Policy</a></p>
+        <a href="{_terms_url}" style="color:#4f46e5;">Terms &amp; Conditions</a> &middot; <a href="{_returns_url}" style="color:#4f46e5;">Returns and Replacements Policy</a></p>
         <p style="color:#64748b;font-size:13px;margin-top:30px;">&mdash; Optiwar Team</p>
     </div>
     """

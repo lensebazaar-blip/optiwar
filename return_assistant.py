@@ -82,10 +82,10 @@ RULES = """RETURN / REVERSE-PICKUP RULES (India only; authoritative, from Optiwa
   fee_state is PAID or DUE, the INR %(fee)s fee remains applicable. The customer was emailed and
   should reply to that email to have the product sent back; you cannot record that reply. Give the
   reply_by date and days_remaining exactly as listed below; after that date the product is treated
-  as unclaimed under the Returns Policy. Never state a deadline that is not listed, and never extend
+  as unclaimed under the Returns and Replacements Policy. Never state a deadline that is not listed, and never extend
   it.
 - RETURN_ABANDONED: the reply period ended without a reply and the return is closed; the product is
-  treated as unclaimed under the Returns Policy. Say so plainly, do not promise it will be sent back
+  treated as unclaimed under the Returns and Replacements Policy. Say so plainly, do not promise it will be sent back
   or refunded, and offer a support ticket for the customer to ask our team.
 - INSPECTED_DEFECT_CONFIRMED: the defect was confirmed; our team will update the customer on the
   resolution and the next shipment. Never promise a refund, an amount or a date.

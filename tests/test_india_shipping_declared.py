@@ -30,16 +30,7 @@ RETURN_COUNTRIES_COM = [
 RETURN_POLICY_COM = {
     "@type": "MerchantReturnPolicy",
     "applicableCountry": RETURN_COUNTRIES_COM,
-    "returnPolicyCategory": (
-        "https://schema.org/MerchantReturnFiniteReturnWindow"
-    ),
-    "merchantReturnDays": 7,
-    "returnMethod": "https://schema.org/ReturnByMail",
-    "returnFees": "https://schema.org/ReturnFeesCustomerResponsibility",
-    "description": (
-        "Dead-on-arrival items only. Proof of damage required. Refund within "
-        "1-7 business days after courier verification."
-    ),
+    "returnPolicyCategory": "https://schema.org/MerchantReturnNotPermitted",
 }
 
 
@@ -394,16 +385,7 @@ class IndiaShippingDeclaredTests(unittest.TestCase):
         })
         self.assertEqual(
             len(off_offer["shippingDetails"]["shippingDestination"]), 35)
-        self.assertEqual(
-            off_offer["shippingDetails"]["deliveryTime"]["handlingTime"],
-            {"@type": "QuantitativeValue", "minValue": 1, "maxValue": 2,
-             "unitCode": "DAY"},
-        )
-        self.assertEqual(
-            off_offer["shippingDetails"]["deliveryTime"]["transitTime"],
-            {"@type": "QuantitativeValue", "minValue": 3, "maxValue": 7,
-             "unitCode": "DAY"},
-        )
+        self.assertNotIn("deliveryTime", off_offer["shippingDetails"])
         self.assertEqual(
             [row["addressCountry"]
              for row in off_offer["shippingDetails"]["shippingDestination"]],

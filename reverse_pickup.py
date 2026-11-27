@@ -394,7 +394,7 @@ CASE_EMAILS = {
         "Optiwar Return Closed: Product Unclaimed",
         "The {holding_days}-day period for your reply about the product returned for order {order_id} "
         "ended on {deadline} without a reply from you.\n"
-        "The return is now closed and the product is treated as unclaimed under section 12 of our Returns "
+        "The return is now closed and the product is treated as unclaimed under section 17 of our Returns "
         "Policy.\n"
         "If you believe this is a mistake, please reply to this email quoting your order number."),
     NOTICE_INSPECTION_DEFECT_WAIVED: (
@@ -479,10 +479,10 @@ OUTCOME_LINES = {
 FEE_RETAINED_LINE = "The ₹250 reverse-pickup fee therefore remains applicable.\n"
 CASE_EMAIL_FRAME = "Dear {name},\n\n%s\n\nOrder: {order_id}\n\nOptiwar Support"
 REPLY_BY_LINE = ("Please reply by {deadline} ({holding_days} days from the inspection). If we do not hear "
-                 "from you by then, the product is treated as unclaimed under section 12 of our Returns "
+                 "from you by then, the product is treated as unclaimed under section 17 of our Returns "
                  "Policy.\n")
-UNCLAIMED_LINE = ("If we do not hear from you by then, the product is treated as unclaimed under section 12 "
-                  "of our Returns Policy.\n")
+UNCLAIMED_LINE = ("If we do not hear from you by then, the product is treated as unclaimed under section 17 "
+                 "of our Returns and Replacements Policy.\n")
 
 
 class ReversePickupError(Exception):
@@ -1832,7 +1832,7 @@ def abandon(db, case_uuid, now=None, environ=None):
     _close_pickups(cur, oid)
     case = case_by_uuid(db, case_uuid)
     add_history(cur, oid, "Return closed as ABANDONED by the holding sweep: %s (deadline %s). The product "
-                "is treated as unclaimed under the Returns Policy; what is done with it is not recorded here."
+                "is treated as unclaimed under the Returns and Replacements Policy; what is done with it is not recorded here."
                 % (reason, _day(case["abandon_at"])), case.get("site_from"))
     data = {"outcome": OUTCOME_ABANDONED, "reason": reason, "inspected_at": _iso(case["inspected_at"]),
             "abandon_at": _iso(case["abandon_at"]), "abandoned_at": _iso(case["abandoned_at"]),

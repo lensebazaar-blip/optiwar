@@ -96,6 +96,13 @@ def _product_jsonld(html):
     raise AssertionError('no Product JSON-LD block found')
 
 
+INTERNATIONAL_COUNTRIES = [
+    "AU", "AT", "BH", "BE", "CA", "CY", "DK", "FI", "FR", "DE", "GR", "HU",
+    "IE", "IL", "IT", "JP", "KW", "MU", "NL", "NZ", "NO", "OM", "PA", "PL",
+    "PT", "RO", "SA", "SG", "ZA", "ES", "SE", "CH", "AE", "GB", "QA",
+]
+
+
 class CurrencyIsolationTest(unittest.TestCase):
     def _currencies(self, product):
         offers = product['offers']
@@ -118,6 +125,44 @@ class CurrencyIsolationTest(unittest.TestCase):
             currencies, ['EUR'],
             'optiwar.com must expose exactly one EUR Offer, got %r' % currencies)
         self.assertNotIn('INR', currencies, 'stray INR Offer on optiwar.com')
+
+    def test_india_offer_retains_its_existing_shipping_without_return_data(self):
+        offer = _product_jsonld(_render(is_india=True))['offers'][0]
+        self.assertEqual(offer['shippingDetails'], {
+            '@type': 'OfferShippingDetails',
+            'shippingRate': {
+                '@type': 'MonetaryAmount', 'value': '0', 'currency': 'INR'},
+            'shippingDestination': {
+                '@type': 'DefinedRegion', 'addressCountry': 'IN'},
+            'deliveryTime': {
+                '@type': 'ShippingDeliveryTime',
+                'handlingTime': {
+                    '@type': 'QuantitativeValue', 'minValue': 1,
+                    'maxValue': 2, 'unitCode': 'DAY'},
+                'transitTime': {
+                    '@type': 'QuantitativeValue', 'minValue': 3,
+                    'maxValue': 7, 'unitCode': 'DAY'},
+            },
+        })
+        self.assertNotIn('hasMerchantReturnPolicy', offer)
+
+    def test_com_offer_matches_its_non_returnable_terms_without_timing(self):
+        offer = _product_jsonld(_render(is_india=False))['offers'][0]
+        shipping = offer['shippingDetails']
+        returns = offer['hasMerchantReturnPolicy']
+        self.assertEqual(shipping['shippingRate'], {
+            '@type': 'MonetaryAmount', 'value': '0', 'currency': 'EUR'})
+        self.assertEqual(returns['returnPolicyCategory'],
+                         'https://schema.org/MerchantReturnNotPermitted')
+        self.assertEqual(returns['applicableCountry'], INTERNATIONAL_COUNTRIES)
+        self.assertEqual(shipping['shippingDestination'], [
+            {'@type': 'DefinedRegion', 'addressCountry': country}
+            for country in INTERNATIONAL_COUNTRIES])
+        self.assertEqual(len(returns['applicableCountry']), 35)
+        self.assertNotIn('deliveryTime', shipping)
+        for key in ('merchantReturnDays', 'returnMethod', 'returnFees',
+                    'description'):
+            self.assertNotIn(key, returns)
 
 
 if __name__ == '__main__':
