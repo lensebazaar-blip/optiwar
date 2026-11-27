@@ -215,13 +215,13 @@
 <details class="ow-noreturn">
   <summary>
     <span class="ow-noreturn__icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4L13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg></span>
-    <span class="ow-noreturn__title">{{ _('Returns and Replacements Policy') }}</span>
-    <span class="ow-noreturn__sub">{% if is_india %}{{ _('Report arrival damage or a product that does not work within 7 days of delivery.') }}{% else %}{{ _('International orders cannot be cancelled, returned or refunded once placed and paid.') }}{% endif %}</span>
+    <span class="ow-noreturn__title">{% if is_india %}{{ _('No returns policy') }}{% else %}{{ _('Returns and Replacements Policy') }}{% endif %}</span>
+    <span class="ow-noreturn__sub">{% if is_india %}{{ _('Factory-outlet prices are final. No returns or exchanges.') }}{% else %}{{ _('International orders cannot be cancelled, returned or refunded once placed and paid.') }}{% endif %}</span>
     <span class="ow-noreturn__more">{{ _('Why?') }}</span>
   </summary>
   <div class="ow-noreturn__body">
-    <p>{% if is_india %}{{ _('A correctly supplied product is not automatically returnable for a change of mind. Report damage on arrival or a product that does not work from My Orders within 7 days, with photos or video of the package and product.') }}{% else %}{{ _('Incorrectly supplied products, genuine defects present when supplied, and courier-confirmed loss in transit are reviewed under the policy.') }}{% endif %}</p>
-    <a href="{{ url_for('main.terms_and_conditions') }}#returns">{{ _('Read the full Returns and Replacements Policy') }} &rarr;</a>
+    {% if is_india %}<p>{{ _('Our prices run up to 70%% below retail because every sale is final: frames and lenses cannot be returned or exchanged, even for minor defects or cosmetic marks. If you prefer end-to-end fitting and adjustments in person, we recommend buying from a physical optical store.') }}</p><p>{{ _('Damage on arrival, or a product that does not work, must be reported from My Orders within 7 days of delivery.') }}</p>{% else %}<p>{{ _('Incorrectly supplied products, genuine defects present when supplied, and courier-confirmed loss in transit are reviewed under the policy.') }}</p>{% endif %}
+    <a href="{{ url_for('main.terms_and_conditions') }}#returns">{% if is_india %}{{ _('Read the full returns policy') }}{% else %}{{ _('Read the full Returns and Replacements Policy') }}{% endif %} &rarr;</a>
   </div>
 </details>
 

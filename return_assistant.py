@@ -59,7 +59,7 @@ FEE_REFUNDED_STATES = (rp.FEE_REFUNDED, rp.FEE_PARTIALLY_REFUNDED)
 
 RULES = """RETURN / REVERSE-PICKUP RULES (India only; authoritative, from Optiwar's return record):
 - A return is collected by a courier reverse pickup that our team books. The reverse-pickup fee is
-  a fixed INR %(fee)s (clause 9B of the Terms). Never quote another amount, and never offer to
+  a fixed INR %(fee)s (clause 10 of the Terms). Never quote another amount, and never offer to
   waive, change or refund it: only our team decides that.
 - RETURN_REQUESTED: the customer's return request is with our team for review; they reply by
   email within 2 working days. No fee is due yet and no pickup is booked; the customer must not

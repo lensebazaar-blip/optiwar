@@ -155,7 +155,7 @@ class ReversePickupTest(unittest.TestCase):
         self.assertIn("https://www.delhivery.com/track-v2/package/%s" % AWB, text)
         self.assertNotIn("evil.example", text)
         self.assertIn("do not hand it to any other courier", text)
-        self.assertIn("clause 9B", text)
+        self.assertIn("clause 10", text)
         self.assertIn("/terms_and_conditions", text)
         self.assertNotIn("/terms-and-conditions", text)
         self.assertIn("reschedule, reply to this email or write to admin@optiwar.com", text)

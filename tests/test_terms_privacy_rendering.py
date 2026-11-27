@@ -5,9 +5,10 @@ import json
 import os
 import re
 import unittest
+from pathlib import Path
 
 from flask import Flask, make_response, render_template, request
-from jinja2 import ChoiceLoader, DictLoader
+from jinja2 import ChoiceLoader, DictLoader, Environment
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -127,6 +128,22 @@ def _app():
     return app
 
 
+def _render_home_notice(is_india, source=None):
+    if source is None:
+        with open(os.path.join(REPO, "templates", "index.html"),
+                  encoding="utf-8") as fh:
+            source = fh.read()
+    match = re.search(
+        r'<details class="ow-noreturn">.*?</details>', source, re.S)
+    if not match:
+        raise AssertionError("home notice block not found")
+    env = Environment()
+    env.globals["_"] = lambda text: text
+    return env.from_string(match.group(0)).render(
+        is_india=is_india,
+        url_for=lambda _endpoint: "/terms_and_conditions")
+
+
 class TermsAndPrivacyRendering(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -136,14 +153,7 @@ class TermsAndPrivacyRendering(unittest.TestCase):
     def _get(self, path, host):
         return self.client.get(path, base_url="https://%s" % host)
 
-    def test_terms_render_for_both_hosts_with_the_owner_placeholders(self):
-        placeholders = (
-            "[OWNER TO FILL: Registered office]",
-            "[OWNER TO FILL: CIN]",
-            "[OWNER TO CONFIRM: GSTIN]",
-            "[OWNER TO FILL: Grievance Officer name, designation]",
-            "[OWNER TO FILL: Grievance email]",
-        )
+    def test_terms_render_for_both_hosts_without_owner_placeholders(self):
         for host in ("optiwar.in", "optiwar.com"):
             with self.subTest(host=host):
                 response = self._get("/terms_and_conditions", host)
@@ -156,9 +166,49 @@ class TermsAndPrivacyRendering(unittest.TestCase):
                 self.assertNotIn("Limited Warranty", body)
                 self.assertNotIn("juristication", body)
                 self.assertNotIn("Conact us form", body)
-                for placeholder in placeholders:
-                    self.assertIn(placeholder, body)
+                self.assertNotIn("OWNER TO", body)
                 self.assertIn('id="grievance-redressal"', body)
+                self.assertIn(
+                    "Godown Village Fazilpur, Badshahpur "
+                    "Tethar(222), Badshahpur, Gurgaon-122101, India",
+                    body)
+                self.assertNotIn("8010077770", body)
+                self.assertIn('Grievances are accepted only by email to <a href="mailto:admin@optiwar.com">admin@optiwar.com</a> or through the <a href="/?support=legacy_contact_us">support chat</a>.', body)
+                self.assertIn(
+                    "We acknowledge every complaint within 48 hours and aim "
+                    "to resolve it within one month of receiving it.",
+                    body)
+                self.assertIn(
+                    'href="/?support=legacy_contact_us">support chat</a>',
+                    body)
+
+    def test_all_renderable_pages_have_no_owner_placeholders(self):
+        paths = (
+            "/", "/terms_and_conditions", "/privacy_policy", "/ip-notice",
+            "/ai-faq", "/llms.txt",
+        )
+        for host in ("optiwar.in", "optiwar.com"):
+            for path in paths:
+                with self.subTest(host=host, path=path):
+                    response = self._get(path, host)
+                    self.assertNotIn(
+                        "OWNER TO", response.get_data(as_text=True))
+
+    def test_live_templates_and_policy_source_have_no_owner_placeholders(self):
+        roots = (
+            Path(REPO, "templates"),
+            Path(REPO, "static"),
+        )
+        files = [
+            path for root in roots for path in root.rglob("*")
+            if path.is_file()
+        ]
+        files.append(Path(REPO, "policy_terms.py"))
+        hits = [
+            str(path.relative_to(REPO))
+            for path in files if b"OWNER TO" in path.read_bytes()
+        ]
+        self.assertEqual([], hits, "owner placeholders remain in live sources")
 
     def test_site_specific_cancellation_copy_uses_the_single_window(self):
         in_body = self._get(
@@ -202,26 +252,73 @@ class TermsAndPrivacyRendering(unittest.TestCase):
             self.assertIn(expected, in_body)
             self.assertIn(expected, com_body)
 
-    def test_privacy_page_renders_bold_labels_and_the_working_support_link(self):
-        response = self._get("/privacy_policy", "optiwar.in")
-        self.assertEqual(response.status_code, 200)
-        body = response.get_data(as_text=True)
-        for label in ("Access", "Correction", "Deletion", "Opt-Out"):
-            self.assertIn("<strong>%s:</strong>" % label, body)
-            self.assertNotIn("**%s:**" % label, body)
+    def test_privacy_page_renders_grievance_details_and_support_link(self):
+        for host in ("optiwar.in", "optiwar.com"):
+            response = self._get("/privacy_policy", host)
+            self.assertEqual(response.status_code, 200)
+            body = response.get_data(as_text=True)
+            for label in ("Access", "Correction", "Deletion", "Opt-Out"):
+                self.assertIn("<strong>%s:</strong>" % label, body)
+                self.assertNotIn("**%s:**" % label, body)
+            self.assertIn(
+                'href="/?support=legacy_contact_us">support chat</a>',
+                body)
+            self.assertIn('id="grievance-redressal"', body)
+            self.assertNotIn("OWNER TO", body)
+            self.assertIn(
+                "Godown Village Fazilpur, Badshahpur "
+                "Tethar(222), Badshahpur, Gurgaon-122101, India",
+                body)
+            self.assertNotIn("8010077770", body)
+            self.assertIn('Grievances are accepted only by email to <a href="mailto:admin@optiwar.com">admin@optiwar.com</a> or through the <a href="/?support=legacy_contact_us">support chat</a>.', body)
+            self.assertIn(
+                "We acknowledge every complaint within 48 hours and aim to "
+                "resolve it within one month of receiving it.",
+                body)
+            self.assertNotIn("Contact Email Form", body)
+            self.assertNotIn("Press here", body)
+            self.assertIn("9 November 2026", body)
+
+    def test_home_notice_restores_india_copy_and_keeps_international_copy(self):
+        with open(os.path.join(REPO, "templates", "index.html"),
+                  encoding="utf-8") as fh:
+            source = fh.read()
+        in_html = _render_home_notice(True, source)
+        com_html = _render_home_notice(False, source)
+
+        self.assertIn("No returns policy", in_html)
         self.assertIn(
-            'href="/?support=legacy_contact_us">support assistant</a>', body)
-        self.assertIn('id="grievance-redressal"', body)
-        for placeholder in (
-                "[OWNER TO FILL: Registered office]",
-                "[OWNER TO FILL: CIN]",
-                "[OWNER TO CONFIRM: GSTIN]",
-                "[OWNER TO FILL: Grievance Officer name, designation]",
-                "[OWNER TO FILL: Grievance email]"):
-            self.assertIn(placeholder, body)
-        self.assertNotIn("Contact Email Form", body)
-        self.assertNotIn("Press here", body)
-        self.assertIn("9 November 2026", body)
+            "Factory-outlet prices are final. No returns or exchanges.",
+            in_html)
+        self.assertIn("Why?", in_html)
+        self.assertIn(
+            "Our prices run up to 70%% below retail because every sale is "
+            "final: frames and lenses cannot be returned or exchanged, even "
+            "for minor defects or cosmetic marks. If you prefer end-to-end "
+            "fitting and adjustments in person, we recommend buying from a "
+            "physical optical store.",
+            in_html)
+        self.assertIn(
+            "Damage on arrival, or a product that does not work, must be reported from My Orders within 7 days "
+            "of delivery.",
+            in_html)
+        self.assertIn(">Read the full returns policy &rarr;</a>", in_html)
+
+        self.assertIn("Returns and Replacements Policy", com_html)
+        self.assertIn(
+            "International orders cannot be cancelled, returned or refunded "
+            "once placed and paid.",
+            com_html)
+        self.assertIn(
+            "Incorrectly supplied products, genuine defects present when "
+            "supplied, and courier-confirmed loss in transit are reviewed "
+            "under the policy.",
+            com_html)
+        self.assertIn(
+            ">Read the full Returns and Replacements Policy &rarr;</a>",
+            com_html)
+        self.assertNotIn("No returns policy", com_html)
+        self.assertNotIn("Factory-outlet prices are final", com_html)
 
     def test_footer_year_and_grievance_link_are_dynamic_and_shared(self):
         with self.app.test_request_context(
