@@ -111,21 +111,21 @@ def test_resolver_falls_back_to_state_then_unambiguous_district():
     assert state["source"] == "state"
 
     district_states = defaultdict(set)
-    for row in _pincodes():
-        if row["district"].strip():
-            district_states[row["district"].strip()].add(row["state"])
+    for district, district_state in place_of_supply._load_pincodes()[1]:
+        district_states[district].add(district_state)
     single_district = next(name for name, states in district_states.items()
                            if len(states) == 1)
     city = place_of_supply.resolve("", "", f"near {single_district} market")
     assert city["state"] == next(iter(district_states[single_district]))
     assert city["source"] == "city"
+    assert place_of_supply.resolve(
+        "", "", "Central Park Tower, Sector 5") is None
 
 
 def test_resolver_rejects_ambiguous_district_and_empty_evidence():
     district_states = defaultdict(set)
-    for row in _pincodes():
-        if row["district"].strip():
-            district_states[row["district"].strip()].add(row["state"])
+    for district, district_state in place_of_supply._load_pincodes()[1]:
+        district_states[district].add(district_state)
     ambiguous_district = next(name for name, states in district_states.items()
                               if len(states) > 1)
     assert place_of_supply.resolve("", "", ambiguous_district) is None

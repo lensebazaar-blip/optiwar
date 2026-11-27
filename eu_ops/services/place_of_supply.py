@@ -9,6 +9,10 @@ from services import india_states
 
 _PINCODES_PATH = Path(__file__).resolve().parents[1] / "data" / "gst_pincodes.csv"
 _PINCODES = None
+_GENERIC_DISTRICT_WORDS = {
+    "north", "south", "east", "west", "central", "new", "city", "district",
+    "rural", "urban",
+}
 
 
 def _load_pincodes():
@@ -24,7 +28,9 @@ def _load_pincodes():
                 by_pin[row["pincode"]] = row
                 district = (row.get("district") or "").strip()
                 state = (row.get("state") or "").strip()
-                if district and state:
+                words = district.casefold().split()
+                if (district and len(district) >= 4 and state
+                        and not all(word in _GENERIC_DISTRICT_WORDS for word in words)):
                     districts.add((district, state))
         _PINCODES = (by_pin, tuple(sorted(districts)))
     return _PINCODES
