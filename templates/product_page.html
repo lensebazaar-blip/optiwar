@@ -89,22 +89,18 @@
     "priceValidUntil": "2027-12-31",
     "url": "{{ site_url }}/categories/{{ product.product_category|lower|replace(' ', '-') }}/{{ product.product_slug }}?pid={{ product.product_id }}",
     "itemCondition": "https://schema.org/NewCondition",
-    "shippingDetails": {
+    {% if is_india and in_ship_declared %}"shippingDetails": {{ in_offer_shipping|tojson }}{% else %}"shippingDetails": {
       "@type": "OfferShippingDetails",
       {% if is_india %}"shippingRate": {"@type": "MonetaryAmount", "value": "0", "currency": "INR"},
       "shippingDestination": {"@type": "DefinedRegion", "addressCountry": "IN"},{% else %}"shippingRate": {"@type": "MonetaryAmount", "value": "0", "currency": "EUR"},
       "shippingDestination": [{"@type": "DefinedRegion", "addressCountry": "AU"}, {"@type": "DefinedRegion", "addressCountry": "AT"}, {"@type": "DefinedRegion", "addressCountry": "BH"}, {"@type": "DefinedRegion", "addressCountry": "BE"}, {"@type": "DefinedRegion", "addressCountry": "CA"}, {"@type": "DefinedRegion", "addressCountry": "CY"}, {"@type": "DefinedRegion", "addressCountry": "DK"}, {"@type": "DefinedRegion", "addressCountry": "FI"}, {"@type": "DefinedRegion", "addressCountry": "FR"}, {"@type": "DefinedRegion", "addressCountry": "DE"}, {"@type": "DefinedRegion", "addressCountry": "GR"}, {"@type": "DefinedRegion", "addressCountry": "HU"}, {"@type": "DefinedRegion", "addressCountry": "IE"}, {"@type": "DefinedRegion", "addressCountry": "IL"}, {"@type": "DefinedRegion", "addressCountry": "IT"}, {"@type": "DefinedRegion", "addressCountry": "JP"}, {"@type": "DefinedRegion", "addressCountry": "KW"}, {"@type": "DefinedRegion", "addressCountry": "MU"}, {"@type": "DefinedRegion", "addressCountry": "NL"}, {"@type": "DefinedRegion", "addressCountry": "NZ"}, {"@type": "DefinedRegion", "addressCountry": "NO"}, {"@type": "DefinedRegion", "addressCountry": "OM"}, {"@type": "DefinedRegion", "addressCountry": "PA"}, {"@type": "DefinedRegion", "addressCountry": "PL"}, {"@type": "DefinedRegion", "addressCountry": "PT"}, {"@type": "DefinedRegion", "addressCountry": "RO"}, {"@type": "DefinedRegion", "addressCountry": "SA"}, {"@type": "DefinedRegion", "addressCountry": "SG"}, {"@type": "DefinedRegion", "addressCountry": "ZA"}, {"@type": "DefinedRegion", "addressCountry": "ES"}, {"@type": "DefinedRegion", "addressCountry": "SE"}, {"@type": "DefinedRegion", "addressCountry": "CH"}, {"@type": "DefinedRegion", "addressCountry": "AE"}, {"@type": "DefinedRegion", "addressCountry": "GB"}, {"@type": "DefinedRegion", "addressCountry": "QA"}]{% endif %}
       {% if is_india %}"deliveryTime": {"@type": "ShippingDeliveryTime", "handlingTime": {"@type": "QuantitativeValue", "minValue": 1, "maxValue": 2, "unitCode": "DAY"}, "transitTime": {"@type": "QuantitativeValue", "minValue": 3, "maxValue": 7, "unitCode": "DAY"}}{% endif %}
-    },
+    }{% endif %}{% if not is_india %},
     "hasMerchantReturnPolicy": {
       "@type": "MerchantReturnPolicy",
-      {% if is_india %}"applicableCountry": "IN"{% else %}"applicableCountry": ["AU", "AT", "BH", "BE", "CA", "CY", "DK", "FI", "FR", "DE", "GR", "HU", "IE", "IL", "IT", "JP", "KW", "MU", "NL", "NZ", "NO", "OM", "PA", "PL", "PT", "RO", "SA", "SG", "ZA", "ES", "SE", "CH", "AE", "GB", "QA"]{% endif %},
-      {% if is_india %}"returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
-      "merchantReturnDays": 7,
-      "returnMethod": "https://schema.org/ReturnByMail",
-      "returnFees": "https://schema.org/ReturnFeesCustomerResponsibility",
-      "description": "Dead-on-arrival items only. Proof of damage required. Refund within 1-7 business days after courier verification."{% else %}"returnPolicyCategory": "https://schema.org/MerchantReturnNotPermitted"{% endif %}
-    }
+      "applicableCountry": ["AU", "AT", "BH", "BE", "CA", "CY", "DK", "FI", "FR", "DE", "GR", "HU", "IE", "IL", "IT", "JP", "KW", "MU", "NL", "NZ", "NO", "OM", "PA", "PL", "PT", "RO", "SA", "SG", "ZA", "ES", "SE", "CH", "AE", "GB", "QA"],
+      "returnPolicyCategory": "https://schema.org/MerchantReturnNotPermitted"
+    }{% endif %}
     }
   ]
 }
@@ -144,7 +140,7 @@
     {"@type": "HowToStep", "position": 1, "name": "Choose your frame", "text": "Select this frame and click {{ _('Add to Cart') }} or Buy Frame Only."},
     {"@type": "HowToStep", "position": 2, "name": "Enter your prescription", "text": "Enter your prescription values: SPH, CYL, AXIS, and ADD power for each eye."},
     {"@type": "HowToStep", "position": 3, "name": "Select lens type", "text": "Choose your lens type: single vision, bifocal, or progressive. Upgrade options include anti-glare, blue-cut, and photochromic."},
-    {"@type": "HowToStep", "position": 4, "name": "Checkout and pay", "text": "Complete checkout and pay online. Your glasses will be delivered in 5-7 business days with free shipping."}
+    {"@type": "HowToStep", "position": 4, "name": "Checkout and pay", "text": "{% if is_india %}Complete checkout and pay online. Standard delivery is free across India.{% else %}Complete checkout and pay online. Your glasses will be delivered in 5-7 business days with free shipping.{% endif %}"}
   ]
 }
 </script>
@@ -435,7 +431,7 @@ h1.pdp-title { font-size:20px !important; font-weight:700 !important; color:#111
         {% set pct = ((savings / (product.product_price if is_india else product.product_price_eur)) * 100)|round|int %}
         <span class="price-off">{{ pct }}% OFF</span>
         {% endif %}
-        <p class="price-note">{% if lens %}per box of {{ lens.pack_quantity }} lenses. {% endif %}{% if is_india %}Inclusive of all taxes. Free delivery.{% else %}Free delivery worldwide.{% endif %}</p>
+        <p class="price-note">{% if lens %}per box of {{ lens.pack_quantity }} lenses. {% endif %}{% if is_india %}Inclusive of all taxes. Standard delivery is free across India.{% else %}Free delivery worldwide.{% endif %}</p>
         {% if lens %}
         <div class="pdp-lens-facts">
           {% if lens.availability == 'ON_ORDER' %}

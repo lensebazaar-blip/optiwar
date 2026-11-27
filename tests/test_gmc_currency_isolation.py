@@ -126,7 +126,7 @@ class CurrencyIsolationTest(unittest.TestCase):
             'optiwar.com must expose exactly one EUR Offer, got %r' % currencies)
         self.assertNotIn('INR', currencies, 'stray INR Offer on optiwar.com')
 
-    def test_india_offer_retains_its_existing_shipping_and_return_data(self):
+    def test_india_offer_retains_its_existing_shipping_without_return_data(self):
         offer = _product_jsonld(_render(is_india=True))['offers'][0]
         self.assertEqual(offer['shippingDetails'], {
             '@type': 'OfferShippingDetails',
@@ -144,19 +144,7 @@ class CurrencyIsolationTest(unittest.TestCase):
                     'maxValue': 7, 'unitCode': 'DAY'},
             },
         })
-        self.assertEqual(offer['hasMerchantReturnPolicy'], {
-            '@type': 'MerchantReturnPolicy',
-            'applicableCountry': 'IN',
-            'returnPolicyCategory':
-                'https://schema.org/MerchantReturnFiniteReturnWindow',
-            'merchantReturnDays': 7,
-            'returnMethod': 'https://schema.org/ReturnByMail',
-            'returnFees':
-                'https://schema.org/ReturnFeesCustomerResponsibility',
-            'description': (
-                'Dead-on-arrival items only. Proof of damage required. '
-                'Refund within 1-7 business days after courier verification.'),
-        })
+        self.assertNotIn('hasMerchantReturnPolicy', offer)
 
     def test_com_offer_matches_its_non_returnable_terms_without_timing(self):
         offer = _product_jsonld(_render(is_india=False))['offers'][0]
