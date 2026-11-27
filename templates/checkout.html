@@ -1501,7 +1501,16 @@ footer{ display:none !important; }
           </div>
           <div>
             <label for="ck_state">State</label>
-            <input type="text" id="ck_state" name="customer_state" placeholder="{% if is_india %}State{% else %}State / Province / Region{% endif %}" value="{{ prefill.state|default('') }}">
+            {% if is_india %}
+            <select id="ck_state" name="customer_state" required>
+              <option value="" {% if not prefill.state|default('') %}selected{% endif %}>Choose state</option>
+              {% for state_name in india_state_names %}
+              <option value="{{ state_name }}" {% if prefill.state|default('') == state_name %}selected{% endif %}>{{ state_name }}</option>
+              {% endfor %}
+            </select>
+            {% else %}
+            <input type="text" id="ck_state" name="customer_state" placeholder="State / Province / Region" value="{{ prefill.state|default('') }}">
+            {% endif %}
             <small class="owNcrHint" hidden style="display:block;margin-top:4px;font-size:12px;color:#b45309;"></small>
           </div>
         </div>
@@ -2065,12 +2074,26 @@ document.querySelectorAll('.ow-ck-gw').forEach(function(gw) {
 });
 
 /* ═══ Saved address selection ═══ */
+var indiaStateNames = {{ india_state_names|default([])|tojson }};
+var indiaStateLookup = {{ india_state_lookup|default({})|tojson }};
+var isIndiaCheckout = {{ 'true' if is_india|default(false) else 'false' }};
+function setCheckoutState(value) {
+  var state = document.getElementById('ck_state');
+  if (!state) return;
+  if (!isIndiaCheckout) {
+    state.value = value || '';
+    return;
+  }
+  var key = String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  state.value = indiaStateLookup[key] || '';
+}
+
 function owSelectAddr(radio) {
   document.querySelectorAll('.ow-ck-saved-chip').forEach(function(c) { c.classList.remove('ow-ck-selected'); });
   radio.closest('.ow-ck-saved-chip').classList.add('ow-ck-selected');
   document.getElementById('ck_address').value = radio.dataset.address || '';
   document.getElementById('ck_address2').value = radio.dataset.address2 || '';
-  document.getElementById('ck_state').value = radio.dataset.state || '';
+  setCheckoutState(radio.dataset.state || '');
   document.getElementById('ck_postcode').value = radio.dataset.zip || '';
   var cs = document.getElementById('ck_country');
   for (var i = 0; i < cs.options.length; i++) {
@@ -2130,7 +2153,7 @@ function owShowAddrForm(){
   document.getElementById('ck_phone').value = '';
   document.getElementById('ck_email').value = '';
   document.getElementById('ck_postcode').value = '';
-  document.getElementById('ck_state').value = '';
+  setCheckoutState('');
   /* Scroll to form */
   var detectBtn = document.querySelector('.ow-ck-detect-btn');
   if(detectBtn) detectBtn.scrollIntoView({behavior:'smooth',block:'start'});
@@ -2173,7 +2196,7 @@ function owDetectAddr() {
         if (sublocality) addrParts.push(sublocality);
         if (city) addrParts.push(city);
         document.getElementById('ck_address').value = addrParts.join(', ');
-        document.getElementById('ck_state').value = state;
+        setCheckoutState(state);
         document.getElementById('ck_postcode').value = zip;
         status.innerHTML = '<span style="color:#16a34a;">✓ Address detected via Google Maps</span>';
         owClearMissing();
@@ -2195,12 +2218,27 @@ function owScrollToPayment() {
 /* ═══ Form validation ═══ */
 function owValidateForm() {
   var valid = true;
+  var missingRequiredField = false;
   owClearMissing();
   ['ck_name','ck_address','ck_phone','ck_email','ck_postcode'].forEach(function(id) {
     var el = document.getElementById(id);
-    if (el && !el.value.trim()) { el.classList.add('ow-ck-field-missing'); valid = false; }
+    if (el && !el.value.trim()) {
+      el.classList.add('ow-ck-field-missing');
+      valid = false;
+      missingRequiredField = true;
+    }
   });
-  if (!valid) owShowToast('Please fill all required fields');
+  var stateEl = document.getElementById('ck_state');
+  var missingState = isIndiaCheckout && stateEl && !stateEl.value.trim();
+  if (missingState) {
+    stateEl.classList.add('ow-ck-field-missing');
+    valid = false;
+  }
+  if (!valid) {
+    owShowToast(missingState && !missingRequiredField
+      ? 'Please choose your state from the list'
+      : 'Please fill all required fields');
+  }
   var faceScan = document.getElementById('owProgressiveScan');
   var faceScanAck = document.getElementById('owFaceScanAck');
   if (valid && faceScan && (!faceScanAck || !faceScanAck.checked)) {
@@ -2386,16 +2424,23 @@ function owShowToast(msg) {
       var z = digits((document.getElementById('ck_postcode') || {}).value);
       if (z.length !== 6) return false;
       var st = String((document.getElementById('ck_state') || {}).value || '').trim().toLowerCase();
-      return rules.ncr_pins.some(function (p) { return z.indexOf(p[0]) === 0 && p[1].indexOf(st) >= 0; });
+      return rules.ncr_pins.some(function (p) {
+        return z.indexOf(p[0]) === 0 && p[1].some(function (name) {
+          return String(name).toLowerCase() === st;
+        });
+      });
     }
     function ncrHint() {
       var z = digits((document.getElementById('ck_postcode') || {}).value);
       var st = String((document.getElementById('ck_state') || {}).value || '').trim().toLowerCase();
       var pin = z.length === 6 ? rules.ncr_pins.filter(function (p) { return z.indexOf(p[0]) === 0; })[0] : null;
-      var show = !!pin && ncr24Open && pin[1].indexOf(st) < 0;
+      var matches = !!pin && pin[1].some(function (name) {
+        return String(name).toLowerCase() === st;
+      });
+      var show = !!pin && ncr24Open && !matches;
       document.querySelectorAll('.owNcrHint').forEach(function (el) {
         el.hidden = !show;
-        if (show) el.textContent = '24-hour delivery is available for this pin code. Enter your state as ' + pin[2] + ' to see it.';
+        if (show) el.textContent = '24-hour delivery is available for this pin code. Choose ' + pin[2] + ' as your state to see it.';
       });
     }
     function current() { var r = opts.querySelector('input[name="shipping_option"]:checked'); return r ? r.value : 'standard'; }
@@ -2795,11 +2840,11 @@ function onScriptLoad() {
         if (sublocality) parts.push(sublocality);
         if (city) parts.push(city);
         inp.value = parts.join(', ');
-        document.getElementById('ck_state').value = state;
+        setCheckoutState(state);
         document.getElementById('ck_postcode').value = zip;
         if (country === 'United States' || country === 'USA') {
           inp.value = '';
-          document.getElementById('ck_state').value = '';
+          setCheckoutState('');
           document.getElementById('ck_postcode').value = '';
           owShowToast('Sorry, we currently do not ship to the United States.');
           return;

@@ -45,6 +45,7 @@ from services import ow_rx
 from services import reverse_pickup as rp_svc
 from services import rp_lifecycle as rpl
 from services import recon as recon_svc
+from services import india_states
 from services import ow_new_order as ow_new
 from services import payments_razorpay as rzp
 from services import optiwar_refunds as ow_refunds
@@ -5186,6 +5187,7 @@ def _ow_new_ctx(draft: dict):
     return {
         "draft": draft, "data": data, "site": site,
         "site_info": ow_new.SITES.get(site, ow_new.SITES["in.optiwar.com"]),
+        "india_state_names": india_states.STATE_NAMES,
         "sites": ow_new.SITES, "addresses": addresses, "rx_history": rx_history,
         "lines": lines, "total": ow_new.draft_total(data),
         "lens_options": ow_new.lens_options(site),

@@ -20,6 +20,23 @@ table keyed by order id) and the success page and the Ops note read the same
 row. Stdlib only at import; the deploy tool reads ``TABLES`` plainly.
 """
 import datetime
+import importlib.util
+import os
+import sys
+
+try:
+    from . import india_states
+except ImportError:
+    if "india_states" in sys.modules:
+        india_states = sys.modules["india_states"]
+    else:
+        _india_states_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "india_states.py")
+        _india_states_spec = importlib.util.spec_from_file_location(
+            "india_states", _india_states_path)
+        india_states = importlib.util.module_from_spec(_india_states_spec)
+        sys.modules["india_states"] = india_states
+        _india_states_spec.loader.exec_module(india_states)
 
 STANDARD = "standard"
 EXPEDITE = "expedite"
@@ -40,12 +57,10 @@ SATURDAY, SUNDAY = 5, 6
 SATURDAY_CUTOFF = datetime.time(11, 45)
 
 # Which states go with which pin prefixes. The pin names the city; the state must agree.
-_HARYANA = ("haryana", "hr", "gurgaon", "gurugram", "delhi ncr", "ncr")
-_UP = ("uttar pradesh", "up", "u.p.", "noida", "greater noida", "ghaziabad", "delhi ncr", "ncr")
-NCR_PINS = (("110", ("delhi", "new delhi", "nct of delhi", "delhi ncr", "ncr")),  # Delhi
-            ("122", _HARYANA),   # Gurgaon
-            ("2010", _UP), ("2011", _UP),  # Ghaziabad
-            ("2013", _UP))       # Noida
+NCR_PINS = (("110", ("Delhi",)),  # Delhi
+            ("122", ("Haryana",)),   # Gurgaon
+            ("2010", ("Uttar Pradesh",)), ("2011", ("Uttar Pradesh",)),  # Ghaziabad
+            ("2013", ("Uttar Pradesh",)))       # Noida
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS order_shipping (
@@ -89,7 +104,7 @@ def is_ncr(state, zipcode):
     z = _digits(zipcode)
     if len(z) != 6:
         return False
-    s = (state or "").strip().lower()
+    s = india_states.normalize(state)
     return any(z.startswith(prefix) and s in states for prefix, states in NCR_PINS)
 
 
@@ -128,6 +143,7 @@ def _with_fee(option, ncr24_fee, now=None):
 
 def available(state, zipcode, is_india=True, preorder=False, now=None, ncr24_fee=None, ncr24_enabled=True):
     """The options this address may choose at this moment, standard first."""
+    state = india_states.normalize(state) or ""
     if not is_india or preorder:
         return [BY_KEY[STANDARD]]
     out = [BY_KEY[STANDARD], BY_KEY[EXPEDITE]]
@@ -140,6 +156,7 @@ def choose(key, state, zipcode, is_india=True, preorder=False, now=None, ncr24_f
     """The option for a posted key, or standard when the key is unknown or not
     offered to this address (a page that showed it cannot be trusted alone)."""
     key = (key or "").strip().lower()
+    state = india_states.normalize(state) or ""
     for option in available(state, zipcode, is_india, preorder, now, ncr24_fee, ncr24_enabled):
         if option["key"] == key:
             return option
@@ -204,7 +221,7 @@ def note(row):
 def js_rules(ncr24_fee=None, now=None, ncr24_enabled=True):
     """What the checkout page needs to show the right options as the address changes."""
     today = now or now_ist()
-    return {"ncr_pins": [[prefix, list(states), states[0].title()] for prefix, states in NCR_PINS],
+    return {"ncr_pins": [[prefix, list(states), states[0]] for prefix, states in NCR_PINS],
             "ncr24_open": bool(ncr24_enabled) and ncr24_open(now), "ncr24_seconds_left": ncr24_seconds_left(now), "ncr24_same_day": same_day(now),
             "options": [{"key": o["key"], "label": o["label"], "fee": o["fee"], "days": o["days"],
                          "blurb": o["blurb"], "ncr_only": o["ncr_only"],

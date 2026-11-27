@@ -93,7 +93,17 @@
             <div><label class="text-small text-muted">Address line 2 / city</label>
                 <input type="text" name="address2" class="form-input" value="{{ data.address.address2 or '' }}"></div>
             <div><label class="text-small text-muted">State</label>
-                <input type="text" name="state" class="form-input" value="{{ data.address.state or '' }}"></div>
+                {% if site == 'in.optiwar.com' %}
+                <select name="state" class="form-input" required>
+                    <option value="">Choose state</option>
+                    {% for state_name in india_state_names %}
+                    <option value="{{ state_name }}" {% if data.address.state == state_name %}selected{% endif %}>{{ state_name }}</option>
+                    {% endfor %}
+                </select>
+                {% else %}
+                <input type="text" name="state" class="form-input" value="{{ data.address.state or '' }}">
+                {% endif %}
+            </div>
             <div><label class="text-small text-muted">Zipcode</label>
                 <input type="text" name="zipcode" class="form-input" value="{{ data.address.zipcode or '' }}"></div>
             <div><label class="text-small text-muted">Country</label>

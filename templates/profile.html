@@ -440,7 +440,16 @@
           </div>
           <div class="ow-form-group">
             <label>State</label>
+            {% if is_india %}
+            <select name="state" id="new-addr-state" required>
+              <option value="" selected>Choose state</option>
+              {% for state_name in india_state_names %}
+              <option value="{{ state_name }}">{{ state_name }}</option>
+              {% endfor %}
+            </select>
+            {% else %}
             <input type="text" name="state" placeholder="{% if is_india %}Auto-filled{% else %}State / Province / Region{% endif %}" id="new-addr-state">
+            {% endif %}
           </div>
         </div>
         <div class="ow-form-row">
@@ -1499,7 +1508,16 @@
       </div>
       <div class="ow-form-group">
         <label>State</label>
+        {% if is_india %}
+        <select name="state" id="edit-addr-state" required>
+          <option value="">Choose state</option>
+          {% for state_name in india_state_names %}
+          <option value="{{ state_name }}">{{ state_name }}</option>
+          {% endfor %}
+        </select>
+        {% else %}
         <input type="text" name="state" id="edit-addr-state">
+        {% endif %}
       </div>
     </div>
     <div class="ow-form-group">
@@ -2059,13 +2077,27 @@ function switchTab(tabName) {
 }
 
 // Address data for editing
+var indiaStateNames = {{ india_state_names|default([])|tojson }};
+var indiaStateLookup = {{ india_state_lookup|default({})|tojson }};
+var isIndiaProfile = {{ 'true' if is_india|default(false) else 'false' }};
+function setProfileState(id, value) {
+  var state = document.getElementById(id);
+  if (!state) return;
+  if (!isIndiaProfile) {
+    state.value = value || '';
+    return;
+  }
+  var key = String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  state.value = indiaStateLookup[key] || '';
+}
+
 var addressData = {
   {% for addr in addresses %}
   {{ addr.address_id }}: {
-    address: "{{ addr.address|replace('"', '\\"') }}",
-    state: "{{ addr.state or '' }}",
-    zipcode: "{{ addr.zipcode or '' }}",
-    country: "{{ addr.country or ('India' if is_india else '') }}"
+    address: {{ (addr.address or '')|tojson }},
+    state: {{ (addr.state or '')|tojson }},
+    zipcode: {{ (addr.zipcode or '')|tojson }},
+    country: {{ (addr.country or ('India' if is_india else ''))|tojson }}
   },
   {% endfor %}
 };
@@ -2075,7 +2107,7 @@ function editAddress(id) {
   if (!data) return;
   document.getElementById('edit-addr-address').value = data.address;
   document.getElementById('edit-addr-zip').value = data.zipcode;
-  document.getElementById('edit-addr-state').value = data.state;
+  setProfileState('edit-addr-state', data.state);
   document.getElementById('edit-addr-country').value = data.country;
   document.getElementById('edit-addr-form').action = '/profile/address/edit/' + id;
   document.getElementById('edit-addr-overlay').classList.add('ow-modal-open');
@@ -2095,7 +2127,7 @@ function fetchStateForNew() {
       .then(r => r.json())
       .then(data => {
         if (data[0] && data[0].PostOffice && data[0].PostOffice.length > 0) {
-          document.getElementById('new-addr-state').value = data[0].PostOffice[0].State;
+          setProfileState('new-addr-state', data[0].PostOffice[0].State);
         }
       }).catch(() => {});
   }
@@ -2201,7 +2233,7 @@ if (window.location.hash) {
           if (sublocality) parts.push(sublocality);
           if (city) parts.push(city);
           inp.value = parts.join(', ');
-          if (stateId) document.getElementById(stateId).value = state;
+          if (stateId) setProfileState(stateId, state);
           if (zipId) document.getElementById(zipId).value = zip;
 
           if (country && countryId) {

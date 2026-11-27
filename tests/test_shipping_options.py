@@ -45,13 +45,25 @@ SUN = datetime.datetime(2026, 11, 15, 10, 0)
 class NcrRule(unittest.TestCase):
 
     def test_a_full_ncr_pin_and_a_state_that_agrees_are_both_needed(self):
-        for state, z in (("Delhi", "110001"), ("New Delhi", "110016"), ("Haryana", "122018"), ("Gurugram", "122002"),
-                         ("Uttar Pradesh", "201301"), ("UP", "201001"), ("Noida", "201304"), ("uttar pradesh", "201102")):
+        for state, z in (("Delhi", "110001"), ("New Delhi", "110016"), ("Haryana", "122018"),
+                         ("Uttar Pradesh", "201301"), ("UP", "201001"),
+                         ("uttar pradesh", "201102"), ("up", "201101")):
             self.assertTrue(ship.is_ncr(state, z), (state, z))
         for state, z in (("", ""), ("Delhi", ""), ("Delhi", "11"), ("Delhi", "1100"), ("", "110001"),
-                         ("Maharashtra", "110001"), ("Delhi", "400001"), ("Delhi", "122018"), ("Haryana", "110001"),
-                         ("Haryana", "121001"), ("Uttar Pradesh", "122018")):
+                         ("Maharashtra", "110001"), ("Delhi", "400001"), ("Delhi", "122018"),
+                         ("Delhi", "201301"), ("Haryana", "110001"), ("Haryana", "121001"),
+                         ("Haryana", "201301"), ("Uttar Pradesh", "122018"),
+                         ("Gurugram", "122002"), ("Noida", "201304")):
             self.assertFalse(ship.is_ncr(state, z), (state, z))
+
+    def test_checkout_rules_use_only_exact_canonical_states(self):
+        self.assertEqual(
+            ship.js_rules()["ncr_pins"],
+            [["110", ["Delhi"], "Delhi"],
+             ["122", ["Haryana"], "Haryana"],
+             ["2010", ["Uttar Pradesh"], "Uttar Pradesh"],
+             ["2011", ["Uttar Pradesh"], "Uttar Pradesh"],
+             ["2013", ["Uttar Pradesh"], "Uttar Pradesh"]])
 
 
 class Schedule(unittest.TestCase):
