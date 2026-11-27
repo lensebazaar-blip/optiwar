@@ -175,14 +175,13 @@ def get_order(order_id: str):
             except Exception as e:
                 log.warning("Order address unavailable for %s: %s", order_id, e)
         shipping_copy = None
-        if not pos_address:
-            try:
-                cur.execute(
-                    "SELECT state, zipcode FROM order_shipping WHERE order_id = %s",
-                    (order_id,))
-                shipping_copy = cur.fetchone()
-            except Exception as e:
-                log.warning("Order shipping copy unavailable for %s: %s", order_id, e)
+        try:
+            cur.execute(
+                "SELECT state, zipcode FROM order_shipping WHERE order_id = %s",
+                (order_id,))
+            shipping_copy = cur.fetchone()
+        except Exception as e:
+            log.warning("Order shipping copy unavailable for %s: %s", order_id, e)
 
         # Get order status
         cur.execute("""
@@ -295,7 +294,7 @@ def get_order(order_id: str):
             "invoice_prefix": "OW/",
             "invoice_no": order_id,
         }
-        if shipping_copy:
+        if shipping_copy is not None:
             order["shipping_copy"] = {
                 "state": shipping_copy.get("state"),
                 "zipcode": shipping_copy.get("zipcode"),

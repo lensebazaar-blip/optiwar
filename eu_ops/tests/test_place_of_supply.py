@@ -279,6 +279,7 @@ def test_get_order_builds_invoice_address_text_with_address2(monkeypatch):
         "state": "", "zipcode": "", "address_text": "Street Gurugram",
     }
     assert order["shipping_address_2"] == ""
+    assert order["shipping_copy"] == {"state": "Haryana", "zipcode": "122004"}
 
 
 def _patch_issue_route(monkeypatch, order):
@@ -335,6 +336,45 @@ def test_issue_route_freezes_pos_before_invoice_and_uses_deleted_address_copy(mo
     _, resolution, pin, customer_state, created_by = events[0]
     assert (resolution["state"], resolution["source"]) == ("Haryana", "pin")
     assert (pin, customer_state, created_by) == ("122004", "Haryana", 7)
+
+
+def test_issue_route_prefers_checkout_shipping_copy_to_edited_address(monkeypatch):
+    order = {
+        "site_from": "in.optiwar.com",
+        "pos_address": {
+            "state": "Delhi", "zipcode": "110001",
+            "address_text": "Edited saved address, New Delhi",
+        },
+        "shipping_copy": {"state": "Haryana", "zipcode": "122004"},
+        "date_added": datetime(2026, 11, 26),
+    }
+    app, events, request = _patch_issue_route(monkeypatch, order)
+
+    response = _call_issue(app, request)
+
+    assert response.status_code == 303
+    _, resolution, pin, customer_state, _ = events[0]
+    assert (resolution["state"], resolution["source"]) == ("Haryana", "pin")
+    assert (pin, customer_state) == ("122004", "Haryana")
+
+
+def test_issue_route_uses_order_address_when_shipping_copy_is_absent(monkeypatch):
+    order = {
+        "site_from": "in.optiwar.com",
+        "pos_address": {
+            "state": "Haryana", "zipcode": "122004",
+            "address_text": "Gurugram",
+        },
+        "date_added": datetime(2026, 11, 26),
+    }
+    app, events, request = _patch_issue_route(monkeypatch, order)
+
+    response = _call_issue(app, request)
+
+    assert response.status_code == 303
+    _, resolution, pin, customer_state, _ = events[0]
+    assert (resolution["state"], resolution["source"]) == ("Haryana", "pin")
+    assert (pin, customer_state) == ("122004", "Haryana")
 
 
 def test_issue_route_prompts_for_unknown_pos_without_inserts(monkeypatch):

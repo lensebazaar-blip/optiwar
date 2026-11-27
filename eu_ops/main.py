@@ -1758,30 +1758,18 @@ async def ow_invoice_issue(request: Request, order_id: str,
     if order.get("site_from") == "in.optiwar.com":
         pos_address = order.get("pos_address") or {}
         shipping_copy = order.get("shipping_copy") or {}
-        if pos_address:
+        address_text = pos_address.get("address_text") or ""
+        shipping_state = str(shipping_copy.get("state") or "").strip()
+        shipping_pin = str(shipping_copy.get("zipcode") or "").strip()
+        if shipping_state or shipping_pin:
+            state_value = shipping_state
+            pin_value = shipping_pin
+        elif pos_address:
             state_value = pos_address.get("state")
             pin_value = pos_address.get("zipcode")
-            address_text = pos_address.get("address_text") or ""
-        elif shipping_copy:
-            state_value = shipping_copy.get("state")
-            pin_value = shipping_copy.get("zipcode")
-            address_text = " ".join(
-                str(part).strip()
-                for part in (order.get("shipping_address_1"),
-                             order.get("shipping_address_2"))
-                if part)
-        elif order.get("pos_address_missing"):
+        else:
             state_value = ""
             pin_value = ""
-            address_text = ""
-        else:
-            state_value = order.get("shipping_zone")
-            pin_value = order.get("shipping_postcode")
-            address_text = " ".join(
-                str(part).strip()
-                for part in (order.get("shipping_address_1"),
-                             order.get("shipping_address_2"))
-                if part)
         customer_state = str(state_value or "")
         pos_pin = re.sub(r"\D", "", str(pin_value or ""))
         pos_resolution = place_of_supply.resolve(
