@@ -220,8 +220,8 @@
     <span class="ow-noreturn__more">{{ _('Why?') }}</span>
   </summary>
   <div class="ow-noreturn__body">
-    {% if is_india %}<p>{{ _('Our prices run up to 70%% below retail because every sale is final: frames and lenses cannot be returned or exchanged, even for minor defects or cosmetic marks. If you prefer end-to-end fitting and adjustments in person, we recommend buying from a physical optical store.') }}</p><p>{{ _('Damage on arrival must be reported from My Orders within 7 days of delivery.') }}</p>{% else %}<p>{{ _('Incorrectly supplied products, genuine defects present when supplied, and courier-confirmed loss in transit are reviewed under the policy.') }}</p>{% endif %}
-    <a href="{{ url_for('main.terms_and_conditions') }}#returns">{% if is_india %}{{ _('Read the full returns policy') }}{% else %}{{ _('Read the full Returns and Replacements Policy') }} &rarr;{% endif %}</a>
+    {% if is_india %}<p>{{ _('Our prices run up to 70%% below retail because every sale is final: frames and lenses cannot be returned or exchanged, even for minor defects or cosmetic marks. If you prefer end-to-end fitting and adjustments in person, we recommend buying from a physical optical store.') }}</p><p>{{ _('Damage on arrival, or a product that does not work, must be reported from My Orders within 7 days of delivery.') }}</p>{% else %}<p>{{ _('Incorrectly supplied products, genuine defects present when supplied, and courier-confirmed loss in transit are reviewed under the policy.') }}</p>{% endif %}
+    <a href="{{ url_for('main.terms_and_conditions') }}#returns">{% if is_india %}{{ _('Read the full returns policy') }}{% else %}{{ _('Read the full Returns and Replacements Policy') }}{% endif %} &rarr;</a>
   </div>
 </details>
 

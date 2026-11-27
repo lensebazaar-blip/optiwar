@@ -172,13 +172,14 @@ class TermsAndPrivacyRendering(unittest.TestCase):
                     "Godown Village Fazilpur, Badshahpur "
                     "Tethar(222), Badshahpur, Gurgaon-122101, India",
                     body)
-                self.assertIn("Phone: +91-8010077770", body)
+                self.assertNotIn("8010077770", body)
+                self.assertIn('Grievances are accepted only by email to <a href="mailto:admin@optiwar.com">admin@optiwar.com</a> or through the <a href="/?support=legacy_contact_us">support chat</a>.', body)
                 self.assertIn(
                     "We acknowledge every complaint within 48 hours and aim "
                     "to resolve it within one month of receiving it.",
                     body)
                 self.assertIn(
-                    'href="/?support=legacy_contact_us">support assistant</a>',
+                    'href="/?support=legacy_contact_us">support chat</a>',
                     body)
 
     def test_all_renderable_pages_have_no_owner_placeholders(self):
@@ -260,7 +261,7 @@ class TermsAndPrivacyRendering(unittest.TestCase):
                 self.assertIn("<strong>%s:</strong>" % label, body)
                 self.assertNotIn("**%s:**" % label, body)
             self.assertIn(
-                'href="/?support=legacy_contact_us">support assistant</a>',
+                'href="/?support=legacy_contact_us">support chat</a>',
                 body)
             self.assertIn('id="grievance-redressal"', body)
             self.assertNotIn("OWNER TO", body)
@@ -268,7 +269,8 @@ class TermsAndPrivacyRendering(unittest.TestCase):
                 "Godown Village Fazilpur, Badshahpur "
                 "Tethar(222), Badshahpur, Gurgaon-122101, India",
                 body)
-            self.assertIn("Phone: +91-8010077770", body)
+            self.assertNotIn("8010077770", body)
+            self.assertIn('Grievances are accepted only by email to <a href="mailto:admin@optiwar.com">admin@optiwar.com</a> or through the <a href="/?support=legacy_contact_us">support chat</a>.', body)
             self.assertIn(
                 "We acknowledge every complaint within 48 hours and aim to "
                 "resolve it within one month of receiving it.",
@@ -297,11 +299,10 @@ class TermsAndPrivacyRendering(unittest.TestCase):
             "physical optical store.",
             in_html)
         self.assertIn(
-            "Damage on arrival must be reported from My Orders within 7 days "
+            "Damage on arrival, or a product that does not work, must be reported from My Orders within 7 days "
             "of delivery.",
             in_html)
-        self.assertIn(">Read the full returns policy</a>", in_html)
-        self.assertNotIn("&rarr;", in_html)
+        self.assertIn(">Read the full returns policy &rarr;</a>", in_html)
 
         self.assertIn("Returns and Replacements Policy", com_html)
         self.assertIn(
