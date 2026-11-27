@@ -19,6 +19,7 @@ import pymysql
 import requests
 
 from database import ow_cursor, ow_ops_cursor, ow_write_transaction, ow_write_enabled
+from services import india_states
 
 log = logging.getLogger("ow_new_order")
 
@@ -391,10 +392,18 @@ def validate_draft(data: dict):
         if not addr.get("address_id"):
             errs.append("Select a delivery address or enter a new one.")
     else:
-        for field, label in (("address", "Address line 1"), ("state", "State"),
+        for field, label in (("address", "Address line 1"),
                              ("zipcode", "Zipcode"), ("country", "Country")):
             if not (addr.get(field) or "").strip():
                 errs.append(f"{label} is required.")
+        if india_states.is_india_address(
+                addr.get("country"), site == "in.optiwar.com"):
+            try:
+                addr["state"] = india_states.require(addr.get("state"))
+            except india_states.InvalidState:
+                errs.append("State: choose one of the 36 Indian states")
+        elif not (addr.get("state") or "").strip():
+            errs.append("State is required.")
         if site == "in.optiwar.com" and (addr.get("country") or "").strip().lower() not in (
                 "india", "in", "bharat"):
             errs.append("in.optiwar.com orders must ship to an Indian address.")
@@ -418,6 +427,11 @@ def build_sql(data: dict, order_id: str, actor: str = "ops") -> str:
     site = data.get("site", "in.optiwar.com")
     cust = data.get("customer") or {}
     addr = data.get("address") or {}
+    address_state = addr.get("state")
+    if (addr.get("mode") != "existing"
+            and india_states.is_india_address(
+                addr.get("country"), site == "in.optiwar.com")):
+        address_state = india_states.require(address_state)
     lines = data.get("lines") or []
     note = _ascii(data.get("note") or "")
     total = draft_total(data)
@@ -463,7 +477,7 @@ def build_sql(data: dict, order_id: str, actor: str = "ops") -> str:
         a("INSERT INTO customers_address (customer_id, address, address2, state, zipcode,")
         a("                              country, delivery_phone, delivery_email)")
         a(f"VALUES (@customer_id, {_q(addr.get('address'))}, {_q(addr.get('address2'))}, "
-          f"{_q(addr.get('state'))}, {_q(addr.get('zipcode'))},")
+          f"{_q(address_state)}, {_q(addr.get('zipcode'))},")
         a(f"        {_q(addr.get('country'))}, {_q(addr.get('delivery_phone'))}, "
           f"{_q(addr.get('delivery_email'))});")
         a("SET @address_id = LAST_INSERT_ID();")
@@ -572,6 +586,11 @@ def _insert_order(cur, data: dict, order_id: str, actor: str):
     site = data.get("site", "in.optiwar.com")
     cust = data.get("customer") or {}
     addr = data.get("address") or {}
+    address_state = addr.get("state")
+    if (addr.get("mode") != "existing"
+            and india_states.is_india_address(
+                addr.get("country"), site == "in.optiwar.com")):
+        address_state = india_states.require(address_state)
     note = _ascii(data.get("note") or "")
 
     if cust.get("mode") == "existing":
@@ -597,7 +616,7 @@ def _insert_order(cur, data: dict, order_id: str, actor: str):
                                            country, delivery_phone, delivery_email)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """, (customer_id, addr.get("address"), addr.get("address2") or None,
-              addr.get("state"), addr.get("zipcode"), addr.get("country"),
+              address_state, addr.get("zipcode"), addr.get("country"),
               addr.get("delivery_phone") or None, addr.get("delivery_email") or None))
         address_id = cur.lastrowid
 

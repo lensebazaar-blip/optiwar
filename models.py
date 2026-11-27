@@ -33,7 +33,7 @@ from .catalogue import (
     current_site, strip_ineligible_urls, age_group, ensure_gmc_columns,
     live_lenses, lens_matrix_summary, SITE_IN, SITE_COM,
 )
-from . import india_offer
+from . import india_offer, india_states
 from .brand_compliance import RENAMED, display_name, held_ids, is_held, scrub_text, slugify
 from . import face_cart, face_fit, face_profiles, face_profiles_api, face_scan_groups_api, face_scan_invites_api, favorites_api, frame_offers_api, order_face_scan, order_rx_documents, progressive_scan
 from . import (acr, lens_cart, lens_config, lens_documents, lens_feed,
@@ -3199,6 +3199,10 @@ def checkout_page():
             print(f"[PREFILL] Error: {e}")
             traceback.print_exc()
 
+    if india_states.is_india_address(
+            prefill.get('country'), _req_is_india()):
+        prefill['state'] = india_states.normalize(prefill.get('state')) or ''
+
     # Fetch all saved addresses for address selector
     saved_addresses = []
     if user_id or user_email:
@@ -3259,7 +3263,7 @@ def checkout_page():
     import uuid as _uuid
     session['checkout_token'] = str(_uuid.uuid4())
     _acr_stage(acr.STAGE_CHECKOUT)
-    return render_template('checkout.html', cart=cart,ship_days=ship_days, ship_is_preorder=ship_is_preorder, mixed_dispatch=mixed_dispatch, ship_usual=ship_usual, shipping_allowed=shipping_allowed, shipping_rules=shipping_rules, face_lines=face_lines,product_image_map=product_image_map, grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, right_eye=right_eye, left_eye=left_eye,right_pwr=right_pwr, right_lens_color=right_lens_color, right_cyl=right_cyl, right_qty=right_qty, right_axis=right_axis, right_add=right_add, left_pwr=left_pwr, left_lens_color=left_lens_color, left_cyl=left_cyl, left_qty=left_qty, left_axis=left_axis, left_add=left_add, lens_recommendations=lens_recommendations, prefill=prefill, saved_addresses=saved_addresses, lens_removal_pending=lens_removal_pending, lens_removal_confirm_text=lens_cart.CONFIRM_REMOVAL, rx_documents=rx_documents, face_scan_step=face_scan_step, **policy_terms.checkout_context(cart, _get_site_from()))
+    return render_template('checkout.html', cart=cart,ship_days=ship_days, ship_is_preorder=ship_is_preorder, mixed_dispatch=mixed_dispatch, ship_usual=ship_usual, shipping_allowed=shipping_allowed, shipping_rules=shipping_rules, india_state_names=india_states.STATE_NAMES, india_state_lookup=india_states.STATE_LOOKUP, face_lines=face_lines,product_image_map=product_image_map, grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, right_eye=right_eye, left_eye=left_eye,right_pwr=right_pwr, right_lens_color=right_lens_color, right_cyl=right_cyl, right_qty=right_qty, right_axis=right_axis, right_add=right_add, left_pwr=left_pwr, left_lens_color=left_lens_color, left_cyl=left_cyl, left_qty=left_qty, left_axis=left_axis, left_add=left_add, lens_recommendations=lens_recommendations, prefill=prefill, saved_addresses=saved_addresses, lens_removal_pending=lens_removal_pending, lens_removal_confirm_text=lens_cart.CONFIRM_REMOVAL, rx_documents=rx_documents, face_scan_step=face_scan_step, **policy_terms.checkout_context(cart, _get_site_from()))
 
 """
 @bp.route('/initiate-payment', methods=['POST'])
@@ -3273,6 +3277,11 @@ def initiate_payment_route():
     customer_state = data.get('customer_state')
     customer_postcode = data.get('customer_postcode')
     country = data.get('country')
+    if india_states.is_india_address(country, _req_is_india()):
+        try:
+            customer_state = india_states.require(customer_state)
+        except india_states.InvalidState as _invalid_state:
+            return jsonify({"error": str(_invalid_state)}), 400
 
     cart = session.get('cart', [])
     if not cart:
@@ -3405,9 +3414,18 @@ def checkout():
     customer_address2 = request.form.get('address2', '')
     customer_phone = request.form['phone']
     customer_email = request.form['email']
-    customer_state = request.form['customer_state']
+    customer_state = request.form.get('customer_state', '')
     customer_postcode = request.form['customer_postcode']
-    country = request.form['country']
+    country = request.form.get('country', '')
+    if india_states.is_india_address(country, _is_india):
+        try:
+            customer_state = india_states.require(customer_state)
+        except india_states.InvalidState as _invalid_state:
+            flash(str(_invalid_state), 'danger')
+            return redirect(url_for('main.checkout_page'))
+    else:
+        customer_state = request.form['customer_state']
+        country = request.form['country']
     phone_code = request.form.get('phone_code', '')
     dispatch_mode = (request.form.get('dispatch_mode') or '').strip().upper()
     # Build full delivery phone with country code
@@ -3749,7 +3767,7 @@ def checkout():
                     post_saved_addresses = [a for a in post_saved_addresses if (a.get('country') or '').strip().lower() != 'india']
         except Exception:
             pass
-        return render_template('checkout.html', shipping_fee_paid=shipping_fee, shipping_label_paid=shipping_choice['label'], order_id=order_id, payment_token=txn_token, razorpay_order_id=razorpay_order_id, razorpay_key_id=current_app.config.get('RAZORPAY_KEY_ID',''), grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, cart=cart, product_image_map=product_image_map, prefill=post_prefill, saved_addresses=post_saved_addresses, **policy_terms.checkout_context(cart, _get_site_from()))
+        return render_template('checkout.html', shipping_fee_paid=shipping_fee, shipping_label_paid=shipping_choice['label'], order_id=order_id, payment_token=txn_token, razorpay_order_id=razorpay_order_id, razorpay_key_id=current_app.config.get('RAZORPAY_KEY_ID',''), grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, cart=cart, product_image_map=product_image_map, prefill=post_prefill, saved_addresses=post_saved_addresses, india_state_names=india_states.STATE_NAMES, india_state_lookup=india_states.STATE_LOOKUP, **policy_terms.checkout_context(cart, _get_site_from()))
 
     except Exception as e:
         db.rollback()
@@ -3804,9 +3822,18 @@ def test_checkout():
     customer_address2 = request.form.get('address2', '')
     customer_phone = request.form['phone']
     customer_email = request.form['email']
-    customer_state = request.form['customer_state']
+    customer_state = request.form.get('customer_state', '')
     customer_postcode = request.form['customer_postcode']
-    country = request.form['country']
+    country = request.form.get('country', '')
+    if india_states.is_india_address(country, _req_is_india()):
+        try:
+            customer_state = india_states.require(customer_state)
+        except india_states.InvalidState as _invalid_state:
+            flash(str(_invalid_state), 'danger')
+            return redirect(url_for('main.checkout_page'))
+    else:
+        customer_state = request.form['customer_state']
+        country = request.form['country']
     phone_code = request.form.get('phone_code', '')
     delivery_phone_full = customer_phone if customer_phone.strip().startswith('+') else ((phone_code + ' ' + customer_phone).strip() if phone_code else customer_phone)
     client_ip = request.headers.get('X-Forwarded-For', request.headers.get('X-Real-IP', request.remote_addr))

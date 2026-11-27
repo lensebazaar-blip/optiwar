@@ -4,6 +4,7 @@ from .auth import login_required
 from .rx_powers import normalize_rows
 from .customer_orders import ORDER_LINES_SQL, customer_orders, attach_reship, attach_reverse_pickup
 from . import reship, return_request, reverse_pickup, shipping_options
+from . import india_states
 from . import face_profiles, face_profiles_api, face_scan_groups, face_scan_invites_api
 
 bp = Blueprint('profile', __name__, url_prefix='/profile')
@@ -163,6 +164,8 @@ def profile_page():
     auth_email = session.get('user_email', '')
     return render_template('profile.html', customer=customer, addresses=addresses,
                            orders=grouped_orders, auth_email=auth_email,
+                           india_state_names=india_states.STATE_NAMES,
+                           india_state_lookup=india_states.STATE_LOOKUP,
                            face_data=face_data,
                            face_profiles_enabled=face_profiles_enabled,
                            face_profiles=face_profile_list,
@@ -217,6 +220,12 @@ def add_address():
     if not address:
         flash('Address is required.', 'danger')
         return redirect(url_for('profile.profile_page'))
+    if india_states.is_india_address(country, reship.is_india_host(request.host)):
+        try:
+            state = india_states.require(state)
+        except india_states.InvalidState as exc:
+            flash(str(exc), 'danger')
+            return redirect(url_for('profile.profile_page'))
 
     db = get_db()
     cursor = db.cursor()
@@ -249,6 +258,12 @@ def edit_address(address_id):
     if not address:
         flash('Address is required.', 'danger')
         return redirect(url_for('profile.profile_page'))
+    if india_states.is_india_address(country, reship.is_india_host(request.host)):
+        try:
+            state = india_states.require(state)
+        except india_states.InvalidState as exc:
+            flash(str(exc), 'danger')
+            return redirect(url_for('profile.profile_page'))
 
     db = get_db()
     cursor = db.cursor()

@@ -90,6 +90,7 @@ class DeployListsTest(unittest.TestCase):
         for list_name in covered_lists:
             paths = lists[list_name]
             self.assertIn("india_offer.py", paths)
+            self.assertIn("india_states.py", paths)
             missing = sorted(imports - lists[list_name])
             if list_name == "DEPLOY_SET":
                 allowed = self.DEPLOY_SET_OMISSIONS
