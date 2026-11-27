@@ -1749,6 +1749,7 @@ async def ow_invoice_issue(request: Request, order_id: str,
         raise HTTPException(status_code=404, detail="Order not found")
     target = "gst-invoice" if next == "gst-invoice" else "invoice"
     dest = f"{ROOT_PATH}/orders/ow/{order_id}/{target}"
+    # POS retries are allowed before issue; after issue, keep the frozen row unchanged.
     if ow_orders.get_invoice_date(order_id):
         return RedirectResponse(dest, status_code=303)
     pos_resolution = None

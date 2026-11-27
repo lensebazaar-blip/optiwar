@@ -159,7 +159,7 @@ class _SQLCursor:
         return self.result_all
 
 
-def test_freeze_invoice_pos_is_insert_only_and_returns_existing_row(monkeypatch):
+def test_freeze_invoice_pos_upserts_and_returns_row(monkeypatch):
     frozen = {
         "order_id": "930001", "place_of_supply": "Uttar Pradesh",
         "gst_state_code": "09", "source": "pin", "pin": "201304",
@@ -178,10 +178,17 @@ def test_freeze_invoice_pos_is_insert_only_and_returns_existing_row(monkeypatch)
     statements = [query for query, _ in cursor.calls]
     assert any("CREATE TABLE IF NOT EXISTS ops_invoice_pos" in query
                for query in statements)
-    insert = next(query for query in statements if "INSERT IGNORE INTO ops_invoice_pos" in query)
+    insert = next(query for query in statements if "INSERT INTO ops_invoice_pos" in query)
     assert "place_of_supply" in insert
+    assert "ON DUPLICATE KEY UPDATE" in insert
+    mutations = [query for query in statements if re.search(
+        r"\b(?:UPDATE\b|DELETE\s+FROM\b)", query, re.IGNORECASE)]
+    assert mutations == [insert]
     assert not any(re.search(
-        r"\b(?:UPDATE|DELETE\s+FROM)\s+(?:ops_invoice_pos|customers_address)\b",
+        r"\b(?:UPDATE|DELETE\s+FROM)\s+customers_address\b",
+        query, re.IGNORECASE) for query in statements)
+    assert not any(re.search(
+        r"\bDELETE\s+FROM\s+ops_invoice_pos\b",
         query, re.IGNORECASE) for query in statements)
 
 
@@ -375,6 +382,67 @@ def test_issue_route_uses_order_address_when_shipping_copy_is_absent(monkeypatch
     _, resolution, pin, customer_state, _ = events[0]
     assert (resolution["state"], resolution["source"]) == ("Haryana", "pin")
     assert (pin, customer_state) == ("122004", "Haryana")
+
+
+def test_issue_retry_can_replace_pos_after_issue_failure(monkeypatch):
+    order = {
+        "site_from": "in.optiwar.com",
+        "pos_address": {"state": "", "zipcode": "000000", "address_text": ""},
+        "date_added": datetime(2026, 11, 26),
+    }
+    app, events, request = _patch_issue_route(monkeypatch, order)
+    frozen = {}
+    outcomes = iter([False, True])
+
+    def upsert(order_id, resolution, pin, customer_state, created_by):
+        frozen[order_id] = {
+            "place_of_supply": resolution["state"],
+            "source": resolution["source"],
+            "pin": pin,
+            "customer_state": customer_state,
+        }
+        events.append(("freeze", resolution, pin, customer_state, created_by))
+        return {"order_id": order_id, **frozen[order_id]}
+
+    def issue(order_id, stamp, changed_by):
+        events.append(("invoice", order_id, stamp, changed_by))
+        return next(outcomes)
+
+    monkeypatch.setattr(app.ow_orders, "freeze_invoice_pos", upsert)
+    monkeypatch.setattr(app.ow_orders, "issue_invoice_date", issue)
+
+    first = _call_issue(app, request, pos_state="Haryana")
+    assert first.status_code == 303
+    assert frozen["930003"]["place_of_supply"] == "Haryana"
+
+    retry = _call_issue(app, request, pos_state="Uttar Pradesh")
+    assert retry.status_code == 303
+    assert frozen["930003"]["place_of_supply"] == "Uttar Pradesh"
+    assert [event[1]["state"] for event in events if event[0] == "freeze"] == [
+        "Haryana", "Uttar Pradesh",
+    ]
+
+
+def test_issue_route_with_existing_invoice_does_not_touch_pos(monkeypatch):
+    order = {
+        "site_from": "in.optiwar.com",
+        "pos_address": {"state": "", "zipcode": "000000", "address_text": ""},
+        "date_added": datetime(2026, 11, 26),
+    }
+    app, events, request = _patch_issue_route(monkeypatch, order)
+    monkeypatch.setattr(
+        app.ow_orders, "get_invoice_date",
+        lambda order_id: datetime(2026, 11, 27))
+
+    def unexpected_write(*args, **kwargs):
+        raise AssertionError("existing invoices must not touch place of supply")
+
+    monkeypatch.setattr(app.ow_orders, "freeze_invoice_pos", unexpected_write)
+
+    response = _call_issue(app, request)
+
+    assert response.status_code == 303
+    assert events == []
 
 
 def test_issue_route_prompts_for_unknown_pos_without_inserts(monkeypatch):

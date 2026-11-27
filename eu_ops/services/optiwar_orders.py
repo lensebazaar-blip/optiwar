@@ -495,7 +495,7 @@ def _ensure_invoice_meta_table():
 
 
 def _ensure_invoice_pos_table():
-    """Create the immutable Optiwar invoice place-of-supply table if needed."""
+    """Create the Ops invoice place-of-supply table if needed."""
     with ow_cursor() as cur:
         cur.execute("""
             CREATE TABLE IF NOT EXISTS ops_invoice_pos (
@@ -531,13 +531,18 @@ def get_invoice_pos(order_id: str):
 
 def freeze_invoice_pos(order_id: str, resolution: dict, pin, customer_state,
                        created_by=None):
-    """Insert the invoice place of supply once; a duplicate keeps the first row."""
+    """Upsert POS before issuance; ops_writer has INSERT and UPDATE on this table."""
     _ensure_invoice_pos_table()
     with ow_ops_cursor() as cur:
         cur.execute(
-            "INSERT IGNORE INTO ops_invoice_pos "
+            "INSERT INTO ops_invoice_pos "
             "(order_id, place_of_supply, gst_state_code, source, pin, customer_state, "
-            "note, created_by) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            "note, created_by) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
+            "ON DUPLICATE KEY UPDATE "
+            "place_of_supply=VALUES(place_of_supply), "
+            "gst_state_code=VALUES(gst_state_code), source=VALUES(source), "
+            "pin=VALUES(pin), customer_state=VALUES(customer_state), "
+            "note=VALUES(note), created_by=VALUES(created_by)",
             (order_id, resolution["state"], resolution["code"], resolution["source"],
              pin, customer_state, resolution.get("note") or "", created_by))
     return get_invoice_pos(order_id)
