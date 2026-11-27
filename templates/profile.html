@@ -2077,9 +2077,9 @@ function switchTab(tabName) {
 }
 
 // Address data for editing
-var indiaStateNames = {{ india_state_names|tojson }};
-var indiaStateLookup = {{ india_state_lookup|tojson }};
-var isIndiaProfile = {{ 'true' if is_india else 'false' }};
+var indiaStateNames = {{ india_state_names|default([])|tojson }};
+var indiaStateLookup = {{ india_state_lookup|default({})|tojson }};
+var isIndiaProfile = {{ 'true' if is_india|default(false) else 'false' }};
 function setProfileState(id, value) {
   var state = document.getElementById(id);
   if (!state) return;
@@ -2094,10 +2094,10 @@ function setProfileState(id, value) {
 var addressData = {
   {% for addr in addresses %}
   {{ addr.address_id }}: {
-    address: "{{ addr.address|replace('"', '\\"') }}",
-    state: "{{ addr.state or '' }}",
-    zipcode: "{{ addr.zipcode or '' }}",
-    country: "{{ addr.country or ('India' if is_india else '') }}"
+    address: {{ (addr.address or '')|tojson }},
+    state: {{ (addr.state or '')|tojson }},
+    zipcode: {{ (addr.zipcode or '')|tojson }},
+    country: {{ (addr.country or ('India' if is_india else ''))|tojson }}
   },
   {% endfor %}
 };

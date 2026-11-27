@@ -284,6 +284,25 @@ class IndiaStatesTest(unittest.TestCase):
             response = edit_address(1)
         self.assertEqual(response.status_code, 302)
 
+    def test_profile_address_data_json_preserves_ampersand_states(self):
+        source = (REPO / "templates" / "profile.html").read_text()
+        match = re.search(
+            r'var addressData = \{.*?^\};',
+            source, re.S | re.M)
+        self.assertIsNotNone(match)
+        rendered_js = Environment().from_string(match.group(0)).render(
+            addresses=[{
+                "address_id": 1,
+                "address": "1 Main Street",
+                "state": "Jammu & Kashmir",
+                "zipcode": "123456",
+                "country": "India",
+            }],
+            is_india=True,
+        )
+        self.assertIn('state: "Jammu \\u0026 Kashmir"', rendered_js)
+        self.assertNotIn("Jammu &amp; Kashmir", rendered_js)
+
 
 def _state_options(source):
     return [
