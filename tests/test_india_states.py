@@ -58,6 +58,10 @@ EXPECTED_ALIASES = {
     "nct of delhi": "Delhi",
     "jammu and kashmir": "Jammu & Kashmir",
     "andaman and nicobar islands": "Andaman & Nicobar Islands",
+    "dadra and nagar haveli": "Dadra & Nagar Haveli and Daman & Diu",
+    "daman and diu": "Dadra & Nagar Haveli and Daman & Diu",
+    "dadra & nagar haveli": "Dadra & Nagar Haveli and Daman & Diu",
+    "daman & diu": "Dadra & Nagar Haveli and Daman & Diu",
     "dadra and nagar haveli and daman and diu":
         "Dadra & Nagar Haveli and Daman & Diu",
     "chattisgarh": "Chhattisgarh",
