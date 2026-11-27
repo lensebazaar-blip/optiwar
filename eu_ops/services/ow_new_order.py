@@ -4,13 +4,12 @@ Two ways to land an order in optiwar2, from the same draft:
 
 * ``build_sql`` emits a script an operator runs by hand — the original path, and
   still the fallback whenever the write account is not configured.
-* ``create_order`` performs the same writes itself, in one short transaction
-  under the optiwar2 write account (see ``database.ow_write_transaction``).
+* ``create_order`` performs the same inserts itself, in one short transaction
+  under an INSERT-only account (see ``database.ow_write_transaction``).
 
-Existing India-site addresses may have their state spelling canonicalized;
-otherwise existing address rows are left unchanged. No path touches ``products`` —
-inventory moves only when the customer pays, on the storefront. Drafts live in
-the ops database (oslb6).
+Everything else here reads. Nothing in this module ever UPDATEs or DELETEs a row
+in optiwar2, and no path touches ``products`` — inventory moves only when the
+customer pays, on the storefront. Drafts live in the ops database (oslb6).
 """
 import json
 import logging
@@ -386,6 +385,25 @@ def _ascii(v) -> str:
     return " ".join(kept.split())
 
 
+def _existing_india_address_error(saved_address):
+    if (saved_address.get("country") or "").strip().lower() not in (
+            "india", "in", "bharat"):
+        return "in.optiwar.com orders must ship to an Indian address."
+
+    saved_state = saved_address.get("state")
+    if saved_state not in india_states.STATE_NAMES:
+        normalized_state = india_states.normalize(saved_state)
+        if normalized_state is None:
+            return (
+                f"Saved address state '{saved_state}' is not one of the 36 "
+                "Indian states: add a new address with the correct state.")
+        return (
+            f"Saved address state '{saved_state}' must read "
+            f"'{normalized_state}': add a new address with state "
+            f"{normalized_state}.")
+    return None
+
+
 def validate_draft(data: dict):
     """Return a list of blocking problems with the draft."""
     errs = []
@@ -411,11 +429,9 @@ def validate_draft(data: dict):
             saved_address = _get_customer_address(
                 cust.get("customer_id"), addr.get("address_id"))
             if saved_address is not None:
-                saved_state = saved_address.get("state")
-                if india_states.normalize(saved_state) is None:
-                    errs.append(
-                        f"Saved address state '{saved_state}' is not one of the "
-                        "36 Indian states: add a new address with the correct state.")
+                saved_address_error = _existing_india_address_error(saved_address)
+                if saved_address_error:
+                    errs.append(saved_address_error)
     else:
         for field, label in (("address", "Address line 1"),
                              ("zipcode", "Zipcode"), ("country", "Country")):
@@ -452,17 +468,8 @@ def build_sql(data: dict, order_id: str, actor: str = "ops") -> str:
     cust = data.get("customer") or {}
     addr = data.get("address") or {}
     address_state = addr.get("state")
-    existing_state_update = None
     if addr.get("mode") != "existing" and site == "in.optiwar.com":
         address_state = india_states.require(address_state)
-    elif addr.get("mode") == "existing" and site == "in.optiwar.com":
-        saved_address = _get_customer_address(
-            cust.get("customer_id"), addr.get("address_id"))
-        if saved_address is not None:
-            saved_state = saved_address.get("state")
-            normalized_state = india_states.normalize(saved_state)
-            if normalized_state is not None and normalized_state != saved_state:
-                existing_state_update = normalized_state
     lines = data.get("lines") or []
     note = _ascii(data.get("note") or "")
     total = draft_total(data)
@@ -503,9 +510,6 @@ def build_sql(data: dict, order_id: str, actor: str = "ops") -> str:
         a(f"SET @address_id = {int(addr['address_id'])};   -- existing address")
         a("SELECT address_id, address, state, zipcode, country FROM customers_address "
           "WHERE address_id = @address_id AND customer_id = @customer_id;")
-        if existing_state_update is not None:
-            a(f"UPDATE customers_address SET state = {_q(existing_state_update)} "
-              "WHERE address_id = @address_id AND customer_id = @customer_id;")
     else:
         a("-- delivery address")
         a("INSERT INTO customers_address (customer_id, address, address2, state, zipcode,")
@@ -613,7 +617,7 @@ def _order_id_is_free(cur, order_id: str) -> bool:
 
 
 def _insert_order(cur, data: dict, order_id: str, actor: str):
-    """The writes, in the order build_sql emits them. Runs inside a transaction.
+    """The inserts, in the order build_sql writes them. Runs inside a transaction.
 
     Reads inside here are plain SELECTs under READ COMMITTED: no FOR UPDATE, so a
     live checkout never waits on this."""
@@ -638,19 +642,18 @@ def _insert_order(cur, data: dict, order_id: str, actor: str):
 
     if addr.get("mode") == "existing":
         address_id = int(addr["address_id"])
-        address_fields = "address_id, state" if site == "in.optiwar.com" else "address_id"
+        address_fields = (
+            "address_id, state, country"
+            if site == "in.optiwar.com" else "address_id")
         cur.execute(f"SELECT {address_fields} FROM customers_address "
                     "WHERE address_id = %s AND customer_id = %s", (address_id, customer_id))
         saved_address = cur.fetchone()
         if not saved_address:
             raise ValueError(f"address {address_id} does not belong to customer {customer_id}")
         if site == "in.optiwar.com":
-            saved_state = saved_address.get("state")
-            normalized_state = india_states.normalize(saved_state)
-            if normalized_state is not None and normalized_state != saved_state:
-                cur.execute(
-                    "UPDATE customers_address SET state=%s WHERE address_id=%s AND customer_id=%s",
-                    (normalized_state, address_id, customer_id))
+            saved_address_error = _existing_india_address_error(saved_address)
+            if saved_address_error:
+                raise ValueError(saved_address_error)
     else:
         cur.execute("""
             INSERT INTO customers_address (customer_id, address, address2, state, zipcode,
