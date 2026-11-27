@@ -426,6 +426,8 @@ def validate_draft(data: dict):
                 addr["state"] = india_states.require(addr.get("state"))
             except india_states.InvalidState:
                 errs.append("State: choose one of the 36 Indian states")
+        elif not (addr.get("state") or "").strip():
+            errs.append("State is required.")
         if site == "in.optiwar.com" and (addr.get("country") or "").strip().lower() not in (
                 "india", "in", "bharat"):
             errs.append("in.optiwar.com orders must ship to an Indian address.")
