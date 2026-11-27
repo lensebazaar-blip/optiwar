@@ -346,7 +346,7 @@ EMAILS = {
         "- Keep your phone reachable so the agent can contact you.\n"
         "- Please do not ship the product yourself and do not hand it to any other courier.\n\n"
         "To change the pickup address or reschedule, reply to this email or write to {change_email}.\n\n"
-        "Any reverse-pickup charge applies as described in clause 9B of our Terms "
+        "Any reverse-pickup charge applies as described in clause 10 of our Terms "
         "(Return / Reverse-pickup cost): {terms_url}\n\n"
         "You can see this pickup in My Orders: {url}\n\n"
         "Optiwar Support"),
@@ -394,7 +394,7 @@ CASE_EMAILS = {
         "Optiwar Return Closed: Product Unclaimed",
         "The {holding_days}-day period for your reply about the product returned for order {order_id} "
         "ended on {deadline} without a reply from you.\n"
-        "The return is now closed and the product is treated as unclaimed under section 17 of our Returns "
+        "The return is now closed and the product is treated as unclaimed under section 13 of our Returns "
         "Policy.\n"
         "If you believe this is a mistake, please reply to this email quoting your order number."),
     NOTICE_INSPECTION_DEFECT_WAIVED: (
@@ -479,9 +479,9 @@ OUTCOME_LINES = {
 FEE_RETAINED_LINE = "The ₹250 reverse-pickup fee therefore remains applicable.\n"
 CASE_EMAIL_FRAME = "Dear {name},\n\n%s\n\nOrder: {order_id}\n\nOptiwar Support"
 REPLY_BY_LINE = ("Please reply by {deadline} ({holding_days} days from the inspection). If we do not hear "
-                 "from you by then, the product is treated as unclaimed under section 17 of our Returns "
+                 "from you by then, the product is treated as unclaimed under section 13 of our Returns "
                  "Policy.\n")
-UNCLAIMED_LINE = ("If we do not hear from you by then, the product is treated as unclaimed under section 17 "
+UNCLAIMED_LINE = ("If we do not hear from you by then, the product is treated as unclaimed under section 13 "
                  "of our Returns and Replacements Policy.\n")
 
 
