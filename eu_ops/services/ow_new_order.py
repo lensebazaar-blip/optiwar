@@ -19,6 +19,7 @@ import pymysql
 import requests
 
 from database import ow_cursor, ow_ops_cursor, ow_write_transaction, ow_write_enabled
+from . import india_states
 
 log = logging.getLogger("ow_new_order")
 
@@ -398,6 +399,12 @@ def validate_draft(data: dict):
         if site == "in.optiwar.com" and (addr.get("country") or "").strip().lower() not in (
                 "india", "in", "bharat"):
             errs.append("in.optiwar.com orders must ship to an Indian address.")
+        if site == "in.optiwar.com":
+            try:
+                addr["state"] = india_states.require_india_state(
+                    addr.get("state"), addr.get("country"))
+            except ValueError as exc:
+                errs.append(str(exc))
     if not (data.get("lines") or []):
         errs.append("Add at least one product line.")
     for i, line in enumerate(data.get("lines") or [], start=1):

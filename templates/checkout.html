@@ -1501,7 +1501,16 @@ footer{ display:none !important; }
           </div>
           <div>
             <label for="ck_state">State</label>
+            {% if is_india %}
+            <select id="ck_state" name="customer_state" required>
+              <option value="" {% if not prefill_state %}selected{% endif %}>Choose state</option>
+              {% for state in india_states %}
+              <option value="{{ state }}" {% if prefill_state == state %}selected{% endif %}>{{ state }}</option>
+              {% endfor %}
+            </select>
+            {% else %}
             <input type="text" id="ck_state" name="customer_state" placeholder="{% if is_india %}State{% else %}State / Province / Region{% endif %}" value="{{ prefill.state|default('') }}">
+            {% endif %}
             <small class="owNcrHint" hidden style="display:block;margin-top:4px;font-size:12px;color:#b45309;"></small>
           </div>
         </div>
@@ -2065,12 +2074,23 @@ document.querySelectorAll('.ow-ck-gw').forEach(function(gw) {
 });
 
 /* ═══ Saved address selection ═══ */
+var INDIA_STATE_LOOKUP = {{ india_state_lookup|tojson }};
+function canonicalState(value) {
+  var key = String(value || '').trim().toLowerCase().replace(/&/g, 'and').replace(/\s+/g, ' ');
+  return Object.prototype.hasOwnProperty.call(INDIA_STATE_LOOKUP, key)
+    ? INDIA_STATE_LOOKUP[key] : '';
+}
+function setStateValue(id, value) {
+  var field = document.getElementById(id);
+  if (!field) return;
+  field.value = field.tagName === 'SELECT' ? canonicalState(value) : (value || '');
+}
 function owSelectAddr(radio) {
   document.querySelectorAll('.ow-ck-saved-chip').forEach(function(c) { c.classList.remove('ow-ck-selected'); });
   radio.closest('.ow-ck-saved-chip').classList.add('ow-ck-selected');
   document.getElementById('ck_address').value = radio.dataset.address || '';
   document.getElementById('ck_address2').value = radio.dataset.address2 || '';
-  document.getElementById('ck_state').value = radio.dataset.state || '';
+  setStateValue('ck_state', radio.dataset.state || '');
   document.getElementById('ck_postcode').value = radio.dataset.zip || '';
   var cs = document.getElementById('ck_country');
   for (var i = 0; i < cs.options.length; i++) {
@@ -2130,7 +2150,7 @@ function owShowAddrForm(){
   document.getElementById('ck_phone').value = '';
   document.getElementById('ck_email').value = '';
   document.getElementById('ck_postcode').value = '';
-  document.getElementById('ck_state').value = '';
+  setStateValue('ck_state', '');
   /* Scroll to form */
   var detectBtn = document.querySelector('.ow-ck-detect-btn');
   if(detectBtn) detectBtn.scrollIntoView({behavior:'smooth',block:'start'});
@@ -2173,7 +2193,7 @@ function owDetectAddr() {
         if (sublocality) addrParts.push(sublocality);
         if (city) addrParts.push(city);
         document.getElementById('ck_address').value = addrParts.join(', ');
-        document.getElementById('ck_state').value = state;
+        setStateValue('ck_state', state);
         document.getElementById('ck_postcode').value = zip;
         status.innerHTML = '<span style="color:#16a34a;">✓ Address detected via Google Maps</span>';
         owClearMissing();
@@ -2795,11 +2815,11 @@ function onScriptLoad() {
         if (sublocality) parts.push(sublocality);
         if (city) parts.push(city);
         inp.value = parts.join(', ');
-        document.getElementById('ck_state').value = state;
+        setStateValue('ck_state', state);
         document.getElementById('ck_postcode').value = zip;
         if (country === 'United States' || country === 'USA') {
           inp.value = '';
-          document.getElementById('ck_state').value = '';
+          setStateValue('ck_state', '');
           document.getElementById('ck_postcode').value = '';
           owShowToast('Sorry, we currently do not ship to the United States.');
           return;

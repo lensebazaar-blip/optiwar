@@ -4,6 +4,7 @@ from .auth import login_required
 from .rx_powers import normalize_rows
 from .customer_orders import ORDER_LINES_SQL, customer_orders, attach_reship, attach_reverse_pickup
 from . import reship, return_request, reverse_pickup, shipping_options
+from . import india_states
 from . import face_profiles, face_profiles_api, face_scan_groups, face_scan_invites_api
 
 bp = Blueprint('profile', __name__, url_prefix='/profile')
@@ -173,7 +174,8 @@ def profile_page():
                            face_relationships=[
                                {'code': c, 'label': face_profiles.RELATIONSHIP_LABELS[c]}
                                for c in face_profiles.RELATIONSHIPS
-                               if c != face_profiles.REL_SELF])
+                               if c != face_profiles.REL_SELF],
+                           **india_states.template_context())
 
 
 @bp.route('/update', methods=['POST'])
@@ -218,6 +220,13 @@ def add_address():
         flash('Address is required.', 'danger')
         return redirect(url_for('profile.profile_page'))
 
+    try:
+        state = india_states.state_for_site(
+            state, country, reship.is_india_host(request.host))
+    except ValueError as exc:
+        flash(str(exc), 'danger')
+        return redirect(url_for('profile.profile_page'))
+
     db = get_db()
     cursor = db.cursor()
     try:
@@ -248,6 +257,13 @@ def edit_address(address_id):
 
     if not address:
         flash('Address is required.', 'danger')
+        return redirect(url_for('profile.profile_page'))
+
+    try:
+        state = india_states.state_for_site(
+            state, country, reship.is_india_host(request.host))
+    except ValueError as exc:
+        flash(str(exc), 'danger')
         return redirect(url_for('profile.profile_page'))
 
     db = get_db()

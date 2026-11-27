@@ -15,6 +15,7 @@ from . import policy_terms
 from .pricing import pricing_file as _pricing_file
 from . import reship, reship_api, return_fee
 from . import test_identity
+from . import india_states
 from . import ai_glasses
 from flaskr.notifications import notify_payment_attempted, notify_payment_success, notify_payment_failed, notify_order_confirmed, notify_order_shipped
 import os
@@ -3259,7 +3260,7 @@ def checkout_page():
     import uuid as _uuid
     session['checkout_token'] = str(_uuid.uuid4())
     _acr_stage(acr.STAGE_CHECKOUT)
-    return render_template('checkout.html', cart=cart,ship_days=ship_days, ship_is_preorder=ship_is_preorder, mixed_dispatch=mixed_dispatch, ship_usual=ship_usual, shipping_allowed=shipping_allowed, shipping_rules=shipping_rules, face_lines=face_lines,product_image_map=product_image_map, grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, right_eye=right_eye, left_eye=left_eye,right_pwr=right_pwr, right_lens_color=right_lens_color, right_cyl=right_cyl, right_qty=right_qty, right_axis=right_axis, right_add=right_add, left_pwr=left_pwr, left_lens_color=left_lens_color, left_cyl=left_cyl, left_qty=left_qty, left_axis=left_axis, left_add=left_add, lens_recommendations=lens_recommendations, prefill=prefill, saved_addresses=saved_addresses, lens_removal_pending=lens_removal_pending, lens_removal_confirm_text=lens_cart.CONFIRM_REMOVAL, rx_documents=rx_documents, face_scan_step=face_scan_step, **policy_terms.checkout_context(cart, _get_site_from()))
+    return render_template('checkout.html', cart=cart,ship_days=ship_days, ship_is_preorder=ship_is_preorder, mixed_dispatch=mixed_dispatch, ship_usual=ship_usual, shipping_allowed=shipping_allowed, shipping_rules=shipping_rules, face_lines=face_lines,product_image_map=product_image_map, grand_total=grand_total, grand_total_eur=grand_total, eur_discount=eur_discount, subtotal_eur=grand_total + eur_discount, right_eye=right_eye, left_eye=left_eye,right_pwr=right_pwr, right_lens_color=right_lens_color, right_cyl=right_cyl, right_qty=right_qty, right_axis=right_axis, right_add=right_add, left_pwr=left_pwr, left_lens_color=left_lens_color, left_cyl=left_cyl, left_qty=left_qty, left_axis=left_axis, left_add=left_add, lens_recommendations=lens_recommendations, prefill=prefill, saved_addresses=saved_addresses, lens_removal_pending=lens_removal_pending, lens_removal_confirm_text=lens_cart.CONFIRM_REMOVAL, rx_documents=rx_documents, face_scan_step=face_scan_step, **policy_terms.checkout_context(cart, _get_site_from()), **india_states.template_context(prefill.get('state')))
 
 """
 @bp.route('/initiate-payment', methods=['POST'])
@@ -3405,9 +3406,14 @@ def checkout():
     customer_address2 = request.form.get('address2', '')
     customer_phone = request.form['phone']
     customer_email = request.form['email']
-    customer_state = request.form['customer_state']
+    customer_state = request.form.get('customer_state', '')
     customer_postcode = request.form['customer_postcode']
-    country = request.form['country']
+    country = request.form.get('country', '')
+    try:
+        customer_state = india_states.state_for_site(customer_state, country, _is_india)
+    except ValueError as exc:
+        flash(str(exc))
+        return redirect(url_for('main.checkout_page'))
     phone_code = request.form.get('phone_code', '')
     dispatch_mode = (request.form.get('dispatch_mode') or '').strip().upper()
     # Build full delivery phone with country code
@@ -3804,9 +3810,15 @@ def test_checkout():
     customer_address2 = request.form.get('address2', '')
     customer_phone = request.form['phone']
     customer_email = request.form['email']
-    customer_state = request.form['customer_state']
+    customer_state = request.form.get('customer_state', '')
     customer_postcode = request.form['customer_postcode']
-    country = request.form['country']
+    country = request.form.get('country', '')
+    try:
+        customer_state = india_states.state_for_site(
+            customer_state, country, _req_is_india())
+    except ValueError as exc:
+        flash(str(exc))
+        return redirect(url_for('main.checkout_page'))
     phone_code = request.form.get('phone_code', '')
     delivery_phone_full = customer_phone if customer_phone.strip().startswith('+') else ((phone_code + ' ' + customer_phone).strip() if phone_code else customer_phone)
     client_ip = request.headers.get('X-Forwarded-For', request.headers.get('X-Real-IP', request.remote_addr))
