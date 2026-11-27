@@ -20,11 +20,23 @@ table keyed by order id) and the success page and the Ops note read the same
 row. Stdlib only at import; the deploy tool reads ``TABLES`` plainly.
 """
 import datetime
+import importlib.util
+import os
+import sys
 
 try:
     from . import india_states
 except ImportError:
-    import india_states
+    if "india_states" in sys.modules:
+        india_states = sys.modules["india_states"]
+    else:
+        _india_states_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "india_states.py")
+        _india_states_spec = importlib.util.spec_from_file_location(
+            "india_states", _india_states_path)
+        india_states = importlib.util.module_from_spec(_india_states_spec)
+        sys.modules["india_states"] = india_states
+        _india_states_spec.loader.exec_module(india_states)
 
 STANDARD = "standard"
 EXPEDITE = "expedite"

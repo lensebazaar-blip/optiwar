@@ -1,5 +1,7 @@
 import ast
 import os
+import subprocess
+import sys
 import unittest
 
 
@@ -110,6 +112,34 @@ class DeployListsTest(unittest.TestCase):
         for list_name, paths in _deployment_lists().items():
             with self.subTest(deploy_list=list_name):
                 self.assertNotIn("mail.py", paths)
+
+    def test_shipping_options_deploy_loader_works_from_tmp_without_repo_path(self):
+        deploy_path = os.path.join(REPO, "deploy", "deploy.py")
+        code = (
+            "import importlib.util, os, sys; "
+            f"repo = {REPO!r}; "
+            "sys.path = [path for path in sys.path "
+            "if os.path.realpath(path or os.getcwd()) != repo]; "
+            "assert repo not in [os.path.realpath(path or os.getcwd()) "
+            "for path in sys.path]; "
+            f"spec = importlib.util.spec_from_file_location('deploy_probe', {deploy_path!r}); "
+            "deploy = importlib.util.module_from_spec(spec); "
+            "sys.modules[spec.name] = deploy; "
+            "spec.loader.exec_module(deploy); "
+            "print(deploy.shipping_options_module().TABLES)"
+        )
+        env = os.environ.copy()
+        env.pop("PYTHONPATH", None)
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd="/tmp",
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("order_shipping", result.stdout)
 
 
 if __name__ == "__main__":
