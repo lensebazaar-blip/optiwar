@@ -396,16 +396,13 @@ def validate_draft(data: dict):
                              ("zipcode", "Zipcode"), ("country", "Country")):
             if not (addr.get(field) or "").strip():
                 errs.append(f"{label} is required.")
-        if india_states.is_india_address(
-                addr.get("country"), site == "in.optiwar.com"):
+        if site == "in.optiwar.com":
             try:
                 addr["state"] = india_states.require(addr.get("state"))
             except india_states.InvalidState:
                 errs.append("State: choose one of the 36 Indian states")
-        elif not (addr.get("state") or "").strip():
-            errs.append("State is required.")
-        if (site == "in.optiwar.com"
-                and not india_states.is_india_address(addr.get("country"), True)):
+        if site == "in.optiwar.com" and (addr.get("country") or "").strip().lower() not in (
+                "india", "in", "bharat"):
             errs.append("in.optiwar.com orders must ship to an Indian address.")
     if not (data.get("lines") or []):
         errs.append("Add at least one product line.")
@@ -428,9 +425,8 @@ def build_sql(data: dict, order_id: str, actor: str = "ops") -> str:
     cust = data.get("customer") or {}
     addr = data.get("address") or {}
     address_state = addr.get("state")
-    if (addr.get("mode") != "existing"
-            and india_states.is_india_address(
-                addr.get("country"), site == "in.optiwar.com")):
+    existing_state_update = None
+    if addr.get("mode") != "existing" and site == "in.optiwar.com":
         address_state = india_states.require(address_state)
     lines = data.get("lines") or []
     note = _ascii(data.get("note") or "")
@@ -587,9 +583,7 @@ def _insert_order(cur, data: dict, order_id: str, actor: str):
     cust = data.get("customer") or {}
     addr = data.get("address") or {}
     address_state = addr.get("state")
-    if (addr.get("mode") != "existing"
-            and india_states.is_india_address(
-                addr.get("country"), site == "in.optiwar.com")):
+    if addr.get("mode") != "existing" and site == "in.optiwar.com":
         address_state = india_states.require(address_state)
     note = _ascii(data.get("note") or "")
 

@@ -117,14 +117,14 @@ class IndiaStatesTest(unittest.TestCase):
         with self.assertRaises(india_states.InvalidState):
             india_states.require(None)
 
-    def test_is_india_address_uses_country_and_host(self):
-        for country in ("India", " india ", "IN", " in ", "Bharat", " bharat "):
-            with self.subTest(country=country):
-                self.assertTrue(india_states.is_india_address(country, False))
-        self.assertTrue(india_states.is_india_address("", True))
-        self.assertTrue(india_states.is_india_address(None, True))
-        self.assertFalse(india_states.is_india_address("", False))
-        self.assertFalse(india_states.is_india_address("Germany", True))
+    def test_checkout_state_handling_is_site_only(self):
+        checkout_state = _load_model_helper("_checkout_state_for_site")
+        for value in ("Berlin", "up"):
+            with self.subTest(site="optiwar.com", value=value):
+                self.assertEqual(checkout_state(value, False), value)
+        with self.assertRaises(india_states.InvalidState):
+            checkout_state("Berlin", True)
+        self.assertEqual(checkout_state("up", True), "Uttar Pradesh")
 
     def test_eu_ops_copy_is_byte_identical(self):
         self.assertEqual(
@@ -270,6 +270,23 @@ class IndiaStatesTest(unittest.TestCase):
         self.assertEqual(valid_db.cursor_instance.calls[0][1][2], "Uttar Pradesh")
         self.assertEqual(valid_db.commits, 1)
 
+        for state in ("Berlin", "up"):
+            with self.subTest(site="optiwar.com", state=state):
+                export_db = Database()
+                with app.test_request_context(
+                        "/profile/address/add", method="POST",
+                        base_url="https://optiwar.com",
+                        data={"address": "1 Main St", "state": state,
+                              "country": "India"}):
+                    session["user_id"] = 9
+                    add_address.__globals__.update(
+                        get_db=lambda: export_db, india_states=india_states,
+                        reship=_india_host_helper())
+                    response = add_address()
+                self.assertEqual(response.status_code, 302)
+                self.assertEqual(export_db.cursor_instance.calls[0][1][2], state)
+                self.assertEqual(export_db.commits, 1)
+
     def test_profile_edit_rejects_invalid_state_before_database_access(self):
         edit_address = _load_profile_handler("edit_address")
         app = Flask("profile_edit_state_tests")
@@ -283,6 +300,53 @@ class IndiaStatesTest(unittest.TestCase):
                 india_states=india_states, reship=_india_host_helper())
             response = edit_address(1)
         self.assertEqual(response.status_code, 302)
+
+    def test_profile_edit_export_site_preserves_state_with_india_country(self):
+        edit_address = _load_profile_handler("edit_address")
+
+        class Cursor:
+            def __init__(self):
+                self.calls = []
+
+            def execute(self, query, params=None):
+                self.calls.append((query, params))
+
+            def fetchone(self):
+                return {"address_id": 1}
+
+        class Database:
+            def __init__(self):
+                self.cursor_instance = Cursor()
+                self.commits = 0
+
+            def cursor(self):
+                return self.cursor_instance
+
+            def commit(self):
+                self.commits += 1
+
+            def rollback(self):
+                raise AssertionError("unexpected rollback")
+
+        app = Flask("profile_export_edit_state_tests")
+        app.secret_key = "test"
+        for state in ("Berlin", "up"):
+            with self.subTest(state=state):
+                db = Database()
+                with app.test_request_context(
+                        "/profile/address/edit/1", method="POST",
+                        base_url="https://optiwar.com",
+                        data={"address": "1 Main St", "state": state,
+                              "country": "India"}):
+                    session["user_id"] = 9
+                    session["user_email"] = "customer@example.com"
+                    edit_address.__globals__.update(
+                        get_db=lambda: db, india_states=india_states,
+                        reship=_india_host_helper())
+                    response = edit_address(1)
+                self.assertEqual(response.status_code, 302)
+                self.assertEqual(db.cursor_instance.calls[1][1][1], state)
+                self.assertEqual(db.commits, 1)
 
     def test_profile_address_data_json_preserves_ampersand_states(self):
         source = (REPO / "templates" / "profile.html").read_text()
@@ -329,6 +393,19 @@ def _load_profile_handler(name):
         "reship": _india_host_helper(),
         "get_db": None,
     }
+    exec(compile(ast.Module(body=[function], type_ignores=[]),
+                 str(path), "exec"), namespace)
+    return namespace[name]
+
+
+def _load_model_helper(name):
+    path = REPO / "models.py"
+    tree = ast.parse(path.read_text(), filename=str(path))
+    function = next(
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == name)
+    function.decorator_list = []
+    namespace = {"india_states": india_states}
     exec(compile(ast.Module(body=[function], type_ignores=[]),
                  str(path), "exec"), namespace)
     return namespace[name]

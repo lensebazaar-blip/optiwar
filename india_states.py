@@ -101,9 +101,3 @@ def require(value):
     if state is None:
         raise InvalidState("Please choose your state from the list.")
     return state
-
-
-def is_india_address(country, is_india_host):
-    """Whether the country identifies India, or is blank on the India host."""
-    value = str(country or "").strip().casefold()
-    return value in ("india", "in", "bharat") or (not value and bool(is_india_host))

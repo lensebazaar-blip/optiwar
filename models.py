@@ -129,6 +129,11 @@ def _get_site_from():
         pass
     return 'optiwar.com'
 
+
+def _checkout_state_for_site(state, is_india_site):
+    return india_states.require(state) if is_india_site else state
+
+
 # ===== GEO-CURRENCY DETECTION =====
 EUR_RATE = 93.0  # 1 EUR ≈ 93 INR (update periodically)
 
@@ -3199,8 +3204,7 @@ def checkout_page():
             print(f"[PREFILL] Error: {e}")
             traceback.print_exc()
 
-    if india_states.is_india_address(
-            prefill.get('country'), _req_is_india()):
+    if _req_is_india():
         prefill['state'] = india_states.normalize(prefill.get('state')) or ''
 
     # Fetch all saved addresses for address selector
@@ -3277,9 +3281,9 @@ def initiate_payment_route():
     customer_state = data.get('customer_state')
     customer_postcode = data.get('customer_postcode')
     country = data.get('country')
-    if india_states.is_india_address(country, _req_is_india()):
+    if _req_is_india():
         try:
-            customer_state = india_states.require(customer_state)
+            customer_state = _checkout_state_for_site(customer_state, True)
         except india_states.InvalidState as _invalid_state:
             return jsonify({"error": str(_invalid_state)}), 400
 
@@ -3417,9 +3421,9 @@ def checkout():
     customer_state = request.form.get('customer_state', '')
     customer_postcode = request.form['customer_postcode']
     country = request.form.get('country', '')
-    if india_states.is_india_address(country, _is_india):
+    if _is_india:
         try:
-            customer_state = india_states.require(customer_state)
+            customer_state = _checkout_state_for_site(customer_state, _is_india)
         except india_states.InvalidState as _invalid_state:
             flash(str(_invalid_state), 'danger')
             return redirect(url_for('main.checkout_page'))
@@ -3825,9 +3829,9 @@ def test_checkout():
     customer_state = request.form.get('customer_state', '')
     customer_postcode = request.form['customer_postcode']
     country = request.form.get('country', '')
-    if india_states.is_india_address(country, _req_is_india()):
+    if _req_is_india():
         try:
-            customer_state = india_states.require(customer_state)
+            customer_state = _checkout_state_for_site(customer_state, True)
         except india_states.InvalidState as _invalid_state:
             flash(str(_invalid_state), 'danger')
             return redirect(url_for('main.checkout_page'))

@@ -220,7 +220,7 @@ def add_address():
     if not address:
         flash('Address is required.', 'danger')
         return redirect(url_for('profile.profile_page'))
-    if india_states.is_india_address(country, reship.is_india_host(request.host)):
+    if reship.is_india_host(request.host):
         try:
             state = india_states.require(state)
         except india_states.InvalidState as exc:
@@ -258,7 +258,7 @@ def edit_address(address_id):
     if not address:
         flash('Address is required.', 'danger')
         return redirect(url_for('profile.profile_page'))
-    if india_states.is_india_address(country, reship.is_india_host(request.host)):
+    if reship.is_india_host(request.host):
         try:
             state = india_states.require(state)
         except india_states.InvalidState as exc:

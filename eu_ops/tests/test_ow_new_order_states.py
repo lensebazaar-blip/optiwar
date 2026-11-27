@@ -7,9 +7,9 @@ sys.path.insert(0, str(EU_OPS_ROOT))
 from services import ow_new_order
 
 
-def _draft(state, country="India"):
+def _draft(state, country="India", site="in.optiwar.com"):
     return {
-        "site": "in.optiwar.com",
+        "site": site,
         "customer": {
             "mode": "new",
             "name": "Customer",
@@ -84,3 +84,30 @@ def test_bharat_hr_normalizes_in_validation_and_both_write_paths():
         (query, params) for query, params in cursor.calls
         if "INSERT INTO customers_address" in query)
     assert address_insert[1][3] == "Haryana"
+
+
+def test_export_site_does_not_validate_or_normalize_india_country_state():
+    for state in ("Berlin", "up"):
+        draft = _draft(state, country="India", site="optiwar.com")
+        errors = ow_new_order.validate_draft(draft)
+        assert not any(error.startswith("State:") for error in errors)
+        assert draft["address"]["state"] == state
+
+        sql = ow_new_order.build_sql(draft, "930003")
+        assert f"'{state}'" in sql
+
+        class Cursor:
+            lastrowid = 10
+
+            def __init__(self):
+                self.calls = []
+
+            def execute(self, query, params=None):
+                self.calls.append((query, params))
+
+        cursor = Cursor()
+        ow_new_order._insert_order(cursor, draft, "930003", "test")
+        address_insert = next(
+            (query, params) for query, params in cursor.calls
+            if "INSERT INTO customers_address" in query)
+        assert address_insert[1][3] == state
