@@ -177,6 +177,21 @@ class IndiaStatesTest(unittest.TestCase):
                 self.assertIn('<input type="text" name="state"', profile_com)
                 self.assertNotIn("<select", profile_com)
 
+    def test_checkout_address_check_blocks_unmapped_india_state(self):
+        source = (REPO / "templates" / "checkout.html").read_text()
+        match = re.search(
+            r'function owValidateForm\(\) \{.*?(?=function owPostProgressiveScanEvent)',
+            source, re.S)
+        self.assertIsNotNone(match)
+        rendered_js = Environment().from_string(match.group(0)).render()
+        self.assertIn("var stateEl = document.getElementById('ck_state');", rendered_js)
+        self.assertIn(
+            "var missingState = isIndiaCheckout && stateEl && !stateEl.value.trim();",
+            rendered_js)
+        self.assertIn("stateEl.classList.add('ow-ck-field-missing')", rendered_js)
+        self.assertIn("'Please choose your state from the list'", rendered_js)
+        self.assertIn("missingState && !missingRequiredField", rendered_js)
+
     def test_eu_ops_order_entry_renders_and_preselects_canonical_state(self):
         source = (REPO / "eu_ops" / "templates" / "pages"
                   / "ow_new_order.html").read_text()

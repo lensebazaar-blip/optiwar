@@ -2074,9 +2074,9 @@ document.querySelectorAll('.ow-ck-gw').forEach(function(gw) {
 });
 
 /* ═══ Saved address selection ═══ */
-var indiaStateNames = {{ india_state_names|tojson }};
-var indiaStateLookup = {{ india_state_lookup|tojson }};
-var isIndiaCheckout = {{ 'true' if is_india else 'false' }};
+var indiaStateNames = {{ india_state_names|default([])|tojson }};
+var indiaStateLookup = {{ india_state_lookup|default({})|tojson }};
+var isIndiaCheckout = {{ 'true' if is_india|default(false) else 'false' }};
 function setCheckoutState(value) {
   var state = document.getElementById('ck_state');
   if (!state) return;
@@ -2218,12 +2218,27 @@ function owScrollToPayment() {
 /* ═══ Form validation ═══ */
 function owValidateForm() {
   var valid = true;
+  var missingRequiredField = false;
   owClearMissing();
   ['ck_name','ck_address','ck_phone','ck_email','ck_postcode'].forEach(function(id) {
     var el = document.getElementById(id);
-    if (el && !el.value.trim()) { el.classList.add('ow-ck-field-missing'); valid = false; }
+    if (el && !el.value.trim()) {
+      el.classList.add('ow-ck-field-missing');
+      valid = false;
+      missingRequiredField = true;
+    }
   });
-  if (!valid) owShowToast('Please fill all required fields');
+  var stateEl = document.getElementById('ck_state');
+  var missingState = isIndiaCheckout && stateEl && !stateEl.value.trim();
+  if (missingState) {
+    stateEl.classList.add('ow-ck-field-missing');
+    valid = false;
+  }
+  if (!valid) {
+    owShowToast(missingState && !missingRequiredField
+      ? 'Please choose your state from the list'
+      : 'Please fill all required fields');
+  }
   var faceScan = document.getElementById('owProgressiveScan');
   var faceScanAck = document.getElementById('owFaceScanAck');
   if (valid && faceScan && (!faceScanAck || !faceScanAck.checked)) {
