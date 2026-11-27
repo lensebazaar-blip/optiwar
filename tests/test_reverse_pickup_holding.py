@@ -76,7 +76,7 @@ class HoldingTest(unittest.TestCase):
         text = [m[2] for m in self.mails if m[1] == "Optiwar Return Inspection Update"][0]
         self.assertIn("Please reply by %s (60 days from the inspection)" % row["abandon_at"].strftime("%d %b %Y"),
                       text)
-        self.assertIn("treated as unclaimed under section 12", text)
+        self.assertIn("treated as unclaimed under section 17", text)
 
         defect, _a = self._inspected(defect=True, fee="WAIVED")
         self.assertIsNone(self._row(defect)["abandon_at"])
@@ -137,7 +137,7 @@ class HoldingTest(unittest.TestCase):
         self.assertIsNotNone(row["abandoned_at"])
         self.assertIn("No customer reply within 60 days", row["abandon_reason"])
         self.assertEqual(self._subjects(), ["Optiwar Return Closed: Product Unclaimed"])
-        self.assertIn("treated as unclaimed under section 12", self.mails[0][2])
+        self.assertIn("treated as unclaimed under section 17", self.mails[0][2])
         self.assertEqual(self._sweep()["abandoned"], 0)
         self.assertEqual(rp.abandon(self.db, row["case_uuid"])[0], "not_open")
         self.assertEqual(len(self.mails), 1)

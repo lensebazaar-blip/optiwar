@@ -23,6 +23,7 @@ TERMS_URL = "/terms_and_conditions"
 RETURNS_URL = "/terms_and_conditions#returns-policy"
 
 LENS_DEDUCTION_CAP_PERCENT = 50
+CANCELLATION_WINDOW_HOURS = 4
 
 SITE_IN = "in"
 SITE_COM = "com"
@@ -30,13 +31,13 @@ SITE_COM = "com"
 # ---------------------------------------------------------------------------
 # Terms & Conditions (shared)
 
-TERMS_VERSION_DATE = "2026-11-09"
+TERMS_VERSION_DATE = "2026-11-26"
 
 # ---------------------------------------------------------------------------
-# Returns, Replacements & Limited Warranty Policy — optiwar.in
+# Returns and Replacements Policy — optiwar.in
 
 RETURNS_IN = """\
-OPTIWAR RETURNS, REPLACEMENTS & LIMITED WARRANTY POLICY
+OPTIWAR RETURNS AND REPLACEMENTS POLICY
 
 Effective for Retail and Wholesale Orders placed on optiwar.in
 
@@ -46,7 +47,7 @@ Optiwar operates as a modern electronic wholesale optical factory outlet. Our pr
 
 Optiwar is not a neighbourhood optical shop, boutique eyewear store or physical fitting centre.
 
-Before placing and paying for an order, every customer is required to read and expressly accept this Returns, Replacements & Limited Warranty Policy and Optiwar's applicable Terms & Conditions.
+Before placing and paying for an order, every customer is required to read and expressly accept this Returns and Replacements Policy and Optiwar's applicable Terms & Conditions.
 
 By affirmatively accepting these terms and placing the order, the customer confirms that:
 
@@ -173,9 +174,17 @@ Optiwar may request reasonable supporting material, including:
 - photographs of the alleged defect; or
 - return of the product for physical inspection.
 
-After verification, Optiwar will determine the appropriate repair, replacement, refund or other remedy according to the circumstances, applicable warranty and applicable law.
+After verification, Optiwar will determine the appropriate repair, replacement, refund or other remedy according to the circumstances and applicable law.
 
-8. CUSTOMER MAY REQUEST A RETURN — BUT RETURN AUTHORIZATION IS REQUIRED
+8. DAMAGE ON ARRIVAL AND LOSS IN TRANSIT
+
+If a product arrives damaged or not working, the customer must report it from My Orders within 7 days of delivery, with photographs or video of the outer package, the inner packing and the product as received. Optiwar may ask for the product to be returned for inspection. After verification, Optiwar will replace the product or refund the amount paid for it.
+
+If a shipment is lost in transit, Optiwar will refund or resend the order once the courier has confirmed the loss in writing. A shipment the courier shows as delivered is not treated as lost unless the courier confirms otherwise.
+
+Apart from the cases in this clause and the clause above, the amount paid is not refundable unless Optiwar approves a return under the return-authorization clause below.
+
+9. CUSTOMER MAY REQUEST A RETURN — BUT RETURN AUTHORIZATION IS REQUIRED
 
 A customer wishing to return a product should first submit a return request to Optiwar within 7 days of delivery of the order, from My Orders on optiwar.in, with a description of the problem and, where a manufacturing defect is reported, at least two photographs of the defect.
 
@@ -193,7 +202,7 @@ The final outcome and refund amount may depend upon physical inspection.
 
 Customers should not send goods to an Optiwar location until return instructions have been issued.
 
-9. RETURN / REVERSE-PICKUP COST
+10. RETURN / REVERSE-PICKUP COST
 
 Unless Optiwar expressly confirms otherwise in writing, the customer is responsible for the cost of returning goods under an approved discretionary return or replacement request.
 
@@ -206,7 +215,7 @@ Where applicable, the relevant GST invoice/document for reverse logistics will b
 
 The reverse-pickup price may change from time to time according to courier, location, package weight and other logistics factors.
 
-10. INSPECTION DETERMINES THE RETURN OUTCOME
+11. INSPECTION DETERMINES THE RETURN OUTCOME
 
 All returned goods may be physically inspected before the final refund or replacement decision.
 
@@ -226,7 +235,7 @@ Inspection may determine:
 
 The refund is determined from the actual circumstances found on inspection, rather than automatically from the customer's characterization of the complaint or Optiwar's initial authorization to return the goods.
 
-11. REFUND CALCULATION FOR AN APPROVED DISCRETIONARY RETURN
+12. REFUND CALCULATION FOR AN APPROVED DISCRETIONARY RETURN
 
 Where a return of a correctly supplied product is accepted by Optiwar as a commercial accommodation, the refund may be calculated as follows:
 
@@ -249,7 +258,7 @@ Optiwar will not apply an arbitrary percentage merely because a return has occur
 
 Where Optiwar is responsible for an incorrect supply or a covered manufacturing defect, the appropriate remedy will be determined separately rather than automatically applying this discretionary-return formula.
 
-12. USED, ALTERED OR CUSTOMER-DAMAGED PRODUCTS
+13. USED, ALTERED OR CUSTOMER-DAMAGED PRODUCTS
 
 Optiwar may reject a discretionary refund where inspection shows that a product has been materially used, damaged, modified, improperly handled, altered, repaired or worked upon by a third party.
 
@@ -259,7 +268,7 @@ The customer should provide collection/redelivery instructions within the period
 
 Unclaimed returned goods will be dealt with according to the applicable terms and law.
 
-13. CONTACT LENSES AND SEALED/HYGIENE-SENSITIVE PRODUCTS
+14. CONTACT LENSES AND SEALED/HYGIENE-SENSITIVE PRODUCTS
 
 Opened, worn, used, unsealed or tampered contact-lens packs and other hygiene-sensitive products are not accepted for discretionary return.
 
@@ -271,7 +280,7 @@ An error in prescription information entered or confirmed by the customer does n
 
 Incorrectly supplied goods or genuine covered product defects will be reviewed separately.
 
-14. RETURN DECISIONS ARE PRODUCT-SPECIFIC
+15. RETURN DECISIONS ARE PRODUCT-SPECIFIC
 
 Optiwar sells different categories of optical products.
 
@@ -279,7 +288,7 @@ The returnability of a frame, finished prescription spectacles, prescription len
 
 A written return authorization for one component does not automatically authorize return or refund of every other component in the order.
 
-15. COMMUNICATION AND WRITTEN RECORD
+16. COMMUNICATION AND WRITTEN RECORD
 
 Return and replacement decisions should be communicated in writing.
 
@@ -287,7 +296,7 @@ The customer should retain the order confirmation, invoice, prescription details
 
 Optiwar will similarly retain the applicable order and acceptance record according to its record-retention practices.
 
-16. FAILED DELIVERY, RETURNED PACKAGES AND UNCLAIMED PARCELS
+17. FAILED DELIVERY, RETURNED PACKAGES AND UNCLAIMED PARCELS
 
 Where the courier cannot deliver an order (for example an incorrect or incomplete address, an unreachable phone number, refusal at the door or repeated absence) and returns the package to Optiwar, the order is not cancelled and the amount paid is not refunded on that account. Optiwar will inform the customer that the package is coming back.
 
@@ -297,13 +306,13 @@ Optiwar will hold a returned package for sixty (60) days counted from the date i
 
 If the reshipping charge has not been paid and the package has not been reshipped when the holding period ends, the package will be treated as abandoned. Reshipment through the customer's account is then no longer available, and Optiwar may handle or dispose of the abandoned goods as permitted by applicable law. The customer may write to support@optiwar.com within the holding period if the notified deadline needs to be reviewed. Nothing in this clause limits any right the customer has under law that cannot be excluded.
 
-17. ACCEPTANCE AT CHECKOUT
+18. ACCEPTANCE AT CHECKOUT
 
 This policy forms part of the terms upon which Optiwar accepts an order.
 
-The customer is shown the applicable terms before payment/order confirmation, and the checkout requires an affirmative, un-preselected acceptance of Optiwar's Terms & Conditions and this Returns, Replacements & Limited Warranty Policy. The version accepted is recorded against the order.
+The customer is shown the applicable terms before payment/order confirmation, and the checkout requires an affirmative, un-preselected acceptance of Optiwar's Terms & Conditions and this Returns and Replacements Policy. The version accepted is recorded against the order.
 
-18. CUSTOMER ACKNOWLEDGEMENT
+19. CUSTOMER ACKNOWLEDGEMENT
 
 By affirmatively accepting the applicable terms and placing an order, the customer acknowledges that the disclosed conditions formed part of the purchase decision.
 
@@ -314,7 +323,7 @@ Acceptance of these terms does not mean that Optiwar can disregard obligations t
 # Returns policy — optiwar.com (international)
 
 RETURNS_COM = """\
-OPTIWAR RETURNS, REPLACEMENTS & LIMITED WARRANTY POLICY — INTERNATIONAL ORDERS
+OPTIWAR RETURNS AND REPLACEMENTS POLICY
 
 Effective for Retail and Wholesale Orders placed on optiwar.com
 
@@ -368,7 +377,9 @@ Optiwar is not responsible for scratches, chips, marks, tool marks, deformation 
 
 Where the customer claims that Optiwar supplied the wrong product, wrong specification, wrong prescription or a product with a genuine manufacturing defect present when supplied, Optiwar will investigate the claim on the evidence: photographs or video, order number, product packaging, prescription, measurements and product labels.
 
-After verification, Optiwar will determine the appropriate remedy according to the circumstances, applicable warranty and applicable law. This is the only route by which an international order is reviewed; it is not a return or refund facility for correctly supplied goods.
+After verification, Optiwar will determine the appropriate remedy according to the circumstances and applicable law. This is the only route by which an international order is reviewed; it is not a return or refund facility for correctly supplied goods.
+
+A parcel lost by the courier before delivery is refunded or resent once the courier confirms the loss in writing. Detention, confiscation or refusal by customs or any other authority is not a loss in transit.
 
 7. CONTACT LENSES AND SEALED/HYGIENE-SENSITIVE PRODUCTS
 
@@ -385,9 +396,9 @@ Decisions on incorrect-supply and defect claims are communicated in writing. The
 This policy forms part of the terms upon which Optiwar accepts an order. The customer is shown the applicable terms before payment, and the checkout requires an affirmative, un-preselected acceptance of Optiwar's Terms & Conditions and this policy. The version accepted is recorded against the order.
 """
 
-# .in 2026-09-27: clause 16 (failed delivery, returned packages, 60-day hold
+# .in 2026-09-27: clause 17 (failed delivery, returned packages, 60-day hold
 # from physical receipt, abandonment). Earlier versions stay sealed as accepted.
-RETURNS_VERSION_DATE = {SITE_IN: "2026-10-03", SITE_COM: "2026-09-15"}
+RETURNS_VERSION_DATE = {SITE_IN: "2026-11-26", SITE_COM: "2026-11-26"}
 RETURNS_TEXT = {SITE_IN: RETURNS_IN, SITE_COM: RETURNS_COM}
 
 # What the customer ticks, immediately before paying. Each is the concise form
@@ -395,7 +406,7 @@ RETURNS_TEXT = {SITE_IN: RETURNS_IN, SITE_COM: RETURNS_COM}
 # the text is part of the sealed document.
 ACCEPTANCE_IN = (
     "I have reviewed my order and prescription selections and agree to Optiwar's "
-    "Terms & Conditions and Returns, Replacements & Limited Warranty Policy. "
+    "Terms & Conditions and Returns and Replacements Policy. "
     "I understand that Optiwar is an electronic wholesale/factory-outlet service; "
     "correctly supplied customized prescription products have restricted returns; "
     "prescription-lens/customization value of up to 50% of the relevant returned "
@@ -404,7 +415,7 @@ ACCEPTANCE_IN = (
 )
 ACCEPTANCE_COM = (
     "I have reviewed my order and prescription selections and agree to Optiwar's "
-    "Terms & Conditions and Returns, Replacements & Limited Warranty Policy. "
+    "Terms & Conditions and Returns and Replacements Policy. "
     "I understand that Optiwar is an electronic wholesale/factory-outlet service "
     "exporting from India, and that international orders are absolutely "
     "non-returnable and non-refundable once placed."
@@ -413,12 +424,12 @@ ACCEPTANCE_TEXT = {SITE_IN: ACCEPTANCE_IN, SITE_COM: ACCEPTANCE_COM}
 
 # AI Glasses (ai_glasses.py, optiwar.in only). The clause and the acceptance
 # sentence join the .in policy when the release flag goes on, as a new version;
-# until then .in stays on its sealed 2026-10-03 version.
+# until then .in stays on its sealed 2026-11-26 version.
 AIG_FLAG = "AI_GLASSES_IN_ENABLED"
-AIG_RETURNS_VERSION_DATE = "2026-10-31"
-AIG_CLAUSE_BEFORE = "14. RETURN DECISIONS ARE PRODUCT-SPECIFIC"
+AIG_RETURNS_VERSION_DATE = "2026-11-26-aig"
+AIG_CLAUSE_BEFORE = "15. RETURN DECISIONS ARE PRODUCT-SPECIFIC"
 AIG_CLAUSE = """\
-13A. AI GLASSES (SMART EYEWEAR) — DEAD ON ARRIVAL ONLY
+14A. AI GLASSES (SMART EYEWEAR) — DEAD ON ARRIVAL ONLY
 
 AI Glasses are sold separately from Optiwar frames, with their own lens options, and are not part of Optiwar's complimentary-lens offer.
 
@@ -688,7 +699,7 @@ def require(form, site):
     if not accepted(form, site):
         raise NotAccepted(
             "Please tick the box to accept Optiwar's Terms & Conditions and "
-            "Returns, Replacements & Limited Warranty Policy before paying.")
+            "Returns and Replacements Policy before paying.")
 
 
 def record(cursor, order_id, site, cart, checkout_token=None, customer_id=None,
@@ -743,7 +754,7 @@ def confirmation_line(site_host, acceptance=None):
     """The sentence the confirmation email carries, with the version it names."""
     host = site_host or "optiwar.com"
     line = ("Your order was placed subject to the Optiwar Terms & Conditions and "
-            "Returns, Replacements & Limited Warranty Policy accepted at checkout.")
+            "Returns and Replacements Policy accepted at checkout.")
     if acceptance:
         line += " (Terms %s, Returns policy %s.)" % (
             acceptance.get("terms_version"), acceptance.get("returns_policy_version"))

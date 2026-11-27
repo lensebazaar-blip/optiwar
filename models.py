@@ -197,7 +197,9 @@ def inject_currency():
         'is_eur': not _india,
         'currency_symbol': '₹' if _india else '€',
         'eur_rate': EUR_RATE,
-        'google_maps_api_key': GOOGLE_MAPS_API_KEY
+        'google_maps_api_key': GOOGLE_MAPS_API_KEY,
+        'current_year': datetime.now().year,
+        'support_url': "/?support=legacy_contact_us"
     }
 
 
@@ -4432,7 +4434,8 @@ def terms_and_conditions():
     return render_template('terms-and-conditions.html',
                            returns_policy_html=policy_terms.returns_html(site),
                            returns_policy_version=cur['returns']['version'],
-                           terms_version=cur['terms']['version'])
+                           terms_version=cur['terms']['version'],
+                           is_india=site == policy_terms.SITE_IN)
 
 
 @bp.route('/privacy_policy')
@@ -6357,7 +6360,7 @@ def llms_txt():
 - Free complimentary single-vision lenses with every frame
 - Lens upgrades: Anti-Glare (₹50/€5), Blue Cut (₹100/€7), Multi Anti-Glare (₹200/€7), Polarized (₹800/€10), Thin (₹100/€10), Extra-Thin (₹350/€7), Photo-Grey (₹350/€10), Photo-Brown (₹650/€10), Bifocal KT (₹250/€8), Bifocal D (₹500/€8), Progressive (₹1000/€10)
 - Categories: Supra (Half Frame), Browline, Round, Rectangle, Rimless, Classic Square
-- Ships globally via FedEx / DHL — free shipping, no minimums
+- Delivery timing and charges depend on the site and destination; see the Shipping Policy
 - Support via ticketing only — 24hr response time
 
 ## Product Catalog API
@@ -6381,11 +6384,12 @@ def llms_txt():
 
 ## Pricing
 - Frames: ₹499–₹999 (INR) / €5–€11 (EUR)
-- Free shipping on all orders — no minimums worldwide
+- Standard delivery within India is free; paid delivery upgrades may be available at checkout
+- International delivery charges may depend on destination; an "Others" destination receives an additional-charge invoice
 
 ## Shipping
-- Ships from Gurgaon, India within 24-36 hours (complex Rx: 3-7 days)
-- Delivery: 3-7 business days globally via FedEx/DHL
+- Delivery within India: 1-45 days from the order date; maximum 45 days
+- Delivery outside India: from 3 days for countries with modern customs clearance, up to 45 days or more where a parcel is refused or detained
 - Customer pays import duties/taxes in their country
 - No shipping to USA (FDA regulations) or India via optiwar.com (use optiwar.in)
 
@@ -6407,10 +6411,11 @@ def llms_txt():
 - INR via Paytm (optiwar.in), EUR via Razorpay (optiwar.com)
 
 ## Returns & Cancellation
-- Cancel within 6hrs free; processed orders up to 50% fee
-- International: 7% unprocessed / 57% processed cancellation fee
-- Returns subjective — factory outlet pricing, no warranty
-- Refunds to original payment method in 3-5 business days
+- optiwar.in: raise a free cancellation request within __CANCELLATION_WINDOW_HOURS__ hours; after that the order is in processing and cannot be cancelled
+- optiwar.in: accepted cancellation refunds go to the original payment method within 3-5 business days; submit a request at /?support=legacy_contact_us and keep the ticket number
+- optiwar.com: international orders cannot be cancelled, returned or refunded once placed and paid
+- optiwar.in: no general change-of-mind returns; report damage on arrival within 7 days from My Orders with package and product photos or video
+- An approved discretionary .in return of customized prescription spectacles may deduct up to 50% of the returned value for the customized lenses and processing
 
 ## AI Guides
 - PD Measurement: https://optiwar.com/ai-guide/pd-measurement
@@ -6444,7 +6449,10 @@ def llms_txt():
 - Email: support@optiwar.com
 - Instagram: @optiwar_
 - Address: Godown Village Fazilpur, Badshahpur Tethar(222), Badshahpur, Gurgaon-122101 India
-"""
+    """
+    text = text.replace(
+        "__CANCELLATION_WINDOW_HOURS__",
+        str(policy_terms.CANCELLATION_WINDOW_HOURS))
     if _req_is_india():
         text = text.replace('https://optiwar.com/', 'https://optiwar.in/')
     response = make_response(text)
@@ -6535,9 +6543,9 @@ def ai_faq():
             'questions': [
                 {'q': 'Where does Optiwar ship to?', 'a': '<strong>optiwar.in</strong> ships within India. <strong>optiwar.com</strong> ships globally except USA (FDA regulations) and India (use optiwar.in). All products ship from Gurgaon, India.'},
                 {'q': 'Why no shipping to the USA?', 'a': 'Due to potential US FDA detentions on eyewear imports. In the interest of site visitors, US shipping is paused. This may change in the future.'},
-                {'q': 'How long does shipping take?', 'a': 'Most orders ship within <strong>24\u201336 hours</strong>. Complex prescriptions: 3\u20137 days. Once shipped, delivery is <strong>3\u20137 business days</strong> globally via FedEx/DHL.'},
+                {'q': 'How long does shipping take?', 'a': 'Delivery within India takes between 1 and 45 days from the order date, with a maximum delivery time of 45 days. Delivery outside India takes from 3 days for countries with modern customs clearance, and up to 45 days or more where a parcel is refused or detained.'},
                 {'q': 'Which carriers are used?', 'a': '<strong>FedEx</strong> and <strong>DHL</strong> for global shipping. AWB tracking shared via email once shipped.'},
-                {'q': 'Is shipping free?', 'a': '<strong>Yes \u2014 100% free</strong> on all orders, no minimum. Applies to both domestic (India) and international.'},
+                {'q': 'Is shipping free?', 'a': ('Standard delivery within India is free. Expedite and 24-hour Delhi NCR delivery are optional paid upgrades where available at checkout.' if is_india else 'International delivery charges may depend on the destination. If you choose "Others" as the destination, an additional-charge invoice is sent based on your location.')},
                 {'q': 'Can I track my order?', 'a': 'Yes. Once shipped, you receive an AWB tracking number via email. Track on FedEx or DHL website.'},
             ]
         },
@@ -6551,12 +6559,12 @@ def ai_faq():
         {
             'id': 'returns', 'label': 'Returns', 'title': 'Returns & Cancellation',
             'questions': [
-                {'q': 'Can I cancel my order?', 'a': '<strong>Within 6 hours</strong> (unprocessed) \u2014 free cancellation. <strong>Processed orders</strong> \u2014 up to 50% cancellation fee. <strong>International unprocessed</strong> \u2014 7% fee. <strong>International processed</strong> \u2014 57% fee. Submit via contact form.'},
-                {'q': 'What is the return policy?', 'a': 'Returns are subjective at factory outlet pricing. Product must be returned to Optiwar\'s location. Refund at 5% discount of product value. Used/damaged products not refunded. Customer bears return shipping. International orders cannot be returned once shipped.'},
-                {'q': 'How long do refunds take?', 'a': 'Approved refunds process to the original payment method within <strong>3\u20135 business days</strong>.'},
-                {'q': 'Can I return international orders?', 'a': 'No. International orders once shipped with AWB cannot be returned or refunded per RBI export rules.'},
-                {'q': 'Is there a warranty?', 'a': 'Optiwar is a factory outlet with exceptional direct factory pricing. Factory outlet products do not include traditional warranty terms.'},
-                {'q': 'What if I receive a damaged product?', 'a': 'Contact support immediately via the ticketing system. Handled case-by-case. Customer bears return shipping.'},
+                {'q': 'Can I cancel my order?', 'a': (f'An order on optiwar.in can be cancelled free of charge within {policy_terms.CANCELLATION_WINDOW_HOURS} hours by raising a support request and keeping its ticket number. After {policy_terms.CANCELLATION_WINDOW_HOURS} hours the order is in processing and can no longer be cancelled. An accepted cancellation is refunded to the original payment method within 3 to 5 business days.' if is_india else 'Orders placed on optiwar.com are international orders and cannot be cancelled once placed and paid, as set out in the policy below.')},
+                {'q': 'What is the return policy?', 'a': ("A correctly supplied product is not automatically returnable because of a change of mind. Report a product that arrives damaged or not working from My Orders within 7 days of delivery, with photos or video of the package and product. Other returns require Optiwar's written authorization and inspection." if is_india else "International orders on optiwar.com cannot be returned or refunded once placed. Incorrectly supplied products, genuine defects present when supplied, and courier-confirmed loss in transit are reviewed under the policy.")},
+                {'q': 'How long do refunds take?', 'a': ('Where a cancellation is accepted, the amount paid is refunded to the original payment method within 3 to 5 business days.' if is_india else 'optiwar.com international orders are not refundable once placed, except where a remedy is approved for a claim covered by the policy.')},
+                {'q': 'Can I return international orders?', 'a': 'No. International orders on optiwar.com cannot be cancelled, returned or refunded once placed and paid, subject to the separate review of incorrectly supplied products, genuine defects and courier-confirmed loss in transit.'},
+                {'q': 'Is there a warranty?', 'a': "Optiwar gives no warranty or guarantee of its own on products. If a manufacturer provides its own product warranty, it is given by the manufacturer and is subject to the manufacturer's terms."},
+                {'q': 'What if I receive a damaged product?', 'a': ('Report it from My Orders within 7 days of delivery, with photos or video of the outer package, inner packing and product. Optiwar may request the product for inspection; after verification it will replace the product or refund the amount paid.' if is_india else 'A wrong product or genuine manufacturing defect present when supplied will be investigated from the available evidence. A parcel lost before delivery is refunded or resent once the courier confirms the loss in writing.')},
             ]
         },
         {
@@ -6570,9 +6578,9 @@ def ai_faq():
         {
             'id': 'ordering', 'label': 'Ordering', 'title': 'Order Process',
             'questions': [
-                {'q': 'What is the step-by-step order process?', 'a': '1. Browse & select frame. 2. Add to cart. 3. Enter prescription. 4. Choose lens upgrades. 5. Checkout with delivery details. 6. Complete payment. 7. Receive email confirmation. 8. Order ships within 24\u201336hrs. 9. Track via AWB.'},
+                {'q': 'What is the step-by-step order process?', 'a': '1. Browse & select frame. 2. Add to cart. 3. Enter prescription. 4. Choose lens upgrades. 5. Checkout with delivery details. 6. Complete payment. 7. Receive email confirmation. Delivery follows the shipping policy; tracking (AWB) is shared after dispatch.'},
                 {'q': 'Can I order without an account?', 'a': 'Guest checkout is available. Creating an account lets you track orders, save addresses, and reorder easily.'},
-                {'q': 'Can I change my order after placing it?', 'a': 'Contact support ASAP via ticketing. Unprocessed orders (within 6hrs) have the best chance. Once lens processing begins, changes may not be possible.'},
+                {'q': 'Can I change my order after placing it?', 'a': (f'Raise a cancellation request through the support assistant within {policy_terms.CANCELLATION_WINDOW_HOURS} hours of placing the order and keep the ticket number. After that the order is in processing and cannot be cancelled.' if is_india else 'Orders placed on optiwar.com are international orders and cannot be cancelled once placed and paid.')},
                 {'q': 'Can I view past orders?', 'a': f'Yes. Log in and visit <a href="{site_url}/my_orders">My Orders</a>.'},
                 {'q': 'Can I save multiple delivery addresses?', 'a': 'Yes. Logged-in customers can save and manage multiple addresses in their profile.'},
             ]
