@@ -106,4 +106,4 @@ def require(value):
 def is_india_address(country, is_india_host):
     """Whether the country identifies India, or is blank on the India host."""
     value = str(country or "").strip().casefold()
-    return value in ("india", "in") or (not value and bool(is_india_host))
+    return value in ("india", "in", "bharat") or (not value and bool(is_india_host))

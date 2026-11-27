@@ -106,7 +106,7 @@ class IndiaStatesTest(unittest.TestCase):
 
     def test_invalid_values_are_rejected(self):
         for value in ("Berlin", "Harayana", "Karanataka", "Utter Pradesh",
-                      "India", ""):
+                      "India", "Bharat", ""):
             with self.subTest(value=value):
                 self.assertIsNone(india_states.normalize(value))
                 with self.assertRaisesRegex(
@@ -118,7 +118,7 @@ class IndiaStatesTest(unittest.TestCase):
             india_states.require(None)
 
     def test_is_india_address_uses_country_and_host(self):
-        for country in ("India", " india ", "IN", " in "):
+        for country in ("India", " india ", "IN", " in ", "Bharat", " bharat "):
             with self.subTest(country=country):
                 self.assertTrue(india_states.is_india_address(country, False))
         self.assertTrue(india_states.is_india_address("", True))
