@@ -4,12 +4,13 @@ Two ways to land an order in optiwar2, from the same draft:
 
 * ``build_sql`` emits a script an operator runs by hand — the original path, and
   still the fallback whenever the write account is not configured.
-* ``create_order`` performs the same inserts itself, in one short transaction
-  under an INSERT-only account (see ``database.ow_write_transaction``).
+* ``create_order`` performs the same writes itself, in one short transaction
+  under the optiwar2 write account (see ``database.ow_write_transaction``).
 
-Everything else here reads. Nothing in this module ever UPDATEs or DELETEs a row
-in optiwar2, and no path touches ``products`` — inventory moves only when the
-customer pays, on the storefront. Drafts live in the ops database (oslb6).
+Existing India-site addresses may have their state spelling canonicalized;
+otherwise existing address rows are left unchanged. No path touches ``products`` —
+inventory moves only when the customer pays, on the storefront. Drafts live in
+the ops database (oslb6).
 """
 import json
 import logging
@@ -131,6 +132,21 @@ def get_customer_addresses(customer_id: int):
             FROM customers_address WHERE customer_id = %s ORDER BY address_id DESC
         """, (customer_id,))
         return cur.fetchall()
+
+
+def _get_customer_address(customer_id, address_id):
+    try:
+        customer_id = int(customer_id)
+        address_id = int(address_id)
+    except (TypeError, ValueError):
+        return None
+    for address in get_customer_addresses(customer_id):
+        try:
+            if int(address.get("address_id") or 0) == address_id:
+                return address
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 def get_customer_rx(customer_id: int, limit: int = 30):
@@ -391,6 +407,15 @@ def validate_draft(data: dict):
     if addr.get("mode") == "existing":
         if not addr.get("address_id"):
             errs.append("Select a delivery address or enter a new one.")
+        elif site == "in.optiwar.com":
+            saved_address = _get_customer_address(
+                cust.get("customer_id"), addr.get("address_id"))
+            if saved_address is not None:
+                saved_state = saved_address.get("state")
+                if india_states.normalize(saved_state) is None:
+                    errs.append(
+                        f"Saved address state '{saved_state}' is not one of the "
+                        "36 Indian states: add a new address with the correct state.")
     else:
         for field, label in (("address", "Address line 1"),
                              ("zipcode", "Zipcode"), ("country", "Country")):
@@ -428,6 +453,14 @@ def build_sql(data: dict, order_id: str, actor: str = "ops") -> str:
     existing_state_update = None
     if addr.get("mode") != "existing" and site == "in.optiwar.com":
         address_state = india_states.require(address_state)
+    elif addr.get("mode") == "existing" and site == "in.optiwar.com":
+        saved_address = _get_customer_address(
+            cust.get("customer_id"), addr.get("address_id"))
+        if saved_address is not None:
+            saved_state = saved_address.get("state")
+            normalized_state = india_states.normalize(saved_state)
+            if normalized_state is not None and normalized_state != saved_state:
+                existing_state_update = normalized_state
     lines = data.get("lines") or []
     note = _ascii(data.get("note") or "")
     total = draft_total(data)
@@ -468,6 +501,9 @@ def build_sql(data: dict, order_id: str, actor: str = "ops") -> str:
         a(f"SET @address_id = {int(addr['address_id'])};   -- existing address")
         a("SELECT address_id, address, state, zipcode, country FROM customers_address "
           "WHERE address_id = @address_id AND customer_id = @customer_id;")
+        if existing_state_update is not None:
+            a(f"UPDATE customers_address SET state = {_q(existing_state_update)} "
+              "WHERE address_id = @address_id AND customer_id = @customer_id;")
     else:
         a("-- delivery address")
         a("INSERT INTO customers_address (customer_id, address, address2, state, zipcode,")
@@ -575,7 +611,7 @@ def _order_id_is_free(cur, order_id: str) -> bool:
 
 
 def _insert_order(cur, data: dict, order_id: str, actor: str):
-    """The inserts, in the order build_sql writes them. Runs inside a transaction.
+    """The writes, in the order build_sql emits them. Runs inside a transaction.
 
     Reads inside here are plain SELECTs under READ COMMITTED: no FOR UPDATE, so a
     live checkout never waits on this."""
@@ -600,10 +636,19 @@ def _insert_order(cur, data: dict, order_id: str, actor: str):
 
     if addr.get("mode") == "existing":
         address_id = int(addr["address_id"])
-        cur.execute("SELECT address_id FROM customers_address "
+        address_fields = "address_id, state" if site == "in.optiwar.com" else "address_id"
+        cur.execute(f"SELECT {address_fields} FROM customers_address "
                     "WHERE address_id = %s AND customer_id = %s", (address_id, customer_id))
-        if not cur.fetchone():
+        saved_address = cur.fetchone()
+        if not saved_address:
             raise ValueError(f"address {address_id} does not belong to customer {customer_id}")
+        if site == "in.optiwar.com":
+            saved_state = saved_address.get("state")
+            normalized_state = india_states.normalize(saved_state)
+            if normalized_state is not None and normalized_state != saved_state:
+                cur.execute(
+                    "UPDATE customers_address SET state=%s WHERE address_id=%s AND customer_id=%s",
+                    (normalized_state, address_id, customer_id))
     else:
         cur.execute("""
             INSERT INTO customers_address (customer_id, address, address2, state, zipcode,
