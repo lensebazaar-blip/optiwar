@@ -613,6 +613,11 @@ document.querySelectorAll('.face-scan-photo-button').forEach(function(button) {
 <!-- Quick Actions -->
 <div class="detail-grid">
     <div class="card">
+        {% if invoice_pos and invoice_pos.note %}
+        <div class="alert alert-warning" style="margin-bottom:12px;">
+            <strong>Place-of-supply note:</strong> {{ invoice_pos.note }}
+        </div>
+        {% endif %}
         <h3>Quick Actions</h3>
         <div class="action-buttons">
             <a href="{{ base }}/orders/ow/{{ order.order_id }}/invoice" target="_blank" class="btn btn-primary btn-full" style="margin-bottom:10px;">

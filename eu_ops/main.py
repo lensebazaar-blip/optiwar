@@ -51,6 +51,7 @@ from services import payments_razorpay as rzp
 from services import optiwar_refunds as ow_refunds
 from services import invoice_dates
 from services import invoice_series
+from services import place_of_supply
 from services import frame_offers as frame_offers_svc
 
 ROOT_PATH = os.getenv("OPP_ROOT_PATH", "")
@@ -444,6 +445,9 @@ async def ow_order_detail(request: Request, order_id: str, user: dict = Depends(
     order = ow_orders.get_order(order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    invoice_pos = (
+        ow_orders.get_invoice_pos(order_id)
+        if order.get("site_from") == "in.optiwar.com" else None)
     order["awbs"] = _load_ow_awbs(order_id)
     rx_ids = list(dict.fromkeys(
         p.get("rx_id") for p in order.get("products", [])
@@ -530,6 +534,7 @@ async def ow_order_detail(request: Request, order_id: str, user: dict = Depends(
                   frame_offer_currency=frame_offer_currency,
                   frame_offer_inr=frame_offers_svc.is_inr_currency(
                       frame_offer_currency),
+                  invoice_pos=invoice_pos,
                   rx_docs_live=rx_documents.is_live(),
                   rx_last_change=rx_last_change,
                   rx_editable=_ow_rx_editable(order),
@@ -1715,16 +1720,21 @@ async def ow_order_invoice(request: Request, order_id: str, user: dict = Depends
 
 
 def _invoice_issue_prompt(request: Request, order_label: str, order: dict, back_url: str,
-                          action_url: str, error: str = "", entered: str = ""):
+                          action_url: str, error: str = "", entered: str = "",
+                          pos_states=None, pos_state: str = ""):
     today = dt.date.today()
     od = order.get("date_added")
     od_date = od.date() if isinstance(od, datetime) else (od if isinstance(od, dt.date) else None)
+    context = {"request": request, "base": ROOT_PATH, "order_label": order_label,
+               "order_date": invoice_dates.fmt(od), "today": invoice_dates.fmt(today),
+               "min_iso": od_date.isoformat() if od_date else "", "max_iso": today.isoformat(),
+               "back_url": back_url, "action_url": action_url,
+               "error": error, "entered": entered}
+    if pos_states is not None:
+        context["pos_states"] = pos_states
+        context["pos_state"] = pos_state
     return templates.TemplateResponse(request=request, name="pages/invoice_issue_date.html",
-        context={"request": request, "base": ROOT_PATH, "order_label": order_label,
-                 "order_date": invoice_dates.fmt(od), "today": invoice_dates.fmt(today),
-                 "min_iso": od_date.isoformat() if od_date else "", "max_iso": today.isoformat(),
-                 "back_url": back_url, "action_url": action_url,
-                 "error": error, "entered": entered},
+        context=context,
         status_code=400 if error else 200)
 
 
@@ -1732,6 +1742,7 @@ def _invoice_issue_prompt(request: Request, order_label: str, order: dict, back_
 async def ow_invoice_issue(request: Request, order_id: str,
                            next: str = Query(default="invoice"),
                            choice: str = Form(""), print_date: str = Form(""),
+                           pos_state: str = Form(""),
                            user: dict = Depends(get_current_user)):
     order = ow_orders.get_order(order_id)
     if not order:
@@ -1740,15 +1751,77 @@ async def ow_invoice_issue(request: Request, order_id: str,
     dest = f"{ROOT_PATH}/orders/ow/{order_id}/{target}"
     if ow_orders.get_invoice_date(order_id):
         return RedirectResponse(dest, status_code=303)
+    pos_resolution = None
+    pos_pin = ""
+    customer_state = ""
+    manual_pos = False
+    if order.get("site_from") == "in.optiwar.com":
+        pos_address = order.get("pos_address") or {}
+        shipping_copy = order.get("shipping_copy") or {}
+        if pos_address:
+            state_value = pos_address.get("state")
+            pin_value = pos_address.get("zipcode")
+            address_text = pos_address.get("address_text") or ""
+        elif shipping_copy:
+            state_value = shipping_copy.get("state")
+            pin_value = shipping_copy.get("zipcode")
+            address_text = " ".join(
+                str(part).strip()
+                for part in (order.get("shipping_address_1"),
+                             order.get("shipping_address_2"))
+                if part)
+        elif order.get("pos_address_missing"):
+            state_value = ""
+            pin_value = ""
+            address_text = ""
+        else:
+            state_value = order.get("shipping_zone")
+            pin_value = order.get("shipping_postcode")
+            address_text = " ".join(
+                str(part).strip()
+                for part in (order.get("shipping_address_1"),
+                             order.get("shipping_address_2"))
+                if part)
+        customer_state = str(state_value or "")
+        pos_pin = re.sub(r"\D", "", str(pin_value or ""))
+        pos_resolution = place_of_supply.resolve(
+            pos_pin, customer_state, address_text)
+        if pos_resolution is None:
+            if pos_state not in india_states.STATE_NAMES:
+                error = (
+                    f"Place of supply unknown: pin {pos_pin}, state "
+                    f"'{customer_state}'. Choose the state.")
+                return _invoice_issue_prompt(
+                    request, f"OW-{order_id}", order,
+                    f"{ROOT_PATH}/orders/ow/{order_id}",
+                    f"{ROOT_PATH}/orders/ow/{order_id}/invoice/issue?next={target}",
+                    error=error, entered=print_date,
+                    pos_states=india_states.STATE_NAMES, pos_state=pos_state)
+            pos_resolution = {
+                "state": pos_state,
+                "code": india_states.GST_CODE[pos_state],
+                "source": "ops",
+                "note": "",
+            }
+            manual_pos = True
     issue_date, source, error = invoice_dates.resolve_choice(
         choice, print_date, order.get("date_added"))
     if error:
+        prompt_pos = (
+            {"pos_states": india_states.STATE_NAMES, "pos_state": pos_state}
+            if manual_pos else {})
         return _invoice_issue_prompt(request, f"OW-{order_id}", order,
                                      f"{ROOT_PATH}/orders/ow/{order_id}",
                                      f"{ROOT_PATH}/orders/ow/{order_id}/invoice/issue?next={target}",
-                                     error=error, entered=print_date)
+                                     error=error, entered=print_date, **prompt_pos)
     stamp = (datetime.now().replace(microsecond=0) if source == "today"
              else datetime.combine(issue_date, dt.time()))
+    if pos_resolution is not None:
+        frozen_pos = ow_orders.freeze_invoice_pos(
+            order_id, pos_resolution, pos_pin, customer_state, user["id"])
+        if not frozen_pos:
+            raise HTTPException(
+                status_code=500, detail="Could not freeze the invoice place of supply")
     if ow_orders.issue_invoice_date(order_id, stamp, changed_by=user["id"]):
         invoice = ow_orders.get_invoice(order_id)
         auth.log_activity(user["id"], "invoice_issued", "ow_order", None,
@@ -1777,15 +1850,19 @@ def _lens_design_label(text: str) -> str:
     return ""
 
 
-def _build_gst_invoice(order: dict):
+def _build_gst_invoice(order: dict, frozen_pos: dict | None = None):
     """Build a GST tax-invoice view: one Spectacle Frames line + one consolidated
     Spectacle Lenses line (design in the title, coatings listed as included), all
     at actual GST-inclusive prices, GST extracted per line. Frame amount = charged
     total − add-ons, so lines reconcile exactly to the charged total."""
     rate = config.OPTIWAR_GST_RATE
-    seller_state = (config.OPTIWAR_SELLER_STATE or "").strip().lower()
-    buyer_state = (order.get("shipping_zone") or "").strip()
-    intra = seller_state and buyer_state.strip().lower() == seller_state
+    if frozen_pos:
+        buyer_state = frozen_pos["place_of_supply"]
+        intra = buyer_state == config.OPTIWAR_SELLER_STATE
+    else:
+        seller_state = (config.OPTIWAR_SELLER_STATE or "").strip().lower()
+        buyer_state = (order.get("shipping_zone") or "").strip()
+        intra = seller_state and buyer_state.strip().lower() == seller_state
     items = []
     tot_taxable = tot_cgst = tot_sgst = tot_igst = tot_gross = tot_gst = 0.0
     for p in order.get("products", []):
@@ -1847,6 +1924,7 @@ def _build_gst_invoice(order: dict):
     return {
         "lines": items, "intra": intra, "rate": rate,
         "buyer_state": buyer_state or "—", "seller_state": config.OPTIWAR_SELLER_STATE,
+        "place_of_supply_code": frozen_pos.get("gst_state_code") if frozen_pos else "",
         "gstin": config.OPTIWAR_GSTIN, "upgrade": upgrade,
         "totals": {"taxable": round(tot_taxable, 2), "cgst": round(tot_cgst, 2),
                    "sgst": round(tot_sgst, 2), "igst": round(tot_igst, 2),
@@ -1866,7 +1944,10 @@ async def ow_order_gst_invoice(request: Request, order_id: str,
                                      f"{ROOT_PATH}/orders/ow/{order_id}",
                                      f"{ROOT_PATH}/orders/ow/{order_id}/invoice/issue?next=gst-invoice")
     inv_dt = invoice["invoice_date"]
-    gst = _build_gst_invoice(order)
+    frozen_pos = (
+        ow_orders.get_invoice_pos(order_id)
+        if order.get("site_from") == "in.optiwar.com" else None)
+    gst = _build_gst_invoice(order, frozen_pos)
     invoice_date = invoice_dates.fmt(inv_dt)
     # Once an AWB is issued show courier + tracking on the invoice footer.
     shipment = None

@@ -20,6 +20,28 @@
 {% endif %}
 
 <div class="card" style="max-width:560px;">
+    {% if pos_states %}
+    <form method="post" action="{{ action_url }}" style="margin-bottom:18px;">
+        <label for="pos_state" style="display:block;margin-bottom:6px;">Place of supply</label>
+        <select id="pos_state" name="pos_state" required style="display:block;margin-bottom:14px;">
+            <option value="">Choose state</option>
+            {% for state in pos_states %}
+            <option value="{{ state }}" {% if pos_state == state %}selected{% endif %}>{{ state }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit" name="choice" value="today" formnovalidate
+                class="btn btn-primary"
+                onclick="return confirm('Issue this invoice dated {{ today }}? This cannot be changed later.');">
+            Issue with today's date ({{ today }})
+        </button>
+        <label for="print_date" style="display:block;margin:16px 0 6px;">Or enter the print date:</label>
+        <input type="date" id="print_date" name="print_date" min="{{ min_iso }}" max="{{ max_iso }}" value="{{ entered or '' }}" required>
+        <button type="submit" name="choice" value="entered" class="btn btn-outline"
+                onclick="var v=this.form.print_date.value; if(!v){return false;} var p=v.split('-'); return confirm('Issue this invoice dated '+p[2]+'-'+p[1]+'-'+p[0]+'? This cannot be changed later.');">
+            Issue with this date
+        </button>
+    </form>
+    {% else %}
     <form method="post" action="{{ action_url }}" style="margin-bottom:18px;"
           onsubmit="return confirm('Issue this invoice dated {{ today }}? This cannot be changed later.');">
         <input type="hidden" name="choice" value="today">
@@ -32,5 +54,6 @@
         <input type="date" id="print_date" name="print_date" min="{{ min_iso }}" max="{{ max_iso }}" value="{{ entered or '' }}" required>
         <button type="submit" class="btn btn-outline">Issue with this date</button>
     </form>
+    {% endif %}
 </div>
 {% endblock %}

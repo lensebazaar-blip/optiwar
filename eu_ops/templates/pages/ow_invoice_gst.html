@@ -76,7 +76,7 @@
             <table class="meta-table">
                 <tr><td>Payment:</td><td>{{ order.payment_method }}</td></tr>
                 <tr><td>Status:</td><td>{{ order.status_name }}</td></tr>
-                <tr><td>Place of Supply:</td><td>{{ gst.buyer_state }}</td></tr>
+                <tr><td>Place of Supply:</td><td>{{ gst.buyer_state }}{% if gst.place_of_supply_code %} ({{ gst.place_of_supply_code }}){% endif %}</td></tr>
                 <tr><td>Supply Type:</td><td>{% if gst.intra %}Intra-State (CGST+SGST){% else %}Inter-State (IGST){% endif %}</td></tr>
             </table>
         </div>
