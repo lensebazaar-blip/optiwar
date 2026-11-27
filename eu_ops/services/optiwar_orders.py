@@ -133,7 +133,8 @@ def get_order(order_id: str):
         # Get order lines with product and customer info
         cur.execute("""
             SELECT o.order_line_id, o.order_id, o.date_created, o.order_quantity,
-                   o.order_total, o.product_id, o.rx_id, o.customer_id, o.site_from,
+                   o.order_total, o.product_id, o.rx_id, o.customer_id, o.address_id,
+                   o.site_from,
                    c.customer_name, c.customer_email, c.customer_phone,
                    p.product_name, p.product_code, p.product_price,
                    p.product_special_price, p.product_category, p.product_color,
@@ -153,7 +154,8 @@ def get_order(order_id: str):
 
         first = lines[0]
 
-        # Get customer address
+        # Preserve the existing display address while checking the order's own
+        # address row separately for invoice place-of-supply resolution.
         cur.execute("""
             SELECT address, state, zipcode, country
             FROM customers_address
@@ -161,6 +163,25 @@ def get_order(order_id: str):
             ORDER BY address_id DESC LIMIT 1
         """, (first["customer_id"],))
         addr = cur.fetchone() or {}
+        pos_address = None
+        if first.get("address_id"):
+            try:
+                cur.execute("""
+                    SELECT address, address2, state, zipcode
+                    FROM customers_address
+                    WHERE address_id = %s AND customer_id = %s
+                """, (first["address_id"], first["customer_id"]))
+                pos_address = cur.fetchone()
+            except Exception as e:
+                log.warning("Order address unavailable for %s: %s", order_id, e)
+        shipping_copy = None
+        try:
+            cur.execute(
+                "SELECT state, zipcode FROM order_shipping WHERE order_id = %s",
+                (order_id,))
+            shipping_copy = cur.fetchone()
+        except Exception as e:
+            log.warning("Order shipping copy unavailable for %s: %s", order_id, e)
 
         # Get order status
         cur.execute("""
@@ -273,6 +294,22 @@ def get_order(order_id: str):
             "invoice_prefix": "OW/",
             "invoice_no": order_id,
         }
+        if shipping_copy is not None:
+            order["shipping_copy"] = {
+                "state": shipping_copy.get("state"),
+                "zipcode": shipping_copy.get("zipcode"),
+            }
+        if pos_address:
+            order["pos_address"] = {
+                "state": pos_address.get("state"),
+                "zipcode": pos_address.get("zipcode"),
+                "address_text": " ".join(
+                    str(part).strip()
+                    for part in (pos_address.get("address"), pos_address.get("address2"))
+                    if part),
+            }
+        elif first.get("address_id"):
+            order["pos_address_missing"] = True
 
     # Attach any recorded free lens upgrade (outside the ow_cursor block so its
     # own cursor/table-ensure runs cleanly).
@@ -455,6 +492,60 @@ def _ensure_invoice_meta_table():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+
+def _ensure_invoice_pos_table():
+    """Create the Ops invoice place-of-supply table if needed."""
+    with ow_cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ops_invoice_pos (
+                order_id VARCHAR(64) NOT NULL PRIMARY KEY,
+                place_of_supply VARCHAR(64) NOT NULL,
+                gst_state_code CHAR(2) NOT NULL,
+                source VARCHAR(16) NOT NULL,
+                pin VARCHAR(16) NULL,
+                customer_state VARCHAR(128) NULL,
+                note VARCHAR(255) NOT NULL DEFAULT '',
+                created_by INT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+
+def get_invoice_pos(order_id: str):
+    """Return the frozen GST place of supply for an Optiwar invoice, or None."""
+    try:
+        _ensure_invoice_pos_table()
+        with ow_cursor() as cur:
+            cur.execute(
+                "SELECT order_id, place_of_supply, gst_state_code, source, pin, "
+                "customer_state, note, created_by, created_at "
+                "FROM ops_invoice_pos WHERE order_id=%s",
+                (order_id,))
+            row = cur.fetchone()
+        return row if row else None
+    except Exception as e:
+        log.error("get_invoice_pos failed for %s: %s", order_id, e)
+        return None
+
+
+def freeze_invoice_pos(order_id: str, resolution: dict, pin, customer_state,
+                       created_by=None):
+    """Upsert POS before issuance; ops_writer has INSERT and UPDATE on this table."""
+    _ensure_invoice_pos_table()
+    with ow_ops_cursor() as cur:
+        cur.execute(
+            "INSERT INTO ops_invoice_pos "
+            "(order_id, place_of_supply, gst_state_code, source, pin, customer_state, "
+            "note, created_by) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
+            "ON DUPLICATE KEY UPDATE "
+            "place_of_supply=VALUES(place_of_supply), "
+            "gst_state_code=VALUES(gst_state_code), source=VALUES(source), "
+            "pin=VALUES(pin), customer_state=VALUES(customer_state), "
+            "note=VALUES(note), created_by=VALUES(created_by)",
+            (order_id, resolution["state"], resolution["code"], resolution["source"],
+             pin, customer_state, resolution.get("note") or "", created_by))
+    return get_invoice_pos(order_id)
 
 
 def get_invoice_date(order_id: str):
