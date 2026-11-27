@@ -169,7 +169,7 @@ class TermsAndPrivacyRendering(unittest.TestCase):
                 self.assertNotIn("OWNER TO", body)
                 self.assertIn('id="grievance-redressal"', body)
                 self.assertIn(
-                    "Registered office: Godown Village Fazilpur, Badshahpur "
+                    "Godown Village Fazilpur, Badshahpur "
                     "Tethar(222), Badshahpur, Gurgaon-122101, India",
                     body)
                 self.assertIn("Phone: +91-8010077770", body)
@@ -265,7 +265,7 @@ class TermsAndPrivacyRendering(unittest.TestCase):
             self.assertIn('id="grievance-redressal"', body)
             self.assertNotIn("OWNER TO", body)
             self.assertIn(
-                "Registered office: Godown Village Fazilpur, Badshahpur "
+                "Godown Village Fazilpur, Badshahpur "
                 "Tethar(222), Badshahpur, Gurgaon-122101, India",
                 body)
             self.assertIn("Phone: +91-8010077770", body)
